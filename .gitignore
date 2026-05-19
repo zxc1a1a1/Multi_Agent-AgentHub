@@ -1,0 +1,25 @@
+# env
+.env
+.env.local
+.env.*.local
+
+# Go
+bin/
+*.test
+coverage.out
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# logs
+*.log
+logs/
