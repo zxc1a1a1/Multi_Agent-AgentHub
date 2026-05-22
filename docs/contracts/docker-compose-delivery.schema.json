@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.local/contracts/docker-compose-delivery.schema.json",
+  "title": "AgentHub Docker Compose Delivery Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "requiredFiles",
+    "requiredServices",
+    "requiredPorts",
+    "requiredEnvVars",
+    "requiredMakeTargets",
+    "requiredHealthchecks",
+    "forbiddenPatterns"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "requiredFiles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fileName"
+      },
+      "uniqueItems": true
+    },
+    "requiredServices": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/serviceName"
+      },
+      "uniqueItems": true
+    },
+    "requiredPorts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/portMapping"
+      },
+      "uniqueItems": true
+    },
+    "requiredEnvVars": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/envVar"
+      },
+      "uniqueItems": true
+    },
+    "requiredMakeTargets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/makeTarget"
+      },
+      "uniqueItems": true
+    },
+    "requiredHealthchecks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/serviceName"
+      },
+      "uniqueItems": true
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/profileName"
+      },
+      "uniqueItems": true
+    },
+    "forbiddenPatterns": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/forbiddenPattern"
+      },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "fileName": {
+      "enum": [
+        "compose.yaml",
+        "docker-compose.yml",
+        "compose.override.yaml",
+        ".env.example",
+        "Makefile",
+        "scripts/smoke-test.sh",
+        "scripts/wait-for-health.sh"
+      ]
+    },
+    "serviceName": {
+      "enum": [
+        "frontend",
+        "gateway",
+        "code-agent",
+        "mysql",
+        "redis",
+        "object-storage",
+        "mock-llm",
+        "jaeger",
+        "prometheus",
+        "grafana"
+      ]
+    },
+    "portMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "service",
+        "containerPort"
+      ],
+      "properties": {
+        "service": {
+          "$ref": "#/$defs/serviceName"
+        },
+        "hostPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "containerPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "envVar": {
+      "enum": [
+        "DATABASE_URL",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GATEWAY_PORT",
+        "CODE_AGENT_PORT",
+        "AGENT_CODE_URL",
+        "MYSQL_DATABASE",
+        "MYSQL_USER",
+        "MYSQL_PASSWORD",
+        "MYSQL_ROOT_PASSWORD"
+      ]
+    },
+    "makeTarget": {
+      "enum": [
+        "docker-up",
+        "docker-down",
+        "docker-reset",
+        "logs",
+        "smoke",
+        "dev",
+        "compose-config",
+        "ps",
+        "restart",
+        "clean",
+        "seed"
+      ]
+    },
+    "profileName": {
+      "enum": [
+        "dev",
+        "demo",
+        "observability",
+        "mock-llm",
+        "object-storage",
+        "redis",
+        "multi-agent",
+        "demo-seed"
+      ]
+    },
+    "forbiddenPattern": {
+      "enum": [
+        "committed_dotenv",
+        "real_api_key_in_repo",
+        "secret_in_dockerfile_env",
+        "secret_baked_into_image",
+        "manual_service_start_required",
+        "sleep_only_wait_for_mysql",
+        "missing_healthcheck",
+        "missing_smoke_test",
+        "missing_cleanup_command",
+        "smoke_depends_on_real_llm_random_output",
+        "production_requirements_mixed_into_mvp_compose",
+        "docker_compose_yml_as_only_long_term_delivery",
+        "host_absolute_path_hardcoded"
+      ]
+    }
+  },
+  "examples": [
+    {
+      "version": "v0.1-p1",
+      "requiredFiles": [
+        "docker-compose.yml",
+        ".env.example",
+        "Makefile",
+        "scripts/smoke-test.sh"
+      ],
+      "requiredServices": [
+        "frontend",
+        "gateway",
+        "code-agent",
+        "mysql"
+      ],
+      "requiredPorts": [
+        {
+          "service": "frontend",
+          "hostPort": 3000,
+          "containerPort": 3000
+        },
+        {
+          "service": "gateway",
+          "hostPort": 8080,
+          "containerPort": 8080
+        },
+        {
+          "service": "code-agent",
+          "hostPort": 8081,
+          "containerPort": 8081
+        },
+        {
+          "service": "mysql",
+          "hostPort": 3306,
+          "containerPort": 3306
+        }
+      ],
+      "requiredEnvVars": [
+        "DATABASE_URL",
+        "ANTHROPIC_API_KEY",
+        "GATEWAY_PORT",
+        "CODE_AGENT_PORT",
+        "AGENT_CODE_URL"
+      ],
+      "requiredMakeTargets": [
+        "docker-up",
+        "docker-down",
+        "docker-reset",
+        "logs",
+        "smoke",
+        "dev"
+      ],
+      "requiredHealthchecks": [
+        "mysql",
+        "gateway",
+        "code-agent"
+      ],
+      "profiles": [
+        "dev",
+        "demo",
+        "mock-llm"
+      ],
+      "forbiddenPatterns": [
+        "committed_dotenv",
+        "real_api_key_in_repo",
+        "secret_in_dockerfile_env",
+        "sleep_only_wait_for_mysql",
+        "missing_healthcheck",
+        "missing_smoke_test"
+      ]
+    }
+  ]
+}

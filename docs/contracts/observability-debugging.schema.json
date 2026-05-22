@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.local/contracts/observability-debugging.schema.json",
+  "title": "AgentHub Observability Debugging Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "requiredIds",
+    "logEvent",
+    "errorCodes",
+    "redaction"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "requiredIds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/idName"
+      },
+      "uniqueItems": true
+    },
+    "logEvent": {
+      "$ref": "#/$defs/logEventSchema"
+    },
+    "errorCodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/errorCode"
+      },
+      "uniqueItems": true
+    },
+    "metricNames": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^agenthub_[a-z0-9_]+$"
+      },
+      "uniqueItems": true
+    },
+    "spanNames": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^agenthub\\.[a-z0-9_.]+$"
+      },
+      "uniqueItems": true
+    },
+    "redaction": {
+      "$ref": "#/$defs/redactionPolicy"
+    }
+  },
+  "$defs": {
+    "idName": {
+      "enum": [
+        "traceId",
+        "requestId",
+        "conversationId",
+        "messageId",
+        "runId",
+        "executionPlanId",
+        "stepId",
+        "a2aTaskId",
+        "agentName",
+        "agentSkill",
+        "artifactId",
+        "toolCallId",
+        "llmRequestId"
+      ]
+    },
+    "logLevel": {
+      "enum": [
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ]
+    },
+    "logEventSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requiredFields"
+      ],
+      "properties": {
+        "requiredFields": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "timestamp",
+              "level",
+              "service",
+              "environment",
+              "event",
+              "traceId",
+              "requestId",
+              "runId",
+              "conversationId",
+              "messageId",
+              "errorCode",
+              "safeMessage"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "levels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/logLevel"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "errorCode": {
+      "enum": [
+        "UNKNOWN_ERROR",
+        "VALIDATION_FAILED",
+        "AUTH_FAILED",
+        "PERMISSION_DENIED",
+        "TIMEOUT",
+        "CANCELLED",
+        "INTERNAL_ERROR",
+        "PLAN_VALIDATION_FAILED",
+        "AGENT_NOT_FOUND",
+        "SKILL_NOT_FOUND",
+        "STRATEGY_NOT_SUPPORTED",
+        "FALLBACK_FAILED",
+        "SEQUENTIAL_DEPENDENCY_FAILED",
+        "PARALLEL_PARTIAL_FAILED",
+        "A2A_AGENT_UNAVAILABLE",
+        "A2A_SEND_FAILED",
+        "A2A_STREAM_FAILED",
+        "A2A_TASK_CANCELLED",
+        "A2A_TASK_TIMEOUT",
+        "A2A_AGENT_CARD_INVALID",
+        "ARTIFACT_SCHEMA_INVALID",
+        "ARTIFACT_PERSIST_FAILED",
+        "ARTIFACT_CONTENT_REF_INVALID",
+        "ARTIFACT_PREVIEW_MAPPING_FAILED",
+        "ARTIFACT_NOT_FOUND",
+        "LLM_PROVIDER_FAILED",
+        "LLM_RATE_LIMITED",
+        "LLM_TIMEOUT",
+        "LLM_CONTEXT_CANCELLED",
+        "LLM_STRUCTURED_OUTPUT_INVALID",
+        "LLM_FALLBACK_FAILED",
+        "AGUI_STREAM_FAILED",
+        "AGUI_EVENT_INVALID",
+        "TOOL_CALL_ARGS_INVALID",
+        "TOOL_CALL_UNKNOWN",
+        "FRONTEND_SKILL_NOT_IMPLEMENTED",
+        "DB_WRITE_FAILED"
+      ]
+    },
+    "redactionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "forbiddenFields",
+        "allowStackTraceToUser"
+      ],
+      "properties": {
+        "forbiddenFields": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "apiKey",
+              "accessToken",
+              "refreshToken",
+              "systemPrompt",
+              "rawLLMRequest",
+              "rawLLMResponse",
+              "databaseConnectionString",
+              "objectStorageSignedUrl",
+              "internalAbsolutePath",
+              "cookie",
+              "sessionSecret"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "allowStackTraceToUser": {
+          "const": false
+        },
+        "allowProviderRawErrorToUser": {
+          "const": false
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "version": "v0.1-p1",
+      "requiredIds": [
+        "traceId",
+        "requestId",
+        "conversationId",
+        "messageId",
+        "runId",
+        "a2aTaskId",
+        "toolCallId"
+      ],
+      "logEvent": {
+        "requiredFields": [
+          "timestamp",
+          "level",
+          "service",
+          "environment",
+          "event",
+          "traceId",
+          "requestId",
+          "runId",
+          "conversationId",
+          "messageId"
+        ],
+        "levels": [
+          "debug",
+          "info",
+          "warn",
+          "error"
+        ]
+      },
+      "errorCodes": [
+        "UNKNOWN_ERROR",
+        "A2A_STREAM_FAILED",
+        "ARTIFACT_PERSIST_FAILED",
+        "LLM_PROVIDER_FAILED",
+        "AGUI_STREAM_FAILED"
+      ],
+      "metricNames": [
+        "agenthub_run_started_total",
+        "agenthub_run_failed_total",
+        "agenthub_llm_latency_ms"
+      ],
+      "spanNames": [
+        "agenthub.gateway.run",
+        "agenthub.orchestrator.plan",
+        "agenthub.a2a.stream",
+        "agenthub.llm.stream"
+      ],
+      "redaction": {
+        "forbiddenFields": [
+          "apiKey",
+          "accessToken",
+          "refreshToken",
+          "systemPrompt",
+          "rawLLMRequest",
+          "databaseConnectionString",
+          "objectStorageSignedUrl"
+        ],
+        "allowStackTraceToUser": false,
+        "allowProviderRawErrorToUser": false
+      }
+    }
+  ]
+}

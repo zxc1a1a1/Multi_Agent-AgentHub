@@ -1,0 +1,461 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.local/contracts/artifact.schema.json",
+  "title": "AgentHub Artifact Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "artifactTypes",
+    "previewMappings"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "artifactTypes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifactTypeRegistration"
+      },
+      "contains": {
+        "type": "object",
+        "required": [
+          "type",
+          "implemented"
+        ],
+        "properties": {
+          "type": {
+            "const": "code"
+          },
+          "implemented": {
+            "const": true
+          }
+        }
+      }
+    },
+    "previewMappings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/previewMapping"
+      },
+      "contains": {
+        "type": "object",
+        "required": [
+          "artifactType",
+          "frontendRuntimeSkill",
+          "implemented"
+        ],
+        "properties": {
+          "artifactType": {
+            "const": "code"
+          },
+          "frontendRuntimeSkill": {
+            "const": "code_preview"
+          },
+          "implemented": {
+            "const": true
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "artifactType": {
+      "enum": [
+        "code",
+        "webpage",
+        "diff",
+        "file",
+        "image",
+        "deploy",
+        "document",
+        "terminal",
+        "chart"
+      ]
+    },
+    "runtimeSkillName": {
+      "enum": [
+        "code_preview",
+        "web_preview",
+        "diff_preview",
+        "file_download",
+        "image_preview",
+        "deploy_status",
+        "markdown_render",
+        "terminal_output",
+        "chart_render"
+      ]
+    },
+    "artifactStatus": {
+      "enum": [
+        "created",
+        "normalized",
+        "persisted",
+        "preview_mapped",
+        "previewed",
+        "failed"
+      ]
+    },
+    "registrationStatus": {
+      "enum": [
+        "implemented",
+        "reserved",
+        "disabled",
+        "deprecated"
+      ]
+    },
+    "artifactTypeRegistration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "description",
+        "implemented",
+        "status",
+        "allowedInMvp",
+        "allowInlineContent",
+        "requiresContentRef",
+        "requiresObjectStorage",
+        "metadataSchema"
+      ],
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/artifactType"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "implemented": {
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/$defs/registrationStatus"
+        },
+        "allowedInMvp": {
+          "type": "boolean"
+        },
+        "allowInlineContent": {
+          "type": "boolean"
+        },
+        "requiresContentRef": {
+          "type": "boolean"
+        },
+        "requiresObjectStorage": {
+          "type": "boolean"
+        },
+        "metadataSchema": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "code"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "implemented": {
+                "const": true
+              },
+              "status": {
+                "const": "implemented"
+              },
+              "allowedInMvp": {
+                "const": true
+              },
+              "allowInlineContent": {
+                "const": true
+              },
+              "requiresContentRef": {
+                "const": false
+              },
+              "requiresObjectStorage": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "type": {
+                  "const": "code"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "implemented": {
+                "const": false
+              },
+              "allowedInMvp": {
+                "const": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "previewMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactType",
+        "frontendRuntimeSkill",
+        "implemented"
+      ],
+      "properties": {
+        "artifactType": {
+          "$ref": "#/$defs/artifactType"
+        },
+        "frontendRuntimeSkill": {
+          "$ref": "#/$defs/runtimeSkillName"
+        },
+        "implemented": {
+          "type": "boolean"
+        },
+        "mvpOnly": {
+          "type": "boolean"
+        }
+      }
+    },
+    "contentRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "object_storage",
+            "database",
+            "external_url",
+            "generated"
+          ]
+        },
+        "uri": {
+          "type": "string"
+        },
+        "objectKey": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "checksum": {
+          "type": "string"
+        }
+      }
+    },
+    "agentHubArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId",
+        "type",
+        "title",
+        "summary",
+        "metadata",
+        "conversationId",
+        "messageId",
+        "runId",
+        "version",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "artifactId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "$ref": "#/$defs/artifactType"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string"
+        },
+        "content": {},
+        "contentRef": {
+          "$ref": "#/$defs/contentRef"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "messageId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "a2aTaskId": {
+          "type": "string"
+        },
+        "stepId": {
+          "type": "string"
+        },
+        "agentName": {
+          "type": "string"
+        },
+        "toolCallId": {
+          "type": "string"
+        },
+        "traceId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "$ref": "#/$defs/artifactStatus"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "content"
+          ]
+        },
+        {
+          "required": [
+            "contentRef"
+          ]
+        }
+      ]
+    },
+    "codeMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "language"
+      ],
+      "properties": {
+        "language": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "mvpCodeArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "title",
+        "content",
+        "metadata"
+      ],
+      "properties": {
+        "type": {
+          "const": "code"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/codeMetadata"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "version": "v0.2-redesign",
+      "artifactTypes": [
+        {
+          "type": "code",
+          "description": "Code snippet or code file.",
+          "implemented": true,
+          "status": "implemented",
+          "allowedInMvp": true,
+          "allowInlineContent": true,
+          "requiresContentRef": false,
+          "requiresObjectStorage": false,
+          "metadataSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "language"
+            ],
+            "properties": {
+              "language": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "image",
+          "description": "Reserved image artifact.",
+          "implemented": false,
+          "status": "reserved",
+          "allowedInMvp": false,
+          "allowInlineContent": false,
+          "requiresContentRef": true,
+          "requiresObjectStorage": true,
+          "metadataSchema": {
+            "type": "object"
+          }
+        }
+      ],
+      "previewMappings": [
+        {
+          "artifactType": "code",
+          "frontendRuntimeSkill": "code_preview",
+          "implemented": true,
+          "mvpOnly": false
+        },
+        {
+          "artifactType": "image",
+          "frontendRuntimeSkill": "image_preview",
+          "implemented": false,
+          "mvpOnly": false
+        }
+      ]
+    }
+  ]
+}

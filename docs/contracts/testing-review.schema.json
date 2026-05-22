@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.local/contracts/testing-review.schema.json",
+  "title": "AgentHub Testing Review Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "testLevels",
+    "mvpRequiredChecks",
+    "reviewChecks",
+    "qualityGates",
+    "forbiddenPatterns"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "testLevels": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "contract",
+          "schema_validation",
+          "unit",
+          "integration",
+          "protocol_conversion",
+          "frontend_component",
+          "e2e",
+          "security",
+          "regression",
+          "ci_quality_gate",
+          "pr_review"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "mvpRequiredChecks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/checkName"
+      },
+      "uniqueItems": true
+    },
+    "reviewChecks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/reviewCheck"
+      },
+      "uniqueItems": true
+    },
+    "qualityGates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/qualityGate"
+      },
+      "uniqueItems": true
+    },
+    "forbiddenPatterns": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/forbiddenPattern"
+      },
+      "uniqueItems": true
+    },
+    "securityReviewItems": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/securityReviewItem"
+      },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "checkName": {
+      "enum": [
+        "manual_demo_checklist",
+        "backend_unit_tests",
+        "protocol_conversion_tests",
+        "frontend_component_tests",
+        "e2e_happy_path",
+        "docker_compose_smoke",
+        "schema_validation_tests",
+        "secret_redaction_check",
+        "message_persistence_test",
+        "code_preview_test"
+      ]
+    },
+    "reviewCheck": {
+      "enum": [
+        "contract_updated_before_implementation",
+        "schema_updated_when_needed",
+        "references_updated_when_needed",
+        "protocol_boundary_reviewed",
+        "error_path_tested",
+        "secret_redaction_reviewed",
+        "mvp_checklist_unchanged_or_updated",
+        "docker_smoke_considered",
+        "security_review_required_when_dangerous"
+      ]
+    },
+    "qualityGate": {
+      "enum": [
+        "go_test",
+        "frontend_typecheck",
+        "frontend_lint",
+        "unit_tests",
+        "contract_tests",
+        "schema_validation",
+        "protocol_conversion_tests",
+        "integration_tests",
+        "playwright_e2e_smoke",
+        "secret_scan",
+        "dependency_scan",
+        "docker_compose_smoke"
+      ]
+    },
+    "forbiddenPattern": {
+      "enum": [
+        "manual_only_testing",
+        "real_llm_in_unit_tests",
+        "real_api_key_in_tests",
+        "production_service_dependency_in_tests",
+        "sleep_based_e2e_wait",
+        "contract_change_without_contract_test",
+        "protocol_change_without_conversion_test",
+        "artifact_mapping_change_without_test",
+        "schema_validation_skipped",
+        "happy_path_only",
+        "secret_in_fixture",
+        "ci_allows_failed_tests"
+      ]
+    },
+    "securityReviewItem": {
+      "enum": [
+        "auth_checked",
+        "authorization_checked",
+        "input_validation_checked",
+        "error_redaction_checked",
+        "secret_redaction_checked",
+        "api_key_not_in_logs",
+        "api_key_not_in_frontend",
+        "api_key_not_in_artifact",
+        "provider_raw_error_not_exposed",
+        "dangerous_action_confirmation_checked",
+        "code_preview_does_not_execute_code"
+      ]
+    }
+  },
+  "examples": [
+    {
+      "version": "v0.1-p1",
+      "testLevels": [
+        "contract",
+        "schema_validation",
+        "unit",
+        "integration",
+        "protocol_conversion",
+        "frontend_component",
+        "e2e",
+        "security",
+        "ci_quality_gate",
+        "pr_review"
+      ],
+      "mvpRequiredChecks": [
+        "manual_demo_checklist",
+        "backend_unit_tests",
+        "protocol_conversion_tests",
+        "frontend_component_tests",
+        "e2e_happy_path",
+        "docker_compose_smoke",
+        "schema_validation_tests",
+        "secret_redaction_check"
+      ],
+      "reviewChecks": [
+        "contract_updated_before_implementation",
+        "schema_updated_when_needed",
+        "protocol_boundary_reviewed",
+        "error_path_tested",
+        "secret_redaction_reviewed"
+      ],
+      "qualityGates": [
+        "go_test",
+        "frontend_typecheck",
+        "frontend_lint",
+        "schema_validation",
+        "protocol_conversion_tests",
+        "secret_scan"
+      ],
+      "forbiddenPatterns": [
+        "manual_only_testing",
+        "real_llm_in_unit_tests",
+        "real_api_key_in_tests",
+        "sleep_based_e2e_wait",
+        "contract_change_without_contract_test",
+        "schema_validation_skipped"
+      ],
+      "securityReviewItems": [
+        "auth_checked",
+        "input_validation_checked",
+        "error_redaction_checked",
+        "api_key_not_in_logs",
+        "provider_raw_error_not_exposed",
+        "code_preview_does_not_execute_code"
+      ]
+    }
+  ]
+}
