@@ -1,19 +1,19 @@
-.PHONY: api web dev test fmt tidy
+.PHONY: docker-up docker-down dev-frontend dev-server dev-agent dev
 
-api:
-	cd apps/api && go run ./cmd/server
+docker-up:
+	docker compose up --build
 
-web:
-	cd apps/web && npm run dev
+docker-down:
+	docker compose down -v
+
+dev-frontend:
+	cd frontend && npm run dev
+
+dev-server:
+	cd server && go run ./cmd/server
+
+dev-agent:
+	cd agents/code-agent && go run .
 
 dev:
-	@echo "Start API and Web in two terminals: make api / make web"
-
-tidy:
-	cd apps/api && go mod tidy
-
-fmt:
-	cd apps/api && gofmt -w .
-
-test:
-	cd apps/api && go test ./...
+	make -j3 dev-frontend dev-server dev-agent
