@@ -1,18 +1,45 @@
 services:
-  api:
-    build:
-      context: ./apps/api
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway
+
+  gateway:
+    build: ./server
     ports:
       - "8080:8080"
-    env_file:
-      - .env
-
-  web:
-    build:
-      context: ./apps/web
-    ports:
-      - "5173:5173"
     environment:
-      - VITE_API_BASE_URL=http://localhost:8080
+      - DATABASE_URL=root:agenthub123@tcp(mysql:3306)/agenthub?charset=utf8mb4&parseTime=True&loc=Local
+      - AGENT_CODE_URL=http://code-agent:8081
     depends_on:
-      - api
+      mysql:
+        condition: service_healthy
+
+  code-agent:
+    build: ./agents/code-agent
+    ports:
+      - "8081:8081"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: agenthub123
+      MYSQL_DATABASE: agenthub
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+volumes:
+  mysqldata:
