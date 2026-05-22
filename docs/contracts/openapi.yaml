@@ -1,0 +1,1167 @@
+openapi: 3.1.0
+info:
+  title: AgentHub Platform API
+  version: 0.1.0
+  description: |
+    AgentHub Frontend ↔ Gateway REST API Contract（唯一事实源）。
+
+    边界说明：
+    - 本文档仅覆盖 Frontend ↔ Gateway 的 REST API（持久化资源查询与管理）。
+    - AG-UI 事件流语义不在此展开，由 agui-event-contract 定义。
+    - A2A Task 不在此展开，由 a2a-agent-contract 定义。
+    - Gateway ↔ Orchestrator 内部 Run 协议不在此展开，由 gateway-orchestrator-contract 定义。
+
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+tags:
+  - name: Conversation
+  - name: Agent
+  - name: CustomAgent
+  - name: Artifact
+  - name: AGUI
+
+paths:
+  /api/conversations:
+    get:
+      tags: [Conversation]
+      summary: 查询会话列表
+      operationId: listConversations
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortOrder'
+        - $ref: '#/components/parameters/Keyword'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageData'
+                          - type: object
+                            properties:
+                              list:
+                                type: array
+                                items:
+                                  $ref: '#/components/schemas/ConversationSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+    post:
+      tags: [Conversation]
+      summary: 创建会话
+      operationId: createConversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversationRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ConversationDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/conversations/{id}:
+    get:
+      tags: [Conversation]
+      summary: 查询会话详情
+      operationId: getConversation
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ConversationDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [Conversation]
+      summary: 更新会话
+      operationId: updateConversation
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConversationRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ConversationDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Conversation]
+      summary: 删除会话
+      operationId: deleteConversation
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [id, deleted]
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          deleted:
+                            type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/conversations/{id}/messages:
+    get:
+      tags: [Conversation]
+      summary: 查询会话消息分页列表
+      operationId: listMessages
+      parameters:
+        - $ref: '#/components/parameters/ConversationIdPath'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageData'
+                          - type: object
+                            properties:
+                              list:
+                                type: array
+                                items:
+                                  $ref: '#/components/schemas/MessageSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/agents:
+    get:
+      tags: [Agent]
+      summary: 查询 Agent 列表
+      operationId: listAgents
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageData'
+                          - type: object
+                            properties:
+                              list:
+                                type: array
+                                items:
+                                  $ref: '#/components/schemas/AgentSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/agents/{name}/card:
+    get:
+      tags: [Agent]
+      summary: 查询指定 AgentCard
+      operationId: getAgentCard
+      parameters:
+        - $ref: '#/components/parameters/AgentNamePath'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AgentCard'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/agents/custom:
+    post:
+      tags: [CustomAgent]
+      summary: 创建自定义 Agent
+      operationId: createCustomAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomAgentRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AgentSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/agents/custom/{id}:
+    patch:
+      tags: [CustomAgent]
+      summary: 更新自定义 Agent
+      operationId: updateCustomAgent
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCustomAgentRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AgentSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [CustomAgent]
+      summary: 删除（禁用）自定义 Agent
+      operationId: deleteCustomAgent
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [id, isActive]
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          isActive:
+                            type: boolean
+                            example: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/artifacts/{id}:
+    get:
+      tags: [Artifact]
+      summary: 查询 Artifact 元数据
+      operationId: getArtifact
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Artifact'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/artifacts/{id}/preview:
+    get:
+      tags: [Artifact]
+      summary: 查询 Artifact 预览数据
+      operationId: previewArtifact
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ArtifactPreview'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/agui/run:
+    post:
+      tags: [AGUI]
+      summary: 发起 AG-UI Run（仅登记 HTTP 形态）
+      operationId: runAGUI
+      description: |
+        该接口属于 AG-UI 入口。本文档只登记 HTTP 形态。
+        事件类型（如 RUN_STARTED/TEXT_MESSAGE_CONTENT/TOOL_CALL）由 agui-event-contract 定义。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AGUIRunRequest'
+      responses:
+        '202':
+          description: 已接受
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [runId, status]
+                        properties:
+                          runId:
+                            type: string
+                          status:
+                            type: string
+                            enum: [accepted]
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/agui/run/{runId}/cancel:
+    post:
+      tags: [AGUI]
+      summary: 取消 AG-UI Run（仅登记 HTTP 形态）
+      operationId: cancelAGUIRun
+      description: 该接口语义由 agui-event-contract 定义。
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AGUICancelRunResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/agui/run/{runId}/tool-result:
+    post:
+      tags: [AGUI]
+      summary: 回传 AG-UI ToolResult（仅登记 HTTP 形态）
+      operationId: submitAGUIToolResult
+      description: ToolResult 语义由 agui-event-contract 定义。
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AGUIToolResultRequest'
+      responses:
+        '200':
+          description: 已接收
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [runId, toolCallId, status]
+                        properties:
+                          runId:
+                            type: string
+                          toolCallId:
+                            type: string
+                          status:
+                            type: string
+                            enum: [received]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ConversationIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AgentNamePath:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    RunIdPath:
+      name: runId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    SortBy:
+      name: sortBy
+      in: query
+      required: false
+      schema:
+        type: string
+    SortOrder:
+      name: sortOrder
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [asc, desc]
+    Keyword:
+      name: keyword
+      in: query
+      required: false
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: 参数错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 400001
+            data: null
+            message: 参数错误
+    Unauthorized:
+      description: 未登录
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 401001
+            data: null
+            message: 未登录
+    Forbidden:
+      description: 无权限
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 403001
+            data: null
+            message: 无权限
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 404001
+            data: null
+            message: 资源不存在
+    Conflict:
+      description: 资源冲突
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 409001
+            data: null
+            message: 资源冲突
+    TooManyRequests:
+      description: 请求过于频繁
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 429001
+            data: null
+            message: 请求过于频繁
+    InternalError:
+      description: 内部服务错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 500001
+            data: null
+            message: 内部服务错误
+    BadGateway:
+      description: 下游服务错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 502001
+            data: null
+            message: 下游服务错误
+    GatewayTimeout:
+      description: 服务超时
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 504001
+            data: null
+            message: 服务超时
+
+  schemas:
+    ApiResponse:
+      type: object
+      required: [code, data, message]
+      properties:
+        code:
+          type: integer
+          example: 0
+        data: {}
+        message:
+          type: string
+          example: success
+
+    ErrorResponse:
+      type: object
+      required: [code, data, message]
+      properties:
+        code:
+          type: integer
+        data:
+          type: 'null'
+          example: null
+        message:
+          type: string
+
+    PageData:
+      type: object
+      required: [list, total, page, pageSize]
+      properties:
+        list:
+          type: array
+          items: {}
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+
+    PageResponse:
+      type: object
+      required: [code, data, message]
+      properties:
+        code:
+          type: integer
+          example: 0
+        data:
+          $ref: '#/components/schemas/PageData'
+        message:
+          type: string
+          example: success
+
+    ConversationSummary:
+      type: object
+      required: [id, title, type, isPinned, isArchived, lastMessage, unreadCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        type:
+          type: string
+          enum: [single, group]
+        isPinned:
+          type: boolean
+        isArchived:
+          type: boolean
+        lastMessage:
+          type: string
+        unreadCount:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ConversationDetail:
+      allOf:
+        - $ref: '#/components/schemas/ConversationSummary'
+        - type: object
+          properties:
+            participants:
+              type: array
+              items:
+                type: string
+            initialAgentName:
+              type: [string, 'null']
+            lastMessageAt:
+              type: [string, 'null']
+              format: date-time
+
+    CreateConversationRequest:
+      type: object
+      required: [title, type, participants]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          enum: [single, group]
+        participants:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        initialAgentName:
+          type: [string, 'null']
+
+    UpdateConversationRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        isPinned:
+          type: boolean
+        isArchived:
+          type: boolean
+      additionalProperties: false
+
+    MessageContent:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [text, markdown, artifact_ref, system]
+        text:
+          type: string
+        artifactId:
+          type: string
+          format: uuid
+      additionalProperties: true
+
+    MessageSummary:
+      type: object
+      required: [id, conversationId, senderId, senderType, content, status, mentions, aguiRunId, a2aTaskId, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+        senderType:
+          type: string
+          enum: [user, agent, system]
+        senderAgent:
+          type: [string, 'null']
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        status:
+          type: string
+          enum: [sending, streaming, sent, failed]
+        mentions:
+          type: array
+          items:
+            type: string
+        aguiRunId:
+          type: [string, 'null']
+        a2aTaskId:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+
+    AgentSummary:
+      type: object
+      required: [id, name, type, avatar, description, status, skills, inputModes, outputModes, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          type: string
+          enum: [builtin, custom]
+        avatar:
+          type: [string, 'null']
+        description:
+          type: string
+        status:
+          type: string
+          enum: [healthy, unhealthy, unknown]
+        skills:
+          type: array
+          items:
+            type: string
+        inputModes:
+          type: array
+          items:
+            type: string
+        outputModes:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AgentCard:
+      type: object
+      required: [name, description, url, version, capabilities, skills, inputModes, outputModes]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        url:
+          type: string
+        version:
+          type: string
+        capabilities:
+          type: object
+          additionalProperties: true
+        skills:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        inputModes:
+          type: array
+          items:
+            type: string
+        outputModes:
+          type: array
+          items:
+            type: string
+      additionalProperties: true
+
+    CreateCustomAgentRequest:
+      type: object
+      required: [name, description, systemPrompt, llmModel, skills, tools, inputModes, outputModes]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        systemPrompt:
+          type: string
+        llmModel:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        tools:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        inputModes:
+          type: array
+          items:
+            type: string
+        outputModes:
+          type: array
+          items:
+            type: string
+            enum: [text, code, webpage, diff, file, image, deploy, document, terminal, chart]
+
+    UpdateCustomAgentRequest:
+      type: object
+      properties:
+        description:
+          type: string
+        systemPrompt:
+          type: string
+        llmModel:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        tools:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        inputModes:
+          type: array
+          items:
+            type: string
+        outputModes:
+          type: array
+          items:
+            type: string
+            enum: [text, code, webpage, diff, file, image, deploy, document, terminal, chart]
+        isActive:
+          type: boolean
+      additionalProperties: false
+
+    Artifact:
+      type: object
+      required: [id, type, title, metadata, version, messageId, conversationId, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [code, webpage, diff, file, image, deploy, document, terminal, chart]
+        title:
+          type: string
+        content:
+          type: [string, 'null']
+        fileUrl:
+          type: [string, 'null']
+        metadata:
+          type: object
+          additionalProperties: true
+        version:
+          type: integer
+          minimum: 1
+        messageId:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ArtifactPreview:
+      type: object
+      required: [id, type, skillName, data]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [code, webpage, diff, file, image, deploy, document, terminal, chart]
+        skillName:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+
+    AGUIRunRequest:
+      type: object
+      required: [conversationId, messages]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        threadId:
+          type: [string, 'null']
+        messages:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role:
+                type: string
+                enum: [user, assistant, system]
+              content:
+                $ref: '#/components/schemas/MessageContent'
+            additionalProperties: true
+        history:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        tools:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        context:
+          type: object
+          additionalProperties: true
+
+    AGUICancelRunResponse:
+      type: object
+      required: [runId, status]
+      properties:
+        runId:
+          type: string
+        status:
+          type: string
+          enum: [cancelling, cancelled]
+        cancelledAt:
+          type: [string, 'null']
+          format: date-time
+
+    AGUIToolResultRequest:
+      type: object
+      required: [toolCallId, result]
+      properties:
+        toolCallId:
+          type: string
+        result:
+          type: object
+          additionalProperties: true
+        occurredAt:
+          type: [string, 'null']
+          format: date-time
