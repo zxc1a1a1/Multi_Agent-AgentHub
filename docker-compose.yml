@@ -2,9 +2,11 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "3000:3000"
+      - "3000:5173"
     depends_on:
       - gateway
+    environment:
+      - VITE_API_URL=http://gateway:8080
 
   gateway:
     build: ./server
@@ -13,16 +15,26 @@ services:
     environment:
       - DATABASE_URL=root:agenthub123@tcp(mysql:3306)/agenthub?charset=utf8mb4&parseTime=True&loc=Local
       - AGENT_CODE_URL=http://code-agent:8081
+      - GATEWAY_PORT=8080
     depends_on:
       mysql:
         condition: service_healthy
 
   code-agent:
-    build: ./agents/code-agent
+    build:
+      context: ./agents
+      dockerfile: code-agent/Dockerfile
     ports:
       - "8081:8081"
     environment:
+      - CODE_AGENT_PORT=8081
+      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
 
   mysql:
     image: mysql:8.0

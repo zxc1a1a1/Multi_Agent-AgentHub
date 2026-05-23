@@ -1,3 +1,14 @@
 name: code-agent
 description: Generates, refactors, and reviews code.
 version: "0.1.0"
+url: "http://localhost:8081"
+skills:
+  - code_generation
+  - code_review
+  - code_refactoring
+inputModes:
+  - text
+outputModes:
+  - text
+  - code
+streaming: true
