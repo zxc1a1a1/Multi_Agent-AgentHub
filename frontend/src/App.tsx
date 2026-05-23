@@ -1,3 +1,5 @@
+import ChatLayout from './components/ChatLayout'
+
 export default function App() {
-  return <main />
+  return <ChatLayout />
 }
