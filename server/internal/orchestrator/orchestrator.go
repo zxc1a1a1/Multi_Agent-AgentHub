@@ -7,9 +7,9 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
-	a2aclient "github.com/your-org/multi-agent-framework/server/internal/a2a"
-	"github.com/your-org/multi-agent-framework/server/internal/config"
-	"github.com/your-org/multi-agent-framework/server/internal/model"
+	a2aclient "github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/a2a"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/config"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/model"
 )
 
 // Orchestrator routes requests to the appropriate agent and handles protocol conversion.

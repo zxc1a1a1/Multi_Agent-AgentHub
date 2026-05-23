@@ -5,7 +5,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
-	"github.com/your-org/multi-agent-framework/server/internal/model"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/model"
 )
 
 // ProtocolConverter converts A2A protocol events (from a2a-go/v2) to AG-UI events.

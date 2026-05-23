@@ -1,4 +1,4 @@
-module github.com/agenthub/agents
+module github.com/zxc1a1a1/Multi_Agent-AgentHub/agents
 
 go 1.26.0
 

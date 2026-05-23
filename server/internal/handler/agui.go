@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/your-org/multi-agent-framework/server/internal/model"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/model"
 )
 
 // HandleAGUIRun is the core SSE endpoint for AG-UI protocol

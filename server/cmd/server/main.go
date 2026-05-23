@@ -6,12 +6,12 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
-	"github.com/your-org/multi-agent-framework/server/internal/a2a"
-	"github.com/your-org/multi-agent-framework/server/internal/config"
-	"github.com/your-org/multi-agent-framework/server/internal/handler"
-	"github.com/your-org/multi-agent-framework/server/internal/middleware"
-	"github.com/your-org/multi-agent-framework/server/internal/orchestrator"
-	"github.com/your-org/multi-agent-framework/server/internal/store"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/a2a"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/config"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/handler"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/middleware"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/orchestrator"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/store"
 )
 
 func main() {
