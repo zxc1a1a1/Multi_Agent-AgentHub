@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/your-org/multi-agent-framework/server/internal/model"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/model"
 )
 
 func newMockStore(t *testing.T) (*MySQL, sqlmock.Sqlmock, func()) {

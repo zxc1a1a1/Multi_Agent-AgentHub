@@ -7,7 +7,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 
-	"github.com/your-org/multi-agent-framework/server/internal/model"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/model"
 )
 
 // MySQL handles all database operations

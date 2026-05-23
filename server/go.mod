@@ -1,4 +1,4 @@
-module github.com/your-org/multi-agent-framework/server
+module github.com/zxc1a1a1/Multi_Agent-AgentHub/server
 
 go 1.26.0
 
