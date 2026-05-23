@@ -273,6 +273,118 @@ make build-check   # 验证所有模块编译通过
 - [ ] 刷新页面后消息不丢失（MySQL 持久化）
 - [ ] Docker Compose 一键启动所有服务
 
+## API 测试用例（curl）
+
+三个核心协议端点，服务启动后可直接用 curl 验证全链路。
+
+### 1. AgentCard — Agent 自描述发现
+
+```bash
+curl -s http://localhost:8081/.well-known/agent.json | jq .
+```
+
+预期返回：
+
+```json
+{
+  "name": "code-agent",
+  "description": "Generates, refactors, and reviews code.",
+  "version": "0.1.0",
+  "capabilities": { "streaming": true },
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
+  "skills": [
+    {
+      "id": "code_generation",
+      "name": "Code Generation",
+      "description": "Generate, refactor, and review code"
+    }
+  ]
+}
+```
+
+### 2. A2A 协议 — 主调子（Gateway → Code-Agent）
+
+Gateway（8080）内部也是走这个协议调用 Agent（8081）。直接 curl 子 Agent 验证 A2A JSON-RPC + SSE 流式返回：
+
+```bash
+curl -s -N -X POST http://localhost:8081/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tasks/sendSubscribe",
+    "id": "test-001",
+    "params": {
+      "message": {
+        "role": "user",
+        "parts": [
+          {"type": "text", "text": "用 Go 写一个 hello world"}
+        ]
+      }
+    }
+  }'
+```
+
+预期 SSE 事件流（依次出现）：
+
+```
+data: {"jsonrpc":"2.0","id":"test-001","result":{"id":"<task-id>","status":{"state":"submitted"},...}}
+
+data: {"jsonrpc":"2.0","id":"test-001","result":{"id":"<task-id>","status":{"state":"working"}}}
+
+data: {"jsonrpc":"2.0","id":"test-001","result":{"id":"<task-id>","artifact":{...,"parts":[{"type":"text","text":"package "}]}}}
+
+...（逐 token 流式文本）...
+
+data: {"jsonrpc":"2.0","id":"test-001","result":{"id":"<task-id>","artifact":{...,"metadata":{"type":"code","language":"go"},...}}}
+
+data: {"jsonrpc":"2.0","id":"test-001","result":{"id":"<task-id>","status":{"state":"completed"}}}
+```
+
+### 3. AG-UI 协议 — 前端流式展示（Gateway → 浏览器）
+
+这是前端实际消费的 SSE 端点，Gateway 内部将 A2A 事件转换为此格式：
+
+```bash
+# 注意：如果未设 AGENTHUB_API_TOKEN，本地开发默认免鉴权
+curl -s -N -X POST http://localhost:8080/api/agui/run \
+  -H "Content-Type: application/json" \
+  -d '{
+    "threadId": "test-conv-001",
+    "runId": "test-run-001",
+    "messages": [
+      {"role": "user", "content": "用 Go 写一个 hello world"}
+    ],
+    "tools": [
+      {"name": "code_preview"}
+    ]
+  }'
+```
+
+预期 SSE 事件流（依次出现）：
+
+```
+data: {"type":"RUN_STARTED","runId":"test-run-001"}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"<msg-id>"}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"<msg-id>","content":"package "}
+
+...（逐 token 流式文本）...
+
+data: {"type":"TEXT_MESSAGE_END","messageId":"<msg-id>"}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"<tc-id>","toolName":"code_preview"}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"<tc-id>","content":"{\"code\":\"...\",\"language\":\"go\",\"filename\":\"main.go\"}"}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"<tc-id>"}
+
+data: {"type":"RUN_FINISHED"}
+```
+
+> **三个端点的关系**：用户浏览器 →（AG-UI, :8080）→ Gateway 协议转换 →（A2A, :8081）→ Code-Agent → LLM。Agent 启动时通过 AgentCard（:8081）声明能力，Gateway 通过 AgentCard 发现可用的 Agent。
+
 ## 常见问题
 
 **Q: Anthropic API Key 从哪里获取？**
