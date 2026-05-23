@@ -27,9 +27,7 @@ logs/
 
 
 # Go build outputs
-server/server.exe
-agents/code-agent.exe
-
-# Go build outputs
-server/server.exe
-agents/code-agent.exe
+/server/server
+/server/server.exe
+/agents/code-agent/code-agent
+/agents/code-agent/code-agent.exe

@@ -7,7 +7,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 
-	"github.com/your-org/multi-agent-framework/server/internal/model"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/model"
 )
 
 // MySQL handles all database operations
@@ -114,6 +114,11 @@ func (s *MySQL) SaveMessage(conversationID, senderType, senderName, content stri
 		_, _ = s.db.Exec(`UPDATE conversations SET updated_at = NOW() WHERE id = ?`, conversationID)
 	}
 	return err
+}
+
+// Ping checks database connectivity.
+func (s *MySQL) Ping() error {
+	return s.db.Ping()
 }
 
 // UpdateConversationTitle updates the conversation title
