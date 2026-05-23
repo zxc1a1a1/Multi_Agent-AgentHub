@@ -10,33 +10,42 @@ interface Props {
 
 export default function CodePreview({ block }: Props) {
   const [copied, setCopied] = useState(false)
+  const code = typeof block?.code === 'string' ? block.code : ''
+  const language = typeof block?.language === 'string' && block.language.trim() ? block.language : 'text'
+  const filename = typeof block?.filename === 'string' && block.filename.trim() ? block.filename : 'untitled'
+  const hasCode = code.trim().length > 0
 
   const highlighted = useMemo(() => {
-    if (hljs.getLanguage(block.language)) {
-      return hljs.highlight(block.code, { language: block.language }).value
+    if (!hasCode) {
+      return ''
     }
-    return hljs.highlightAuto(block.code).value
-  }, [block.code, block.language])
+    if (hljs.getLanguage(language)) {
+      return hljs.highlight(code, { language }).value
+    }
+    return hljs.highlightAuto(code).value
+  }, [code, hasCode, language])
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(block.code)
+      await navigator.clipboard.writeText(code)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
       // fallback for non-HTTPS contexts
       const ta = document.createElement('textarea')
-      ta.value = block.code
+      ta.value = code
       document.body.appendChild(ta)
       ta.select()
-      document.execCommand('copy')
+      const copiedByFallback = document.execCommand('copy')
       document.body.removeChild(ta)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      if (copiedByFallback) {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      }
     }
   }
 
-  const lineCount = block.code.split('\n').length
+  const lineCount = hasCode ? code.split('\n').length : 0
 
   return (
     <div className="rounded-lg border border-gray-700 overflow-hidden mt-3 shadow-sm">
@@ -44,9 +53,9 @@ export default function CodePreview({ block }: Props) {
       <div className="flex items-center justify-between px-4 py-2 bg-gray-800 text-gray-300 text-xs">
         <div className="flex items-center gap-2">
           <FileCode className="w-3.5 h-3.5" />
-          <span className="font-medium">{block.filename}</span>
+          <span className="font-medium">{filename}</span>
           <span className="text-gray-500">
-            {block.language} &middot; {lineCount} lines
+            {language} &middot; {lineCount} lines
           </span>
         </div>
         <button
@@ -69,10 +78,14 @@ export default function CodePreview({ block }: Props) {
       </div>
       {/* Code content */}
       <pre className="p-4 overflow-x-auto bg-gray-900 text-sm leading-relaxed m-0">
-        <code
-          className={`language-${block.language} hljs`}
-          dangerouslySetInnerHTML={{ __html: highlighted }}
-        />
+        {hasCode ? (
+          <code
+            className={`language-${language} hljs`}
+            dangerouslySetInnerHTML={{ __html: highlighted }}
+          />
+        ) : (
+          <code className={`language-${language} hljs text-gray-400`}>No code to preview</code>
+        )}
       </pre>
     </div>
   )
