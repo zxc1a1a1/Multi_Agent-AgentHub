@@ -23,29 +23,41 @@ import (
 type Context struct {
 	ctx       context.Context
 	execCtx   *a2asrv.ExecutorContext
-	textParts []string
 	artifacts []Artifact
 	cancel    context.CancelFunc
+	yield     func(a2a.Event, error) bool
 }
 
 // NewContext creates a new ADK context for the given execution.
-func NewContext(ctx context.Context, execCtx *a2asrv.ExecutorContext) *Context {
+func NewContext(ctx context.Context, execCtx *a2asrv.ExecutorContext, yield func(a2a.Event, error) bool) *Context {
 	ctx, cancel := context.WithCancel(ctx)
 	return &Context{
 		ctx:     ctx,
 		execCtx: execCtx,
 		cancel:  cancel,
+		yield:   yield,
 	}
 }
 
 // StreamText outputs a text chunk to the stream.
+//
+// Each call immediately emits an A2A TaskArtifactUpdateEvent so the
+// upstream orchestrator can forward it as TEXT_MESSAGE_CONTENT without
+// waiting for the handler to complete.
 //
 // Per streaming-output rules:
 //   - Allowed: agent reply text, task progress, code explanation
 //   - NOT allowed: large code packages, secrets, stack traces, internal paths
 //   - Text stream is NOT the artifact source of truth
 func (c *Context) StreamText(chunk string) {
-	c.textParts = append(c.textParts, chunk)
+	if c.yield == nil {
+		return
+	}
+	textPart := a2a.NewTextPart(chunk)
+	textEvent := a2a.NewArtifactEvent(c.execCtx, textPart)
+	textEvent.Artifact.Name = "response"
+	textEvent.Artifact.Description = "Agent text response"
+	c.yield(textEvent, nil)
 }
 
 // AddArtifact adds a task artifact.
@@ -104,7 +116,7 @@ func ExecuteHandler(
 		}
 
 		// 3. Run the handler
-		adkCtx := NewContext(ctx, execCtx)
+		adkCtx := NewContext(ctx, execCtx, yield)
 		defer adkCtx.Cancel()
 
 		// Extract messages from the execution context
@@ -131,22 +143,7 @@ func ExecuteHandler(
 			return
 		}
 
-		// 4. Emit text artifact (the streaming response)
-		if len(adkCtx.textParts) > 0 {
-			fullText := ""
-			for _, chunk := range adkCtx.textParts {
-				fullText += chunk
-			}
-			textPart := a2a.NewTextPart(fullText)
-			textEvent := a2a.NewArtifactEvent(execCtx, textPart)
-			textEvent.Artifact.Name = "response"
-			textEvent.Artifact.Description = "Agent text response"
-			if !yield(textEvent, nil) {
-				return
-			}
-		}
-
-		// 5. Emit code artifacts
+		// 4. Emit code artifacts
 		for _, art := range adkCtx.artifacts {
 			part := art.ToA2APart()
 			artEvent := a2a.NewArtifactEvent(execCtx, part)
@@ -162,7 +159,7 @@ func ExecuteHandler(
 			}
 		}
 
-		// 6. Emit completed status
+		// 5. Emit completed status
 		completedEvent := a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateCompleted, nil)
 		yield(completedEvent, nil)
 	}

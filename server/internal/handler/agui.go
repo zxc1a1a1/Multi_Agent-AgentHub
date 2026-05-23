@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -43,16 +44,53 @@ func (h *Handler) HandleAGUIRun(c *gin.Context) {
 		h.orc.Process(c.Request.Context(), req, history, eventChan)
 	}()
 
+	// Accumulate agent response during stream for DB persistence
+	var agentText string
+	var agentArtifacts []model.ArtifactData
+
 	// Stream events as SSE (flush after each event for real-time delivery)
 	c.Stream(func(w io.Writer) bool {
 		event, ok := <-eventChan
 		if !ok {
 			return false
 		}
+
+		// Accumulate agent text from TEXT_MESSAGE_CONTENT events
+		if event.Type == "TEXT_MESSAGE_CONTENT" {
+			agentText += event.Content
+		}
+
+		// Parse TOOL_CALL_ARGS to collect code artifact data
+		if event.Type == "TOOL_CALL_ARGS" {
+			var args map[string]string
+			if err := json.Unmarshal([]byte(event.Content), &args); err == nil {
+				metadata := make(map[string]string)
+				if lang, ok := args["language"]; ok && lang != "" {
+					metadata["language"] = lang
+				}
+				if fn, ok := args["filename"]; ok && fn != "" {
+					metadata["filename"] = fn
+				}
+				agentArtifacts = append(agentArtifacts, model.ArtifactData{
+					Type:     "code",
+					Title:    args["filename"],
+					Content:  args["code"],
+					Metadata: metadata,
+				})
+			}
+		}
+
 		data, _ := json.Marshal(event)
 		// Write SSE format compatible with frontend parser
 		fmt.Fprintf(w, "data: %s\n\n", data)
 		c.Writer.Flush()
 		return true
 	})
+
+	// Persist agent message after SSE stream completes
+	if agentText != "" || len(agentArtifacts) > 0 {
+		if err := h.db.SaveMessage(req.ThreadID, "agent", "", agentText, agentArtifacts); err != nil {
+			log.Printf("failed to save agent message: %v", err)
+		}
+	}
 }
