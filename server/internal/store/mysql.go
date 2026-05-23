@@ -116,6 +116,11 @@ func (s *MySQL) SaveMessage(conversationID, senderType, senderName, content stri
 	return err
 }
 
+// Ping checks database connectivity.
+func (s *MySQL) Ping() error {
+	return s.db.Ping()
+}
+
 // UpdateConversationTitle updates the conversation title
 func (s *MySQL) UpdateConversationTitle(id, title string) error {
 	_, err := s.db.Exec(`UPDATE conversations SET title = ? WHERE id = ?`, title, id)
