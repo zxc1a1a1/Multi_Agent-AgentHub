@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -22,15 +23,16 @@ func (h *Handler) ListConversations(c *gin.Context) {
 }
 
 type createConvRequest struct {
-	Title     string `json:"title"`
-	AgentName string `json:"agentName"`
+	Title     string `json:"title" binding:"omitempty,max=200"`
+	AgentName string `json:"agentName" binding:"omitempty,printascii,max=64"`
 }
 
 // CreateConversation creates a new conversation
 func (h *Handler) CreateConversation(c *gin.Context) {
 	var req createConvRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Printf("invalid create conversation request: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
 	if req.AgentName == "" {
@@ -42,7 +44,8 @@ func (h *Handler) CreateConversation(c *gin.Context) {
 
 	conv, err := h.db.CreateConversation(req.Title, req.AgentName)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+		log.Printf("failed to create conversation: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create conversation"})
 		return
 	}
 	c.JSON(http.StatusCreated, conv)

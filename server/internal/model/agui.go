@@ -1,19 +1,19 @@
 package model
 
 type AGUIRunRequest struct {
-	ThreadID string        `json:"threadId"`
-	RunID    string        `json:"runId"`
-	Messages []AGUIMessage `json:"messages"`
-	Tools    []AGUITool    `json:"tools"`
+	ThreadID string        `json:"threadId" binding:"required,max=128"`
+	RunID    string        `json:"runId" binding:"required,max=128"`
+	Messages []AGUIMessage `json:"messages" binding:"required,min=1,dive"`
+	Tools    []AGUITool    `json:"tools" binding:"omitempty,dive"`
 }
 
 type AGUIMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string `json:"role" binding:"required,oneof=user agent system"`
+	Content string `json:"content" binding:"required,max=20000"`
 }
 
 type AGUITool struct {
-	Name string `json:"name"`
+	Name string `json:"name" binding:"required,printascii,max=64"`
 }
 
 type AGUIEvent struct {

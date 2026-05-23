@@ -1,10 +1,14 @@
 package config
 
-import "os"
+import (
+	"fmt"
+	"os"
+)
 
 type Config struct {
 	Port        string
 	DatabaseURL string
+	APIToken    string
 	Agents      map[string]AgentConfig
 }
 
@@ -13,17 +17,52 @@ type AgentConfig struct {
 	URL  string
 }
 
-func Load() *Config {
+func Load() (*Config, error) {
+	dbURL, err := loadDatabaseURL()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Port:        getEnv("GATEWAY_PORT", "8080"),
-		DatabaseURL: getEnv("DATABASE_URL", "root:agenthub123@tcp(localhost:3306)/agenthub?charset=utf8mb4&parseTime=True&loc=Local"),
+		DatabaseURL: dbURL,
+		APIToken:    os.Getenv("AGENTHUB_API_TOKEN"),
 		Agents: map[string]AgentConfig{
 			"code-agent": {
 				Name: "code-agent",
 				URL:  getEnv("AGENT_CODE_URL", "http://localhost:8081"),
 			},
 		},
+	}, nil
+}
+
+func loadDatabaseURL() (string, error) {
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		return dsn, nil
 	}
+
+	host := getEnv("DB_HOST", "localhost")
+	port := getEnv("DB_PORT", "3306")
+	user := getEnv("DB_USER", "root")
+	name := getEnv("DB_NAME", "agenthub")
+
+	// Backward-compatible fallback for DB password variable name.
+	password := os.Getenv("DB_PASSWORD")
+	if password == "" {
+		password = os.Getenv("MYSQL_PASSWORD")
+	}
+	if password == "" {
+		return "", fmt.Errorf("missing database password: set DATABASE_URL or DB_PASSWORD (or MYSQL_PASSWORD)")
+	}
+
+	return fmt.Sprintf(
+		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		user,
+		password,
+		host,
+		port,
+		name,
+	), nil
 }
 
 func getEnv(key, fallback string) string {

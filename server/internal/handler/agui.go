@@ -16,7 +16,8 @@ import (
 func (h *Handler) HandleAGUIRun(c *gin.Context) {
 	var req model.AGUIRunRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Printf("invalid agui run request: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
 
@@ -24,12 +25,18 @@ func (h *Handler) HandleAGUIRun(c *gin.Context) {
 	if len(req.Messages) > 0 {
 		lastMsg := req.Messages[len(req.Messages)-1]
 		if lastMsg.Role == "user" {
-			_ = h.db.SaveMessage(req.ThreadID, "user", "", lastMsg.Content, nil)
+			if err := h.db.SaveMessage(req.ThreadID, "user", "", lastMsg.Content, nil); err != nil {
+				log.Printf("failed to save user message: %v", err)
+			}
 		}
 	}
 
 	// Load conversation history for context
-	history, _ := h.db.GetMessages(req.ThreadID, 20)
+	history, err := h.db.GetMessages(req.ThreadID, 20)
+	if err != nil {
+		log.Printf("failed to load conversation history: %v", err)
+		history = nil
+	}
 
 	// Set SSE response headers
 	c.Header("Content-Type", "text/event-stream")
