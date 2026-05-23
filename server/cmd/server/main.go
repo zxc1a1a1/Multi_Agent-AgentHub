@@ -31,6 +31,15 @@ func main() {
 	r := gin.Default()
 	r.Use(cors.Default())
 
+	// Health endpoint — no auth, per docker-compose-delivery healthcheck policy
+	r.GET("/health", func(c *gin.Context) {
+		if err := db.Ping(); err != nil {
+			c.JSON(503, gin.H{"status": "unhealthy", "error": "db unreachable"})
+			return
+		}
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
 	h := handler.New(db, orc)
 	api := r.Group("/api")
 	api.Use(middleware.TokenAuth(cfg.APIToken))
