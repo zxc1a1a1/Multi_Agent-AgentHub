@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 
-	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	a2aclient "github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/a2a"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/config"
@@ -156,25 +155,4 @@ func (o *Orchestrator) extractSkills(tools []model.AGUITool) []string {
 		skills = []string{"code_preview"}
 	}
 	return skills
-}
-
-// Helper to get text from a2a event artifacts/messages
-func extractTextFromEvent(event a2a.Event) string {
-	switch e := event.(type) {
-	case *a2a.TaskArtifactUpdateEvent:
-		if e.Artifact != nil {
-			for _, part := range e.Artifact.Parts {
-				if text, ok := part.Content.(a2a.Text); ok {
-					return string(text)
-				}
-			}
-		}
-	case *a2a.Message:
-		for _, part := range e.Parts {
-			if text, ok := part.Content.(a2a.Text); ok {
-				return string(text)
-			}
-		}
-	}
-	return ""
 }

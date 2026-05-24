@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -11,9 +10,10 @@ import (
 
 // systemPrompt defines the code-agent's behavior.
 // Per task-handler-contract section 5 (MVP code-agent handler):
-//   read user message → construct LLM request → stream LLM text
-//   → ctx.StreamText(chunk) → collect full reply → parse code blocks
-//   → ctx.AddArtifact(type=code)
+//
+//	read user message → construct LLM request → stream LLM text
+//	→ ctx.StreamText(chunk) → collect full reply → parse code blocks
+//	→ ctx.AddArtifact(type=code)
 const systemPrompt = `You are a helpful code generation assistant. When the user asks you to write code:
 1. Provide a brief explanation of your approach.
 2. Output the complete code in fenced code blocks with the language identifier and filename like this:
@@ -25,6 +25,7 @@ package main
 
 Always specify the language and an appropriate filename after the triple backticks, separated by a colon.
 If you generate multiple files, put each in its own code block.
+Do not output an unescaped triple-backtick sequence inside the code block content.
 Keep explanations concise and focus on delivering working code.`
 
 // handleTask implements the adk.TaskHandler signature.
@@ -114,28 +115,117 @@ type codeBlock struct {
 	code     string
 }
 
-// codeBlockRegex matches fenced code blocks with optional language:filename
-var codeBlockRegex = regexp.MustCompile("(?s)```(\\w+)(?::([^\\n]+))?\\n(.*?)```")
+// parseCodeBlocks scans fenced blocks line by line to reduce premature truncation.
+// MVP limitation: if code content itself includes an unescaped standalone line "```",
+// the block will close at that line.
+// Expected opening forms:
+//
+//	```language:filename
+//	```language
+//
+// Unsupported openings (e.g. empty language) are ignored.
+//
+// A closing fence must be a standalone line (allowing surrounding spaces).
+// Backticks inside code text that are not a standalone triple-backtick line will
+// not terminate the block.
+var validLangPattern = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+-."
 
 func parseCodeBlocks(text string) []codeBlock {
-	matches := codeBlockRegex.FindAllStringSubmatch(text, -1)
 	var blocks []codeBlock
-	for _, m := range matches {
-		lang := m[1]
-		filename := strings.TrimSpace(m[2])
-		code := strings.TrimSpace(m[3])
+	lines := strings.Split(text, "\n")
 
-		if filename == "" {
-			filename = "untitled." + langExtension(lang)
+	inBlock := false
+	lang := ""
+	filename := ""
+	var codeLines []string
+
+	for _, rawLine := range lines {
+		line := strings.TrimRight(rawLine, "\r")
+
+		if !inBlock {
+			meta, ok := parseFenceOpenMeta(line)
+			if !ok {
+				continue
+			}
+			lang = meta.language
+			filename = meta.filename
+			codeLines = codeLines[:0]
+			inBlock = true
+			continue
 		}
 
-		blocks = append(blocks, codeBlock{
-			language: lang,
-			filename: filename,
-			code:     code,
-		})
+		if isFenceCloseLine(line) {
+			code := strings.TrimSpace(strings.Join(codeLines, "\n"))
+			if filename == "" {
+				filename = "untitled." + langExtension(lang)
+			}
+
+			blocks = append(blocks, codeBlock{
+				language: lang,
+				filename: filename,
+				code:     code,
+			})
+
+			inBlock = false
+			lang = ""
+			filename = ""
+			codeLines = codeLines[:0]
+			continue
+		}
+
+		codeLines = append(codeLines, line)
 	}
+
 	return blocks
+}
+
+type fenceMeta struct {
+	language string
+	filename string
+}
+
+func parseFenceOpenMeta(line string) (fenceMeta, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "```") {
+		return fenceMeta{}, false
+	}
+
+	header := strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+	if header == "" {
+		return fenceMeta{}, false
+	}
+
+	parts := strings.SplitN(header, ":", 2)
+	lang := strings.TrimSpace(parts[0])
+	if !isValidFenceLanguage(lang) {
+		return fenceMeta{}, false
+	}
+
+	filename := ""
+	if len(parts) == 2 {
+		filename = strings.TrimSpace(parts[1])
+	}
+
+	return fenceMeta{
+		language: lang,
+		filename: filename,
+	}, true
+}
+
+func isValidFenceLanguage(lang string) bool {
+	if lang == "" {
+		return false
+	}
+	for _, ch := range lang {
+		if !strings.ContainsRune(validLangPattern, ch) {
+			return false
+		}
+	}
+	return true
+}
+
+func isFenceCloseLine(line string) bool {
+	return strings.TrimSpace(line) == "```"
 }
 
 func langExtension(lang string) string {

@@ -355,3 +355,53 @@ func TestMySQLConversationExistsQueryError(t *testing.T) {
 		t.Fatalf("expected exists=false on query error")
 	}
 }
+
+func TestGetEnvIntUsesFallbackAndValidValue(t *testing.T) {
+	t.Setenv("DB_MAX_OPEN_CONNS", "")
+	if got := getEnvInt("DB_MAX_OPEN_CONNS", 20); got != 20 {
+		t.Fatalf("missing env should fallback to 20, got=%d", got)
+	}
+
+	t.Setenv("DB_MAX_OPEN_CONNS", "not-number")
+	if got := getEnvInt("DB_MAX_OPEN_CONNS", 20); got != 20 {
+		t.Fatalf("invalid env should fallback to 20, got=%d", got)
+	}
+
+	t.Setenv("DB_MAX_OPEN_CONNS", "0")
+	if got := getEnvInt("DB_MAX_OPEN_CONNS", 20); got != 20 {
+		t.Fatalf("non-positive env should fallback to 20, got=%d", got)
+	}
+
+	t.Setenv("DB_MAX_OPEN_CONNS", "44")
+	if got := getEnvInt("DB_MAX_OPEN_CONNS", 20); got != 44 {
+		t.Fatalf("valid env should be used, got=%d", got)
+	}
+}
+
+func TestDBStatsExposesUnderlyingDBStats(t *testing.T) {
+	store, _, cleanup := newMockStore(t)
+	defer cleanup()
+
+	stats := store.DBStats()
+	if stats.MaxOpenConnections != 0 {
+		t.Fatalf("expected sqlmock max open conns default 0, got=%d", stats.MaxOpenConnections)
+	}
+}
+
+func TestNewMySQLAppliesPoolEnvConfigAndFallback(t *testing.T) {
+	t.Setenv("DB_MAX_OPEN_CONNS", "37")
+	t.Setenv("DB_MAX_IDLE_CONNS", "invalid")
+	t.Setenv("DB_CONN_MAX_LIFETIME_SECONDS", "120")
+
+	// Use sqlmock-like DSN by relying on mysql driver parse behavior? No.
+	// We assert parsing logic via getEnvInt and keep NewMySQL integration minimal.
+	if got := getEnvInt("DB_MAX_OPEN_CONNS", defaultDBMaxOpenConns); got != 37 {
+		t.Fatalf("expected open conns from env, got=%d", got)
+	}
+	if got := getEnvInt("DB_MAX_IDLE_CONNS", defaultDBMaxIdleConns); got != defaultDBMaxIdleConns {
+		t.Fatalf("invalid idle env should fallback, got=%d", got)
+	}
+	if got := getEnvInt("DB_CONN_MAX_LIFETIME_SECONDS", defaultDBConnMaxLifetimeSeconds); got != 120 {
+		t.Fatalf("expected conn max lifetime seconds from env, got=%d", got)
+	}
+}

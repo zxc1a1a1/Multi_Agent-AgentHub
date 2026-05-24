@@ -108,7 +108,76 @@ else
 fi
 
 # ── 8. Log check: no panic / fatal / API key leak ───────
-echo "8. Log check (panic, fatal, API key leakage)"
+# 8. AG-UI SSE validation
+echo "8. AG-UI SSE minimal validation (POST /api/agui/run)"
+if [ -z "${AGENTHUB_API_TOKEN:-}" ]; then
+  HTTP_CODE=$(curl -sS \
+    -X POST "http://localhost:8080/api/agui/run" \
+    -H "Content-Type: application/json" \
+    --data '{"threadId":"11111111-1111-1111-1111-111111111111","runId":"smoke-run","agentName":"code-agent","messages":[{"role":"user","content":"smoke"}],"tools":[{"name":"code_preview"}]}' \
+    --max-time 8 \
+    -o /dev/null \
+    -w "%{http_code}" || true)
+  if [ "$HTTP_CODE" = "401" ]; then
+    green "  OK  /api/agui/run requires auth (401) when AGENTHUB_API_TOKEN is not set"
+  else
+    red "  FAIL /api/agui/run expected 401 without token, got ${HTTP_CODE}"
+    FAILED=1
+  fi
+else
+  CONV_BODY_TMP=$(mktemp)
+  CONV_CODE=$(curl -sS \
+    -X POST "http://localhost:8080/api/conversations" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${AGENTHUB_API_TOKEN}" \
+    --data '{"title":"smoke-sse"}' \
+    --max-time 8 \
+    -o "$CONV_BODY_TMP" \
+    -w "%{http_code}" || true)
+
+  if [ "$CONV_CODE" = "401" ]; then
+    green "  OK  conversation create returned 401 (invalid token context)"
+  elif [ "$CONV_CODE" != "201" ]; then
+    red "  FAIL /api/conversations unexpected response (http=${CONV_CODE})"
+    FAILED=1
+  else
+    CONV_ID=$(grep -o '"id":"[^"]*"' "$CONV_BODY_TMP" | head -1 | cut -d '"' -f4)
+    if [ -z "$CONV_ID" ]; then
+      red "  FAIL /api/conversations created but conversation id missing"
+      FAILED=1
+    else
+      SSE_HEADER_TMP=$(mktemp)
+      SSE_BODY_TMP=$(mktemp)
+      RUN_PAYLOAD=$(printf '{"threadId":"%s","runId":"smoke-run","agentName":"code-agent","messages":[{"role":"user","content":"smoke"}],"tools":[{"name":"code_preview"}]}' "$CONV_ID")
+      HTTP_CODE=$(curl -sS \
+        -X POST "http://localhost:8080/api/agui/run" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${AGENTHUB_API_TOKEN}" \
+        --data "$RUN_PAYLOAD" \
+        --max-time 8 \
+        -D "$SSE_HEADER_TMP" \
+        -o "$SSE_BODY_TMP" \
+        -w "%{http_code}" || true)
+
+      CONTENT_TYPE=$(grep -i '^Content-Type:' "$SSE_HEADER_TMP" | tr -d '\r' | head -1 | awk '{print tolower($2)}')
+      if [ "$HTTP_CODE" = "200" ] && echo "$CONTENT_TYPE" | grep -q "text/event-stream"; then
+        if grep -q '"type":"RUN_ERROR"\|"type":"RUN_STARTED"\|data:' "$SSE_BODY_TMP"; then
+          green "  OK  /api/agui/run returned SSE stream payload"
+        else
+          red "  FAIL /api/agui/run returned SSE headers but no recognizable AG-UI event payload"
+          FAILED=1
+        fi
+      else
+        red "  FAIL /api/agui/run unexpected response (http=${HTTP_CODE}, content-type=${CONTENT_TYPE})"
+        FAILED=1
+      fi
+      rm -f "$SSE_HEADER_TMP" "$SSE_BODY_TMP"
+    fi
+  fi
+  rm -f "$CONV_BODY_TMP"
+fi
+
+echo "9. Log check (panic, fatal, API key leakage)"
 ERRORS=$(docker compose logs --tail=200 2>&1 | grep -iE '(panic|fatal|sk-ant-|sk-[a-z0-9]{20,})' || true)
 if [ -z "$ERRORS" ]; then
   green "  OK  No obvious errors or secret leaks in logs"

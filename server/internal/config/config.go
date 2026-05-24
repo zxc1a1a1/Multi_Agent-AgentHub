@@ -3,15 +3,20 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
-	Port             string
-	DatabaseURL      string
-	APIToken         string
-	CORSAllowOrigins []string
-	Agents           map[string]AgentConfig
+	Port              string
+	DatabaseURL       string
+	DBMaxOpenConns    int
+	DBMaxIdleConns    int
+	DBConnMaxLifetime time.Duration
+	APIToken          string
+	CORSAllowOrigins  []string
+	Agents            map[string]AgentConfig
 }
 
 type AgentConfig struct {
@@ -26,10 +31,13 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		Port:             getEnv("GATEWAY_PORT", "8080"),
-		DatabaseURL:      dbURL,
-		APIToken:         os.Getenv("AGENTHUB_API_TOKEN"),
-		CORSAllowOrigins: loadCORSAllowOrigins(),
+		Port:              getEnv("GATEWAY_PORT", "8080"),
+		DatabaseURL:       dbURL,
+		DBMaxOpenConns:    getEnvInt("DB_MAX_OPEN_CONNS", 20),
+		DBMaxIdleConns:    getEnvInt("DB_MAX_IDLE_CONNS", 5),
+		DBConnMaxLifetime: time.Duration(getEnvInt("DB_CONN_MAX_LIFETIME_SECONDS", 300)) * time.Second,
+		APIToken:          os.Getenv("AGENTHUB_API_TOKEN"),
+		CORSAllowOrigins:  loadCORSAllowOrigins(),
 		Agents: map[string]AgentConfig{
 			"code-agent": {
 				Name: "code-agent",
@@ -73,6 +81,19 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func loadCORSAllowOrigins() []string {
