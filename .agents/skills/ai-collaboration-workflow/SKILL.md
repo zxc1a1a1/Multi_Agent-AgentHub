@@ -1,6 +1,6 @@
 ---
 name: ai-collaboration-workflow
-description: Use when planning Codex work, reviewing AI-generated changes, enforcing spec-plan-build-test-review workflow, or preventing scope creep.
+description: "用于规范 AgentHub 使用 Codex、Skills 和人工评审进行协作开发的流程，包括先分析后修改、限制改动范围、避免越界实现、提交前检查、复查报告和交接清单。"
 ---
 
 # ai-collaboration-workflow

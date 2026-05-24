@@ -1,6 +1,6 @@
 ---
 name: data-persistence-contract
-description: Use when changing database models, MySQL/PostgreSQL schema, Redis usage, object storage policy, migrations, persistence IDs, messages, runs, tasks, tool calls, or artifacts.
+description: "用于定义 AgentHub 的数据持久化契约，包括 MVP 阶段 MySQL 表结构、后续 PostgreSQL 演进、conversation/message/run/artifact 等核心数据关系、迁移规则和数据安全边界。"
 ---
 
 # data-persistence-contract

@@ -1,6 +1,6 @@
 ---
 name: a2a-agent-contract
-description: Use when changing Orchestrator-to-Child-Agent A2A contracts, AgentCard, task endpoints, sendSubscribe streams, A2A errors, artifacts, or agent health checks.
+description: "用于定义 AgentHub 子 Agent 的 A2A 协议契约，包括 AgentCard 元数据、任务发送接口、流式订阅接口、任务状态、产物输出、错误处理以及前端不可直接访问 A2A 的边界规则。"
 ---
 
 # a2a-agent-contract

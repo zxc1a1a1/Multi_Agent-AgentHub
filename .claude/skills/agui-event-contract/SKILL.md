@@ -1,4 +1,9 @@
-﻿# agui-event-contract
+---
+name: agui-event-contract
+description: "用于定义 AgentHub 前后端之间的 AG-UI 事件协议契约，包括 SSE 流式传输、Run 生命周期、文本消息事件、工具调用事件、code_preview 映射以及错误信息脱敏规则。"
+---
+
+# agui-event-contract
 
 ## 1. Skill 目的
 
@@ -952,3 +957,13 @@ Coding Agent 在处理 AG-UI 事件时必须遵守：
 - Artifact 结构由后续 `artifact-contract` 细化。
 - Tool Call 参数与 ToolResult 由后续 `frontend-runtime-skills-contract` 细化。
 
+
+
+## References
+
+- `references/sse-streaming-policy.md`
+- `references/event-lifecycle.md`
+- `references/text-message-events.md`
+- `references/tool-call-events.md`
+- `references/error-redaction.md`
+- `references/agui-review-checklist.md`

@@ -1,3 +1,8 @@
+---
+name: security-boundary-contract
+description: "用于定义 AgentHub 的安全边界和提交前安全规则，包括 .env 禁止入库、API Key 和 Token 只能来自环境变量、错误脱敏、前端安全、沙箱限制以及密钥泄漏检查。"
+---
+
 # security-boundary-contract
 
 ## 1. Skill 目的
@@ -619,3 +624,13 @@ docs/contracts/security-review-checklist.md
 - [ ] 是否定义 file_upload 安全？
 - [ ] 是否定义日志脱敏？
 - [ ] 是否定义 Security Test？
+
+
+## References
+
+- `references/secret-management.md`
+- `references/auth-policy.md`
+- `references/error-redaction.md`
+- `references/frontend-security.md`
+- `references/sandbox-policy.md`
+- `references/security-review-checklist.md`

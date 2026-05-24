@@ -1,6 +1,6 @@
 ---
 name: platform-api-contract
-description: Use when changing Frontend-to-Gateway REST APIs, OpenAPI schemas, API response formats, pagination, auth headers, or generated API client contracts.
+description: "用于定义 AgentHub 前端与 Gateway 之间的平台 API 契约，包括 REST 接口、鉴权头、错误响应格式、前端 API client 调用规则，以及不暴露内部 A2A 和 Orchestrator 协议的边界。"
 ---
 
 # platform-api-contract

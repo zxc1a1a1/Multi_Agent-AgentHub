@@ -1,4 +1,9 @@
-﻿# data-persistence-contract
+---
+name: data-persistence-contract
+description: "用于定义 AgentHub 的数据持久化契约，包括 MVP 阶段 MySQL 表结构、后续 PostgreSQL 演进、conversation/message/run/artifact 等核心数据关系、迁移规则和数据安全边界。"
+---
+
+# data-persistence-contract
 
 ## 1. Skill 目的
 
@@ -809,3 +814,13 @@ docs/contracts/migration-policy.md
 - [ ] 是否明确 `AGENT_HEALTH_CHECK` 属于 Post-MVP Agent Registry / 健康检查模型？
 - [ ] 是否明确这些长期表 MVP v0.1 暂不强制实现，但不能从长期规划中删除？
 - [ ] 是否在涉及尚未完成的 Skill 时只写“由后续对应 Skill 细化”，没有强制要求当前文件已存在？
+
+
+## References
+
+- `references/mysql-mvp-schema.md`
+- `references/postgres-post-mvp-schema.md`
+- `references/migration-policy.md`
+- `references/persistence-id-policy.md`
+- `references/artifact-persistence-policy.md`
+- `references/data-review-checklist.md`

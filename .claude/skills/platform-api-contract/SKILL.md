@@ -1,4 +1,9 @@
-﻿# platform-api-contract
+---
+name: platform-api-contract
+description: "用于定义 AgentHub 前端与 Gateway 之间的平台 API 契约，包括 REST 接口、鉴权头、错误响应格式、前端 API client 调用规则，以及不暴露内部 A2A 和 Orchestrator 协议的边界。"
+---
+
+# platform-api-contract
 
 ## 1. Skill 目的
 
@@ -1435,3 +1440,12 @@ skills/project-architecture/SKILL.md
 
 REST API 的鉴权、资源权限、错误脱敏、token 处理和敏感信息边界由 `security-boundary-contract` 细化。
 
+
+
+## References
+
+- `references/rest-api-policy.md`
+- `references/auth-header-policy.md`
+- `references/error-response-policy.md`
+- `references/frontend-api-client-policy.md`
+- `references/api-review-checklist.md`

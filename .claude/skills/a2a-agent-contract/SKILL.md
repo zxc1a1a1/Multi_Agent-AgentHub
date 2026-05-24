@@ -1,4 +1,9 @@
-﻿# a2a-agent-contract
+---
+name: a2a-agent-contract
+description: "用于定义 AgentHub 子 Agent 的 A2A 协议契约，包括 AgentCard 元数据、任务发送接口、流式订阅接口、任务状态、产物输出、错误处理以及前端不可直接访问 A2A 的边界规则。"
+---
+
+# a2a-agent-contract
 
 ## 1. Skill 目的
 
@@ -1266,3 +1271,13 @@ GET    /health
 - Artifact 输出结构由后续 `artifact-contract` 细化。
 - Frontend Runtime Skill 参数与 ToolResult 由后续 `frontend-runtime-skills-contract` 细化。
 
+
+
+## References
+
+- `references/agent-card-policy.md`
+- `references/task-endpoints.md`
+- `references/send-subscribe-streaming.md`
+- `references/artifact-policy.md`
+- `references/a2a-error-policy.md`
+- `references/a2a-review-checklist.md`
