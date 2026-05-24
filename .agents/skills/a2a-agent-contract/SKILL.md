@@ -1,4 +1,4 @@
-﻿---
+---
 name: a2a-agent-contract
 description: Use when changing Orchestrator-to-Child-Agent A2A contracts, AgentCard, task endpoints, sendSubscribe streams, A2A errors, artifacts, or agent health checks.
 ---
@@ -1272,3 +1272,12 @@ GET    /health
 - Frontend Runtime Skill 参数与 ToolResult 由后续 `frontend-runtime-skills-contract` 细化。
 
 
+
+## References
+
+- `references/agent-card-policy.md`
+- `references/task-endpoints.md`
+- `references/send-subscribe-streaming.md`
+- `references/artifact-policy.md`
+- `references/a2a-error-policy.md`
+- `references/a2a-review-checklist.md`
