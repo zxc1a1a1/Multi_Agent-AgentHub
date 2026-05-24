@@ -302,3 +302,56 @@ func TestMySQLGetMessagesRowsErr(t *testing.T) {
 		t.Fatalf("expected nil messages on rows error")
 	}
 }
+
+func TestMySQLConversationExistsTrue(t *testing.T) {
+	store, mock, cleanup := newMockStore(t)
+	defer cleanup()
+
+	rows := sqlmock.NewRows([]string{"1"}).AddRow(1)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT 1 FROM conversations WHERE id = ? LIMIT 1`)).
+		WithArgs("conv-1").
+		WillReturnRows(rows)
+
+	exists, err := store.ConversationExists("conv-1")
+	if err != nil {
+		t.Fatalf("ConversationExists returned error: %v", err)
+	}
+	if !exists {
+		t.Fatalf("expected conversation to exist")
+	}
+}
+
+func TestMySQLConversationExistsFalse(t *testing.T) {
+	store, mock, cleanup := newMockStore(t)
+	defer cleanup()
+
+	rows := sqlmock.NewRows([]string{"1"})
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT 1 FROM conversations WHERE id = ? LIMIT 1`)).
+		WithArgs("conv-missing").
+		WillReturnRows(rows)
+
+	exists, err := store.ConversationExists("conv-missing")
+	if err != nil {
+		t.Fatalf("ConversationExists returned error: %v", err)
+	}
+	if exists {
+		t.Fatalf("expected conversation not to exist")
+	}
+}
+
+func TestMySQLConversationExistsQueryError(t *testing.T) {
+	store, mock, cleanup := newMockStore(t)
+	defer cleanup()
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT 1 FROM conversations WHERE id = ? LIMIT 1`)).
+		WithArgs("conv-err").
+		WillReturnError(errors.New("query failed"))
+
+	exists, err := store.ConversationExists("conv-err")
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if exists {
+		t.Fatalf("expected exists=false on query error")
+	}
+}

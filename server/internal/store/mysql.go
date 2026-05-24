@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
@@ -114,6 +115,22 @@ func (s *MySQL) SaveMessage(conversationID, senderType, senderName, content stri
 		_, _ = s.db.Exec(`UPDATE conversations SET updated_at = NOW() WHERE id = ?`, conversationID)
 	}
 	return err
+}
+
+// ConversationExists checks whether a conversation exists by ID.
+func (s *MySQL) ConversationExists(conversationID string) (bool, error) {
+	var marker int
+	err := s.db.QueryRow(
+		`SELECT 1 FROM conversations WHERE id = ? LIMIT 1`,
+		conversationID,
+	).Scan(&marker)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // Ping checks database connectivity.
