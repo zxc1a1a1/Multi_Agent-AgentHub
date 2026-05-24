@@ -37,27 +37,26 @@ export function runAgent(
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          buffer += decoder.decode()
+          break
+        }
 
         // Decode binary chunk and append to buffer
         buffer += decoder.decode(value, { stream: true })
+        buffer = buffer.replace(/\r\n/g, '\n')
 
-        // Split by newlines (SSE events are separated by \n\n)
-        const lines = buffer.split('\n')
-        // Keep the last incomplete line in buffer
-        buffer = lines.pop() || ''
+        const parsed = splitSSEBlocks(buffer)
+        buffer = parsed.rest
 
-        for (const line of lines) {
-          // SSE format: "data: {json}"
-          if (line.startsWith('data:')) {
-            const data = line.slice(5).trim()
-            if (!data) continue
-            try {
-              const event: AGUIEvent = JSON.parse(data)
-              onEvent(event)
-            } catch {
-              // skip malformed JSON
-            }
+        for (const block of parsed.blocks) {
+          const data = extractSSEData(block)
+          if (!data) continue
+          try {
+            const event: AGUIEvent = JSON.parse(data)
+            onEvent(event)
+          } catch {
+            // skip malformed JSON and continue streaming
           }
         }
       }
@@ -71,4 +70,39 @@ export function runAgent(
     })
 
   return controller
+}
+
+function splitSSEBlocks(input: string): { blocks: string[]; rest: string } {
+  const blocks: string[] = []
+  let offset = 0
+
+  while (true) {
+    const idx = input.indexOf('\n\n', offset)
+    if (idx === -1) {
+      break
+    }
+    blocks.push(input.slice(offset, idx))
+    offset = idx + 2
+  }
+
+  return {
+    blocks,
+    rest: input.slice(offset),
+  }
+}
+
+function extractSSEData(block: string): string | null {
+  const dataLines: string[] = []
+
+  for (const line of block.split('\n')) {
+    if (!line.startsWith('data:')) continue
+    const raw = line.slice(5)
+    const value = raw.startsWith(' ') ? raw.slice(1) : raw
+    dataLines.push(value)
+  }
+
+  if (dataLines.length === 0) return null
+  const joined = dataLines.join('\n')
+  if (joined.trim() === '') return null
+  return joined
 }

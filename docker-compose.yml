@@ -1,8 +1,9 @@
 services:
   frontend:
     build: ./frontend
+    restart: unless-stopped
     ports:
-      - "3000:5173"
+      - "3000:3000"
     depends_on:
       - gateway
     environment:
@@ -10,6 +11,7 @@ services:
 
   gateway:
     build: ./server
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
@@ -29,6 +31,7 @@ services:
     build:
       context: ./agents
       dockerfile: code-agent/Dockerfile
+    restart: unless-stopped
     ports:
       - "8081:8081"
     environment:
@@ -43,6 +46,7 @@ services:
 
   mysql:
     image: mysql:8.0
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-agenthub}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // LLMClient handles communication with LLM providers.
@@ -25,10 +26,17 @@ import (
 //   - "anthropic" (default): Anthropic Messages API (Claude models)
 //   - "openai": OpenAI Chat Completions API (also compatible with DeepSeek, Moonshot, Ollama, vLLM, etc.)
 type LLMClient struct {
-	provider string
-	apiKey   string
-	model    string
-	baseURL  string
+	provider   string
+	apiKey     string
+	model      string
+	baseURL    string
+	httpClient *http.Client
+}
+
+const defaultLLMRequestTimeout = 120 * time.Second
+
+var defaultLLMHTTPClient = &http.Client{
+	Timeout: defaultLLMRequestTimeout,
 }
 
 // NewLLMClient creates a new LLM client based on environment configuration.
@@ -39,17 +47,19 @@ func NewLLMClient() *LLMClient {
 	switch provider {
 	case "openai":
 		return &LLMClient{
-			provider: "openai",
-			apiKey:   os.Getenv("OPENAI_API_KEY"),
-			model:    getEnvOrDefault("OPENAI_MODEL", "gpt-4o"),
-			baseURL:  getEnvOrDefault("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+			provider:   "openai",
+			apiKey:     os.Getenv("OPENAI_API_KEY"),
+			model:      getEnvOrDefault("OPENAI_MODEL", "gpt-4o"),
+			baseURL:    getEnvOrDefault("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+			httpClient: defaultLLMHTTPClient,
 		}
 	default: // "anthropic"
 		return &LLMClient{
-			provider: "anthropic",
-			apiKey:   os.Getenv("ANTHROPIC_API_KEY"),
-			model:    getEnvOrDefault("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
-			baseURL:  getEnvOrDefault("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+			provider:   "anthropic",
+			apiKey:     os.Getenv("ANTHROPIC_API_KEY"),
+			model:      getEnvOrDefault("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+			baseURL:    getEnvOrDefault("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+			httpClient: defaultLLMHTTPClient,
 		}
 	}
 }
@@ -129,7 +139,7 @@ func (l *LLMClient) streamAnthropic(
 	req.Header.Set("x-api-key", l.apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := l.getHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("LLM service unavailable")
 	}
@@ -216,7 +226,7 @@ func (l *LLMClient) streamOpenAI(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+l.apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := l.getHTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("LLM service unavailable")
 	}
@@ -275,4 +285,11 @@ func getEnvOrDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func (l *LLMClient) getHTTPClient() *http.Client {
+	if l.httpClient != nil {
+		return l.httpClient
+	}
+	return defaultLLMHTTPClient
 }

@@ -1,6 +1,6 @@
-﻿---
+---
 name: gateway-orchestrator-contract
-description: Use when changing Gateway-to-Orchestrator internal contracts, OrchestratorEvent mapping, run lifecycle, internal endpoints, tool results, or cancellation flow.
+description: "用于定义 AgentHub Gateway 与 Orchestrator 之间的职责边界和事件流转规则，包括请求入口、Run 生命周期、OrchestratorEvent 与 AG-UI 的映射、取消语义和 MVP 内嵌编排边界。"
 ---
 
 # gateway-orchestrator-contract
@@ -1066,3 +1066,11 @@ POST /internal/runs/{runId}/cancel
 - 审批持久化由后续 `data-persistence-contract` 细化。
 
 
+
+## References
+
+- `references/orchestrator-event-policy.md`
+- `references/run-lifecycle.md`
+- `references/cancellation-policy.md`
+- `references/gateway-agui-mapping.md`
+- `references/gateway-orchestrator-review-checklist.md`

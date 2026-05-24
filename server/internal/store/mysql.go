@@ -3,6 +3,11 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
@@ -15,18 +20,44 @@ type MySQL struct {
 	db *sql.DB
 }
 
+const (
+	defaultDBMaxOpenConns           = 20
+	defaultDBMaxIdleConns           = 5
+	defaultDBConnMaxLifetimeSeconds = 300
+)
+
 // NewMySQL creates a new MySQL connection pool
 func NewMySQL(dsn string) (*MySQL, error) {
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(20)
-	db.SetMaxIdleConns(5)
+
+	maxOpenConns := getEnvInt("DB_MAX_OPEN_CONNS", defaultDBMaxOpenConns)
+	maxIdleConns := getEnvInt("DB_MAX_IDLE_CONNS", defaultDBMaxIdleConns)
+	connMaxLifetimeSeconds := getEnvInt("DB_CONN_MAX_LIFETIME_SECONDS", defaultDBConnMaxLifetimeSeconds)
+
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(time.Duration(connMaxLifetimeSeconds) * time.Second)
+
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
 	return &MySQL{db: db}, nil
+}
+
+func getEnvInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 // ListConversations returns all conversations ordered by most recently updated
@@ -116,9 +147,30 @@ func (s *MySQL) SaveMessage(conversationID, senderType, senderName, content stri
 	return err
 }
 
+// ConversationExists checks whether a conversation exists by ID.
+func (s *MySQL) ConversationExists(conversationID string) (bool, error) {
+	var marker int
+	err := s.db.QueryRow(
+		`SELECT 1 FROM conversations WHERE id = ? LIMIT 1`,
+		conversationID,
+	).Scan(&marker)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // Ping checks database connectivity.
 func (s *MySQL) Ping() error {
 	return s.db.Ping()
+}
+
+// DBStats exposes sql.DB stats for tests and diagnostics.
+func (s *MySQL) DBStats() sql.DBStats {
+	return s.db.Stats()
 }
 
 // UpdateConversationTitle updates the conversation title

@@ -5,24 +5,50 @@ import { runAgent, type AGUIRunRequest } from '../agui/client'
 import { frontendSkills } from '../agui/skills'
 
 interface MessageState {
-  messages: Record<string, Message[]> // conversationId → messages[]
-  streaming: boolean
-  abortController: AbortController | null
+  messages: Record<string, Message[]> // conversationId -> messages[]
+  streamingByConversation: Record<string, boolean>
+  abortControllersByConversation: Record<string, AbortController | null>
 
   loadMessages: (conversationId: string) => Promise<void>
   sendMessage: (conversationId: string, content: string) => void
-  stopStreaming: () => void
+  isStreaming: (conversationId: string) => boolean
+  stopStreaming: (conversationId: string) => void
+}
+
+function setConversationStreaming(
+  state: MessageState,
+  conversationId: string,
+  streaming: boolean,
+): Pick<MessageState, 'streamingByConversation'> {
+  return {
+    streamingByConversation: {
+      ...state.streamingByConversation,
+      [conversationId]: streaming,
+    },
+  }
+}
+
+function setConversationAbortController(
+  state: MessageState,
+  conversationId: string,
+  controller: AbortController | null,
+): Pick<MessageState, 'abortControllersByConversation'> {
+  return {
+    abortControllersByConversation: {
+      ...state.abortControllersByConversation,
+      [conversationId]: controller,
+    },
+  }
 }
 
 export const useMessageStore = create<MessageState>((set, get) => ({
   messages: {},
-  streaming: false,
-  abortController: null,
+  streamingByConversation: {},
+  abortControllersByConversation: {},
 
   loadMessages: async (conversationId: string) => {
     try {
       const msgs = await api.listMessages(conversationId)
-      // Transform DB messages to frontend format
       const formatted: Message[] = msgs.map((m: any) => ({
         id: m.id,
         conversationId: m.conversationId,
@@ -41,7 +67,6 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   sendMessage: (conversationId: string, content: string) => {
-    // 1. Optimistically add user message
     const userMsg: Message = {
       id: `temp-${Date.now()}`,
       conversationId,
@@ -56,10 +81,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         ...s.messages,
         [conversationId]: [...(s.messages[conversationId] || []), userMsg],
       },
-      streaming: true,
+      ...setConversationStreaming(s, conversationId, true),
     }))
 
-    // 2. Prepare AG-UI run request
     const runId = `run-${Date.now()}`
     const request: AGUIRunRequest = {
       threadId: conversationId,
@@ -68,23 +92,19 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       tools: frontendSkills.map((name) => ({ name })),
     }
 
-    // 3. Track streaming state
     let agentMsgId = ''
     let agentContent = ''
     let codeBlocks: CodeBlock[] = []
-    const toolCallArgs: Record<string, string> = {} // toolCallId → accumulated args JSON
+    const toolCallArgs: Record<string, string> = {}
 
-    // 4. Start the SSE stream
     const controller = runAgent(
       request,
-      // onEvent handler
       (event: AGUIEvent) => {
         switch (event.type) {
           case 'TEXT_MESSAGE_START':
             agentMsgId = event.messageId || `agent-${Date.now()}`
             agentContent = ''
             codeBlocks = []
-            // Add empty agent message placeholder
             set((s) => ({
               messages: {
                 ...s.messages,
@@ -105,24 +125,22 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
           case 'TEXT_MESSAGE_CONTENT':
             agentContent += event.content || ''
-            // Update the streaming message content
             set((s) => ({
               messages: {
                 ...s.messages,
                 [conversationId]: (s.messages[conversationId] || []).map((m) =>
-                  m.id === agentMsgId ? { ...m, content: agentContent } : m
+                  m.id === agentMsgId ? { ...m, content: agentContent } : m,
                 ),
               },
             }))
             break
 
           case 'TEXT_MESSAGE_END':
-            // Mark message as complete
             set((s) => ({
               messages: {
                 ...s.messages,
                 [conversationId]: (s.messages[conversationId] || []).map((m) =>
-                  m.id === agentMsgId ? { ...m, status: 'sent' as const } : m
+                  m.id === agentMsgId ? { ...m, status: 'sent' as const } : m,
                 ),
               },
             }))
@@ -150,14 +168,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                   language: args.language || '',
                   filename: args.filename || '',
                 })
-                // Update message with code blocks
                 set((s) => ({
                   messages: {
                     ...s.messages,
                     [conversationId]: (s.messages[conversationId] || []).map((m) =>
-                      m.id === agentMsgId
-                        ? { ...m, codeBlocks: [...codeBlocks] }
-                        : m
+                      m.id === agentMsgId ? { ...m, codeBlocks: [...codeBlocks] } : m,
                     ),
                   },
                 }))
@@ -168,48 +183,69 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             break
 
           case 'RUN_FINISHED':
-            set({ streaming: false, abortController: null })
+            set((s) => ({
+              ...setConversationStreaming(s, conversationId, false),
+              ...setConversationAbortController(s, conversationId, null),
+            }))
             break
 
           case 'RUN_ERROR':
             set((s) => ({
-              streaming: false,
-              abortController: null,
+              ...setConversationStreaming(s, conversationId, false),
+              ...setConversationAbortController(s, conversationId, null),
               messages: {
                 ...s.messages,
                 [conversationId]: (s.messages[conversationId] || []).map((m) =>
                   m.id === agentMsgId
-                    ? { ...m, status: 'failed' as const, content: agentContent || event.error || 'Error' }
-                    : m
+                    ? {
+                        ...m,
+                        status: 'failed' as const,
+                        content: agentContent || event.error || 'Error',
+                      }
+                    : m,
                 ),
               },
             }))
             break
         }
       },
-      // onError handler
       () => {
-        set({ streaming: false, abortController: null })
+        set((s) => ({
+          ...setConversationStreaming(s, conversationId, false),
+          ...setConversationAbortController(s, conversationId, null),
+        }))
       },
-      // onComplete handler
       () => {
-        set({ streaming: false, abortController: null })
+        set((s) => ({
+          ...setConversationStreaming(s, conversationId, false),
+          ...setConversationAbortController(s, conversationId, null),
+        }))
       },
     )
 
-    set({ abortController: controller })
+    set((s) => ({
+      ...setConversationAbortController(s, conversationId, controller),
+    }))
   },
 
-  stopStreaming: () => {
-    const { abortController } = get()
+  isStreaming: (conversationId: string) => {
+    const { streamingByConversation } = get()
+    return Boolean(streamingByConversation[conversationId])
+  },
+
+  stopStreaming: (conversationId: string) => {
+    const { abortControllersByConversation } = get()
+    const abortController = abortControllersByConversation[conversationId]
     if (abortController) {
       abortController.abort()
-      set({ streaming: false, abortController: null })
+      set((s) => ({
+        ...setConversationStreaming(s, conversationId, false),
+        ...setConversationAbortController(s, conversationId, null),
+      }))
     }
   },
 }))
 
-// Helper to parse artifacts JSON string from DB into CodeBlock array
 function parseArtifactsToCodeBlocks(artifactsStr: string): CodeBlock[] | undefined {
   if (!artifactsStr) return undefined
   try {

@@ -1,3 +1,8 @@
+---
+name: ai-collaboration-workflow
+description: "用于规范 AgentHub 使用 Codex、Skills 和人工评审进行协作开发的流程，包括先分析后修改、限制改动范围、避免越界实现、提交前检查、复查报告和交接清单。"
+---
+
 # ai-collaboration-workflow
 
 ## 1. Skill 目的
@@ -564,3 +569,12 @@ docs/contracts/ai-collaboration-workflow.md
 - 阶段越界规则。
 - MVP v0.1 协作规则。
 - AI Review Checklist。
+
+
+## References
+
+- `references/plan-before-editing.md`
+- `references/allowed-files-policy.md`
+- `references/codex-review-policy.md`
+- `references/scope-control.md`
+- `references/handoff-checklist.md`

@@ -12,7 +12,8 @@ interface Props {
 export default function ChatWindow({ conversationId }: Props) {
   const messages = useMessageStore((s) => s.messages[conversationId] || [])
   const loadMessages = useMessageStore((s) => s.loadMessages)
-  const { sendMessage, streaming, stopStreaming } = useSendMessage()
+  const { sendMessage, isStreaming, stopStreaming } = useSendMessage()
+  const streaming = isStreaming(conversationId)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Load messages when conversation changes
@@ -51,7 +52,7 @@ export default function ChatWindow({ conversationId }: Props) {
       {/* Input */}
       <MessageInput
         onSend={handleSend}
-        onStop={stopStreaming}
+        onStop={() => stopStreaming(conversationId)}
         streaming={streaming}
       />
     </div>

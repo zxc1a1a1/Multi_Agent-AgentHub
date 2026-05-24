@@ -6,8 +6,8 @@ import { useMessageStore } from '../stores/messageStore'
  */
 export function useSendMessage() {
   const sendMessage = useMessageStore((s) => s.sendMessage)
-  const streaming = useMessageStore((s) => s.streaming)
+  const isStreaming = useMessageStore((s) => s.isStreaming)
   const stopStreaming = useMessageStore((s) => s.stopStreaming)
 
-  return { sendMessage, streaming, stopStreaming }
+  return { sendMessage, isStreaming, stopStreaming }
 }

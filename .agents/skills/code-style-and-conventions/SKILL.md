@@ -1,6 +1,6 @@
-﻿---
+---
 name: code-style-and-conventions
-description: Use when changing TypeScript, React, Go, JSON, OpenAPI, naming, formatting, commit style, tests, or project conventions.
+description: "用于定义 AgentHub 项目的代码风格和工程约定，包括 Go、TypeScript、React 的写法规范、文件与字段命名、测试风格、错误处理习惯以及提交信息格式。"
 ---
 
 # code-style-and-conventions
@@ -580,3 +580,11 @@ docs/contracts/conventions.md
 - [ ] 是否没有跳过 lint / typecheck / go test？
 - [ ] commit message 是否规范？
 
+
+## References
+
+- `references/go-style.md`
+- `references/typescript-react-style.md`
+- `references/naming-conventions.md`
+- `references/commit-message-policy.md`
+- `references/test-style.md`

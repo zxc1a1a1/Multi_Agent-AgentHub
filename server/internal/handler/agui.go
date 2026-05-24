@@ -6,8 +6,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/model"
 )
 
@@ -18,6 +20,24 @@ func (h *Handler) HandleAGUIRun(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("invalid agui run request: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	threadID := strings.TrimSpace(req.ThreadID)
+	if _, err := uuid.Parse(threadID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid threadId"})
+		return
+	}
+	req.ThreadID = threadID
+
+	exists, err := h.db.ConversationExists(req.ThreadID)
+	if err != nil {
+		log.Printf("failed to check conversation existence: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+		return
+	}
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
 		return
 	}
 

@@ -4,8 +4,10 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/server/internal/model"
 )
 
@@ -53,7 +55,12 @@ func (h *Handler) CreateConversation(c *gin.Context) {
 
 // ListMessages returns messages for a conversation
 func (h *Handler) ListMessages(c *gin.Context) {
-	convID := c.Param("id")
+	convID := strings.TrimSpace(c.Param("id"))
+	if _, err := uuid.Parse(convID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid conversation id"})
+		return
+	}
+
 	limitStr := c.DefaultQuery("limit", "50")
 	limit, _ := strconv.Atoi(limitStr)
 	if limit <= 0 || limit > 200 {
