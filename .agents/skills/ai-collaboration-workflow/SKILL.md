@@ -1,4 +1,4 @@
-﻿---
+---
 name: ai-collaboration-workflow
 description: Use when planning Codex work, reviewing AI-generated changes, enforcing spec-plan-build-test-review workflow, or preventing scope creep.
 ---
@@ -570,3 +570,11 @@ docs/contracts/ai-collaboration-workflow.md
 - MVP v0.1 协作规则。
 - AI Review Checklist。
 
+
+## References
+
+- `references/plan-before-editing.md`
+- `references/allowed-files-policy.md`
+- `references/codex-review-policy.md`
+- `references/scope-control.md`
+- `references/handoff-checklist.md`

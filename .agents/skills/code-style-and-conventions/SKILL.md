@@ -1,4 +1,4 @@
-﻿---
+---
 name: code-style-and-conventions
 description: Use when changing TypeScript, React, Go, JSON, OpenAPI, naming, formatting, commit style, tests, or project conventions.
 ---
@@ -580,3 +580,11 @@ docs/contracts/conventions.md
 - [ ] 是否没有跳过 lint / typecheck / go test？
 - [ ] commit message 是否规范？
 
+
+## References
+
+- `references/go-style.md`
+- `references/typescript-react-style.md`
+- `references/naming-conventions.md`
+- `references/commit-message-policy.md`
+- `references/test-style.md`

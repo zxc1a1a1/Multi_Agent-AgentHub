@@ -1,4 +1,4 @@
-﻿---
+---
 name: platform-api-contract
 description: Use when changing Frontend-to-Gateway REST APIs, OpenAPI schemas, API response formats, pagination, auth headers, or generated API client contracts.
 ---
@@ -1441,3 +1441,11 @@ skills/project-architecture/SKILL.md
 REST API 的鉴权、资源权限、错误脱敏、token 处理和敏感信息边界由 `security-boundary-contract` 细化。
 
 
+
+## References
+
+- `references/rest-api-policy.md`
+- `references/auth-header-policy.md`
+- `references/error-response-policy.md`
+- `references/frontend-api-client-policy.md`
+- `references/api-review-checklist.md`

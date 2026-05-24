@@ -1,4 +1,4 @@
-﻿---
+---
 name: data-persistence-contract
 description: Use when changing database models, MySQL/PostgreSQL schema, Redis usage, object storage policy, migrations, persistence IDs, messages, runs, tasks, tool calls, or artifacts.
 ---
@@ -815,3 +815,12 @@ docs/contracts/migration-policy.md
 - [ ] 是否明确这些长期表 MVP v0.1 暂不强制实现，但不能从长期规划中删除？
 - [ ] 是否在涉及尚未完成的 Skill 时只写“由后续对应 Skill 细化”，没有强制要求当前文件已存在？
 
+
+## References
+
+- `references/mysql-mvp-schema.md`
+- `references/postgres-post-mvp-schema.md`
+- `references/migration-policy.md`
+- `references/persistence-id-policy.md`
+- `references/artifact-persistence-policy.md`
+- `references/data-review-checklist.md`

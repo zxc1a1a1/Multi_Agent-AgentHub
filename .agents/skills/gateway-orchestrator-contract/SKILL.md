@@ -1,4 +1,4 @@
-﻿---
+---
 name: gateway-orchestrator-contract
 description: Use when changing Gateway-to-Orchestrator internal contracts, OrchestratorEvent mapping, run lifecycle, internal endpoints, tool results, or cancellation flow.
 ---
@@ -1066,3 +1066,11 @@ POST /internal/runs/{runId}/cancel
 - 审批持久化由后续 `data-persistence-contract` 细化。
 
 
+
+## References
+
+- `references/orchestrator-event-policy.md`
+- `references/run-lifecycle.md`
+- `references/cancellation-policy.md`
+- `references/gateway-agui-mapping.md`
+- `references/gateway-orchestrator-review-checklist.md`

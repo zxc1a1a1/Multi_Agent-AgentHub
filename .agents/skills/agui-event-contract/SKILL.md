@@ -1,4 +1,4 @@
-﻿---
+---
 name: agui-event-contract
 description: Use when changing AG-UI events, SSE streaming behavior, run lifecycle events, text streaming, tool calls, state updates, or frontend event reducers.
 ---
@@ -958,3 +958,12 @@ Coding Agent 在处理 AG-UI 事件时必须遵守：
 - Tool Call 参数与 ToolResult 由后续 `frontend-runtime-skills-contract` 细化。
 
 
+
+## References
+
+- `references/sse-streaming-policy.md`
+- `references/event-lifecycle.md`
+- `references/text-message-events.md`
+- `references/tool-call-events.md`
+- `references/error-redaction.md`
+- `references/agui-review-checklist.md`

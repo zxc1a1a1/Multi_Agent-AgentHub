@@ -1,4 +1,4 @@
-﻿---
+---
 name: project-architecture
 description: Use when changing AgentHub architecture, module boundaries, service responsibilities, MVP scope, or Frontend/Gateway/Orchestrator/Child Agent relationships.
 ---
@@ -965,3 +965,10 @@ security-boundary-contract
 - 不得把 Post-MVP 的“至少两个 Child Agents”误解为 MVP v0.1 必须实现。
 
 
+
+## References
+
+- `references/module-boundaries.md`
+- `references/mvp-scope.md`
+- `references/post-mvp-boundaries.md`
+- `references/architecture-review-checklist.md`
