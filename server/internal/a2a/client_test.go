@@ -2,7 +2,9 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -87,5 +89,47 @@ func TestGetOrCreateClientCreateErrorNotCached(t *testing.T) {
 	}
 	if len(c.clients) != 0 {
 		t.Fatalf("expected failed create not to be cached")
+	}
+}
+
+func TestBuildStructuredPayloadIncludesRoleContent(t *testing.T) {
+	payload, err := buildStructuredPayload([]StructuredMessage{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "hi"},
+		{Role: "system", Content: "policy"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(payload, "\"messages\"") {
+		t.Fatalf("expected payload to contain messages root field, got %s", payload)
+	}
+
+	var decoded struct {
+		Messages []StructuredMessage `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+		t.Fatalf("failed to unmarshal payload: %v", err)
+	}
+
+	if len(decoded.Messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(decoded.Messages))
+	}
+	if decoded.Messages[0].Role != "user" || decoded.Messages[0].Content != "hello" {
+		t.Fatalf("unexpected first message: %+v", decoded.Messages[0])
+	}
+	if decoded.Messages[1].Role != "assistant" || decoded.Messages[1].Content != "hi" {
+		t.Fatalf("unexpected second message: %+v", decoded.Messages[1])
+	}
+	if decoded.Messages[2].Role != "system" || decoded.Messages[2].Content != "policy" {
+		t.Fatalf("unexpected third message: %+v", decoded.Messages[2])
+	}
+}
+
+func TestBuildStructuredPayloadEmptyMessagesError(t *testing.T) {
+	_, err := buildStructuredPayload(nil)
+	if err == nil {
+		t.Fatalf("expected error for empty messages")
 	}
 }

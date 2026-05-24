@@ -1,7 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -29,7 +36,11 @@ func main() {
 	orc := orchestrator.New(a2aClient, cfg.Agents)
 
 	r := gin.Default()
-	r.Use(cors.Default())
+	r.Use(cors.New(cors.Config{
+		AllowOrigins: cfg.CORSAllowOrigins,
+		AllowMethods: []string{"GET", "POST", "OPTIONS"},
+		AllowHeaders: []string{"Content-Type", "Authorization"},
+	}))
 
 	// Health endpoint — no auth, per docker-compose-delivery healthcheck policy
 	r.GET("/health", func(c *gin.Context) {
@@ -51,6 +62,32 @@ func main() {
 		api.POST("/agui/run", h.HandleAGUIRun)
 	}
 
-	log.Printf("server starting on :%s", cfg.Port)
-	r.Run(":" + cfg.Port)
+	server := &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: r,
+	}
+
+	go func() {
+		log.Printf("server starting on :%s", cfg.Port)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server failed: %v", err)
+		}
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-sigCh
+	log.Printf("received signal %s, shutting down", sig)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("graceful shutdown failed: %v", err)
+		if closeErr := server.Close(); closeErr != nil {
+			log.Printf("server close failed: %v", closeErr)
+		}
+	}
+
+	log.Printf("server shutdown complete")
 }

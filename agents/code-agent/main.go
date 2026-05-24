@@ -20,8 +20,11 @@ func main() {
 		port = "8081"
 	}
 
+	llm := adk.NewLLMClient()
+	taskHandler := handleTaskWithLLM(llm)
+
 	// Create A2A server using a2a-go/v2 for protocol compliance
-	server := adk.NewA2AServer(config, handleTask)
+	server := adk.NewA2AServer(config, taskHandler)
 
 	log.Printf("Code-Agent [%s] starting on port %s", config.Name, port)
 	if err := server.Run(":" + port); err != nil {

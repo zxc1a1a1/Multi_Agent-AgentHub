@@ -3,7 +3,6 @@ package orchestrator
 import (
 	"context"
 	"log"
-	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
@@ -18,6 +17,12 @@ type Orchestrator struct {
 	a2aClient *a2aclient.Client
 	agents    map[string]config.AgentConfig
 }
+
+const (
+	roleUser      = "user"
+	roleAssistant = "assistant"
+	roleSystem    = "system"
+)
 
 // New creates a new Orchestrator instance.
 func New(client *a2aclient.Client, agents map[string]config.AgentConfig) *Orchestrator {
@@ -50,8 +55,8 @@ func (o *Orchestrator) Process(
 		return
 	}
 
-	// 3. Build user message from history + current request
-	userMessage := o.buildUserMessage(req, history)
+	// 3. Build structured role-aware message context from history + current request
+	messages := o.buildStructuredMessages(req, history)
 
 	// 4. Extract frontend skills
 	skills := o.extractSkills(req.Tools)
@@ -60,7 +65,7 @@ func (o *Orchestrator) Process(
 	converter := NewConverter(skills)
 
 	// 6. Call agent via official a2a-go/v2 client
-	eventIter, err := o.a2aClient.SendStreamingMessage(ctx, agentCfg.URL, userMessage)
+	eventIter, err := o.a2aClient.SendStreamingMessages(ctx, agentCfg.URL, messages)
 	if err != nil {
 		log.Printf("A2A client error: %v", err)
 		events <- model.AGUIEvent{Type: "RUN_ERROR", Error: "agent communication error"}
@@ -97,25 +102,48 @@ func (o *Orchestrator) Process(
 	}
 }
 
-// buildUserMessage constructs the full user message from history + request
-func (o *Orchestrator) buildUserMessage(req model.AGUIRunRequest, history []model.Message) string {
-	var parts []string
+// buildStructuredMessages keeps role semantics for history + current messages.
+func (o *Orchestrator) buildStructuredMessages(req model.AGUIRunRequest, history []model.Message) []a2aclient.StructuredMessage {
+	total := len(history) + len(req.Messages)
+	messages := make([]a2aclient.StructuredMessage, 0, total)
 
-	// Add history context
 	for _, h := range history {
-		role := "User"
-		if h.SenderType == "agent" {
-			role = "Assistant"
-		}
-		parts = append(parts, role+": "+h.Content)
+		messages = append(messages, a2aclient.StructuredMessage{
+			Role:    mapHistorySenderToRole(h.SenderType),
+			Content: h.Content,
+		})
 	}
 
-	// Add current message
 	for _, m := range req.Messages {
-		parts = append(parts, m.Content)
+		messages = append(messages, a2aclient.StructuredMessage{
+			Role:    normalizeAGUIRole(m.Role),
+			Content: m.Content,
+		})
 	}
 
-	return strings.Join(parts, "\n\n")
+	return messages
+}
+
+func mapHistorySenderToRole(senderType string) string {
+	switch senderType {
+	case "agent":
+		return roleAssistant
+	default:
+		return roleUser
+	}
+}
+
+func normalizeAGUIRole(role string) string {
+	switch role {
+	case "agent":
+		return roleAssistant
+	case roleAssistant:
+		return roleAssistant
+	case roleSystem:
+		return roleSystem
+	default:
+		return roleUser
+	}
 }
 
 // extractSkills extracts skill names from the frontend's declared tools

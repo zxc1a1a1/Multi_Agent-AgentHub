@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"sync"
@@ -11,6 +12,16 @@ import (
 )
 
 type clientFactory func(context.Context, []*a2a.AgentInterface) (*a2aclient.Client, error)
+
+// StructuredMessage represents a role-aware conversational turn.
+type StructuredMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type structuredMessagesPayload struct {
+	Messages []StructuredMessage `json:"messages"`
+}
 
 // Client wraps the official a2a-go/v2 client for communicating with child agents.
 // Per a2a-agent-contract: uses official A2A protocol for agent communication.
@@ -48,6 +59,34 @@ func (c *Client) SendStreamingMessage(
 
 	// Send streaming message
 	return client.SendStreamingMessage(ctx, req), nil
+}
+
+// SendStreamingMessages sends role-aware structured messages by converting them
+// into a single A2A text payload that preserves per-message role metadata.
+func (c *Client) SendStreamingMessages(
+	ctx context.Context,
+	agentURL string,
+	messages []StructuredMessage,
+) (iter.Seq2[a2a.Event, error], error) {
+	payload, err := buildStructuredPayload(messages)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.SendStreamingMessage(ctx, agentURL, payload)
+}
+
+func buildStructuredPayload(messages []StructuredMessage) (string, error) {
+	if len(messages) == 0 {
+		return "", fmt.Errorf("no messages to send")
+	}
+
+	raw, err := json.Marshal(structuredMessagesPayload{Messages: messages})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal structured messages: %w", err)
+	}
+
+	return string(raw), nil
 }
 
 func (c *Client) getOrCreateClient(ctx context.Context, agentURL string) (*a2aclient.Client, error) {

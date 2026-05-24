@@ -36,7 +36,16 @@ Keep explanations concise and focus on delivering working code.`
 //   - Uses ctx.StreamText for text output
 //   - Uses ctx.AddArtifact for code artifacts
 func handleTask(ctx *adk.Context, messages []a2a.Message) error {
-	llm := adk.NewLLMClient()
+	return defaultTaskHandler(ctx, messages)
+}
+
+func handleTaskWithLLM(llm *adk.LLMClient) adk.TaskHandler {
+	return func(ctx *adk.Context, messages []a2a.Message) error {
+		return processTaskWithLLM(llm, ctx, messages)
+	}
+}
+
+func processTaskWithLLM(llm *adk.LLMClient, ctx *adk.Context, messages []a2a.Message) error {
 
 	// Convert A2A Messages to LLM messages
 	llmMsgs := make([]adk.LLMMessage, 0, len(messages))
@@ -85,6 +94,8 @@ func handleTask(ctx *adk.Context, messages []a2a.Message) error {
 
 	return nil
 }
+
+var defaultTaskHandler = handleTaskWithLLM(adk.NewLLMClient())
 
 // extractTextFromParts extracts plain text from A2A message parts.
 func extractTextFromParts(parts a2a.ContentParts) string {
