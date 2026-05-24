@@ -7,6 +7,13 @@ export interface AGUIRunRequest {
   tools: { name: string }[]
 }
 
+function authHeaders(): Record<string, string> {
+  const t = import.meta.env.VITE_AGENTHUB_API_TOKEN as string
+  const h: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (t) h['Authorization'] = `Bearer ${t}`
+  return h
+}
+
 /**
  * Sends a run request to the AG-UI endpoint and streams SSE events back.
  * Uses fetch + ReadableStream for POST-based SSE (EventSource only supports GET).
@@ -21,7 +28,7 @@ export function runAgent(
 
   fetch('/api/agui/run', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(request),
     signal: controller.signal,
   })
