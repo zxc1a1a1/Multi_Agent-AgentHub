@@ -1,636 +1,530 @@
 ---
 name: security-boundary-contract
-description: "用于定义 AgentHub 的安全边界和提交前安全规则，包括 .env 禁止入库、API Key 和 Token 只能来自环境变量、错误脱敏、前端安全、沙箱限制以及密钥泄漏检查。"
+description: "用于定义 AgentHub v1.0 及后续演进的全链路安全边界契约，包括 Frontend、Gateway、Orchestrator、Child Agent、LLM、Registry、Artifact、Tool、文件、部署、密钥、鉴权、授权、sandbox、错误脱敏、审计和安全测试。本 Skill 不绑定具体 Agent。"
 ---
 
 # security-boundary-contract
 
 ## 1. Skill 目的
 
-本 Skill 用于定义 AgentHub 项目的安全边界，包括前后端鉴权、A2A 内部通信、API Key 管理、LLM Provider 密钥、Artifact 权限、iframe sandbox、file upload、confirm_action、run_command、XSS 防护和错误信息脱敏。
-
-一句话：
-
-**AgentHub 中 Frontend、Gateway、Orchestrator、Child Agent、LLM、Artifact、文件和部署能力之间必须有明确安全边界；任何危险操作都不能由 AI 直接绕过。**
-
----
-
-## 2. 适用场景
-
-当任务涉及以下内容时，必须使用本 Skill：
-
-- 设计鉴权。
-- 设计固定 Token / JWT。
-- 设计 A2A 内部鉴权。
-- 保存或读取 API Key。
-- 调用 LLM Provider。
-- 输出错误信息。
-- 设计 Artifact 下载。
-- 设计 iframe 预览。
-- 设计 file_upload。
-- 设计 confirm_action。
-- 设计 run_command。
-- 设计 deploy。
-- 设计 sandbox。
-- 设计权限校验。
-- Review 是否泄漏 token、API key、stack trace。
-- Review 子 Agent 是否越权访问 workspace。
-
----
-
-## 3. 核心原则
-
-AgentHub 安全规则：
-
-```text
-Frontend 不可信
-Child Agent 不完全可信
-用户输入不可信
-LLM 输出不可信
-Artifact 内容不可信
-文件上传不可信
-工具执行不可信
-错误信息不能泄漏内部细节
-高危操作必须 confirm_action
-密钥只能来自环境变量或安全密钥管理
-```
-
----
-
-## 4. 四份设计文档解释原则
-
-本 Skill 同时遵守：
-
-1. **v1.1 Skills 设计规范**：要求 P0 中定义安全边界。
-2. **PDR**：定义完整目标中的 JWT、A2A internal auth、API Key、sandbox、XSS 等安全需求。
-3. **MVP 文档**：允许 v0.1 使用固定 Token，不做完整用户注册登录。
-4. **UML 文档**：定义 Frontend → Gateway → Orchestrator → Code-Agent → LLM 的调用链路。
-
-解释规则：
-
-```text
-MVP 可以简化鉴权方式。
-安全边界不能因为 MVP 而取消。
-```
-
----
-
-## 5. 核心文件
-
-本 Skill 落地后应生成或维护：
-
-```text
-docs/contracts/security-boundaries.md
-docs/contracts/auth-policy.md
-docs/contracts/sandbox-policy.md
-```
-
-可选维护：
-
-```text
-docs/contracts/secret-management.md
-docs/contracts/xss-policy.md
-docs/contracts/file-upload-policy.md
-docs/contracts/security-review-checklist.md
-```
-
----
-
-## 6. MVP v0.1 安全范围
-
-MVP v0.1 允许：
-
-- 使用固定 Token 或环境变量 Token。
-- 不做完整用户注册登录。
-- 不做完整 JWT 签发 / 刷新。
-- 不做复杂 RBAC。
-- A2A 内部通信可以先在 Docker 内网中运行。
-- 暂不开放 file_upload。
-- 暂不开放 run_command 给真实用户。
-- 暂不实现部署发布。
-- 暂不使用对象存储公开下载。
-
-MVP v0.1 仍然必须：
-
-- Frontend 只能调用 Gateway。
-- Gateway 鉴权 `/api/*`。
-- Token 不得出现在 query string。
-- 错误信息不得泄漏 stack trace / token / API key。
-- LLM API key 只能来自环境变量。
-- Child Agent 日志不得打印 API key。
-- Artifact 预览必须考虑 XSS。
-- `code_preview` 默认只展示代码，不执行代码。
-- `web_preview` 如果后续实现，必须 iframe sandbox。
-- A2A endpoint 不暴露给 Frontend。
-- Gateway handler 不直接调用 A2A endpoint。
-
----
-
-## 7. Post-MVP 安全目标
-
-Post-MVP 应扩展：
-
-- JWT 登录。
-- Refresh token。
-- 用户权限。
-- A2A service-to-service auth。
-- API Key 加密存储。
-- workspace sandbox。
-- run_command 白名单。
-- file_upload 类型 / 大小 / 病毒扫描。
-- object storage 私有下载 URL。
-- confirm_action 高危操作确认。
-- audit log。
-- rate limit。
-- CSRF / CORS 更严格控制。
-- Agent 权限隔离。
-- 自建 Agent sandbox。
-
----
-
-## 8. Frontend 安全边界
-
-Frontend 允许：
-
-- 调用 Gateway REST API。
-- 连接 Gateway AG-UI SSE。
-- 执行已注册的 Frontend Runtime Skill。
-- 展示 `code_preview`。
-- 在 sandbox 中展示网页预览。
-
-Frontend 不允许：
-
-- 直接调用 Orchestrator。
-- 直接调用 Child Agent。
-- 直接调用 A2A endpoint。
-- 直接访问 LLM Provider。
-- 保存 LLM API key。
-- 在 query string 中传 token。
-- 执行 LLM 生成的任意 JS。
-- 自动执行危险 Tool Call。
-- 绕过 `confirm_action`。
-
----
-
-## 9. Gateway 安全边界
-
-Gateway 负责：
-
-- 对外鉴权。
-- CORS。
-- requestId / traceId。
-- Rate limit。
-- REST API 权限校验。
-- AG-UI endpoint 鉴权。
-- 用户资源访问控制。
-- 错误脱敏。
-- 向 Orchestrator 传递安全上下文。
-
-Gateway 不负责：
-
-- 保存明文 API key。
-- 直接执行 LLM 生成命令。
-- 直接调用 Child Agent。
-- 直接信任 Frontend 传来的 AgentName / toolName。
-- 在错误中输出内部堆栈。
-
-MVP v0.1：
-
-```text
-Authorization: Bearer <fixed-token>
-```
-
-Post-MVP：
-
-```text
-Authorization: Bearer <jwt>
-```
-
----
-
-## 10. Orchestrator 安全边界
-
-Orchestrator 负责：
-
-- 校验 Agent 是否来自 Registry / 配置白名单。
-- 控制可调用的 Agent。
-- 控制可传给 Agent 的上下文。
-- 校验 Frontend 声明的 Tools / Skills 是否白名单。
-- 将 A2A 错误脱敏后转为 RUN_ERROR。
-- 不把敏感 system prompt 传给不可信 Agent。
-- 不把用户 token 传给 Child Agent。
-
-Orchestrator 不允许：
-
-- 直接暴露给 Frontend。
-- 直接处理浏览器鉴权。
-- 直接信任 LLM 输出的 AgentName。
-- 让 LLM 编排不存在的 Agent / skill。
-- 把 Gateway Authorization token 放进 A2A metadata。
-- 把完整内部错误传给 Frontend。
-
----
-
-## 11. Child Agent 安全边界
-
-Child Agent 不完全可信。
-
-Child Agent 必须：
-
-- 只通过 A2A endpoint 被 Orchestrator 调用。
-- 暴露 AgentCard，但不泄漏密钥。
-- 不打印 LLM API key。
-- 不打印完整敏感 prompt。
-- 不访问超出 workspace 的文件。
-- 不执行未授权命令。
-- 不返回恶意 HTML / JS 作为可信内容。
-- Artifact 输出必须经过 Orchestrator / Artifact Contract / Frontend Runtime Skill 处理。
-
-Post-MVP 自建 Agent：
-
-- 必须有权限隔离。
-- 必须有 sandbox。
-- 必须有限制的工具权限。
-- 必须有 resource limit。
-- 必须有审计日志。
-
----
-
-## 12. A2A 内部通信安全
-
-MVP v0.1：
-
-- A2A 可运行在 Docker 内部网络。
-- 不暴露给公网。
-- 不暴露给 Frontend。
-- Gateway handler 不直接调用。
-
-Post-MVP：
-
-- A2A 调用必须使用 service-to-service token 或 mTLS。
-- A2A metadata 不得携带用户 token。
-- A2A 请求必须携带 traceId。
-- A2A endpoint 必须限流。
-- A2A 错误必须脱敏。
-- AgentCard 不得泄漏密钥或内部敏感配置。
-
----
-
-## 13. API Key / Secret 管理
-
-密钥包括：
-
-- LLM API key。
-- JWT signing secret。
-- Service token。
-- Object storage credentials。
-- Database password。
-- OAuth secret。
-- Deploy token。
+本 Skill 是 AgentHub 的安全边界事实源，用于在开发、评审、生成代码、生成契约、设计 Demo 或接入新能力时判断：哪些输入不可信、哪些动作必须授权、哪些数据不能泄露、哪些接口不能公开、哪些能力必须经过确认和审计。
+
+本 Skill 面向 AgentHub v1.0 及后续扩展。当前 v1.0 目标来自 `SPRINT-v1.0-Plan.md`：多 Agent 协作、LLM 意图编排、单聊与群聊、Agent Registry、健康检查、丰富产物预览、降级重试和 Docker Demo。
+
+## 2. 独立性原则
+
+本 Skill 必须独立可读。阅读者不需要先阅读其他 Skill，也能理解 AgentHub 的安全边界。
+
+可以引用以下概念，但不得展开其他 Skill 的完整规则：
+
+- Gateway Service
+- Orchestrator Service
+- Child Agent Service
+- Agent Registry
+- Artifact
+- Runtime Capability
+- Tool Call
+- LLM Provider
+- Conversation / Message / Run
+
+## 3. 当前事实源
+
+- `SPRINT-v1.0-Plan.md` 是 v1.0 当前目标事实源。
+- MVP v0.1 已完成，只能作为 Historical Profile 或回归基线。
+- Gateway Service 与 Orchestrator Service 必须分进程。
+- 当前方向支持 2+ Agent、单聊 + 群聊、LLM 编排、Registry、健康检查、丰富产物、fallback / retry。
+- Sprint 中出现的具体 Agent 名称或文件路径只能作为实施示例，不能成为长期安全边界的硬编码条件。
+
+## 4. 本 Skill 负责什么
+
+本 Skill 负责定义：
+
+- 信任边界模型
+- Frontend 安全边界
+- Gateway 公开 API 安全边界
+- Gateway ↔ Orchestrator 服务间安全
+- Orchestrator 编排安全
+- Child Agent 与用户自建 Agent 信任边界
+- Agent Registry / AgentCard / Health Check 安全
+- 用户鉴权、服务鉴权、对象级授权
+- LLM / Planner 安全
+- Secret 管理
+- Artifact / Runtime Capability 安全
+- iframe sandbox / CSP / XSS 渲染安全
+- Tool Action 风险等级
+- confirm_action 安全门
+- run_command / deploy / file overwrite 等高危动作安全
+- file_upload / file_download 安全
+- rate limit / quota / resource limit
+- 错误脱敏
+- 日志与审计
+- 安全契约测试与 Review Checklist
+
+## 5. 本 Skill 不负责什么
+
+本 Skill 不负责：
+
+- REST API 完整字段定义
+- Gateway ↔ Orchestrator 内部 API 完整 schema
+- Child Agent 协议字段
+- LLM Provider SDK 适配实现
+- Artifact 完整 schema
+- 数据库 DDL
+- Docker Compose 具体实现
+- Go / TypeScript / SQL / Dockerfile 业务实现代码
+- 某个具体 Agent 的业务权限细节
+
+## 6. Trust Boundary Model
+
+AgentHub 默认采用“不信任输入，最小权限执行，先校验后动作”的安全模型。
+
+以下对象默认不可信：
+
+- 用户输入
+- Frontend 可提交的任何字段
+- LLM 输出
+- Planner 输出
+- Child Agent 输出
+- 用户自建 Agent
+- AgentCard 声明
+- Artifact 内容
+- Tool Call 参数
+- 上传文件
+- 外部 URL
+- Provider 原始错误
 
 规则：
 
-- 密钥只能来自环境变量或安全密钥管理。
-- 不得写进 Git。
-- 不得写进 AgentCard。
-- 不得写进 OpenAPI 示例。
-- 不得写进 Contract 示例。
-- 不得打印到日志。
-- 不得回传给 Frontend。
-- `.env.example` 只能写变量名，不写真实值。
-- AI 生成代码不得硬编码密钥。
+- LLM 输出只作为建议，不是授权依据。
+- AgentCard 是能力声明，不是信任凭证。
+- Artifact 是不可信内容，不得直接注入主应用 DOM。
+- Tool Call 参数必须经过 schema validation、权限校验和风险判断。
+- 高危动作必须经过 confirm_action。
+- 所有跨用户资源访问必须做对象级授权。
 
----
+## 7. Public API Security Boundary
 
-## 14. 错误信息安全
+Frontend 只能访问 Gateway Service 的公开 API。
 
-对外错误不得包含：
+公开 API 必须满足：
 
-- stack trace。
-- API key。
-- token。
-- 数据库连接串。
-- 内部路径。
-- 内部服务地址。
-- 完整 system prompt。
-- 未脱敏用户隐私。
+- 默认需要用户鉴权。
+- token 只能放在 `Authorization` header。
+- token 不得放入 query string。
+- 所有 conversation、message、artifact、run、agent config 等用户资源必须做对象级授权。
+- 错误响应必须脱敏。
+- 返回字段必须裁剪，不得暴露内部服务 URL、service token、数据库路径、system prompt、Provider 原始响应。
+- 大型下载必须使用受控接口或短期 URL。
 
-AG-UI `RUN_ERROR` 只能包含：
+禁止：
 
-```text
-code
-message
-runId
-```
+- 把 `/internal/**` 暴露给 Frontend。
+- 把 Orchestrator Service endpoint 写进公开 API。
+- 把 Child Agent endpoint 写进公开 API。
+- 前端直接调用 LLM Provider。
+- 公开 API 接收任意内部任务执行参数。
 
-REST ErrorResponse 只能包含：
+## 8. Gateway ↔ Orchestrator Service-to-Service Security
 
-```text
-code
-data: null
-message
-```
+Gateway Service 与 Orchestrator Service 必须是两个独立进程。
 
-详细错误写日志，但日志也必须脱敏。
+服务间安全规则：
 
----
+- Gateway 调 Orchestrator 必须使用 service-to-service auth。
+- service token 与用户 token 必须分离。
+- 用户 Authorization token 不得作为 service token 透传。
+- Orchestrator 的内部 API 不得暴露给浏览器。
+- 内部 API 必须有 timeout。
+- 内部调用必须携带 requestId / traceId / runId。
+- service token 不得进入日志、错误响应、Artifact、AgentCard、前端事件或 debug dump。
+- Orchestrator 不处理浏览器登录态。
+- Orchestrator 不直接写浏览器响应。
 
-## 15. Artifact 安全
+最小允许实现可以是：
 
-Artifact 不可信。
+- private network + `INTERNAL_SERVICE_TOKEN`
+- mTLS
+- service mesh identity
+- 等价服务间认证机制
 
-规则：
+## 9. Orchestrator Security Boundary
 
-- `code_preview` 只展示代码，不执行。
-- `web_preview` 必须使用 iframe sandbox。
-- HTML 内容必须隔离。
-- 文件下载必须鉴权。
-- 私有 Artifact URL 必须短期有效。
-- 图片 / 文件必须校验 MIME type。
-- 大文件必须限制大小。
-- Artifact metadata 不得包含密钥。
-- deploy Artifact / deploy action 必须走 `confirm_action`。
-
-MVP v0.1：
-
-```text
-只实现 code_preview，不执行代码。
-```
-
----
-
-## 16. Frontend Runtime Skill 安全
-
-不同 Skill 风险不同：
-
-| Skill | 风险 | 要求 |
-|---|---|---|
-| `code_preview` | 低 | 只展示，不执行 |
-| `web_preview` | 高 | iframe sandbox |
-| `file_download` | 中 | 鉴权 URL / MIME 校验 |
-| `terminal_output` | 中 | 只展示输出 |
-| `confirm_action` | 高 | 必须用户确认 |
-| `file_upload` | 高 | 类型 / 大小 / 扫描 |
-| `deploy_status` | 高 | 不得自动部署 |
-| `form_input` | 中 | 校验输入 |
+Orchestrator 是内部编排服务，负责计划、校验、调度、fallback、聚合，但不得绕过安全边界。
 
 规则：
 
-- 交互类 Skill 的 ToolResult 必须校验。
-- 高危 Skill 必须阻塞 run 等用户确认。
-- LLM 不能绕过用户确认直接执行危险操作。
-- `confirm_action` 必须用于部署、命令执行、文件覆盖等操作。
+- Planner 输出必须结构化并本地校验。
+- Agent / capability / output 必须来自 Registry 或可信能力集合。
+- Orchestrator 只能调用 enabled 且 healthy 的 Agent。
+- fallback / retry 后的目标也必须重新校验。
+- Orchestrator 不得信任 LLM 生成的权限声明。
+- Orchestrator 不得把 system prompt、service token、LLM API key 传给不可信 Agent。
+- Orchestrator 不得执行高危 Tool；高危动作必须进入 confirm_action 流程。
 
----
+## 10. Child Agent / User Agent Trust Boundary
 
-## 17. run_command 安全
+Child Agent 是能力提供服务，不是全局可信主体。
 
-Post-MVP 如果支持 `run_command`：
+规则：
 
-必须：
+- Child Agent 只能执行自身声明并获授权的能力。
+- Child Agent 输出必须被视为不可信内容。
+- Child Agent 不得直接访问 Gateway 的用户 API。
+- Child Agent 不得直接访问 Frontend。
+- Child Agent 不得决定全局编排策略。
+- 用户自建 Agent 默认处于更低 trustLevel，必须显式授权能力和资源范围。
+- 用户自建 Agent 不得默认拥有 run_command、deploy、file_overwrite、secret_read 等高危能力。
 
-- sandbox。
-- workspace 根目录限制。
-- 命令白名单。
-- 超时。
-- 输出长度限制。
-- 禁止访问系统敏感路径。
-- 禁止网络扫描。
-- 禁止读取密钥文件。
-- 禁止持久后台进程。
-- 必须用户确认或策略允许。
+## 11. Agent Registry / AgentCard / Health Security
 
-MVP v0.1 不实现 `run_command`。
+Agent Registry 是 Agent 能力目录和可用性来源，但不是安全凭证本身。
 
----
+规则：
 
-## 18. file_upload 安全
+- AgentCard 不得包含 API key、service token、数据库连接串、system prompt、内部文件路径、对象存储凭证。
+- Registry 只能接收可信来源、白名单、签名配置或受控管理入口中的 Agent。
+- Agent health check 只暴露健康状态，不暴露环境变量、堆栈、Provider key、内部网络拓扑。
+- Frontend 只能看到脱敏 Agent 摘要。
+- Orchestrator 只能调用 Registry 中 enabled 且 healthy 的 Agent。
+- Agent 能力以 capability / inputModes / outputModes / permissions 表达，不通过 agentName 推断。
 
-Post-MVP 如果支持 file upload：
+## 12. Auth / Authorization / Object-level Permission
 
-必须：
+认证解决“是谁”，授权解决“能做什么”。AgentHub 必须同时处理用户授权和服务授权。
 
-- 文件大小限制。
-- MIME type 校验。
-- 后缀校验。
-- 病毒扫描或安全扫描。
+用户授权规则：
+
+- 用户只能访问自己有权限的 conversation、message、artifact、run。
+- 群聊 participant 变更必须校验权限。
+- Artifact 预览、下载、删除必须校验对象级权限。
+- Agent 配置读取和修改必须校验权限。
+- 失败时返回安全错误，不泄露资源是否存在的敏感细节。
+
+服务授权规则：
+
+- Gateway → Orchestrator 使用 service identity。
+- Orchestrator → Child Agent 使用内部授权或可信网络约束。
+- Orchestrator → LLM Provider 使用受控 Provider credential。
+- service credential 不得被用户可见层读取。
+
+## 13. LLM / Planner Security
+
+LLM 与 Planner 都不可信。
+
+规则：
+
+- LLM 输出不得直接作为执行依据。
+- Planner 输出必须 JSON parse + schema validation + capability validation。
+- LLM 不得创造不存在的 Agent / capability / tool。
+- LLM 不得绕过对象级授权。
+- LLM 不得绕过 confirm_action。
+- Prompt 中不得包含 API key、service token、数据库密码、完整内部拓扑、完整 system secret。
+- 不可信 Agent 不得接收系统级 Prompt 或 Provider key。
+- Prompt injection 不能改变安全策略。
+- fallback plan 必须重新走同样的安全校验。
+- 结构化输出失败不得执行下游动作。
+
+## 14. Secret Management
+
+Secret 包括但不限于：
+
+- LLM API key
+- service-to-service token
+- JWT signing secret
+- database password
+- object storage credential
+- deploy token
+- OAuth secret
+- webhook secret
+
+规则：
+
+- Secret 只能来自环境变量、secret manager 或等价机制。
+- `.env.example` 只能写变量名和占位符，不写真实值。
+- 文档、OpenAPI 示例、AgentCard、Artifact metadata、日志、trace、debug dump 都不得包含真实 Secret。
+- Secret 不得硬编码到 Go / TypeScript / Dockerfile / Markdown 示例中。
+- Secret 需要最小权限、轮换能力和访问审计。
+- AI 生成代码必须经过 Secret 泄漏检查。
+
+## 15. Artifact / Runtime Capability Security
+
+Artifact 与 Runtime Capability 是 AgentHub 的核心体验，也是主要攻击面。
+
+风险分级：
+
+- 低风险：markdown_render、code_preview 只展示不执行。
+- 中风险：file_download、terminal_output、generated_document。
+- 高风险：web_preview、file_upload、run_command、deploy_action、file_overwrite、external_publish。
+
+规则：
+
+- code preview 默认只展示，不执行。
+- markdown 必须防 XSS，不默认允许危险 HTML。
+- web preview 必须使用 iframe sandbox。
+- Artifact 内容不得直接插入主应用 DOM。
+- Artifact metadata 不得包含 secret。
+- 大型 Artifact 必须走 contentRef 或受控下载。
+- 下载必须鉴权，URL 必须短期有效。
+- 高风险 Runtime Capability 必须经过权限校验和 confirm_action。
+
+## 16. iframe Sandbox / CSP / XSS Policy
+
+`web_preview` 必须隔离。
+
+规则：
+
+- HTML 预览不得使用主应用 DOM 的 `innerHTML` 直接渲染。
+- HTML 预览应使用 iframe sandbox。
+- sandbox 默认最小权限，谨慎增加 `allow-*`。
+- iframe 内容不得读取父页面 token、cookie、localStorage、sessionStorage。
+- iframe 内容不得调用 Gateway 用户 API。
+- markdown 渲染不得默认允许任意 HTML。
+- 用户输入和 LLM 输出都必须按上下文编码或清洗。
+- 外链应防止 tabnabbing。
+- CSP 应作为额外防线，但不能替代输出编码和 sandbox。
+
+## 17. Tool Action Risk Policy
+
+Tool Action 必须按风险分级。
+
+字段建议：
+
+- actionType
+- riskLevel
+- requiredPermission
+- requiresConfirmation
+- timeoutMs
+- auditRequired
+- allowedScope
+
+高风险动作包括：
+
+- run_command
+- deploy
+- file_overwrite
+- external_publish
+- credential_update
+- agent_install
+- workspace_delete
+
+规则：
+
+- Tool 参数必须 schema validation。
+- 高风险动作必须 confirm_action。
+- 高风险动作必须审计。
+- LLM 不能直接执行高风险动作。
+- 权限不足时不得生成可执行命令。
+
+## 18. confirm_action Policy
+
+`confirm_action` 是高危动作的统一安全门。
+
+规则：
+
+- 用户确认前不得执行动作。
+- 确认内容必须包含动作类型、目标资源、影响范围、风险等级。
+- 确认不能只依赖 LLM 文本。
+- 确认记录必须包含 userId、runId、actionId、timestamp、result。
+- 确认后仍需做最终权限校验。
+- 超时或取消视为拒绝。
+
+## 19. run_command / deploy Policy
+
+run_command / deploy 是高危能力，不得默认启用。
+
+规则：
+
+- 必须显式声明权限。
+- 必须限制 workspace。
+- 必须有 timeout。
+- 必须有命令白名单或策略检查。
+- 禁止读取 secret 文件。
+- 禁止后台长期进程。
+- 禁止无限网络访问。
+- 执行输出必须脱敏。
+- 必须记录审计日志。
+- deploy 必须有目标环境限制和确认。
+
+## 20. file_upload / file_download Policy
+
+上传文件不可信。
+
+file_upload 必须：
+
+- 限制大小。
+- 校验 MIME type。
+- 校验扩展名。
 - 私有存储。
-- 用户权限校验。
-- 不允许直接作为可执行文件运行。
-- 不允许直接注入 prompt 而不做过滤。
+- 绑定 owner / conversation / run。
+- 不直接执行。
+- 不直接注入 Prompt。
+- 必要时安全扫描。
 
-MVP v0.1 不实现 `file_upload`。
+file_download 必须：
 
----
+- 鉴权。
+- 对象级授权。
+- 短期 URL 或受控下载接口。
+- 明确 Content-Type。
+- 安全 Content-Disposition。
+- 不暴露内部存储路径或签名凭证。
 
-## 19. iframe sandbox 规则
+## 21. Rate Limit / Quota / Resource Limit
 
-`web_preview` 必须使用 sandbox。
-
-建议：
-
-```html
-<iframe sandbox="allow-scripts">
-```
-
-根据需求谨慎增加：
-
-```text
-allow-forms
-allow-downloads
-allow-same-origin
-```
-
-禁止默认允许：
-
-```text
-allow-top-navigation
-allow-popups
-allow-modals
-```
+所有消耗型能力必须有限制。
 
 规则：
 
-- iframe 内容不得直接访问父页面 token。
-- iframe 不得共享主站 localStorage。
-- 用户生成 HTML 不能在主 DOM 直接 innerHTML 执行。
-- 预览与主应用必须隔离。
+- Gateway public API 必须有基础 rate limit。
+- SSE / stream 必须有连接数和超时限制。
+- Orchestrator run 必须有最大 task 数。
+- Planner 必须有 timeout。
+- LLM 请求必须有 token、timeout、retry 上限。
+- fallback / retry 必须有最大次数。
+- Child Agent 调用必须有 timeout。
+- Artifact 大小必须有限制。
+- file_upload 必须有限制。
+- Docker Demo 也不得依赖无限资源。
 
----
+## 22. Error Redaction
 
-## 20. CORS / CSRF
+对外错误只能包含安全信息。
 
-MVP v0.1：
+允许：
 
-- Gateway 只允许前端开发域名。
-- AG-UI endpoint 需要鉴权。
-- Token 不放 query string。
+- code / errorCode
+- safeMessage
+- requestId
+- runId
 
-Post-MVP：
+禁止：
 
-- CORS 白名单。
-- SameSite cookie 策略。
-- CSRF token 或 Bearer token 明确策略。
-- 预检请求正确处理。
-- 不允许 `Access-Control-Allow-Origin: *` 配合 credentials。
+- stack trace
+- API key
+- service token
+- internal URL
+- database DSN
+- absolute path
+- system prompt
+- raw provider response
+- object storage signed credential
 
----
+规则：
 
-## 21. 日志与审计
+- Provider 原始错误不得直接返回用户。
+- Orchestrator 内部错误必须映射为安全错误。
+- Agent 错误必须脱敏后才能进入前端事件。
+- Debug dump 也必须脱敏。
 
-日志必须包含：
+## 23. Logging / Audit
 
-```text
-requestId
-traceId
-runId
-conversationId
-messageId
-agentName
-a2aTaskId
-errorCode
-```
+安全相关事件必须可审计。
 
-日志不得包含：
+应审计：
 
-```text
-Authorization
-API key
-service token
-database password
-full system prompt
-raw uploaded secret file
-```
+- 登录失败
+- 未授权访问
+- service-to-service auth 失败
+- permission denied
+- Agent Registry 变更
+- Agent health 异常
+- LLM Provider key 更新
+- high-risk tool call
+- confirm_action
+- file upload / download
+- deploy
+- run_command
+- fallback / retry
 
-Post-MVP 审计日志应记录：
+日志规则：
 
-- 高危 Tool Call。
-- confirm_action。
-- file_upload。
-- deploy。
-- run_command。
-- 自建 Agent 修改。
-- API key 更新。
+- 使用结构化日志。
+- 日志必须有 requestId / traceId / runId。
+- 日志不得包含 secret。
+- 原始用户隐私输入、完整 Prompt、完整 LLM 原始响应不得默认落日志。
+- 审计日志要可追踪，但必须脱敏。
 
----
+## 24. Security Contract Tests
 
-## 22. Contract Test / Security Test
+安全契约必须能被测试。
 
-必须测试：
+最小测试项：
 
-- 未鉴权 REST API 返回 401。
-- 无权限资源返回 403。
-- Token 不在 query string。
-- 错误不包含 stack trace。
-- AG-UI `RUN_ERROR` 不泄漏内部错误。
-- A2A endpoint 不可从 Frontend 访问。
-- AgentCard 不包含密钥。
-- Artifact preview 不执行代码。
-- iframe 使用 sandbox。
-- `confirm_action` 高危操作需要用户确认。
-- 文件下载需要权限。
+- 未鉴权访问公开 API 返回 401。
+- 无权限访问他人资源返回 403 或安全 404。
+- `/internal/**` 不可被 Frontend 访问。
+- Gateway → Orchestrator 没有 service token 时失败。
+- AgentCard 不包含 secret。
+- Health Check 不暴露堆栈或环境变量。
+- 错误响应不包含 stack trace / API key。
+- web_preview iframe 有 sandbox。
+- markdown 不执行危险 HTML。
+- high-risk tool 未确认不得执行。
+- fallback 不调用 disabled / unhealthy Agent。
+- smoke test 包含关键安全检查。
 
-MVP v0.1 至少检查：
+## 25. Historical MVP Security Profile
 
-- 固定 Token 有效。
-- 无 Token 请求失败。
-- API key 不在代码中。
-- RUN_ERROR 不泄漏 stack trace。
-- code_preview 不执行代码。
+MVP v0.1 已完成，仅作为历史兼容和回归测试基线。
 
----
+历史基线包括：
 
-## 23. 与其他 Skills 的协作
+- 固定 Token 或环境变量 Token。
+- 简化用户鉴权。
+- 单 Agent 最小链路。
+- Docker 内网运行 Agent。
+- code_preview 只展示不执行。
+- LLM API key 来自环境变量。
+- 错误脱敏。
 
-- REST API 必须声明鉴权，错误响应必须脱敏。
-- AG-UI `RUN_ERROR` 不能暴露 stack trace / token / 内部地址。
-- Gateway 不把用户 token 传给 Orchestrator / Child Agent，除非 Contract 明确需要并做脱敏。
-- A2A endpoint 不暴露给 Frontend，AgentCard 不泄漏密钥。
-- 高危 Frontend Runtime Skill 必须定义确认、阻塞、ToolResult 和失败规则。
-- Artifact 预览和下载必须权限校验，HTML 必须 sandbox。
-- 敏感数据不得明文入库，密钥不得进入 JSON 字段。
+这些历史规则不得继续作为 v1.0 的能力上限或当前开发禁令。
 
----
+## 26. v1.0 Sprint Security Profile
 
-## 24. 硬性规则
+v1.0 安全 Profile 必须覆盖：
 
-1. Frontend 不可信。
-2. Child Agent 不完全可信。
-3. Frontend 不能直接调用 Orchestrator。
-4. Frontend 不能直接调用 Child Agent。
-5. Frontend 不能直接调用 A2A endpoint。
-6. Gateway 必须鉴权对外 API。
-7. Token 不得放 query string。
-8. LLM API key 只能来自环境变量或安全密钥管理。
-9. API key 不得写进 Git。
-10. AgentCard 不得泄漏密钥。
-11. A2A metadata 不得携带用户 token。
-12. 错误不得泄漏 stack trace / token / API key。
-13. code_preview 只展示代码，不执行代码。
-14. web_preview 必须 iframe sandbox。
-15. file_upload 必须大小 / 类型 / 权限校验。
-16. run_command 必须 sandbox / whitelist / timeout。
-17. deploy / 文件覆盖 / 命令执行必须 confirm_action。
-18. Artifact 下载必须鉴权。
-19. 日志必须脱敏。
-20. 必须遵守 `Contract first / Mock first / Real integration later / Review always`。
+- Gateway 与 Orchestrator 分进程。
+- 2+ Agent。
+- 单聊 + 群聊。
+- LLM 意图编排。
+- Agent Registry + Health Check。
+- 结构化多轮消息。
+- code / webpage / markdown 等丰富产物。
+- fallback / retry。
+- ordered_parallel。
+- Docker Demo。
+- smoke test。
+- AI 协作文档。
 
----
+Sprint 示例中的具体 Agent 名称只能作为示例，不能成为安全规则的固定分支。
 
-## 25. 必须维护的文件
+## 27. Review Checklist
 
-本 Skill 本体：
+安全 Review 必须检查：
 
-```text
-skills/security-boundary-contract/SKILL.md
-```
+- 是否把 MVP v0.1 降级为 Historical Profile。
+- Gateway 与 Orchestrator 是否分进程。
+- Frontend 是否不能直连 Orchestrator。
+- Orchestrator `/internal/**` 是否没有暴露给前端。
+- Gateway → Orchestrator 是否有 service-to-service auth。
+- 用户 token 是否没有被当成 service token。
+- API 是否有对象级授权。
+- AgentCard 是否不泄密。
+- Health Check 是否不泄密。
+- LLM 输出是否先校验后执行。
+- 高危 Tool 是否有 confirm_action。
+- Artifact 渲染是否隔离。
+- Secret 是否不进入日志 / Artifact / AgentCard / Prompt。
+- 错误是否脱敏。
+- 安全契约测试是否存在。
 
-正式 Contract：
+## 28. 完成定义
 
-```text
-docs/contracts/security-boundaries.md
-docs/contracts/auth-policy.md
-docs/contracts/sandbox-policy.md
-```
+一次安全边界更新完成，必须满足：
 
-可选：
-
-```text
-docs/contracts/secret-management.md
-docs/contracts/xss-policy.md
-docs/contracts/file-upload-policy.md
-docs/contracts/security-review-checklist.md
-```
-
----
-
-## 26. Review Checklist
-
-- [ ] 是否明确 Frontend 不可信？
-- [ ] 是否明确 Child Agent 不完全可信？
-- [ ] 是否明确 MVP 固定 Token？
-- [ ] 是否保留 Post-MVP JWT？
-- [ ] 是否禁止 token query string？
-- [ ] 是否禁止 Frontend 直连 Orchestrator / Child Agent？
-- [ ] 是否禁止 Gateway handler 直连 A2A？
-- [ ] 是否定义 A2A 内部通信安全？
-- [ ] 是否定义 API Key / Secret 管理？
-- [ ] 是否定义错误脱敏？
-- [ ] 是否定义 Artifact 安全？
-- [ ] 是否定义 code_preview 不执行代码？
-- [ ] 是否定义 web_preview iframe sandbox？
-- [ ] 是否定义 confirm_action？
-- [ ] 是否定义 run_command sandbox？
-- [ ] 是否定义 file_upload 安全？
-- [ ] 是否定义日志脱敏？
-- [ ] 是否定义 Security Test？
-
-
-## References
-
-- `references/secret-management.md`
-- `references/auth-policy.md`
-- `references/error-redaction.md`
-- `references/frontend-security.md`
-- `references/sandbox-policy.md`
-- `references/security-review-checklist.md`
+- 本 Skill 与 references 已更新。
+- docs/contracts 中的安全契约已更新。
+- 新增能力已声明 trust boundary、permission、riskLevel、redaction、audit 和 test。
+- 没有引入具体 Agent 名称硬编码。
+- 没有把 Sprint 示例固化为长期限制。
+- 没有生成业务实现代码。

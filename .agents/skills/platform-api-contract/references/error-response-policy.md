@@ -1,28 +1,21 @@
-# Error Response Policy
+# 错误响应策略
 
-来源：`docs/contracts/openapi.yaml`、`docs/contracts/security-boundaries.md`、`docs/contracts/api-error-codes.md`。
+Platform API 错误必须同时满足 HTTP status 合理、业务 code 稳定、message 脱敏。
 
-## 1. 统一错误响应
+## HTTP Status
 
-```json
-{
-  "code": 400001,
-  "data": null,
-  "message": "错误描述"
-}
-```
+- `400`：请求格式或参数错误。
+- `401`：未认证。
+- `403`：无权限。
+- `404`：资源不存在或不可见。
+- `409`：资源状态冲突。
+- `422`：语义校验失败。
+- `429`：限流。
+- `502`：内部下游服务不可用。
+- `504`：内部下游服务超时。
 
-## 2. 安全脱敏
+## 禁止
 
-错误消息不得包含：
-
-- stack trace
-- API key / token
-- 数据库连接串
-- 内部服务地址
-
-## 3. 语义
-
-- HTTP 状态码表达传输层语义。
-- `code` 表达业务层语义。
-- 禁止“所有错误都返回 200”。
+- 把 stack trace 返回给前端。
+- 把内部 URL、service token、数据库连接串返回给前端。
+- 用户取消操作返回 500。

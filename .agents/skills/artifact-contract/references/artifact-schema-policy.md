@@ -1,105 +1,53 @@
-# Artifact Schema 规则
+# Artifact Schema Policy
 
-## 1. 目的
+## 基础要求
 
-本文定义 AgentHub normalized Artifact 的标准结构。
+Artifact schema 必须使用 JSON Schema 2020-12。
 
-注意：
+项目级 schema 文件：
 
 ```text
-AgentHub Artifact ≠ A2A 官方 Artifact
+docs/contracts/artifact.schema.json
 ```
 
-AgentHub Artifact 是项目内标准化后的产物对象。
+说明文档：
 
-## 2. 标准结构
-
-推荐结构：
-
-```ts
-type AgentHubArtifact = {
-  artifactId: string;
-  type: ArtifactType;
-  title: string;
-  summary: string;
-
-  content?: unknown;
-  contentRef?: ContentRef;
-
-  metadata: Record<string, unknown>;
-
-  conversationId: string;
-  messageId: string;
-  runId: string;
-  a2aTaskId?: string;
-  stepId?: string;
-  agentName?: string;
-
-  version: number;
-  status: "created" | "normalized" | "persisted" | "preview_mapped" | "previewed" | "failed";
-
-  createdAt: string;
-  updatedAt: string;
-};
+```text
+docs/contracts/artifact-schema.md
 ```
 
-## 3. 必需字段
-
-长期 Artifact 必须包含：
+## 最小必填字段
 
 ```text
 artifactId
 type
 title
-summary
-metadata
-conversationId
-messageId
-runId
+mimeType
+links.conversationId
+links.messageId
+links.runId
 version
 status
 createdAt
-updatedAt
 ```
 
-## 4. content / contentRef
+`content` 与 `contentRef` 至少存在一个。
 
-Artifact 必须至少有一个：
+## 字段命名
 
-```text
-content
-contentRef
-```
+- 对外 JSON 字段使用 camelCase。
+- `artifactId` 不使用 `id`，避免和 messageId / runId 混淆。
+- `type` 表示 Artifact 类型。
+- `preview.previewType` 表示预览意图。
+- `metadata` 用于类型特定扩展。
 
-长期大型内容应优先使用：
+## schema 修改规则
 
-```text
-contentRef
-```
+任何字段新增、删除、重命名、类型变化，都必须同步更新：
 
-MVP small code 可以使用：
+- Markdown 契约。
+- JSON Schema。
+- Review checklist。
+- 示例 Artifact。
 
-```text
-content
-```
-
-## 5. metadata
-
-metadata 必须按 Artifact type 校验。
-
-`code` metadata 至少包含：
-
-```text
-language
-```
-
-## 6. 禁止事项
-
-不得：
-
-- Artifact 缺少 runId。
-- Artifact 缺少 messageId。
-- Artifact 缺少 type。
-- metadata 任意扩张且不校验。
-- 大内容直接塞进 content。
-- contentRef 指向未经授权的私有 URL。
+不得让实现代码成为事实源。

@@ -1,8 +1,8 @@
-# Streaming Normalization 规则
+# Streaming Normalization
 
-Provider 原始 stream event 不得直接进入 ADK Runtime、A2A 或 AG-UI。
+流式归一化将 Provider 专有事件转换为统一 `LLMStreamEvent`。
 
-长期统一事件类型：
+## 统一事件类型
 
 ```text
 message_start
@@ -15,33 +15,10 @@ message_end
 error
 ```
 
-MVP 阶段只强制：
+## 规则
 
-```text
-delta_text
-message_end
-error
-```
-
-`LLMStreamEvent` 建议包含：
-
-```text
-type
-textDelta
-toolCallId
-toolName
-toolArgsDelta
-usage
-finishReason
-provider
-model
-providerMetadata
-traceId
-```
-
-禁止：
-
-- 将 Anthropic / OpenAI / Gemini 原始事件直接传给 ADK Runtime。
-- 将 Provider 原始事件直接转成 AG-UI 事件。
-- 在 streaming event 中暴露 API key 或 provider 原始敏感错误。
-- 忽略 context cancellation。
+- Provider 原始 stream event 不得暴露给业务层。
+- context cancelled 后不得继续输出 delta。
+- error event 必须结束当前请求。
+- stream end 后不得再输出普通事件。
+- 流式输出应可聚合成非流式响应。

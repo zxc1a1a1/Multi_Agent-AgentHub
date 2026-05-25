@@ -1,60 +1,57 @@
-# 流式输出规则
+# streaming-output
 
-## 1. 目的
+## 目的
 
-本文定义 `ctx.StreamText` 的使用边界。
+本文定义 ADK Runtime 的流式文本输出规则。
 
-流式文本用于用户可读的实时回复，不是 Artifact 事实源。
+## 基本规则
 
-## 2. 允许输出
+`ctx.StreamText(chunk)` 只用于用户可读文本流。
 
-`ctx.StreamText` 可以输出：
+适合输出：
 
-- Agent 回复文本。
-- 任务进度说明。
-- 代码解释。
-- 用户可见状态。
-- 简短提示。
+- 说明。
+- 分析。
+- 步骤。
+- 摘要。
+- Markdown 文本。
+- 当前进度的自然语言描述。
 
-## 3. 不允许输出
+不适合输出：
 
-`ctx.StreamText` 不得输出：
+- 大型代码文件的唯一事实源。
+- 完整 HTML 的唯一事实源。
+- 二进制内容。
+- 前端 Tool Call 参数。
+- A2A 原始 JSON。
+- AG-UI 原始 JSON。
 
-- 大型代码包。
-- 图片内容。
-- zip 内容。
-- 大型日志。
-- 私有文件内容。
-- API key。
-- access token。
-- refresh token。
-- system prompt。
-- stack trace。
-- 内部服务地址。
-- 对象存储私有地址。
-- 数据库连接字符串。
-
-## 4. 与 Artifact 的关系
-
-如果内容是任务产物，应使用：
+## Runtime 映射
 
 ```text
-ctx.AddArtifact
+ctx.StreamText(chunk) → A2A text event → AG-UI TEXT_MESSAGE_CONTENT
 ```
 
-而不是：
+## Chunk 规则
 
-```text
-ctx.StreamText
-```
+- Runtime 不保证 chunk 是完整句子。
+- Runtime 不保证 chunk 是完整 Markdown block。
+- Orchestrator / Frontend 必须支持任意 chunk 切分。
+- Handler 不应依赖 chunk 边界表达语义。
 
-MVP 中，代码解释可以 stream，代码产物应通过 `code` Artifact 表达。
+## Artifact 关系
 
-## 5. 禁止事项
+如果内容需要结构化预览，应同时输出 Artifact。
 
-不得：
+例如：
 
-- 用 `ctx.StreamText` 代替 Artifact。
-- 用 `ctx.StreamText` 传输大型内容。
-- 用 `ctx.StreamText` 传输 secret。
-- 用 `ctx.StreamText` 传输内部错误详情。
+- 代码预览：输出 `code` Artifact。
+- 网页预览：输出 `webpage` Artifact。
+- Markdown 文档下载或独立预览：输出 `document` Artifact。
+
+## 禁止事项
+
+- 不得把 API key 输出到文本流。
+- 不得把完整 system prompt 输出到文本流。
+- 不得在文本流中伪造 A2A event。
+- 不得在文本流中伪造 AG-UI Tool Call。

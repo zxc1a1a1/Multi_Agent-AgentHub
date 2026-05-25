@@ -1,35 +1,26 @@
-# Provider Adapter 规则
+# Provider Adapter
 
-Provider Adapter 用于隔离不同 Provider 的 SDK、HTTP API、streaming event、error 和能力差异。
+Provider Adapter 负责把不同 Provider 的请求、响应、错误和流式事件归一化。
 
-推荐接口：
-
-```text
-Generate(ctx, request) -> LLMResponse
-Stream(ctx, request) -> Iterator<LLMStreamEvent>
-CountTokens(ctx, request) -> TokenUsage
-```
-
-MVP 阶段只强制：
-
-```text
-Stream(ctx, request) -> Iterator<LLMStreamEvent>
-```
+## 适配边界
 
 Adapter 负责：
 
-- 将 AgentHub `LLMRequest` 转换为 Provider 原始请求。
-- 将 Provider 原始响应转换为 `LLMResponse`。
-- 将 Provider 原始 streaming event 转换为 `LLMStreamEvent`。
-- 将 Provider 原始错误转换为用户安全错误。
-- 处理 timeout、context cancellation、retry、rate limit。
-- 填充 usage metadata。
-- 保护 secret。
+- 构造 Provider 原始请求。
+- 调用 Provider API。
+- 归一化响应。
+- 归一化流式事件。
+- 归一化错误。
+- 填充 usage / latency / providerName / modelId。
 
-Adapter 不负责 Orchestrator 选择 Agent、Artifact schema、A2A Task、AG-UI 事件或 React 组件。
+Adapter 不负责：
 
-禁止：
+- 选择 Agent。
+- 执行业务工具。
+- 修改数据库。
+- 生成前端事件。
+- 直接返回 Provider 原始对象。
 
-- 在业务 handler 中直接散落 Provider SDK 调用。
-- 将 Provider 原始 response / streaming event 透传给 AgentHub 上层。
-- 在 Adapter 外处理 API key。
+## 硬规则
+
+业务层只能消费 AgentHub 的统一对象，不得依赖 Provider 原始字段。

@@ -1,16 +1,54 @@
 # Text Message Events
 
-来源：`docs/contracts/agui-events.md`。
+## 事件
 
-## 1. 事件职责
+```text
+TEXT_MESSAGE_START
+TEXT_MESSAGE_CONTENT
+TEXT_MESSAGE_END
+```
 
-- `TEXT_MESSAGE_START`：创建消息容器。
-- `TEXT_MESSAGE_CONTENT`：追加文本 chunk。
-- `TEXT_MESSAGE_END`：文本流结束。
+## TEXT_MESSAGE_START
 
-## 2. 约束
+开始一条 assistant message。
 
-- `TEXT_MESSAGE_CONTENT` 不得早于 START。
-- `TEXT_MESSAGE_END` 不得早于 START。
-- 大型结构化产物不得塞入文本 chunk。
-- `messageId` 在同一条消息生命周期中保持一致。
+必须包含：
+
+- `type`
+- `runId`
+- `messageId`
+- `role`
+- `sender`
+
+## TEXT_MESSAGE_CONTENT
+
+追加文本片段。
+
+新实现优先使用：
+
+```json
+{"delta":"文本片段"}
+```
+
+兼容读取：
+
+```json
+{"content":"文本片段"}
+```
+
+前端聚合：
+
+```ts
+const chunk = event.delta ?? event.content ?? ''
+```
+
+## TEXT_MESSAGE_END
+
+结束一条 assistant message。
+
+## 规则
+
+- `messageId` 是文本聚合主键。
+- 多 Agent 场景必须使用独立 `messageId`。
+- `TEXT_MESSAGE_CONTENT` 只承载文本，不承载大型产物。
+- Markdown 文本可以通过 `TEXT_MESSAGE_CONTENT` 传输。
