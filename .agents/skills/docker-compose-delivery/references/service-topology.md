@@ -1,51 +1,49 @@
 # 服务拓扑
 
-## 1. 目的
+## 基础拓扑
 
-本文定义 AgentHub 本地 Compose 服务拓扑。
-
-## 2. MVP 拓扑
+AgentHub 本地交付基础服务包括：
 
 ```text
-frontend → gateway
-gateway → mysql
-gateway → code-agent
-code-agent → LLM Provider
-```
-
-## 3. 容器 DNS
-
-Compose network 内服务名即 DNS 名。
-
-MVP 推荐：
-
-```text
-mysql
-gateway
-code-agent
 frontend
+gateway
+mysql
+one or more child-agent services
 ```
 
-## 4. URL 约定
+## 可选服务
+
+可选服务包括：
 
 ```text
-DATABASE_URL=mysql://agenthub:agenthub@mysql:3306/agenthub
-AGENT_CODE_URL=http://code-agent:8081
-GATEWAY_URL=http://gateway:8080
+mock-llm
+mock-agent
+redis
+object-storage
+observability
+reverse-proxy
 ```
 
-前端浏览器访问 Gateway 时，应使用浏览器可访问地址，例如：
+## 服务通信规则
+
+- 容器之间通过 Compose service name 通信。
+- 宿主机访问容器才使用 `localhost`。
+- Agent 服务优先只在 Compose 网络内部暴露。
+- Gateway 通过环境变量或配置文件发现 Agent。
+- 可选服务不应破坏默认启动路径。
+
+## 示例
+
+容器内：
 
 ```text
+http://gateway:8080
+http://some-agent:8083
+```
+
+宿主机：
+
+```text
+http://localhost:3000
 http://localhost:8080
 ```
-
-## 5. 禁止事项
-
-不得：
-
-- 容器之间使用 localhost 连接其他容器。
-- 前端浏览器使用容器内部 DNS。
-- Gateway 直连前端。
-- 前端直连 code-agent。
-- code-agent 直连 MySQL，除非 contract 明确允许。

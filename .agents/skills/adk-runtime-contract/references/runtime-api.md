@@ -1,90 +1,95 @@
-# Runtime API 规则
+# runtime-api
 
-## 1. 目的
+## 目的
 
-本文定义 AgentHub ADK Runtime 提供给子 Agent handler 的 Context API。
+本文定义 AgentHub ADK Runtime Context API。
 
-Runtime API 用于隐藏 A2A streaming 细节，让 handler 专注任务逻辑。
+Handler 只能通过 Context API 与 Runtime 交互，不直接操作 A2A、SSE 或 AG-UI。
 
-## 2. 推荐 API
+## v1.0 必须支持
 
-长期 Runtime API 可以包括：
-
-```text
-ctx.StreamText(chunk)
-ctx.AddArtifact(artifact)
-ctx.Fail(error)
-ctx.Metadata()
-ctx.Tools()
-ctx.Logger()
+```go
+ctx.Context() context.Context
+ctx.StreamText(chunk string) error
+ctx.AddArtifact(artifact adk.Artifact) error
+ctx.Fail(err error) error
+ctx.Metadata() map[string]string
+ctx.Logger() Logger
 ```
 
-MVP 阶段只强制：
+## API 语义
+
+### ctx.Context()
+
+返回任务级 context。
+
+规则：
+
+- Handler 必须监听取消。
+- LLM 请求必须使用该 context。
+- 工具调用必须使用该 context。
+
+### ctx.StreamText(chunk)
+
+输出自然语言文本流。
+
+规则：
+
+- 只用于文本。
+- 不作为大型产物的唯一事实源。
+- Runtime 将其转成 A2A text event。
+
+### ctx.AddArtifact(artifact)
+
+输出结构化产物。
+
+规则：
+
+- Artifact 必须符合 artifact-contract。
+- Runtime 将其转成 A2A artifact event。
+- Handler 不得直接构造前端 Tool Call。
+
+### ctx.Fail(err)
+
+输出失败状态。
+
+规则：
+
+- 错误必须脱敏。
+- Runtime 将其转成 A2A failed status。
+
+### ctx.Metadata()
+
+返回只读 metadata。
+
+推荐包含：
 
 ```text
-ctx.StreamText(chunk)
-ctx.AddArtifact(artifact)
+traceId
+runId
+taskId
+agentName
+skillId
 ```
 
-## 3. ctx.StreamText
+### ctx.Logger()
 
-用途：
+返回带上下文字段的 logger。
 
-- 输出流式文本。
-- 输出说明性回复。
-- 输出任务进度。
-- 输出用户可见状态。
+日志必须自动带 traceId / taskId / agentName。
 
-不得用于：
+## 可选扩展
 
-- 输出大型 Artifact。
-- 输出私有文件。
-- 输出 secret。
-- 输出 stack trace。
-- 输出内部路径。
-- 代替 `ctx.AddArtifact`。
-
-## 4. ctx.AddArtifact
-
-用途：
-
-- 添加任务产物。
-- 表达代码、网页、diff、文件、图片等产物。
-- 让 Orchestrator / Gateway 后续标准化、持久化和预览。
-
-MVP 只允许：
-
-```text
-artifact.type = code
+```go
+ctx.Tool(name string) (Tool, bool)
+ctx.EmitProgress(state map[string]any) error
+ctx.SaveState(key string, value any) error
+ctx.LoadState(key string) (any, bool)
 ```
 
-## 5. ctx.Fail
+## 禁止事项
 
-用于返回用户安全错误。
-
-错误不得包含：
-
-- stack trace。
-- API key。
-- token。
-- system prompt。
-- 内部路径。
-- 内部服务地址。
-
-## 6. ctx.Tools
-
-用于访问已注册工具。
-
-使用工具前必须通过工具注册和权限声明。
-
-MVP 阶段 `code-agent` 默认不启用工具。
-
-## 7. 禁止事项
-
-不得：
-
-- 让 handler 直接操作 A2A SSE 原始响应。
-- 让 handler 直接返回 AG-UI 事件。
-- 让 handler 直接调用 React Component。
-- 绕过 `ctx.AddArtifact` 产生产物。
-- 绕过工具权限直接执行 shell、filesystem、network 操作。
+- Context API 不得暴露 HTTP response writer。
+- Context API 不得暴露前端连接对象。
+- Handler 不得绕过 Context 直接写 A2A stream。
+- Handler 不得直接写数据库。

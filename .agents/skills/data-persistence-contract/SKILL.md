@@ -1,611 +1,650 @@
 ---
 name: data-persistence-contract
-description: "用于定义 AgentHub 的数据持久化契约，包括 MVP 阶段 MySQL 表结构、后续 PostgreSQL 演进、conversation/message/run/artifact 等核心数据关系、迁移规则和数据安全边界。"
+description: "用于定义 AgentHub 的数据持久化事实源契约，包括关系型数据模型、Conversation/Message/Run/Agent/Artifact/ToolCall 关联、群聊与多 Agent 数据、迁移规则、JSON 字段、索引、软删除、数据安全和存储演进策略。"
 ---
 
 # data-persistence-contract
 
 ## 1. Skill 目的
 
-本 Skill 用于定义 AgentHub 项目的数据持久化边界、数据模型、数据库选择、Redis 使用、对象存储策略、migration 规则和跨协议 ID 关联规则。
+本 Skill 用于规范 AgentHub 项目的数据持久化层。
+
+它定义：
+
+- 哪些数据必须落库。
+- 哪些数据只是临时状态。
+- Conversation、Message、Run、Agent、Artifact、ToolCall 如何关联。
+- 单聊与群聊如何建模。
+- 多 Agent 参与同一次 Run 时如何追踪。
+- Agent 注册信息与健康状态如何持久化。
+- 迁移文件如何编写。
+- JSON 字段如何约束。
+- 数据安全、脱敏、索引、软删除、归档如何处理。
 
 一句话：
 
-**数据层必须支撑 Conversation、Message、Run、A2A Task、Tool Call、Artifact、Agent、用户和追踪链路，且不能让 Redis、临时内存或 AG-UI 事件流成为事实源。**
+**数据库是 AgentHub 历史对话、运行记录、Agent 状态、产物、工具调用与审计链路的事实源；实时事件、内存状态、缓存和日志都不能替代数据库事实源。**
 
 ---
 
-## 2. 适用场景
+## 2. 独立性原则
 
-当任务涉及以下内容时，必须使用本 Skill：
+本 Skill 是独立的数据持久化契约。
 
-- 设计数据库表。
-- 设计 MySQL / PostgreSQL schema。
-- 设计 Redis 用法。
-- 设计 Object Storage 用法。
-- 设计 Artifact 持久化。
-- 设计 message / conversation / run / task / tool call 的关联。
-- 编写 migration。
-- 编写 seed 数据。
-- 编写 store / repository。
-- 修改 REST API 涉及的持久化字段。
-- 保存 AG-UI Run 结果。
-- 保存 A2A Task 结果。
-- 保存 Child Agent Artifact。
-- 设计数据清理、软删除、归档。
-- Review 数据模型是否破坏 Contract。
+本 Skill 不要求读者先阅读其他 Skill 才能理解数据层规则。
+
+本 Skill 不定义：
+
+- 前端组件实现。
+- 实时事件字段。
+- 子 Agent 内部运行时 API。
+- 外部 Agent 协议细节。
+- Planner 的具体算法。
+- Docker 服务编排。
+- 具体 UI 交互。
+
+本 Skill 只定义这些外部行为在数据层中的**可持久化事实、ID 关联、状态、索引和安全边界**。
 
 ---
 
-## 3. 数据层边界
+## 3. 当前阶段识别
 
-数据层负责：
+当前项目已完成 MVP v0.1，正在进行 v1.0 及后续迭代。
 
-- 用户和鉴权相关数据。
-- Conversation。
-- Conversation participants。
-- Message。
+### 3.1 MVP v0.1 Historical Profile
+
+MVP v0.1 已完成，仅作为历史兼容和回归测试基线。
+
+历史基线包括：
+
+- 单用户或 demo 用户。
+- 单 Agent 对话。
+- 单聊 conversation。
+- 基础 message 持久化。
+- 基础 run 记录。
+- 基础 artifact 记录。
+- 基础 tool call 记录。
+- MySQL 8 作为事实源。
+
+这些历史基线不得继续作为当前开发禁令。
+
+### 3.2 v1.0 Generic Persistence Profile
+
+v1.0 当前数据层必须支持：
+
+- 2+ Child Agents。
+- 单聊与群聊。
+- `conversation_type`。
+- `conversation_participants`。
+- Agent Registry 数据。
+- Agent 健康状态。
+- 一个 Run 关联多个 Agent 任务。
+- 一个 Run 产生多条消息。
+- 一个消息产生多个产物。
+- 多类型 Artifact。
+- 多类型 ToolCall。
+- fallback / retry 状态记录。
+- `trace_id`、`request_id`、`run_id`、`message_id`、`artifact_id` 等可追踪 ID。
+
+本 Skill 不固定具体 Agent 名称。
+
+### 3.3 Post-v1.0 Planned Profile
+
+后续可扩展：
+
+- 审批与人工确认表。
+- 下载授权 token 表。
+- Prompt 审计表。
+- Artifact 版本历史表。
+- 长期归档表。
+- 多租户组织表。
+- PostgreSQL Profile。
+- Object Storage 大对象 Profile。
+
+---
+
+## 4. 数据层事实源原则
+
+必须落库的数据：
+
+- 用户。
+- 会话。
+- 会话参与者。
+- 消息。
 - Agent 注册信息。
+- Agent 健康状态。
 - Run。
-- Run step。
-- A2A task。
-- Tool call。
+- RunStep。
+- AgentTask。
+- ToolCall。
 - Artifact。
-- Approval。
-- Agent health check。
-- Prompt / LLM 调用记录的安全摘要。
-- traceId / requestId / runId 等可观测字段。
+- 关键错误状态。
+- 可追踪 ID。
 
-数据层不负责：
+可以作为临时状态的数据：
 
-- AG-UI 实时事件传输。
-- A2A stream 直接转发。
-- 前端组件状态。
-- LLM prompt 原文无限制持久化。
-- API key 明文保存。
-- 大文件内容直接塞入普通消息表。
-- Redis 作为事实源。
+- SSE 当前连接。
+- 实时 streaming buffer。
+- 前端 loading 状态。
+- 临时重试倒计时。
+- Registry 内存缓存。
+- 健康检查本轮探测上下文。
 
----
+禁止：
 
-## 4. PDR 与 MVP 的数据层解释
-
-PDR 完整目标：
-
-```text
-PostgreSQL = 事实源
-Redis = 缓存 / 临时状态 / 轻量队列 / rate limit
-Object Storage = 大 Artifact 内容
-```
-
-MVP v0.1 当前实现：
-
-```text
-MySQL 8 = 当前事实源
-暂不强制 Redis
-暂不强制 Object Storage
-Artifact 可以先存 JSON / TEXT 字段或文件路径
-```
-
-解释规则：
-
-```text
-MVP 可以用 MySQL 8 快速落地。
-长期 Contract 仍保留 PostgreSQL + Redis + Object Storage 演进方向。
-不得让 Redis 或内存成为消息历史 / Artifact 的唯一存储。
-```
+- 只把历史消息存在前端状态。
+- 只把产物存在实时事件流。
+- 只把 Agent 健康状态存在日志里。
+- 只把 Run 执行链路存在内存里。
+- 只靠日志排查用户历史问题。
 
 ---
 
-## 5. 核心文件
+## 5. Storage Profiles
 
-本 Skill 落地后应生成或维护：
+### 5.1 Current Profile: MySQL 8
 
-```text
-docs/contracts/data-model.md
-docs/contracts/mysql-schema.md
-docs/contracts/postgres-schema.md
-docs/contracts/redis-usage.md
-docs/contracts/object-storage-policy.md
-docs/contracts/migration-policy.md
-```
+v1.0 当前使用 MySQL 8 作为关系型事实源。
 
-MVP v0.1 最小可先落地：
+要求：
 
-```text
-docs/contracts/data-model.md
-docs/contracts/mysql-schema.md
-docs/contracts/migration-policy.md
-```
+- 所有核心实体必须有稳定主键。
+- 常用查询字段必须建索引。
+- 时间字段统一使用 `created_at`、`updated_at`、`deleted_at`。
+- 对外 API 字段可以是 camelCase，但数据库字段使用 snake_case。
+- JSON 字段必须有结构说明。
+- 破坏性 schema 变更必须走 migration。
 
-Post-MVP 再补：
+### 5.2 Planned Relational Profile: PostgreSQL
 
-```text
-docs/contracts/postgres-schema.md
-docs/contracts/redis-usage.md
-docs/contracts/object-storage-policy.md
-```
+PostgreSQL 是长期可选演进方向，不影响当前 MySQL 落地。
 
----
+如果后续迁移到 PostgreSQL：
 
-## 6. MVP v0.1 最小数据模型
+- JSON 字段可演进为 JSONB。
+- 常用 JSON 查询路径必须补索引。
+- 不得把经常 join / filter / order 的字段藏在 JSONB。
 
-MVP v0.1 至少需要：
+### 5.3 Cache Profile: Redis
 
-```text
-users
-conversations
-messages
-agents
-artifacts
-runs
-a2a_tasks
-tool_calls
-```
+Redis 只能用于：
 
-最小链路：
+- 缓存。
+- 限流。
+- 临时锁。
+- 短期任务状态。
+- 非事实源队列状态。
 
-```text
-conversation.id
-→ message.conversationId
-→ run.conversationId
-→ run.id
-→ a2a_task.runId
-→ artifact.runId
-→ artifact.messageId
-→ tool_call.artifactId
-```
+Redis 不得成为：
 
-必须能支撑：
+- 消息唯一事实源。
+- Artifact 唯一事实源。
+- Run 唯一事实源。
+- Agent Registry 唯一事实源。
 
-- 对话列表。
-- 创建对话。
-- 查询对话消息。
-- 保存用户消息。
-- 保存 Agent 回复。
-- 保存 Run 状态。
-- 保存 A2A taskId。
-- 保存 code Artifact。
-- 保存 code_preview Tool Call 记录。
-- 根据 traceId 排查一次端到端请求。
+### 5.4 Large Object Profile: Object Storage
+
+Object Storage 用于大型内容：
+
+- 大文件。
+- 图片。
+- zip。
+- 大型 HTML / 文档。
+- 长日志。
+- 可下载产物。
+
+关系型数据库保存 `content_ref`、元数据、权限和关联关系，不直接保存大型二进制内容。
 
 ---
 
-## 7. 推荐核心表
+## 6. 核心实体总览
+
+v1.0 数据层建议包含：
+
+| 实体 | 作用 |
+|---|---|
+| `users` | 用户或 demo 用户 |
+| `conversations` | 单聊 / 群聊会话 |
+| `conversation_participants` | 会话参与者，支持 user / agent |
+| `messages` | 用户、Agent、系统消息 |
+| `agents` | Agent 注册信息与能力摘要 |
+| `agent_health_checks` | Agent 健康检查历史或快照 |
+| `runs` | 一次用户请求触发的运行 |
+| `run_steps` | Run 内部阶段与步骤 |
+| `agent_tasks` | 发给某个 Agent 的子任务 |
+| `tool_calls` | 前端可消费的工具调用记录 |
+| `artifacts` | Agent 生成的产物事实源 |
+
+可选或规划实体：
+
+| 实体 | 作用 |
+|---|---|
+| `approvals` | 高风险操作人工确认 |
+| `prompt_audits` | Prompt 审计摘要 |
+| `artifact_versions` | 产物版本历史 |
+| `download_tokens` | 下载授权与过期控制 |
+
+---
+
+## 7. v1.0 Required Tables
 
 ### 7.1 users
 
-MVP 可使用固定用户，但表设计保留：
-
-```text
-id
-username
-displayName
-avatarUrl
-createdAt
-updatedAt
-```
-
-MVP 可用：
-
-```text
-userId = "demo-user"
-```
-
-### 7.2 conversations
-
-```text
-id
-userId
-title
-type
-agentName
-isPinned
-isArchived
-createdAt
-updatedAt
-deletedAt
-```
-
-规则：
-
-- MVP `type` 可固定为 `single`。
-- MVP `agentName` 可固定为 `code-agent`。
-- Post-MVP 可支持 group。
-- 删除建议软删除。
-
-### 7.3 messages
-
-```text
-id
-conversationId
-runId
-senderId
-senderType
-senderAgent
-content
-status
-createdAt
-updatedAt
-```
-
-规则：
-
-- `senderType`：`user` / `agent` / `system`
-- `status`：`sending` / `streaming` / `sent` / `failed`
-- `content` 可存结构化 JSON。
-- 大 Artifact 不得塞进 `content`。
-- message 可通过 `runId` 关联一次 AG-UI Run。
-
-### 7.4 agents
+最小字段：
 
 ```text
 id
 name
-type
-url
+email
+status
+created_at
+updated_at
+deleted_at
+```
+
+规则：
+
+- MVP 可以只有 demo 用户。
+- v1.0 不得把用户身份硬编码到业务逻辑。
+- 密码、token、API key 不得明文保存。
+
+### 7.2 conversations
+
+最小字段：
+
+```text
+id
+user_id
+title
+conversation_type
+primary_agent_name
+status
+is_pinned
+is_archived
+created_at
+updated_at
+deleted_at
+```
+
+规则：
+
+- `conversation_type = single | group`。
+- `primary_agent_name` 只表示默认 Agent 或展示用途，不代表群聊唯一 Agent。
+- 群聊参与者必须通过 `conversation_participants` 表表达。
+- 删除默认软删除。
+
+### 7.3 conversation_participants
+
+最小字段：
+
+```text
+id
+conversation_id
+participant_type
+participant_id
+display_name
+role
+status
+joined_at
+left_at
+created_at
+updated_at
+```
+
+规则：
+
+- `participant_type = user | agent`。
+- `role = owner | member | agent`。
+- 群聊至少应有一个 user 和一个或多个 agent participant。
+- Agent 名称不应写死。
+
+### 7.4 messages
+
+最小字段：
+
+```text
+id
+conversation_id
+run_id
+sender_type
+sender_id
+sender_name
+content
+content_format
+status
+created_at
+updated_at
+deleted_at
+```
+
+规则：
+
+- `sender_type = user | agent | system`。
+- `sender_name` 用于 UI 展示和历史回放。
+- Agent 消息建议保存 `sender_id` 或 `sender_name` 对应 Agent 名称。
+- `content_format = text | markdown | json`。
+- 大 Artifact 不得塞进 `messages.content`。
+- 一个 Run 可以产生多条 Agent message。
+
+### 7.5 agents
+
+最小字段：
+
+```text
+id
+name
+display_name
 description
+url
+version
 status
-agentCard
-createdAt
-updatedAt
-lastCheckAt
+agent_card
+skills
+input_modes
+output_modes
+last_check_at
+last_error_code
+created_at
+updated_at
+deleted_at
 ```
 
 规则：
 
-- MVP 至少注册 `code-agent`。
-- `agentCard` 可用 JSON 存储。
-- `status`：`healthy` / `unhealthy` / `unknown`
-- Post-MVP 支持 Agent Registry / health check。
+- `name` 必须唯一。
+- `status = healthy | unhealthy | unknown | disabled`。
+- `agent_card` 可保存能力声明摘要。
+- `skills`、`input_modes`、`output_modes` 可以使用 JSON，但必须有结构说明。
+- 不得保存 Agent 内部 secret。
 
-### 7.5 runs
+### 7.6 agent_health_checks
+
+最小字段：
 
 ```text
 id
-conversationId
-userId
-agentName
+agent_name
+agent_url
 status
-traceId
-requestId
-startedAt
-finishedAt
-createdAt
-updatedAt
+latency_ms
+error_code
+error_message
+checked_at
+created_at
 ```
 
 规则：
 
-- `id` 对应 AG-UI `runId`。
-- `status`：`running` / `completed` / `failed` / `cancelled`
-- 每次 `/api/agui/run` 应生成或传入 runId。
-- 错误时必须记录失败状态。
+- 健康检查失败必须可追踪。
+- `error_message` 必须脱敏。
+- 可只保留最近一段时间的历史。
+- 如果不建独立历史表，`agents` 表必须至少保存当前健康状态。
 
-### 7.6 a2a_tasks
+### 7.7 runs
+
+最小字段：
 
 ```text
 id
-runId
-agentName
+conversation_id
+user_id
 status
-traceId
-startedAt
-finishedAt
-errorCode
-errorMessage
-createdAt
-updatedAt
+strategy
+intent_summary
+trace_id
+request_id
+started_at
+finished_at
+error_code
+error_message
+created_at
+updated_at
 ```
 
 规则：
 
-- `id` 对应 A2A taskId。
-- `runId` 关联 AG-UI Run。
-- 不保存敏感 prompt。
-- 错误信息不得保存 API key / token / 堆栈。
+- `strategy = single | parallel | sequential`。
+- `intent_summary` 只能保存脱敏摘要。
+- Run 不应绑定唯一 Agent。
+- 一个 Run 可以关联多个 message、step、agent task、artifact、tool call。
 
-### 7.7 tool_calls
+### 7.8 run_steps
+
+最小字段：
 
 ```text
 id
-runId
-messageId
-artifactId
-toolName
+run_id
+step_type
+step_order
+agent_name
+status
+input_summary
+output_summary
+error_code
+error_message
+started_at
+finished_at
+created_at
+updated_at
+```
+
+规则：
+
+- `step_type = planning | dispatch | agent_task | tool_call | artifact | retry | fallback`。
+- `input_summary` 与 `output_summary` 只能保存摘要。
+- 不保存完整敏感 prompt。
+
+### 7.9 agent_tasks
+
+最小字段：
+
+```text
+id
+run_id
+step_id
+agent_name
+status
+task_ref
+input_summary
+output_summary
+error_code
+error_message
+started_at
+finished_at
+created_at
+updated_at
+```
+
+规则：
+
+- `task_ref` 可保存外部任务 ID。
+- `agent_name` 不固定具体 Agent。
+- 同一个 Run 可以有多个 AgentTask。
+- v1.0 兼容期可以继续使用旧表名，但契约语义应是通用 AgentTask。
+
+### 7.10 tool_calls
+
+最小字段：
+
+```text
+id
+run_id
+message_id
+artifact_id
+tool_name
 args
 status
-createdAt
-updatedAt
+error_code
+error_message
+created_at
+updated_at
 ```
 
 规则：
 
-- `toolName` MVP 至少支持 `code_preview`。
-- `args` 必须符合 Frontend Runtime Skill schema。
-- `artifactId` 关联 Artifact。
-- 不保存过大内容时应引用 Artifact。
+- `tool_name` 不固定具体预览工具。
+- `args` 是 JSON，但必须有结构说明。
+- 大内容应引用 Artifact，不应直接塞进 `args`。
+- ToolCall 必须能关联 message 或 artifact。
 
-### 7.8 artifacts
+### 7.11 artifacts
+
+最小字段：
 
 ```text
 id
-conversationId
-messageId
-runId
+conversation_id
+message_id
+run_id
+agent_name
 type
 title
+mime_type
 content
-fileUrl
+content_ref
 metadata
 version
-createdAt
-updatedAt
+status
+created_at
+updated_at
+deleted_at
 ```
 
 规则：
 
-- MVP 至少支持 `type = code`。
-- `metadata.language` 对 code Artifact 必须存在。
-- 大内容 Post-MVP 应进入 Object Storage。
-- Artifact 必须能映射到 Frontend Runtime Skill。
-- Artifact 不得只存在于 AG-UI 事件流中。
+- `type` 不固定为单一类型。
+- v1.0 至少能持久化 `code`、`webpage`、`markdown` 类产物。
+- 小内容可以 `content` inline。
+- 大内容必须使用 `content_ref`。
+- `metadata` 必须有结构说明。
+- Artifact 不得只存在于实时事件流。
 
 ---
-
-## PDR / Post-MVP 长期表规划
-
-除 MVP v0.1 最小数据模型外，`data-persistence-contract` 必须保留 PDR 和 v1.1 Skills 设计规范中的长期数据模型规划。
-
-以下表属于 **Post-MVP planned**，MVP v0.1 暂不强制实现，但不能从长期数据设计中删除。
-
-### CONVERSATION_PARTICIPANT
-
-用途：
-
-```text
-记录会话参与者，用于群聊、多 Agent 协作、用户与 Agent 混合会话。
-```
-
-建议字段：
-
-```text
-id
-conversationId
-participantType
-participantId
-role
-joinedAt
-leftAt
-createdAt
-updatedAt
-```
-
-字段说明：
-
-- `conversationId` 关联 `conversations.id`。
-- `participantType` 可为 `user / agent`。
-- `participantId` 指向用户 ID 或 Agent name / Agent ID。
-- `role` 可为 `owner / member / agent`。
-- MVP v0.1 单聊可暂不建该表。
-- Post-MVP 群聊和多 Agent 协作必须使用该表或等价模型。
-
-### RUN_STEP
-
-用途：
-
-```text
-记录一次 Run 内部的关键步骤，用于调试 Orchestrator、A2A 调用、ProtocolConverter、Tool Call 和失败定位。
-```
-
-建议字段：
-
-```text
-id
-runId
-stepType
-agentName
-a2aTaskId
-toolCallId
-status
-inputSummary
-outputSummary
-errorCode
-errorMessage
-startedAt
-finishedAt
-createdAt
-updatedAt
-```
-
-字段说明：
-
-- `runId` 关联 `runs.id`。
-- `stepType` 可为 `orchestration / a2a_task / converter / tool_call / artifact_flush`。
-- `a2aTaskId` 可关联 `a2a_tasks.id`。
-- `toolCallId` 可关联 `tool_calls.id`。
-- `inputSummary / outputSummary` 只能保存脱敏摘要，不得保存 API key、token、完整敏感 prompt。
-- MVP v0.1 可先不落库，但 Post-MVP 调试和观测应补充。
-- `converter`、`tool_call`、`artifact_flush` 的细节由后续对应 Skill 细化。
-
-### APPROVAL
-
-用途：
-
-```text
-记录 confirm_action 和高危操作审批结果。
-```
-
-建议字段：
-
-```text
-id
-runId
-toolCallId
-userId
-actionType
-status
-requestPayload
-decisionPayload
-requestedAt
-decidedAt
-createdAt
-updatedAt
-```
-
-字段说明：
-
-- `runId` 关联 `runs.id`。
-- `toolCallId` 关联 `tool_calls.id`。
-- `actionType` 可为 `deploy / run_command / file_overwrite / external_request`。
-- `status` 可为 `pending / approved / rejected / expired`。
-- `requestPayload` 和 `decisionPayload` 必须脱敏。
-- MVP v0.1 不实现高危操作时可以暂不建表。
-- Post-MVP 引入 confirm_action、部署、命令执行、文件覆盖前必须补齐该表或等价模型。
-- `confirm_action` 的 Frontend Runtime Skill 参数和 ToolResult 由后续对应 Skill 细化。
-- 高危操作安全策略由 `security-boundary-contract` 细化。
-
-### AGENT_HEALTH_CHECK
-
-用途：
-
-```text
-记录 Agent 健康检查结果，用于 Agent Registry、Agent 状态展示、fallback 和调试。
-```
-
-建议字段：
-
-```text
-id
-agentName
-agentUrl
-status
-latencyMs
-errorCode
-errorMessage
-checkedAt
-createdAt
-```
-
-字段说明：
-
-- `agentName` 对应 `agents.name`。
-- `status` 可为 `healthy / unhealthy / unknown`。
-- `latencyMs` 记录健康检查延迟。
-- `errorMessage` 必须脱敏。
-- MVP v0.1 配置文件静态注册 `code-agent` 时可以暂不建该表。
-- Post-MVP 引入 Agent Registry、动态发现、fallback / retry 前应补充该表或等价模型。
-- Agent Registry 和路由策略由后续对应 Skill 细化。
 
 ## 8. 字段命名规则
 
-数据库列名推荐 snake_case：
+数据库字段使用 snake_case：
 
 ```text
 conversation_id
+message_id
+run_id
+agent_name
 created_at
 updated_at
-run_id
-trace_id
 ```
 
-API / JSON 字段必须 camelCase：
+对外 JSON 使用 camelCase：
 
 ```text
-conversationId
-createdAt
-updatedAt
-runId
-traceId
-```
-
-Go struct 示例：
-
-```go
-type Message struct {
-    ID             string    `json:"id" db:"id"`
-    ConversationID string   `json:"conversationId" db:"conversation_id"`
-    CreatedAt      time.Time `json:"createdAt" db:"created_at"`
-}
-```
-
----
-
-## 9. ID 关联规则
-
-必须贯穿：
-
-```text
-requestId
-traceId
 conversationId
 messageId
 runId
-a2aTaskId
-toolCallId
-artifactId
 agentName
-userId
+createdAt
+updatedAt
 ```
 
 规则：
 
-- `traceId` 贯穿 Frontend、Gateway、Orchestrator、A2A、Child Agent。
-- `runId` 关联一次 AG-UI run。
-- `a2aTaskId` 关联一次 Child Agent task。
-- `artifactId` 关联产物。
-- `messageId` 关联消息。
-- 所有跨协议 ID 必须可追溯。
+- 数据库字段名不得直接泄漏到 API 作为唯一命名标准。
+- API 层必须负责字段转换。
+- 不得在同一表中混用 `createdAt` 和 `created_at`。
+- 布尔字段使用明确语义，如 `is_archived`、`is_pinned`。
+
+---
+
+## 9. ID 与 Trace 关联规则
+
+必须贯穿的 ID：
+
+```text
+request_id
+trace_id
+conversation_id
+message_id
+run_id
+step_id
+agent_task_id
+external_task_id
+tool_call_id
+artifact_id
+agent_name
+user_id
+```
+
+规则：
+
+- 一个 Run 可以关联多个 message。
+- 一个 Run 可以关联多个 step。
+- 一个 Run 可以关联多个 agent task。
+- 一个 message 可以关联多个 artifact。
+- 一个 artifact 必须能追溯到 conversation、message、run、agent。
+- 错误必须能关联到 request_id 或 trace_id。
 - 不允许只靠日志定位核心链路。
 
 ---
 
-## 10. Redis 使用规则
+## 10. JSON 字段规则
 
-Post-MVP Redis 可用于：
+允许 JSON 字段：
 
-- 在线状态。
-- 轻量缓存。
-- rate limit。
-- session 临时状态。
-- run 临时状态。
-- SSE fanout 辅助。
-- 轻量队列。
-- 分布式锁。
-
-Redis 不允许作为：
-
-- 消息历史唯一存储。
-- Artifact 唯一存储。
-- 用户数据唯一存储。
-- AgentCard 唯一存储。
-- Run 结果唯一存储。
-
-MVP v0.1 暂不使用 Redis 是允许的。
-
----
-
-## 11. Object Storage 规则
-
-Post-MVP Object Storage 用于：
-
-- 大代码包。
-- HTML / CSS / JS 压缩包。
-- 图片。
-- 文档。
-- zip。
-- 日志文件。
-- 大型 Artifact。
-- 部署产物。
+```text
+agents.agent_card
+agents.skills
+agents.input_modes
+agents.output_modes
+runs.plan_json
+tool_calls.args
+artifacts.metadata
+messages.content_json
+```
 
 规则：
 
-- 数据库只保存 `fileUrl` / object key / metadata。
-- 下载 URL 应短期有效。
-- 私有 Artifact 必须鉴权。
-- 不允许公开暴露敏感文件。
-- 删除 Artifact 时必须处理对象存储清理。
-- MVP 可暂不使用对象存储，但 Contract 必须保留演进方向。
+- JSON 字段必须有结构说明。
+- 经常查询、过滤、排序、关联的字段不得只藏在 JSON。
+- JSON 字段不得保存 secret。
+- JSON 字段不得保存大型文件内容。
+- JSON 字段不得变成任意结构垃圾桶。
+- 重要 JSON 结构变更必须写 migration 或兼容说明。
+
+---
+
+## 11. Index 与查询规则
+
+建议索引：
+
+```text
+conversations(user_id, updated_at)
+conversations(conversation_type)
+conversation_participants(conversation_id)
+conversation_participants(participant_type, participant_id)
+messages(conversation_id, created_at)
+messages(run_id)
+agents(name)
+agents(status)
+agent_health_checks(agent_name, checked_at)
+runs(conversation_id, created_at)
+runs(trace_id)
+run_steps(run_id, step_order)
+agent_tasks(run_id)
+agent_tasks(agent_name, created_at)
+tool_calls(message_id)
+tool_calls(artifact_id)
+artifacts(message_id)
+artifacts(run_id)
+artifacts(agent_name, created_at)
+```
+
+规则：
+
+- 聊天历史查询必须走 `conversation_id + created_at`。
+- Agent 列表查询必须能按 `status` 过滤。
+- Run 排查必须能通过 `trace_id` 定位。
+- 群聊成员查询必须走 `conversation_participants.conversation_id`。
+- 常用查询必须有索引计划。
 
 ---
 
@@ -615,212 +654,193 @@ Post-MVP Object Storage 用于：
 
 规则：
 
-- migration 文件必须版本化。
-- migration 必须可重复执行或可明确失败。
-- 不允许手工改库不留记录。
-- 不允许直接在生产库执行未 review SQL。
-- migration 必须包含 up/down 或明确不可逆说明。
-- 修改表字段必须同步更新数据模型文档。
-- 修改 API 相关字段必须同步 OpenAPI。
-- 修改 Artifact 相关字段必须同步 Artifact Contract。
+- migration 文件必须有递增版本号。
+- 每次 schema 变更必须有 up migration。
+- down migration 可以没有，但必须标注 irreversible。
+- 破坏性变更必须使用 expand / migrate / contract。
+- 字段重命名不能一步完成：先加新字段，双写，回填，切读，再删旧字段。
+- 删除列、改类型、改 nullability 必须说明风险。
+- 大表回填必须分批。
+- migration 后必须更新数据模型文档。
+- 禁止手工改库不留记录。
 
-推荐命名：
+推荐阶段：
 
 ```text
-000001_init_schema.sql
-000002_add_runs.sql
-000003_add_artifacts.sql
+expand: 增加兼容字段 / 表 / 索引
+migrate: 回填数据、双写、切换读路径
+contract: 删除旧字段、清理兼容逻辑
 ```
 
 ---
 
-## 13. JSON / JSONB 字段规则
-
-长期 PostgreSQL 可使用 JSONB。  
-MVP MySQL 可使用 JSON 类型。
-
-适用字段：
-
-```text
-messages.content
-agents.agent_card
-artifacts.metadata
-tool_calls.args
-runs.context
-```
+## 13. 软删除、归档与保留
 
 规则：
 
-- 每个 JSON 字段必须有 schema 说明。
-- 不允许无约束地塞任意数据。
-- 不允许把 API key / token 塞进 JSON 字段。
-- 不允许把大文件内容长期塞进 JSON 字段。
-- JSON 字段变更必须更新 Contract。
+- 用户可见历史默认软删除。
+- `deleted_at` 存在表示软删除。
+- 归档使用 `is_archived`，不要等同删除。
+- 删除 conversation 不应立即硬删 messages / artifacts。
+- Artifact 删除应避免破坏历史消息引用。
+- 健康检查历史可设置保留窗口。
+- 大型日志与临时调试数据应有保留策略。
 
 ---
 
-## 14. MVP v0.1 数据落地规则
+## 14. 数据安全与脱敏
 
-MVP v0.1 必须优先支持：
-
-- 对话列表。
-- 创建对话。
-- 消息保存。
-- 历史消息查询。
-- `code-agent` 注册。
-- `/api/agui/run` 对应 run 记录。
-- A2A taskId 记录。
-- code Artifact 记录。
-- code_preview tool call 记录。
-
-MVP v0.1 可暂不支持：
-
-- 多用户注册登录。
-- 群聊参与者完整模型。
-- Redis。
-- Object Storage。
-- Artifact 版本历史。
-- 高级搜索。
-- 复杂消息分页。
-- Agent 健康检查历史。
-- approval 记录。
-- deploy 记录。
-
----
-
-## 15. 安全规则
-
-数据层不得保存：
+数据库不得保存：
 
 - 明文 LLM API key。
 - 明文用户 token。
 - 明文服务间 token。
+- 数据库连接串。
 - 完整敏感 system prompt。
-- 未脱敏生产日志。
-- 用户隐私文件明文路径。
+- 未脱敏 LLM 原始请求 / 响应。
+- 私有文件绝对路径。
+- 永久公开下载 URL。
+- 内网服务拓扑。
+- 未脱敏用户隐私。
 
-必须：
+规则：
 
-- 对 API key 做环境变量 / secret 管理。
-- 对敏感字段做脱敏日志。
-- 对私有 Artifact 做权限校验。
-- 对软删除数据做访问过滤。
-- 对 object storage URL 做过期控制。
-- 对 file upload 做类型和大小限制。
-
----
-
-## 16. Contract Test 规则
-
-数据层至少应测试：
-
-- migration 是否可运行。
-- 核心表是否存在。
-- 必填字段是否存在。
-- 索引是否覆盖常用查询。
-- message 能关联 conversation。
-- run 能关联 conversation / message。
-- a2a_task 能关联 run。
-- artifact 能关联 run / message。
-- tool_call 能关联 artifact。
-- JSON 字段是否符合 schema。
-- 删除 / 归档是否不破坏历史引用。
-- MVP 查询接口能返回 OpenAPI 要求字段。
+- Secret 应来自环境变量或 secret manager。
+- token 只能保存 hash、摘要、过期时间、撤销状态等必要信息。
+- error_message 必须面向用户和日志场景分别脱敏。
+- summary 字段只能保存摘要，不保存完整敏感输入。
+- content_ref 不能是永久公开 URL。
 
 ---
 
-## 17. 与其他 Skills 的协作
+## 15. Contract Test 规则
 
-- REST API 字段必须能由数据模型支撑。
-- AG-UI event 是实时过程，不是持久化事实源。
-- Gateway 负责保存用户消息和 OrchestratorResult。
-- A2A taskId 和 Agent 输出 Artifact 必须可持久化。
-- Artifact 具体字段、类型、metadata 由 Artifact Contract 细化。
-- 敏感数据、API key、文件权限、下载 URL 由 Security Contract 细化。
+数据层至少应验证：
 
----
-
-## 18. 硬性规则
-
-1. MVP v0.1 使用 MySQL 8 是允许的。
-2. 长期目标保留 PostgreSQL + Redis + Object Storage。
-3. 数据库是持久化事实源。
-4. Redis 不能作为消息历史或 Artifact 唯一存储。
-5. Object Storage 保存大 Artifact。
-6. 所有 migration 必须版本化。
-7. API JSON 使用 camelCase，数据库列名可用 snake_case。
-8. 所有跨协议 ID 必须可关联。
-9. `runId`、`traceId`、`messageId`、`artifactId` 必须可追踪。
-10. 大 Artifact 不得塞进 message.content。
-11. Artifact 不能只存在于 AG-UI 事件流中。
-12. JSON 字段必须有 schema 说明。
-13. 敏感信息不得明文入库。
-14. 修改持久化字段必须同步 Contract。
-15. 必须遵守 `Contract first / Mock first / Real integration later / Review always`。
+- Migration 可以从空库执行成功。
+- 核心表存在。
+- 核心索引存在。
+- 可以创建单聊 conversation。
+- 可以创建群聊 conversation。
+- 可以添加 user participant。
+- 可以添加 agent participant。
+- 可以保存 user message。
+- 可以保存 agent message 且包含 sender_name。
+- 可以保存 run。
+- 可以保存 run_steps。
+- 可以保存 agent_tasks。
+- 可以保存 tool_calls。
+- 可以保存 artifacts。
+- 可以通过 conversation 查询完整历史。
+- 可以通过 run_id 查询运行链路。
+- 可以通过 trace_id 定位问题。
+- JSON 字段结构有效。
+- soft delete 不破坏历史关联。
 
 ---
 
-## 19. 必须维护的文件
+## 16. 禁止事项
 
-本 Skill 本体：
+禁止：
 
-```text
-skills/data-persistence-contract/SKILL.md
-```
-
-正式 Contract：
-
-```text
-docs/contracts/data-model.md
-docs/contracts/mysql-schema.md
-docs/contracts/postgres-schema.md
-docs/contracts/redis-usage.md
-docs/contracts/object-storage-policy.md
-docs/contracts/migration-policy.md
-```
-
-MVP 最小可先维护：
-
-```text
-docs/contracts/data-model.md
-docs/contracts/mysql-schema.md
-docs/contracts/migration-policy.md
-```
+- 把 MVP 历史基线当成当前开发禁令。
+- 把 Agent 名称写死在 schema 里。
+- 只支持单一 Agent。
+- 只支持单聊。
+- 只支持单一 Artifact 类型。
+- 不写 migration 直接改 init.sql。
+- 用 JSON 字段逃避建模。
+- 把大文件塞进数据库 content。
+- 把 secret 存入数据库。
+- 把内部栈和原始 prompt 存入用户可见错误字段。
+- 只靠前端状态或日志恢复历史。
 
 ---
 
-## 20. Review Checklist
+## 17. Review Checklist
 
-- [ ] 是否明确 MVP MySQL 8？
-- [ ] 是否保留长期 PostgreSQL / Redis / Object Storage？
-- [ ] 是否定义 conversations？
-- [ ] 是否定义 messages？
-- [ ] 是否定义 agents？
-- [ ] 是否定义 runs？
-- [ ] 是否定义 a2a_tasks？
-- [ ] 是否定义 tool_calls？
-- [ ] 是否定义 artifacts？
-- [ ] 是否定义跨协议 ID？
-- [ ] 是否说明 Redis 不能作为事实源？
-- [ ] 是否说明 Object Storage 保存大 Artifact？
-- [ ] 是否有 migration policy？
-- [ ] JSON 字段是否有 schema？
-- [ ] 是否没有保存明文 API key / token？
-- [ ] 是否与 OpenAPI / Artifact / A2A Contract 一致？
+### 阶段
 
-- [ ] 是否明确 `CONVERSATION_PARTICIPANT` 属于 Post-MVP 群聊 / 多 Agent 参与者模型？
-- [ ] 是否明确 `RUN_STEP` 属于 Post-MVP Run 内部步骤追踪模型？
-- [ ] 是否明确 `APPROVAL` 属于 Post-MVP confirm_action / 高危操作审批模型？
-- [ ] 是否明确 `AGENT_HEALTH_CHECK` 属于 Post-MVP Agent Registry / 健康检查模型？
-- [ ] 是否明确这些长期表 MVP v0.1 暂不强制实现，但不能从长期规划中删除？
-- [ ] 是否在涉及尚未完成的 Skill 时只写“由后续对应 Skill 细化”，没有强制要求当前文件已存在？
+- 是否没有把 MVP 历史基线当成当前禁令？
+- 是否支持 2+ Agent？
+- 是否支持单聊和群聊？
+- 是否不固定具体 Agent 名称？
 
+### 表结构
+
+- 是否有 conversations？
+- 是否有 conversation_participants？
+- 是否有 messages？
+- 是否有 agents？
+- 是否有 agent_health_checks 或等价字段？
+- 是否有 runs？
+- 是否有 run_steps？
+- 是否有 agent_tasks 或兼容表？
+- 是否有 tool_calls？
+- 是否有 artifacts？
+
+### 关联
+
+- message 是否关联 conversation？
+- run 是否关联 conversation？
+- run 是否能关联多 message？
+- agent_task 是否关联 run？
+- artifact 是否关联 message / run / agent？
+- tool_call 是否关联 message / artifact？
+- 多 Agent 消息是否能追溯 agentName？
+
+### Migration
+
+- 是否有版本化 migration？
+- 是否使用 expand / migrate / contract 处理破坏性变更？
+- 是否避免手工改库不留记录？
+- 是否更新数据模型文档？
+
+### JSON
+
+- JSON 字段是否有结构说明？
+- 常用查询字段是否没有藏在 JSON？
+- JSON 是否没有保存 secret？
+
+### 安全
+
+- 是否没有明文 API key / token？
+- 是否没有完整 system prompt？
+- 是否没有未脱敏 LLM 请求响应？
+- 是否没有永久公开文件 URL？
+
+---
+
+## 18. 完成定义
+
+本 Skill 视为完成，当且仅当：
+
+- 数据层事实源原则明确。
+- MVP v0.1 已降级为历史基线。
+- v1.0 支持 2+ Agent 的数据模型。
+- v1.0 支持单聊与群聊。
+- Agent Registry 与 health 状态有持久化策略。
+- Run、RunStep、AgentTask、ToolCall、Artifact 关联明确。
+- JSON 字段规则明确。
+- Migration 规则明确。
+- MySQL 当前 Profile 明确。
+- Redis / Object Storage / PostgreSQL 的边界明确。
+- 数据安全与脱敏规则明确。
+- Review Checklist 明确。
+
+---
 
 ## References
 
-- `references/mysql-mvp-schema.md`
-- `references/postgres-post-mvp-schema.md`
+- `references/data-model-overview.md`
+- `references/mysql-current-schema.md`
 - `references/migration-policy.md`
-- `references/persistence-id-policy.md`
+- `references/id-and-trace-policy.md`
+- `references/conversation-message-policy.md`
+- `references/run-and-task-policy.md`
+- `references/agent-registry-persistence.md`
 - `references/artifact-persistence-policy.md`
+- `references/json-field-policy.md`
+- `references/redis-object-storage-policy.md`
+- `references/data-security-policy.md`
 - `references/data-review-checklist.md`

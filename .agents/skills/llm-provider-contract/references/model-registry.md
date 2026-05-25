@@ -1,39 +1,36 @@
-# Model Registry 规则
+# Model Registry
 
-Model Registry 用于声明 Provider、模型名称和模型能力。
+Model Registry 是模型能力、限制与使用策略的事实源。
 
-长期 Provider 类型：
+## 推荐字段
 
-```text
-openai
-anthropic
-gemini
-openai_compatible
-local
+```ts
+type ModelDefinition = {
+  modelId: string
+  providerName: string
+  status: 'enabled' | 'disabled' | 'deprecated'
+  capabilities: {
+    streaming: boolean
+    structuredOutput: boolean
+    jsonSchema: boolean
+    toolUse: boolean
+    vision: boolean
+    reasoning: boolean
+  }
+  limits: {
+    maxInputTokens?: number
+    maxOutputTokens?: number
+    defaultTimeoutMs?: number
+  }
+  costClass: 'free' | 'low' | 'medium' | 'high' | 'unknown'
+  useCases?: string[]
+}
 ```
 
-模型能力字段：
+## 规则
 
-```text
-provider
-model
-enabled
-supportsStreaming
-supportsStructuredOutput
-supportsJsonSchema
-supportsToolUse
-supportsVision
-maxInputTokens
-maxOutputTokens
-costClass
-defaultTimeoutMs
-```
-
-规则：
-
-- 不得在业务代码中硬编码模型能力。
-- 不得因为 Provider 支持某能力，就默认所有模型支持该能力。
-- 不得因为 OpenAI-compatible Provider 暴露 OpenAI 风格 API，就默认其支持 OpenAI 官方所有能力。
-- Provider Adapter 必须根据官方文档和实际测试声明能力。
-
-MVP 可以只注册一个 Provider 和一个模型。
+- 业务代码不得直接写死模型名。
+- 模型能力必须由 registry 声明。
+- Provider 支持某能力，不代表所有模型都支持。
+- fallback 只能选择能力兼容模型。
+- disabled Model 不得被新请求选择。

@@ -1,360 +1,786 @@
 ---
 name: frontend-runtime-skills-contract
-description: 当定义、实现、修改或审查 AgentHub 中 AG-UI Tool Call 到前端 React Runtime Skill 的注册、参数校验、组件绑定、执行行为、ToolResult 或安全确认规则时，使用本 Skill。
+description: "用于定义 AgentHub 前端 Runtime Capability 的注册、Tool Call 参数聚合、schema 校验、组件绑定、执行行为、安全降级、iframe/Markdown/Code 渲染和 ToolResult 规则。该 Skill 不绑定具体 Agent 名称。"
 ---
 
 # frontend-runtime-skills-contract
 
-## 1. 目的
+## 1. Skill 目的
 
-本 Skill 定义 AgentHub 前端 Runtime Skill 的开发契约。
+本 Skill 定义 AgentHub 前端 Runtime Capability 的通用契约。
 
-前端 Runtime Skill 是指：
+它约束前端在收到完整 Tool Call 后，如何：
+
+- 识别 `toolName`。
+- 查询 Runtime Capability Registry。
+- 聚合 Tool Call args。
+- 解析 JSON 参数。
+- 校验参数 schema。
+- 绑定 React 组件或前端执行器。
+- 执行渲染、交互或安全降级。
+- 处理未知能力、非法参数和组件异常。
+- 管理 ToolResult 的返回边界。
+
+一句话：
+
+**前端 Runtime Capability 只绑定 `toolName + schema + component + behavior + riskLevel + failureMode`，不绑定任何具体 Agent 名称。**
+
+---
+
+## 2. 独立性原则
+
+本 Skill 是独立 Skill。
+
+阅读本文件不需要先阅读其他 Skill。
+
+本 Skill 只定义前端 Runtime Capability 的注册与执行规则。
+
+本 Skill 不展开：
+
+- 实时事件协议字段。
+- 后端如何生成 Tool Call。
+- 子 Agent 如何生成产物。
+- Artifact 持久化结构。
+- 数据库表结构。
+- Docker 交付方案。
+- 后端 Runtime 设计。
+- Agent 编排算法。
+
+如果前端最终收到的是 Tool Call，本 Skill 只关心：
 
 ```text
-Agent 通过 AG-UI Tool Call 请求前端执行、展示或交互的能力。
+工具名是什么？
+参数是否完整？
+参数是否合法？
+前端是否注册了这个能力？
+这个能力是否允许执行？
+执行失败时如何降级？
 ```
 
-本 Skill 的边界是：
+---
 
-```text
-AG-UI Tool Call
-→ Frontend Runtime Skill Registry
-→ Args schema validation
-→ React Component binding
-→ Render / Interaction / ToolResult
+## 3. 通用性原则
+
+Frontend Runtime Capability 不绑定具体 Agent 名称。
+
+前端不得通过 `agentName` 判断应该执行哪个 Runtime Capability。
+
+前端只根据以下信息处理 Tool Call：
+
+1. `toolName` 是否已注册。
+2. 注册项 `status` 是否允许执行。
+3. Tool Call args 是否完整。
+4. args 是否通过 schema 校验。
+5. Runtime Capability 的安全策略是否允许执行。
+6. 对应组件是否存在且可安全渲染。
+
+禁止：
+
+```ts
+if (agentName === 'web-agent') {
+  renderWebPreview(args)
+}
 ```
 
-一句话定位：
+正确：
 
-```text
-frontend-runtime-skills-contract 定义 AG-UI Tool Call 到前端 React Runtime Skill 的注册、参数校验、组件映射、执行边界和交互结果规则。
+```ts
+const capability = registry[toolName]
+if (capability?.status === 'implemented' && validate(capability.parametersSchema, args)) {
+  render(capability.component, args)
+}
 ```
 
-## 2. 官方 / 上游协议约束
+示例：
 
-涉及 AG-UI 事件和 Tool Call 语义时，以上游 AG-UI 协议为准。
+- 任意 Agent 都可以触发 `code_preview`，只要 args 符合 `CodePreviewParams`。
+- 任意 Agent 都可以触发 `web_preview`，只要 args 符合 `WebPreviewParams`。
+- 任意 Agent 都可以触发 `markdown_render`，只要 args 符合 `MarkdownRenderParams`。
 
-本 Skill 不定义 AG-UI 事件结构。
+禁止：
 
-本 Skill 只消费上游协议已经定义的 Tool Call 生命周期：
+- 通过 Agent 名称推断参数结构。
+- 通过 Agent 名称绕过 schema validation。
+- 把某个 Runtime Capability 写成某个 Agent 专属能力。
+- 在前端核心 runtime 中维护 `agentName → component` 映射。
 
-```text
-TOOL_CALL_START
-TOOL_CALL_ARGS
-TOOL_CALL_END
-```
+---
 
-或等价 AG-UI ToolCallStart / ToolCallArgs / ToolCallEnd 事件。
+## 4. 当前阶段识别
 
-上游事件字段、SSE 格式、事件顺序和流式协议由：
+MVP v0.1 已完成，仅作为历史回归基线。
 
-```text
-agui-event-contract
-```
+MVP 历史基线包括：
 
-负责。
+- `code_preview`。
+- 小型代码预览。
+- 不执行代码。
+- 不访问网络。
+- 不修改服务端状态。
+
+这些历史基线不得限制后续 Runtime Capability 扩展。
+
+当前通用目标：
+
+- 支持可扩展 Runtime Capability Registry。
+- 支持多个前端 runtime capability。
+- 支持 Tool Call args 分片聚合。
+- 支持 `TOOL_CALL_END` 后统一解析。
+- 支持 schema validation。
+- 支持未知能力安全降级。
+- 支持非法参数安全降级。
+- 支持渲染型、交互型和副作用型能力分层。
+- 支持高风险渲染能力的隔离与错误恢复。
+
+---
+
+## 5. 本 Skill 负责什么
 
 本 Skill 负责：
 
-```text
-前端在收到完整 Tool Call 后，如何识别 toolName、校验 args、绑定组件、执行或渲染、返回可选 ToolResult。
-```
+- Runtime Capability Registry。
+- Tool Call 参数聚合。
+- 参数 schema 校验。
+- toolName 与组件绑定。
+- 渲染型 capability 的安全边界。
+- 交互型 capability 的用户动作边界。
+- 副作用型 capability 的默认禁用规则。
+- ToolResult 基础结构。
+- 失败降级策略。
+- 前端 runtime 安全规则。
+- Review Checklist。
 
-## 3. 文件位置说明
+---
 
-### 项目级 Contract 文件
-
-以下文件属于 AgentHub 项目仓库，是项目级事实源：
-
-```text
-<repo-root>/docs/contracts/frontend-runtime-skills.md
-<repo-root>/docs/contracts/frontend-runtime-skills.schema.json
-```
-
-### 当前 Skill 的参考文件
-
-以下文件属于当前 Coding Agent Skill，用于补充本 Skill 的详细开发规则：
-
-```text
-<current-skill-dir>/references/registry-policy.md
-<current-skill-dir>/references/tool-call-consumption.md
-<current-skill-dir>/references/parameter-schema-policy.md
-<current-skill-dir>/references/component-binding.md
-<current-skill-dir>/references/execution-behavior.md
-<current-skill-dir>/references/tool-result-policy.md
-<current-skill-dir>/references/safety-confirmation-policy.md
-<current-skill-dir>/references/mvp-code-preview.md
-```
-
-如果当前 Skill 安装在 Claude Code 项目目录中，则 `<current-skill-dir>` 通常是：
-
-```text
-<repo-root>/.claude/skills/frontend-runtime-skills-contract
-```
-
-## 4. 适用场景
-
-当进行以下工作时，启用本 Skill：
-
-- 新增前端 Runtime Skill。
-- 修改前端 Runtime Skill registry。
-- 修改 Tool Call 消费逻辑。
-- 修改 Tool Call args 聚合逻辑。
-- 修改 Runtime Skill 参数 schema。
-- 修改 Runtime Skill 到 React Component 的绑定。
-- 修改 Runtime Skill 的执行行为。
-- 修改 blocking / interactive / side_effect 行为。
-- 修改 ToolResult 结构。
-- 修改用户确认和危险操作规则。
-- 修改 MVP `code_preview`。
-- 审查未知 toolName 的处理。
-- 审查参数校验失败后的 fallback。
-- 审查前端是否执行了不该执行的代码或副作用。
-
-## 5. 本 Skill 负责
-
-本 Skill 负责：
-
-- Runtime Skill Registry。
-- `toolName` 命名和注册规则。
-- `implemented` / `reserved` / `disabled` / `deprecated` 状态。
-- AG-UI Tool Call 的前端消费规则。
-- Tool Call args chunk 聚合规则。
-- 参数 JSON parse 和 schema validation。
-- Runtime Skill 到 React Component 的绑定。
-- render / interactive / side_effect 行为分类。
-- blocking / non-blocking 规则。
-- requiresConfirmation / dangerous 规则。
-- ToolResult 规则。
-- 用户安全 fallback。
-- MVP `code_preview` 规则。
-- 正式开发阶段启用新 Runtime Skill 的规则。
-
-## 6. 本 Skill 不负责
+## 6. 本 Skill 不负责什么
 
 本 Skill 不负责：
 
-- AG-UI 事件名称和事件字段定义。
-- SSE parser 具体实现。
-- A2A 到 AG-UI 的转换。
-- Artifact schema。
-- Artifact 存储。
-- Artifact type 到 Runtime Skill 的映射。
-- REST API。
-- React 视觉样式。
-- Zustand / store 具体实现。
-- 对象存储鉴权。
-- iframe sandbox 完整策略。
-- 文件上传完整安全策略。
-- Docker / CI / 测试策略。
-- 通用 TypeScript / React 代码风格。
+- 服务端如何选择 Agent。
+- 服务端如何生成 Tool Call。
+- SSE 事件 wire format。
+- Artifact 后端事实源结构。
+- 子 Agent 内部运行时。
+- 数据库如何保存 Tool Call。
+- 具体 React 样式。
+- 具体 UI 设计稿。
+- 生产部署方案。
 
-涉及以上内容时，只引用相关 contract，不在本 Skill 中重新定义。
+---
 
-## 7. MVP Profile
+## 7. Runtime Capability 定义
 
-MVP 阶段只实现一个前端 Runtime Skill：
+Runtime Capability 是前端可执行的能力单元。
 
-```text
-code_preview
+它可以是：
+
+- 展示一段代码。
+- 预览一段 HTML。
+- 渲染 Markdown。
+- 显示图表。
+- 展示图片。
+- 请求用户确认。
+- 收集表单输入。
+- 触发下载。
+
+Runtime Capability 不是：
+
+- Agent 名称。
+- Artifact 类型。
+- React 组件名称。
+- 后端事件类型。
+- 数据库表名。
+
+Runtime Capability 的唯一外部入口是 `toolName`。
+
+---
+
+## 8. Runtime Capability Registry
+
+前端必须维护 Runtime Capability Registry。
+
+推荐类型：
+
+```ts
+type RuntimeSkillStatus =
+  | 'implemented'
+  | 'seeded'
+  | 'reserved'
+  | 'disabled'
+  | 'deprecated'
+
+type RuntimeSkillBehavior =
+  | 'render'
+  | 'interactive'
+  | 'side_effect'
+
+type RuntimeSkillRiskLevel =
+  | 'low'
+  | 'medium'
+  | 'high'
+
+type RuntimeSkillFailureMode =
+  | 'hide'
+  | 'placeholder'
+  | 'error_card'
+  | 'text_fallback'
+
+type FrontendRuntimeSkill = {
+  toolName: string
+  description: string
+  status: RuntimeSkillStatus
+  component?: string
+  behavior: RuntimeSkillBehavior
+  riskLevel: RuntimeSkillRiskLevel
+  requiresConfirmation: boolean
+  acceptsStreamingArgs: boolean
+  parseAt: 'tool_call_end'
+  parametersSchema: unknown
+  resultSchema?: unknown
+  failureMode: RuntimeSkillFailureMode
+}
 ```
 
-MVP 阶段唯一可执行注册项：
+规则：
+
+- `toolName` 必须唯一。
+- `toolName` 使用 `snake_case`。
+- `component` 不是 `toolName`。
+- `artifact.type` 不是 `toolName`。
+- `status = implemented` 才允许自动执行。
+- `status = seeded` 表示推荐注册但不代表当前代码已经完整实现。
+- `status = reserved` 表示已占名但不可执行。
+- `status = disabled` 表示存在但明确禁用。
+- `status = deprecated` 表示兼容旧能力，不推荐新增使用。
+- `parseAt` 当前固定为 `tool_call_end`。
+- 参数必须通过 schema 校验后才能传给组件。
+
+---
+
+## 9. 当前种子 Runtime Capabilities
+
+以下能力是当前推荐注册的前端通用能力，不代表系统只能支持这些能力。
+
+| toolName | 能力类型 | 是否绑定 Agent | 默认状态 |
+|---|---|---:|---|
+| `code_preview` | 代码预览 | 否 | `implemented` |
+| `web_preview` | HTML/Web 预览 | 否 | `implemented` 或 `seeded` |
+| `markdown_render` | Markdown 渲染 | 否 | `implemented` 或 `seeded` |
+
+规则：
+
+- 这些能力不属于任何具体 Agent。
+- 任意 Agent 都可以触发这些能力，只要 Tool Call 合法。
+- 新 Agent 不得要求前端增加 `if agentName === ...`。
+- 新能力必须通过 registry 扩展，而不是修改 Agent 分支判断。
+
+---
+
+## 10. Reserved / Disabled Capabilities
+
+未来可能注册的能力：
+
+| toolName | 推荐状态 | 说明 |
+|---|---|---|
+| `image_preview` | `reserved` | 图片预览 |
+| `file_download` | `reserved` | 文件下载 |
+| `diff_preview` | `reserved` | Diff 预览 |
+| `terminal_output` | `reserved` | 终端输出展示 |
+| `chart_render` | `reserved` | 图表展示 |
+| `form_input` | `disabled` | 用户表单输入 |
+| `confirm_action` | `disabled` | 用户确认 |
+| `file_upload` | `disabled` | 文件上传 |
+| `deploy_status` | `disabled` | 部署状态或部署动作 |
+
+规则：
+
+- `reserved` 能力不得执行。
+- `disabled` 能力不得执行。
+- 交互型能力必须等待用户明确动作。
+- 副作用型能力默认禁用，必须有确认门和权限控制。
+
+---
+
+## 11. Tool Call 消费状态机
+
+前端必须按 `toolCallId` 管理 Tool Call 生命周期。
+
+标准状态机：
 
 ```text
-code_preview → CodePreview
+TOOL_CALL_START
+  → 创建 pending buffer
+
+TOOL_CALL_ARGS
+  → 按 toolCallId 追加 delta/content
+
+TOOL_CALL_END
+  → 拼接完整 args
+  → JSON.parse
+  → schema validation
+  → registry lookup
+  → safety check
+  → component render / fallback
 ```
 
-MVP 阶段 `code_preview` 参数：
+规则：
+
+- 不得在 `TOOL_CALL_ARGS` 阶段执行 capability。
+- `TOOL_CALL_ARGS` 可以有多个分片。
+- args 聚合必须按 `toolCallId`。
+- 同一 message 可以有多个 `toolCallId`。
+- 未知 `toolCallId` 的 ARGS / END 必须安全忽略或记录错误。
+- END 后重复到达不得重复执行。
+- JSON parse 失败必须 fallback。
+- schema validation 失败必须 fallback。
+- 未知 `toolName` 不得执行。
+
+兼容规则：
+
+- 新事件优先读取 `delta`。
+- 兼容旧事件中的 `content`。
+- 聚合时使用 `event.delta ?? event.content ?? ''`。
+
+---
+
+## 12. 参数聚合与 Schema Validation
+
+参数处理必须分四步：
+
+1. 按 `toolCallId` 聚合字符串。
+2. 在 `TOOL_CALL_END` 后解析 JSON。
+3. 使用 registry 中的 `parametersSchema` 校验。
+4. 校验通过后才传给组件或执行器。
+
+规则：
+
+- 组件不得接收未校验参数。
+- 不得信任后端一定返回合法 JSON。
+- 字符串字段必须设置合理长度上限。
+- URL 字段必须限制协议。
+- HTML / Markdown / JS 字段必须按 capability 安全策略处理。
+- 参数校验失败时不得导致页面白屏。
+
+---
+
+## 13. Component Binding
+
+Runtime Capability 与组件绑定通过 registry 完成。
+
+示例：
+
+```ts
+const registry = {
+  code_preview: {
+    toolName: 'code_preview',
+    status: 'implemented',
+    component: 'CodePreview',
+    behavior: 'render',
+    riskLevel: 'low',
+    requiresConfirmation: false,
+    acceptsStreamingArgs: true,
+    parseAt: 'tool_call_end',
+    parametersSchema: CodePreviewSchema,
+    failureMode: 'error_card',
+  },
+}
+```
+
+规则：
+
+- 组件名称不得作为外部协议字段。
+- 外部只传 `toolName`。
+- Registry 负责把 `toolName` 映射到组件。
+- 缺失组件必须 fallback。
+- 组件抛错必须被 Error Boundary 或等价机制隔离。
+
+---
+
+## 14. Execution Behavior
+
+Runtime Capability 按行为分三类。
+
+### 14.1 render
+
+只展示，不产生服务端副作用。
+
+示例：
+
+- `code_preview`
+- `web_preview`
+- `markdown_render`
+- `image_preview`
+- `chart_render`
+
+规则：
+
+- 可以在参数合法后自动执行。
+- 必须安全渲染。
+- 失败时必须降级。
+
+### 14.2 interactive
+
+需要用户交互，但不直接改变外部世界。
+
+示例：
+
+- `form_input`
+- `confirm_action`
+
+规则：
+
+- 必须等待用户动作。
+- 必须明确取消路径。
+- 必须有 ToolResult 或等价结果结构。
+
+### 14.3 side_effect
+
+可能修改服务端、文件、部署、外部系统或用户数据。
+
+示例：
+
+- `file_upload`
+- `deploy_action`
+- `run_command`
+
+规则：
+
+- 默认 `disabled`。
+- 必须有用户确认。
+- 必须有权限检查。
+- 必须有清晰审计记录。
+
+---
+
+## 15. code_preview Capability Policy
+
+`code_preview` 是通用代码展示能力，不绑定任何 Agent。
+
+参数：
 
 ```ts
 type CodePreviewParams = {
-  code: string;
-  language: string;
-  filename: string;
-};
+  code: string
+  language: string
+  filename?: string
+  title?: string
+}
 ```
 
-MVP 行为：
+建议注册项：
 
 ```text
 behavior = render
-blocking = false
+riskLevel = low
 requiresConfirmation = false
-dangerous = false
-allowedInMvp = true
-implemented = true
+failureMode = error_card
 ```
 
-MVP 阶段其他 Runtime Skill 只能 reserved，不得执行：
+规则：
+
+- 只展示代码。
+- 不执行代码。
+- 不插入 `<script>`。
+- 不访问网络。
+- 不修改服务端状态。
+- 大代码应折叠或截断展示。
+- `language` 不合法时使用纯文本高亮降级。
+
+---
+
+## 16. web_preview Capability Policy
+
+`web_preview` 是通用 HTML/Web 预览能力，不绑定任何 Agent。
+
+参数：
+
+```ts
+type WebPreviewParams = {
+  html: string
+  css?: string
+  js?: string
+  title?: string
+  filename?: string
+}
+```
+
+建议注册项：
 
 ```text
-web_preview
-diff_preview
-file_download
-image_preview
-deploy_status
-markdown_render
-terminal_output
-chart_render
-form_input
-confirm_action
-file_upload
+behavior = render
+riskLevel = medium
+requiresConfirmation = false
+failureMode = placeholder 或 error_card
 ```
 
-MVP 详细规则见：
+规则：
+
+- 不得把 HTML 直接注入主应用 DOM。
+- 必须使用 iframe / sandbox / 等价隔离策略。
+- 默认不得启用 `allow-same-origin`。
+- 不得默认启用 `allow-forms`。
+- 不得默认启用 `allow-popups`。
+- 不得默认启用 `allow-downloads`。
+- 不得默认启用 `allow-top-navigation`。
+- 如果启用 scripts，不得同时启用 same-origin，除非有单独安全评审和隔离 origin。
+- iframe 出错时显示错误卡片或占位，不得导致聊天页白屏。
+- `html` 为空时不得渲染空 iframe，应降级为错误卡片。
+
+推荐默认 sandbox：
+
+```html
+<iframe sandbox="allow-scripts" />
+```
+
+禁止默认 sandbox：
+
+```html
+<iframe sandbox="allow-scripts allow-same-origin" />
+```
+
+---
+
+## 17. markdown_render Capability Policy
+
+`markdown_render` 是通用 Markdown 渲染能力，不绑定任何 Agent。
+
+参数：
+
+```ts
+type MarkdownRenderParams = {
+  markdown: string
+  title?: string
+}
+```
+
+建议注册项：
 
 ```text
-<current-skill-dir>/references/mvp-code-preview.md
+behavior = render
+riskLevel = low
+requiresConfirmation = false
+failureMode = text_fallback
 ```
 
-## 8. 正式开发演进
+规则：
 
-正式开发阶段可以逐步启用新的 Runtime Skill。
+- 支持 GFM。
+- 默认禁用 raw HTML。
+- 链接协议必须限制。
+- 代码块只展示，不执行。
+- 渲染失败回退纯文本。
+- 不得把 Markdown 中的 HTML 当可信 DOM 插入主应用。
 
-启用任何新 Runtime Skill 前，必须先更新：
+---
 
-```text
-<repo-root>/docs/contracts/frontend-runtime-skills.md
-<repo-root>/docs/contracts/frontend-runtime-skills.schema.json
+## 18. ToolResult Policy
+
+v1.0 默认 render capability 不需要向后端返回 ToolResult。
+
+以下能力通常不返回 ToolResult：
+
+- `code_preview`
+- `web_preview`
+- `markdown_render`
+
+允许返回 ToolResult 的情况：
+
+- 用户确认类交互。
+- 表单输入。
+- 文件选择。
+- 手动反馈。
+- 前端执行结果需要回传。
+
+推荐结构：
+
+```ts
+type ToolResult = {
+  toolCallId: string
+  status: 'success' | 'cancelled' | 'failed'
+  data?: unknown
+  error?: {
+    code: string
+    message: string
+  }
+}
 ```
 
-并同步检查：
+规则：
 
-```text
-<current-skill-dir>/references/registry-policy.md
-<current-skill-dir>/references/parameter-schema-policy.md
-<current-skill-dir>/references/component-binding.md
-<current-skill-dir>/references/execution-behavior.md
-<current-skill-dir>/references/tool-result-policy.md
-<current-skill-dir>/references/safety-confirmation-policy.md
-```
+- ToolResult 不得包含 secret。
+- ToolResult 不得回传未脱敏异常堆栈。
+- ToolResult 必须关联 `toolCallId`。
+- 交互型和副作用型 capability 必须定义取消路径。
 
-新增或启用 Runtime Skill 必须明确：
+---
 
-- `name`
-- `description`
-- `implemented`
-- `component`
-- `parametersSchema`
-- `resultSchema`
-- `behavior`
-- `blocking`
-- `requiresConfirmation`
-- `dangerous`
-- `allowedInMvp`
-- `failureMode`
+## 19. Failure Mode Policy
 
-涉及危险操作、文件上传、外部副作用、下载私有资源、iframe 或用户确认时，必须同时遵守：
+Runtime Capability 必须声明失败策略。
 
-```text
-security-boundary-contract
-```
+可选失败策略：
 
-## 9. 使用 references 的规则
+| failureMode | 说明 |
+|---|---|
+| `hide` | 静默隐藏，仅记录开发日志 |
+| `placeholder` | 显示占位卡片 |
+| `error_card` | 显示错误卡片 |
+| `text_fallback` | 回退为纯文本展示 |
 
-修改不同区域时，应先读取对应 reference：
+推荐：
 
-```text
-新增或修改 registry:
-  <current-skill-dir>/references/registry-policy.md
+| capability | 参数非法 | 渲染异常 | 未支持 |
+|---|---|---|---|
+| `code_preview` | `error_card` | `error_card` | `text_fallback` |
+| `web_preview` | `error_card` | `placeholder` | `text_fallback` |
+| `markdown_render` | `text_fallback` | `text_fallback` | `text_fallback` |
 
-修改 Tool Call 消费:
-  <current-skill-dir>/references/tool-call-consumption.md
+规则：
 
-修改参数 schema:
-  <current-skill-dir>/references/parameter-schema-policy.md
+- 单个 capability 崩溃不得导致整个聊天页面白屏。
+- 高风险渲染组件必须被 Error Boundary 或等价机制隔离。
+- 面向用户的错误信息必须脱敏。
+- 开发日志不得打印 token、API key、完整敏感 payload。
 
-修改组件绑定:
-  <current-skill-dir>/references/component-binding.md
+---
 
-修改执行行为:
-  <current-skill-dir>/references/execution-behavior.md
+## 20. Runtime Security Policy
 
-修改 ToolResult:
-  <current-skill-dir>/references/tool-result-policy.md
+通用安全规则：
 
-修改确认和危险操作:
-  <current-skill-dir>/references/safety-confirmation-policy.md
+- Runtime Capability 输入一律视为不可信。
+- 参数通过 schema 校验不代表内容安全。
+- 展示型 capability 不得产生服务端副作用。
+- 交互型 capability 必须有明确用户动作。
+- 副作用型 capability 默认禁用。
+- 未知 `toolName` 不得执行。
+- 未校验 args 不得传给组件。
+- 错误信息不得泄漏 token、堆栈、内网地址或完整 prompt。
 
-修改 MVP code_preview:
-  <current-skill-dir>/references/mvp-code-preview.md
-```
+XSS 规则：
 
-## 10. Contract first 规则
+- 不把未知 HTML 注入主 DOM。
+- Markdown 默认禁用 raw HTML。
+- 文本展示默认转义。
+- URL 字段默认只允许 `http`、`https`、`mailto` 等明确协议。
+- 需要保留 HTML 结构时必须使用隔离或 sanitization 策略。
 
-任何新增或修改 Runtime Skill 行为前，必须先更新项目级 contract：
+---
 
-```text
-<repo-root>/docs/contracts/frontend-runtime-skills.md
-<repo-root>/docs/contracts/frontend-runtime-skills.schema.json
-```
+## 21. Contract-first 规则
 
-未更新 contract 的实现变更不得接受。
+新增 Runtime Capability 前必须先定义：
 
-不得先改前端实现，再补 contract。
+- `toolName`。
+- 参数 schema。
+- 注册项状态。
+- 组件绑定方式。
+- 行为类型。
+- 风险等级。
+- 是否需要确认。
+- 失败策略。
+- 安全边界。
+- Review Checklist。
 
-## 11. 开发 / 审查 Checklist
+不得直接在组件中临时判断 `toolName` 并绕过 registry。
 
-开发或审查 Runtime Skill 时，必须确认：
+---
 
-```text
-toolName 是否已注册？
-skill 是否 implemented？
-参数 schema 是否存在？
-args 是否只在 TOOL_CALL_END 后解析？
-args 是否通过 schema validation？
-component 是否唯一绑定？
-behavior 是否明确？
-blocking 是否明确？
-requiresConfirmation 是否明确？
-dangerous 是否明确？
-failureMode 是否明确？
-未知 toolName 是否安全 fallback？
-未实现 skill 是否安全 fallback？
-参数非法是否不会执行？
-```
+## 22. Review Checklist
 
-MVP 阶段还必须确认：
+### 通用性
 
-```text
-只有 code_preview 是 implemented=true。
-其他 Runtime Skill 均为 implemented=false。
-code_preview 不执行代码。
-code_preview 不访问网络。
-code_preview 不修改服务端状态。
-```
+- 是否没有通过 `agentName` 决定 Runtime Capability？
+- 是否没有把某个 Agent 写成某个 capability 的专属来源？
+- 是否只通过 `toolName` 查询 registry？
+- 是否没有通过 Agent 名称绕过参数校验？
 
-## 12. 禁止事项
+### Registry
 
-Coding Agent 不得：
+- `toolName` 是否唯一？
+- `toolName` 是否使用 `snake_case`？
+- `status` 是否明确？
+- `behavior` 是否明确？
+- `riskLevel` 是否明确？
+- `requiresConfirmation` 是否明确？
+- `failureMode` 是否明确？
+- 是否没有保留 `allowedInMvp` 这类历史阶段字段？
 
-- 未更新 contract 就新增 Runtime Skill。
-- 使用未注册 toolName。
-- 执行 unknown toolName。
-- 执行 `implemented=false` 的 Runtime Skill。
-- 把 React Component 名称当作 toolName。
-- 把 Artifact type 当作 toolName。
-- 把 Tool Call args 未校验就传入 React Component。
-- 在 `TOOL_CALL_ARGS` 分片未结束前解析完整 JSON。
-- 重复 `TOOL_CALL_END` 导致重复执行。
-- 让参数校验失败的 Tool Call 继续执行。
-- 让 `code_preview` 执行代码。
-- 让 `code_preview` 插入 script。
-- 让展示型 Runtime Skill 修改服务端状态。
-- 在没有 confirmation gate 的情况下执行危险操作。
-- 在前端错误中暴露 stack trace、token 或内部服务地址。
-- 把 MVP 的 `code_preview` 简化规则扩展成所有 Runtime Skill 的通用规则。
+### Tool Call
 
-## 13. 相关契约
+- 是否按 `toolCallId` 聚合 args？
+- 是否等待 `TOOL_CALL_END` 后解析？
+- 是否兼容 `delta` / `content`？
+- JSON parse 失败是否安全降级？
+- 重复 END 是否不会重复执行？
+- 未知 `toolName` 是否不会执行？
 
-本 Skill 只引用以下契约，不重新定义它们：
+### Schema
 
-- `agui-event-contract`：负责 AG-UI 事件名称、事件字段和流式协议。
-- `artifact-contract`：负责 Artifact schema、生命周期、存储和 artifact.type 到 Runtime Skill 的映射。
-- `platform-api-contract`：负责大型 Artifact 内容查询、下载和 REST API。
-- `security-boundary-contract`：负责危险操作、确认、iframe、下载、上传、sandbox 和鉴权策略。
-- `testing-review-contract`：负责 Tool Call lifecycle、schema validation 和 Runtime Skill fallback 的测试要求。
-- `observability-debugging-contract`：负责 toolCallId、artifactId、runId、traceId 的日志和调试规则。
-- `code-style-and-conventions`：负责 TypeScript、React、lint 和格式化规则。
+- 是否有参数 schema？
+- 是否校验必填字段？
+- 是否限制字符串长度？
+- 是否限制 URL 协议？
+- 是否没有把未校验 args 传给组件？
+
+### code_preview
+
+- 是否只展示不执行？
+- 是否不插入 script？
+- 是否不访问网络？
+
+### web_preview
+
+- 是否 iframe 隔离？
+- 是否没有直接注入主 DOM？
+- 是否没有默认 `allow-same-origin`？
+- 是否没有默认 `allow-scripts + allow-same-origin` 组合？
+- 渲染失败是否不白屏？
+
+### markdown_render
+
+- 是否默认禁用 raw HTML？
+- 链接是否安全？
+- 渲染失败是否回退纯文本？
+
+### 安全
+
+- 是否没有暴露 token / stack trace / 内网地址？
+- side_effect 是否默认 disabled？
+- dangerous / high risk 能力是否有确认门？
+
+---
+
+## 23. 完成定义
+
+本 Skill 完成时，必须满足：
+
+- `SKILL.md` 独立可读。
+- 不绑定具体 Agent 名称。
+- 明确 Runtime Capability Registry。
+- 明确 toolName / schema / component / behavior / riskLevel / failureMode。
+- 明确 Tool Call 消费状态机。
+- 明确 `TOOL_CALL_END` 后再解析参数。
+- 明确 schema validation。
+- 明确 `code_preview`、`web_preview`、`markdown_render` 是通用能力。
+- 明确 reserved / disabled 能力不得执行。
+- 明确 iframe / Markdown / Code 安全策略。
+- 明确 ToolResult 边界。
+- 明确 Review Checklist。
+
+---
+
+## References
+
+- `references/runtime-capability-registry.md`
+- `references/tool-call-consumption.md`
+- `references/parameter-schema-policy.md`
+- `references/component-binding-policy.md`
+- `references/execution-behavior-policy.md`
+- `references/code-preview-capability.md`
+- `references/web-preview-capability.md`
+- `references/markdown-render-capability.md`
+- `references/failure-mode-policy.md`
+- `references/tool-result-policy.md`
+- `references/runtime-security-policy.md`
+- `references/runtime-skill-review-checklist.md`

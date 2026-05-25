@@ -1,580 +1,505 @@
 ---
 name: ai-collaboration-workflow
-description: "用于规范 AgentHub 使用 Codex、Skills 和人工评审进行协作开发的流程，包括先分析后修改、限制改动范围、避免越界实现、提交前检查、复查报告和交接清单。"
+description: "用于规范 AgentHub 项目中人类开发者与 AI 编程代理的协作流程，适用于需求分析、串行 Skill 重构、计划制定、范围控制、文档生成、代码修改、测试验证、Review、文件包交付和交接报告。"
 ---
 
 # ai-collaboration-workflow
 
 ## 1. Skill 目的
 
-本 Skill 用于定义 AgentHub 项目中的 AI 协作开发流程。
+本 Skill 定义 AgentHub 项目中“人类开发者 + AI 编程代理”的协作流程。
 
-它约束 Codex / Claude Code / OpenCode 在开发 AgentHub 时，如何从需求到 Contract、计划、实现、测试、Review、交付摘要逐步推进。
+它约束 AI 在参与项目开发时如何：
+
+- 接收任务；
+- 识别当前阶段；
+- 扫描上下文；
+- 锁定修改范围；
+- 制定计划；
+- 执行文档或代码修改；
+- 生成文件包；
+- 进行验证和 Review；
+- 输出交接报告；
+- 记录关键决策。
+
+本 Skill 不定义任何具体业务协议、事件字段、数据库表结构、Runtime API、前端组件参数或部署服务细节。
 
 一句话：
 
-**AgentHub 必须先 spec，再 plan，再 build，再 test，再 review；AI 不能跳过 Contract 和 Review 直接生成业务实现。**
+**本 Skill 负责“怎么协作”，不负责“某个技术契约具体怎么实现”。**
 
 ---
 
-## 2. 适用场景
+## 2. 独立性原则
 
-当任务涉及以下内容时，必须使用本 Skill：
+本 Skill 必须独立可读。
 
-- 让 Codex 生成或修改代码。
-- 让 Codex 生成或修改 Contract。
-- 让 Codex 做架构变更。
-- 让 Codex 做实现计划。
-- 让 Codex 做测试。
-- 让 Codex 做 review。
-- 让 Codex 修 bug。
-- 让 Codex 根据 PDR / MVP / UML 生成代码。
-- 让 Codex 检查文件是否齐全。
-- 让 Codex 检查内容是否符合 Skill。
-- 让 Codex 输出变更摘要。
-- 记录重要 Prompt。
-- 防止 AI 一次性改太多文件。
-- 防止 AI 跳过 Contract-first。
+使用本 Skill 时，不要求读者先阅读其他 Skill。
 
----
-
-## 3. 基础原则
-
-AgentHub AI 协作遵守：
-
-```text
-Spec first
-Plan before build
-Contract first
-Mock first
-Real integration later
-Review always
-Small changes
-No hidden assumptions
-```
-
-对应流程：
-
-```text
-1. 明确需求和边界
-2. 生成或更新 Contract
-3. 生成实现计划
-4. 分模块实现
-5. 补测试
-6. 运行 lint / typecheck / go test
-7. 输出变更摘要
-8. 记录关键 Prompt
-9. 人工 Review
-```
-
----
-
-## 4. 四份设计文档解释原则
-
-每次 AI 协作都必须明确参考：
-
-1. **v1.1 Skills 设计规范**：决定有哪些 Skills、如何启用、哪些 Contract 必须先写。
-2. **PDR**：决定完整目标架构和长期设计。
-3. **MVP 文档**：决定当前 v0.1 实施范围，不要过度实现。
-4. **UML 文档**：决定关键流程、时序和模块关系。
-
-解释规则：
-
-```text
-PDR 决定最终目标。
-MVP 决定当前范围。
-UML 决定流程细节。
-Skill / Contract 决定实现约束。
-```
-
-如果 PDR 与 MVP 范围不一致：
-
-```text
-当前实现优先遵守 MVP。
-长期设计保留 PDR。
-不得用 MVP 简化破坏 PDR 架构方向。
-```
-
----
-
-## 5. AI 协作阶段
-
-### 5.1 Spec 阶段
-
-目标：
-
-```text
-明确要做什么、不做什么、属于哪个协议边界。
-```
-
-必须回答：
-
-- 这个任务属于哪个模块？
-- 是否是 MVP v0.1 范围？
-- 需要启用哪些 Skill？
-- 会影响哪些 Contract？
-- 是否需要修改 docs？
-- 是否允许写业务代码？
-- 是否有阶段越界风险？
-- 是否需要先问用户确认？
-
-禁止：
-
-- 未确认边界就写代码。
-- 把 PDR 完整功能当成 MVP 必做。
-- 把 Post-MVP 功能提前实现。
-- 跳过 Contract 分析。
-
----
-
-### 5.2 Plan 阶段
-
-目标：
-
-```text
-先给实施计划，再改文件。
-```
-
-计划必须包含：
-
-- 将修改哪些文件。
-- 不会修改哪些文件。
-- 是否创建新文件。
-- 是否生成业务代码。
-- 是否修改 Contract。
-- 是否需要测试。
-- 风险点。
-- 验收标准。
-
-对于复杂任务，Codex 必须先输出计划，等用户确认后再执行。
-
----
-
-### 5.3 Contract 阶段
-
-目标：
-
-```text
-先固定协议和数据结构，再写实现。
-```
-
-必须检查：
-
-- REST API 是否需要更新 OpenAPI。
-- AG-UI Event 是否需要更新 AG-UI Contract。
-- Gateway-Orchestrator 是否需要更新 internal Contract。
-- A2A 是否需要更新 AgentCard / Task Contract。
-- Artifact 是否需要更新 Artifact Contract。
-- Frontend Runtime Skill 是否需要更新 Skill schema。
-- Data Model 是否需要更新 data-persistence-contract。
-- Security 是否需要更新 security-boundary-contract。
-
-禁止：
-
-- 先改 Go handler 再补 OpenAPI。
-- 先改前端类型再补 schema。
-- 先改 Agent 输出再补 A2A Contract。
-- 先改 Artifact 结构再补 Artifact Contract。
-
----
-
-### 5.4 Build 阶段
-
-目标：
-
-```text
-小步实现，限制修改范围。
-```
+本 Skill 可以说明“某类任务应查看用户指定的相关文档”，但不得把其他 Skill 的详细规则复制进来，也不得把其他 Skill 作为理解本文的前置条件。
 
 规则：
 
-- 每次任务尽量只改一个模块或一条链路。
-- 不要一次性生成整个系统。
-- 只修改用户允许的文件。
-- 不要偷偷安装依赖。
-- 不要偷偷初始化项目。
-- 不要偷偷生成 Docker / DB / LLM 代码。
-- 不要把 mock 和真实集成混在一个任务里。
-- 输出变更摘要。
+- 一个 Skill 只解决一个问题域。
+- 本 Skill 只解决 AI 协作流程问题。
+- 不在本 Skill 中展开具体协议细节。
+- 不在本 Skill 中硬编码其他 Skill 的完整路由表。
+- 不要求一次性读取全部 Skill。
+- 不因“相关”就自动修改其他 Skill。
+- 如果用户要求串行生成 Skill，每轮只处理用户明确指定的一个 Skill。
 
 ---
 
-### 5.5 Test 阶段
+## 3. 当前阶段识别
 
-目标：
+AgentHub 的开发阶段不应在本 Skill 中永久写死。
 
-```text
-用测试证明实现符合 Contract。
-```
+AI 必须根据用户本轮提供的上下文识别当前阶段，例如：
 
-按任务类型执行：
+- MVP v0.1；
+- v1.0 Sprint；
+- 后续 v1.x 迭代；
+- 单个 Skill 重构；
+- 单个模块修复；
+- Demo 打磨；
+- Review / 验收。
 
-- TypeScript：`typecheck`
-- React：ESLint / component test
-- Go：`go test`
-- OpenAPI：schema 校验
-- JSON Schema：schema 校验
-- AG-UI：event reducer test
-- Gateway-Orchestrator：mock event test
-- A2A：mock agent test
-- Artifact：mapping test
-- Security：敏感信息和权限检查
+MVP v0.1 如果已经完成，只能作为历史回归基线。
 
-如果无法运行测试，必须说明原因，并给出人工检查清单。
+如果用户上传或指定 Sprint / PDR / Plan / Contract 文件，应以用户当前指定的文件作为本轮工作的阶段依据。
 
----
+不得把历史阶段当成当前限制。
 
-### 5.6 Review 阶段
-
-目标：
+例如：
 
 ```text
-检查是否符合 Skill / Contract / MVP 范围。
-```
-
-Review 必须检查：
-
-- 是否符合当前 Skill。
-- 是否修改了不该修改的文件。
-- 是否阶段越界。
-- 是否破坏 Contract。
-- 是否把 REST / AG-UI / A2A 混在一起。
-- 是否把 PDR 完整功能误做成 MVP 必做。
-- 是否泄漏敏感信息。
-- 是否缺少错误处理。
-- 是否缺少测试。
-
----
-
-## 6. 启用 Skills 规则
-
-不要一次性启用所有 Skills。
-
-按任务启用：
-
-### 写 Frontend
-
-```text
-project-architecture
-code-style-and-conventions
-platform-api-contract
-agui-event-contract
-frontend-runtime-skills-contract
-artifact-contract
-security-boundary-contract
-```
-
-### 写 Gateway
-
-```text
-project-architecture
-code-style-and-conventions
-platform-api-contract
-agui-event-contract
-gateway-orchestrator-contract
-data-persistence-contract
-security-boundary-contract
-```
-
-### 写 Orchestrator
-
-```text
-project-architecture
-code-style-and-conventions
-gateway-orchestrator-contract
-a2a-agent-contract
-artifact-contract
-intent-orchestration-contract
-security-boundary-contract
-```
-
-### 写 Child Agent
-
-```text
-project-architecture
-code-style-and-conventions
-a2a-agent-contract
-adk-runtime-contract
-artifact-contract
-security-boundary-contract
-```
-
-### 写数据层
-
-```text
-data-persistence-contract
-platform-api-contract
-artifact-contract
-security-boundary-contract
-```
-
-### 做 Review
-
-```text
-testing-review-contract
-security-boundary-contract
-observability-debugging-contract
-code-style-and-conventions
-ai-collaboration-workflow
+错误：因为旧 Skill 写着 MVP 不做多 Agent，所以阻止用户当前 v1.0 多 Agent 迭代。
+正确：MVP 规则保留为历史基线；当前 v1.0 Sprint 规则由用户指定的 Sprint 计划决定。
 ```
 
 ---
 
-## 7. Prompt 记录规则
+## 4. 适用场景
 
-重要 Prompt 必须保留。
+当用户要求以下任务时，应使用本 Skill：
 
-建议路径：
-
-```text
-docs/ai-prompts/
-```
-
-或：
-
-```text
-docs/devlog/ai-collaboration-log.md
-```
-
-需要记录：
-
-- 生成或修改 Contract 的 Prompt。
-- 架构决策 Prompt。
-- 大范围代码生成 Prompt。
-- 关键修复 Prompt。
-- 重要 Review Prompt。
-- 改变 MVP / PDR 范围判断的 Prompt。
-
-记录格式：
-
-```markdown
-## YYYY-MM-DD 任务标题
-
-### 背景
-### 使用的 Skill
-### Prompt 摘要
-### AI 输出摘要
-### 人工 Review 结论
-### 后续 TODO
-```
-
-禁止记录 API key / token / 用户隐私 / 未脱敏生产日志。
+- 分析一个开发计划；
+- 设计或重构某个 Skill；
+- 串行生成多个 Skill；
+- 输出某个 Skill 的文件包；
+- 制定开发任务计划；
+- 让 AI 参与代码修改；
+- 让 AI 做 Review；
+- 让 AI 整理交接文档；
+- 让 AI 判断是否越界；
+- 让 AI 按 Sprint / PDR 推进开发；
+- 生成 Patch Notes / Manifest；
+- 归纳 AI 协作记录。
 
 ---
 
-## 8. Codex 操作边界
+## 5. 不适用场景
 
-如果用户说“只检查”，Codex 不得修改文件。
+本 Skill 不直接用于：
 
-如果用户说“只生成文档”，Codex 不得生成业务代码。
+- 定义 AG-UI 事件字段；
+- 定义 A2A 消息字段；
+- 定义 Agent Runtime API；
+- 定义 Artifact Schema；
+- 定义数据库表；
+- 定义 Docker Compose 服务；
+- 定义前端组件参数；
+- 定义 LLM Provider HTTP 请求格式；
+- 定义安全沙箱细节。
 
-如果用户说“不要进入下一个 Skill”，Codex 不得生成下一个 Skill。
-
-如果用户说“不要修改现有文件”，Codex 只能创建用户允许的新文件，或只输出建议。
-
-如果用户说“不要安装依赖”，Codex 不得运行安装命令。
+遇到这些任务时，AI 应遵守用户本轮指定的相关文件或需求，但不要在本 Skill 中展开那些技术细节。
 
 ---
 
-## 9. 文件修改报告规则
+## 6. 标准协作流程
 
-每次 Codex 修改后必须输出：
+AI 参与 AgentHub 开发时，默认流程为：
 
 ```text
-1. 修改了哪些文件
-2. 创建了哪些文件
-3. 删除了哪些文件
-4. 每个文件用途
-5. 是否修改了用户未授权文件
-6. 是否生成业务代码
-7. 是否安装依赖
-8. 是否运行测试
-9. 测试结果
-10. 下一步建议
+任务接收 → 上下文扫描 → 范围锁定 → 计划制定 → 执行修改 → 验证 → Review → 交接
 ```
 
-如果没有修改文件，也必须明确：
+### 6.1 任务接收
+
+AI 必须先判断用户要的是：
+
+- 思路分析；
+- 文件包；
+- 代码补丁；
+- Review；
+- 测试建议；
+- 架构决策；
+- 文档重构；
+- 故障排查；
+- Demo 打磨。
+
+如果用户明确说“只思考”“先不要输出文件”，不得生成文件包。
+
+如果用户明确说“输出文件包”，应生成可解压覆盖仓库路径的文件包。
+
+### 6.2 上下文扫描
+
+AI 只能优先使用：
+
+1. 用户本轮明确给出的文件、链接、目录或 Skill；
+2. 用户上传的 Sprint / PDR / Contract 文件；
+3. 当前任务直接涉及的最小文件集合；
+4. 必要时再请求用户允许或说明需要额外资料。
+
+不得因为一个任务“可能相关”就自动读取或修改全部 Skill。
+
+### 6.3 范围锁定
+
+AI 执行前应明确：
+
+- 本轮要改哪些文件；
+- 本轮不改哪些文件；
+- 是否生成业务代码；
+- 是否生成文档；
+- 是否生成 zip；
+- 是否只处理一个 Skill；
+- 是否允许同步 docs/contracts。
+
+### 6.4 计划制定
+
+复杂任务必须先给简短计划。
+
+计划应包含：
+
+- 目标；
+- 依据；
+- 文件范围；
+- 改动方向；
+- 验证方式。
+
+如果用户已经明确要求直接输出文件包，可以直接生成，但必须在包内附 `PATCH_NOTES.md` 和 `MANIFEST.md`。
+
+### 6.5 执行修改
+
+执行时必须：
+
+- 小步、聚焦；
+- 不偷偷扩大范围；
+- 不自动重构无关文件；
+- 不安装新依赖，除非用户允许；
+- 不生成无关示例项目；
+- 不覆盖用户未指定的 Skill；
+- 中文项目默认输出中文；
+- 文件路径使用仓库相对路径。
+
+### 6.6 验证
+
+能运行测试时应运行测试。
+
+不能运行测试时，应说明原因并进行静态验证。
+
+文档类任务至少验证：
+
+- 路径正确；
+- frontmatter 合法；
+- 中文一致；
+- 文件清单完整；
+- 没有明显交叉引用失控；
+- 没有把示例写成硬约束；
+- 没有把历史阶段写成当前禁令。
+
+### 6.7 Review
+
+Review 应检查：
+
+- 是否符合本轮用户目标；
+- 是否越过授权范围；
+- 是否误改其他 Skill；
+- 是否出现硬编码具体 Agent / 阶段 / 技术实现；
+- 是否缺少变更说明；
+- 是否缺少交接说明。
+
+### 6.8 交接
+
+交接必须说明：
+
+- 产物位置；
+- 包内文件清单；
+- 主要改动；
+- 如何使用；
+- 是否包含业务代码；
+- 后续可选步骤。
+
+---
+
+## 7. 串行 Skill 生成规则
+
+当用户采用“一个一个 Skill 串行生成”的方式时，必须遵守：
+
+- 每轮只处理用户明确指定的一个 Skill。
+- 不主动生成下一个 Skill。
+- 不自动修改其他 Skill。
+- 不在当前 Skill 中大量引用尚未重构的其他 Skill。
+- 当前 Skill 必须独立可读。
+- 可以写“本 Skill 不负责哪些内容”，但不要展开那些内容。
+- 示例不能变成硬约束。
+- 不得为了“全局一致性”一次性修改多个 Skill。
+- 如果发现另一个 Skill 需要同步，最多在交接中列为“后续建议”，不得直接生成。
+- 用户要求“思考”时，只输出改写思路。
+- 用户要求“输出文件包”时，才生成 zip。
+- 用户要求“中文版”时，所有正文文档必须使用中文。
+
+---
+
+## 8. 任务输入模板
+
+推荐用户或 AI 在任务开始时组织以下信息：
+
+```md
+## Goal
+本轮要完成什么？
+
+## Scope
+允许修改哪些文件或目录？
+
+## Context
+必须参考哪些文档、Sprint、PDR 或代码？
+
+## Constraints
+不得做什么？是否只处理一个 Skill？是否必须中文？
+
+## Output
+输出思路、补丁、文件包、Review，还是代码实现？
+
+## Done When
+什么情况下算完成？
+```
+
+AI 在信息不完整时，应基于现有资料给出最小可行方案，不应反复追问已能合理处理的问题。
+
+---
+
+## 9. 范围控制规则
+
+AI 必须控制范围。
+
+允许：
+
+- 修改用户明确指定的 Skill；
+- 为该 Skill 生成必要 references；
+- 为该 Skill 生成必要 docs/contracts；
+- 生成 MANIFEST；
+- 生成 PATCH_NOTES；
+- 给出后续建议。
+
+禁止：
+
+- 顺手修改其他 Skill；
+- 顺手修改业务代码；
+- 顺手新增不相关 docs；
+- 顺手重命名目录；
+- 顺手引入新依赖；
+- 顺手把所有旧规则全部迁移到当前文件；
+- 顺手把项目未来规划写成当前硬约束。
+
+范围不清时，应按“最小安全范围”执行。
+
+---
+
+## 10. 文件修改授权规则
+
+AI 只有在用户明确要求时才生成或修改文件。
+
+用户说：
+
+- “思考怎么改” → 只输出思路，不生成文件。
+- “给出改写方案” → 输出方案，不生成 zip。
+- “输出文件包” → 生成 zip。
+- “直接改代码” → 可以生成代码补丁或文件。
+- “不要直接放到仓库” → 只提供下载包，不直接写目标仓库路径之外的操作说明。
+- “中文版” → 所有文档正文必须中文。
+
+文件包必须使用仓库相对路径，方便解压覆盖。
+
+---
+
+## 11. 文档与代码边界
+
+文档类任务默认不生成业务代码。
+
+Skill 重构任务默认只生成：
+
+- `SKILL.md`
+- `references/*.md`
+- `docs/contracts/*.md`
+- `PATCH_NOTES.md`
+- `MANIFEST.md`
+
+除非用户明确要求，不生成：
+
+- Go 业务实现；
+- TypeScript 业务实现；
+- Dockerfile；
+- SQL migration；
+- 测试代码；
+- 自动执行脚本。
+
+如果文档中需要示例代码，必须标注为示例，不得暗示已经实现。
+
+---
+
+## 12. 文件包输出规则
+
+当用户要求文件包时，必须：
+
+- 生成 zip；
+- 使用仓库相对路径；
+- 包内包含 `MANIFEST.md`；
+- 包内包含 `PATCH_NOTES.md`；
+- 包名包含 Skill 名称、版本方向和语言；
+- 不包含缓存文件；
+- 不包含系统隐藏文件；
+- 不包含无关产物；
+- 不包含用户未要求的业务代码。
+
+推荐包名：
 
 ```text
-没有修改任何文件。
+{skill-name}-v1-independent-cn.zip
 ```
 
----
-
-## 10. 阶段越界规则
-
-### 10.1 Contract 阶段禁止
-
-在只写 Skill / Contract 时，禁止生成：
-
-- React 业务代码。
-- Go Gateway handler。
-- Orchestrator 实现。
-- A2A Client 实现。
-- ADK Runtime 实现。
-- Child Agent 实现。
-- 数据库模型实现。
-- Docker Compose。
-- SQL 初始化脚本。
-- 真实 LLM 调用。
-
-### 10.2 Mock 阶段禁止
-
-在 Mock 阶段，禁止直接接：
-
-- 真实 LLM。
-- 真实部署。
-- 复杂多 Agent 编排。
-- Agent 市场。
-- 自建 Agent。
-- 生产级安全系统。
-
-### 10.3 MVP 阶段禁止
-
-除非用户明确要求，MVP v0.1 不做：
-
-- 群聊。
-- 自建 Agent。
-- web-agent / doc-agent。
-- 复杂 Agent Registry。
-- 完整 JWT 注册登录。
-- 多 Agent parallel / sequential。
-- 完整对象存储。
-- 完整 Redis 缓存。
-- 部署发布。
-- 高级 UI 动画。
-
----
-
-## 11. MVP v0.1 协作规则
-
-MVP v0.1 的目标是跑通：
+例如：
 
 ```text
-用户发消息
-→ Gateway
-→ Orchestrator
-→ code-agent
-→ A2A 流式响应
-→ AG-UI 流式回复
-→ code_preview 代码预览
-```
-
-AI 生成内容必须优先支持该链路。
-
-MVP v0.1 允许：
-
-- Orchestrator 嵌入 Gateway 进程。
-- MySQL 8。
-- 固定 Token。
-- 配置文件注册 `code-agent`。
-- Mock A2A Agent。
-- Mock LLM 输出。
-- 只实现 `code_preview`。
-
-MVP v0.1 不允许：
-
-- 为了完整 PDR 一次性实现所有功能。
-- 为了未来扩展把第一版做复杂。
-- 绕过 Contract 快速写死数据结构。
-- 把 A2A / AG-UI / REST 混在一起。
-
----
-
-## 12. AI Review Checklist
-
-在接受 AI 输出前，必须检查：
-
-- 是否符合用户本次授权？
-- 是否只改了允许的文件？
-- 是否符合 PDR / MVP / UML？
-- 是否符合相关 Skill？
-- 是否需要先更新 Contract？
-- 是否把 REST / AG-UI / A2A 混在一起？
-- 是否把 Orchestrator 逻辑写进 Gateway handler？
-- 是否把 A2A endpoint 暴露给 Frontend？
-- 是否手写了 API response 类型？
-- 是否破坏 camelCase JSON？
-- 是否泄漏 token / API key？
-- 是否引入不必要依赖？
-- 是否跳过测试？
-- 是否阶段越界？
-- 是否输出了清楚的变更摘要？
-
----
-
-## 13. 硬性规则
-
-1. 先 spec。
-2. 再 plan。
-3. 再 build。
-4. 再 test。
-5. 再 review。
-6. Contract 变更必须先于实现变更。
-7. Mock 必须先于真实集成。
-8. 每次 AI 生成代码必须人工 Review。
-9. 复杂逻辑先写注释 / 计划，再让 AI 实现。
-10. 重要 Prompt 必须保留记录。
-11. Codex 必须遵守用户授权范围。
-12. “只检查”时不得修改文件。
-13. “只生成文档”时不得写业务代码。
-14. 不得偷偷安装依赖。
-15. 不得偷偷生成 Docker / SQL / LLM 代码。
-16. 不得一次性生成整个系统。
-17. 不得把 MVP 外功能提前实现。
-18. 不得绕过 Skill / Contract。
-19. 必须输出修改报告。
-20. 必须遵守 `Contract first / Mock first / Real integration later / Review always`。
-
----
-
-## 14. 必须维护的文件
-
-本 Skill 本体：
-
-```text
-skills/ai-collaboration-workflow/SKILL.md
-```
-
-后续可选 references：
-
-```text
-skills/ai-collaboration-workflow/references/spec-plan-build-review.md
-skills/ai-collaboration-workflow/references/prompt-log-policy.md
-skills/ai-collaboration-workflow/references/codex-operation-boundaries.md
-```
-
-正式项目文档可选落地：
-
-```text
-docs/ai-prompts/
-docs/devlog/ai-collaboration-log.md
-docs/contracts/ai-collaboration-workflow.md
+ai-collaboration-workflow-v1-independent-cn.zip
 ```
 
 ---
 
-## 15. 完成定义
+## 13. Prompt / 决策记录规则
 
-本 Skill 视为完成，当 `SKILL.md` 已经明确：
+AI 协作过程应能留下可解释记录。
 
-- spec / plan / build / test / review 流程。
-- Contract first。
-- Mock first。
-- Real integration later。
-- Review always。
-- Prompt 记录规则。
-- Codex 操作边界。
-- 文件修改报告规则。
-- 阶段越界规则。
-- MVP v0.1 协作规则。
-- AI Review Checklist。
+重要任务建议记录：
 
+- 用户目标；
+- 当前阶段；
+- 参考文件；
+- 范围决定；
+- 关键取舍；
+- 为什么没有修改某些文件；
+- 验证方式；
+- 风险和后续建议。
+
+记录可以放在：
+
+- `PATCH_NOTES.md`
+- `docs/contracts/*`
+- Sprint 交接文档
+- PR 描述
+- Review 报告
+
+不要记录：
+
+- API key；
+- 私密 token；
+- 原始系统提示；
+- 不必要的长篇内部推理；
+- 与任务无关的聊天内容。
+
+---
+
+## 14. 测试与验证规则
+
+AI 完成任务后应尽量验证。
+
+代码任务可验证：
+
+- 单元测试；
+- 类型检查；
+- lint；
+- 构建；
+- smoke test；
+- docker compose config。
+
+文档任务可验证：
+
+- frontmatter 是否标准；
+- Markdown 标题层级；
+- 文件路径是否正确；
+- 是否存在空文件；
+- 是否中文一致；
+- 是否和用户当前阶段冲突；
+- 是否引入未授权依赖；
+- 是否过度引用其他 Skill。
+
+无法运行测试时，必须说明没有运行的原因。
+
+---
+
+## 15. Review 规则
+
+Review 时必须检查：
+
+- 是否完成用户目标；
+- 是否符合当前阶段；
+- 是否只处理授权范围；
+- 是否保持独立可读；
+- 是否没有硬编码过早假设；
+- 是否没有把示例变成限制；
+- 是否没有把历史规则当作当前规则；
+- 是否没有泄漏敏感信息；
+- 是否有清晰交接说明；
+- 是否有后续建议但未擅自执行。
+
+---
+
+## 16. 禁止事项
+
+AI 在本项目协作中不得：
+
+- 未经用户要求一次性重写所有 Skill；
+- 未经用户要求修改业务代码；
+- 把 MVP 历史限制当作当前限制；
+- 把当前 Sprint 的样例当作永久硬约束；
+- 把一个 Skill 写成对多个 Skill 的强依赖；
+- 在 Skill 里大量复制其他 Skill 的规则；
+- 使用英文输出中文项目文档，除非用户要求；
+- 生成没有清单的 zip；
+- 生成没有补丁说明的 zip；
+- 输出无法定位的文件；
+- 承诺后台异步完成工作；
+- 隐瞒未验证或未完成的部分。
+
+---
+
+## 17. 完成定义
+
+本 Skill 视为完成，当且仅当：
+
+- `SKILL.md` 是中文；
+- frontmatter 标准；
+- 不写死 MVP 当前阶段；
+- 支持串行 Skill 生成；
+- 支持文件包交付；
+- 明确范围控制；
+- 明确上下文选择规则；
+- 明确 Review 和交接；
+- 不依赖其他 Skill 才能理解；
+- references 只补充 AI 协作流程；
+- docs/contracts 有独立契约说明；
+- 包内包含 MANIFEST 和 PATCH_NOTES。
+
+---
 
 ## References
 
+- `references/task-intake-template.md`
 - `references/plan-before-editing.md`
-- `references/allowed-files-policy.md`
-- `references/codex-review-policy.md`
 - `references/scope-control.md`
+- `references/allowed-files-policy.md`
+- `references/serial-skill-generation.md`
+- `references/prompt-log-policy.md`
+- `references/change-report-template.md`
+- `references/review-checklist.md`
 - `references/handoff-checklist.md`

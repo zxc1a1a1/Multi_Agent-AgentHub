@@ -1,72 +1,79 @@
-# Task handler 契约
+# task-handler-contract
 
-## 1. 目的
+## 目的
 
-本文定义 AgentHub 子 Agent Task handler 的输入输出规则。
+本文定义 Child Agent Task Handler 的通用约束。
 
-Task handler 是子 Agent 的核心业务入口。
+## 推荐抽象
 
-## 2. 推荐签名
-
-推荐抽象：
-
-```text
-HandleTask(ctx, task) error
+```go
+type Handler func(ctx *adk.Context, messages []adk.Message) error
 ```
 
-## 3. handler 负责
+实际代码类型可以变化，但语义必须保持一致。
 
-Task handler 负责：
+## 输入
 
-- 读取用户消息。
-- 读取任务上下文。
-- 调用 LLM 或工具。
-- 通过 `ctx.StreamText` 输出文本。
-- 通过 `ctx.AddArtifact` 添加 Artifact。
-- 尊重取消信号。
-- 返回错误。
-- 不泄漏敏感信息。
+Handler 输入应是结构化消息数组。
 
-## 4. handler 不负责
+推荐消息字段：
 
-Task handler 不负责：
-
-- 选择哪个 Agent 执行。
-- 生成 ExecutionPlan。
-- 定义 AG-UI 事件。
-- 渲染前端组件。
-- 定义 Artifact 完整 schema。
-- 持久化大型 Artifact。
-- 管理数据库 DDL。
-
-## 5. MVP code-agent handler
-
-MVP `code-agent` handler 应执行：
-
-```text
-读取用户消息
-→ 构造 LLM 请求
-→ 流式接收 LLM 文本
-→ ctx.StreamText(chunk)
-→ 收集完整回复
-→ 解析代码块
-→ ctx.AddArtifact(type=code)
+```json
+{
+  "role": "user",
+  "content": "用户请求"
+}
 ```
 
-## 6. 取消和超时
+规则：
 
-handler 必须尊重 context cancellation。
+- 不应只接收拼接后的全文字符串。
+- 可兼容拼接文本，但 Runtime / Orchestrator 内部必须保留结构化消息边界。
+- system prompt 应由 Agent 配置或 Handler 明确注入。
 
-长时间任务必须可取消。
+## 输出
 
-工具调用必须有 timeout。
+Handler 只能通过：
 
-## 7. 禁止事项
+```text
+ctx.StreamText
+ctx.AddArtifact
+ctx.Fail / return error
+```
 
-不得：
+输出任务结果。
 
-- 忽略取消信号。
-- 把大内容塞进 `ctx.StreamText`。
-- 直接写 AG-UI 事件。
-- 直接调用前端 Runtime Skill。
-- 在错误中暴露 stack trace 或 secret。
+## Handler 可以做
+
+- prompt 组装。
+- LLM 调用。
+- 解析 LLM 输出。
+- 构造 Artifact。
+- 调用已授权工具。
+- 记录日志。
+
+## Handler 不可以做
+
+- 直接写 HTTP Response。
+- 直接写 SSE。
+- 直接生成 AG-UI Event。
+- 直接调用 Gateway API。
+- 直接访问会话数据库。
+- 直接调用其他 Child Agent。
+- 自行做 Agent 选择。
+- 忽略 context cancellation。
+
+## 错误规则
+
+- 返回 error 代表任务失败。
+- 不得 panic；Runtime 必须 recover 兜底。
+- 错误消息不得泄漏 secret。
+- 可重试错误应带 retryable 标识或可映射错误码。
+
+## Review Checklist
+
+- [ ] Handler 只依赖 Runtime Context API。
+- [ ] Handler 接收结构化消息。
+- [ ] Handler 尊重 context cancellation。
+- [ ] Handler 不直接输出 AG-UI。
+- [ ] Handler 错误可控且脱敏。

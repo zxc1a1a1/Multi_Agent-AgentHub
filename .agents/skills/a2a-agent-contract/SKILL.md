@@ -1,257 +1,346 @@
 ---
 name: a2a-agent-contract
-description: "用于定义 AgentHub 子 Agent 的 A2A 协议契约，包括 AgentCard 元数据、任务发送接口、流式订阅接口、任务状态、产物输出、错误处理以及前端不可直接访问 A2A 的边界规则。"
+description: "用于定义 AgentHub 中任意 Child Agent 接入 Orchestrator 的通用 A2A 协议契约，包括 AgentCard、Agent Registry、健康检查、A2A Streaming Task、Artifact 输出、错误处理、安全边界与契约测试。适用于 MVP 完成后的 v1.0 及后续 2+ Agent 扩展，不固定约束 code-agent 或 web-agent。"
 ---
 
 # a2a-agent-contract
 
 ## 1. Skill 目的
 
-本 Skill 用于定义 AgentHub 项目中 **Orchestrator ↔ Child Agent** 的 A2A Agent Contract。
+本 Skill 定义 AgentHub 中任意 Child Agent 接入平台时必须遵守的通用 A2A 契约。
 
-它约束 Orchestrator 如何发现、识别、调用 Child Agent，以及 Child Agent 如何通过 AgentCard、A2A endpoints、Streaming Task、Artifact、错误状态与 ADK Runtime 对外提供能力。
-
-一句话：
-
-**Child Agent 必须以 A2A 兼容的方式暴露能力，Orchestrator 必须只通过 A2A 调用 Child Agent，不能绕过 AgentCard、A2A Task、ADK Runtime 和 Artifact 约定。**
-
----
-
-## 2. 适用场景
-
-当任务涉及以下内容时，必须使用本 Skill：
-
-- 设计或修改 Child Agent。
-- 设计或修改 `code-agent`。
-- 设计或修改 `web-agent`、`doc-agent`、`custom-agent`。
-- 设计 AgentCard。
-- 设计 Agent capabilities。
-- 设计 Agent skills。
-- 设计 Agent inputModes / outputModes。
-- 设计 A2A endpoint。
-- 设计 A2A task request / response。
-- 设计 A2A streaming event。
-- 设计 A2A error。
-- 设计 Orchestrator 调用 Child Agent 的 A2A Client。
-- 设计 Mock A2A Agent。
-- 设计 ADK Runtime 对 A2A 的适配层。
-- Review Child Agent 是否符合 A2A Contract。
-- Review Orchestrator 是否绕过 A2A 直接调用 Agent 内部逻辑。
-- Review Agent Artifact 是否能被 Orchestrator 转换为 AG-UI Tool Call。
-
----
-
-## 3. Contract 所属边界
-
-本 Skill 只约束：
+它约束的是：
 
 ```text
 Orchestrator ↔ Child Agent
 ```
 
-本 Skill 不约束：
+而不是某一个具体 Agent 的实现。
 
-```text
-Frontend ↔ Gateway REST API
-Frontend ↔ Gateway AG-UI Event Stream
-Gateway ↔ Orchestrator Internal Contract
-Artifact 最终持久化 Schema
-Frontend Runtime Skills 参数 Schema
-ADK Runtime 内部实现细节
-```
+本 Skill 解决以下问题：
 
-对应关系如下：
+- 一个新的子 Agent 如何声明自己的能力？
+- Orchestrator 如何发现和调用它？
+- Planner 如何理解它能做什么？
+- Registry 如何记录它是否健康？
+- 子 Agent 如何流式输出文本、产物和错误？
+- 子 Agent 输出的 Artifact 如何进入 AG-UI / Frontend Runtime Skill 链路？
+- 多 Agent 场景下，如何避免硬编码 agentName？
+- 如何保证 Frontend / Gateway Handler 不绕过 Orchestrator 直接调用子 Agent？
 
-| 通信方向 / 内容 | 使用协议 / Contract | 是否由本 Skill 管 |
-|---|---|---|
-| Frontend ↔ Gateway REST API | OpenAPI | 否，由 `platform-api-contract` 管 |
-| Frontend ↔ Gateway AG-UI Event Stream | AG-UI Event Contract | 否，由 `agui-event-contract` 管 |
-| Gateway ↔ Orchestrator | Internal Contract | 否，由 `gateway-orchestrator-contract` 管 |
-| Orchestrator ↔ Child Agent | A2A | 是 |
-| Child Agent 运行时生命周期 | ADK Runtime | 部分引用，详细由 `adk-runtime-contract` 管 |
-| Artifact 字段与存储 | Artifact Contract | 否，由 `artifact-contract` 管 |
-| Artifact → Frontend Skill 参数 | Frontend Runtime Skills Contract | 否，由 `frontend-runtime-skills-contract` 管 |
-| ExecutionPlan / TaskPlan | Intent Orchestration Contract | 否，由 `intent-orchestration-contract` 管 |
+一句话：
+
+**任何 Child Agent 只要满足 AgentCard + Health Check + A2A Streaming Task + Artifact Output + Registry Discovery 规则，就可以接入 AgentHub；本契约不固定具体 Agent 名称。**
 
 ---
 
-## 4. 核心文件
+## 2. 当前开发阶段
 
-本 Skill 落地后应生成或维护：
+当前项目阶段：
+
+```text
+profile = v1.0-sprint
+a2aContractStyle = generic-child-agent-contract
+mvpStatus = completed
+```
+
+MVP v0.1 已完成，历史基线仅用于回归测试。
+
+v1.0 Sprint 的目标是从单 Agent 升级为 2+ Child Agents，并为后续更多子 Agent 扩展建立稳定契约。
+
+因此，本 Skill 不应把以下能力视为 Post-MVP 禁止项：
+
+```text
+2+ Child Agents
+AgentCard Registry
+Agent 健康检查
+LLM Planner 选择 Agent
+single / ordered-parallel 编排
+Agent fallback / retry
+web_preview
+markdown_render
+更多 outputModes / Artifact 类型
+```
+
+但本 Skill 也不应把 `code-agent` / `web-agent` 写死为唯一允许的 Agent。
+
+---
+
+## 3. 适用场景
+
+当任务涉及以下内容时，必须使用本 Skill：
+
+- 新增任意 Child Agent。
+- 修改任意 Child Agent 的 AgentCard。
+- 修改任意 Child Agent 的 `/health`。
+- 修改任意 Child Agent 的 A2A endpoint。
+- 修改 `agents/adk/` 中与 A2A 暴露有关的逻辑。
+- 修改 `server/internal/a2a/`。
+- 修改 `server/internal/registry/`。
+- 修改 Orchestrator 调用 Child Agent 的逻辑。
+- 修改 A2A streaming event。
+- 修改 A2A Artifact 输出。
+- 修改 Agent Registry 发现、缓存、健康检查逻辑。
+- 修改 Planner 使用 AgentCard 的方式。
+- Review 新增 Agent 是否能接入 AgentHub。
+- Review 代码是否硬编码了 `code-agent` / `web-agent` 判断能力。
+- Review Frontend / Gateway Handler 是否绕过 Orchestrator 直接调用 Child Agent。
+
+---
+
+## 4. 核心原则
+
+### 4.1 不固定 Agent 名称
+
+本 Skill 不允许把某个 Agent 名称写成平台能力边界。
+
+错误做法：
+
+```text
+如果 agentName == code-agent，则说明它会输出 code。
+如果 agentName == web-agent，则说明它会输出 webpage。
+```
+
+正确做法：
+
+```text
+通过 AgentCard.skills、inputModes、outputModes、capabilities 判断 Agent 能力。
+```
+
+Agent 名称只用于：
+
+- 唯一标识 Agent。
+- Registry 查找 Agent。
+- Orchestrator 调用目标 Agent。
+- 日志、trace、UI 展示。
+- @agent-name 手动路由。
+
+Agent 名称不得用于推断能力。
+
+### 4.2 能力由 AgentCard 声明
+
+每个 Child Agent 必须通过 AgentCard 声明：
+
+- name
+- description
+- url
+- version
+- capabilities
+- skills
+- inputModes
+- outputModes
+
+Planner、Registry、Orchestrator 必须基于 AgentCard 理解 Agent。
+
+### 4.3 Orchestrator 是唯一 A2A 调用入口
+
+Frontend 不得直接调用 Child Agent。
+
+Gateway Handler 不得直接调用 Child Agent。
+
+Child Agent 只能由以下模块访问：
+
+- Agent Registry：读取 AgentCard、健康检查。
+- Orchestrator / A2A Client：提交 A2A Task、读取流式事件。
+
+### 4.4 Child Agent 不直接输出 AG-UI
+
+Child Agent 输出的是 A2A event，不是 AG-UI event。
+
+Child Agent 不得直接构造：
+
+- `TEXT_MESSAGE_START`
+- `TEXT_MESSAGE_CONTENT`
+- `TEXT_MESSAGE_END`
+- `TOOL_CALL_START`
+- `TOOL_CALL_ARGS`
+- `TOOL_CALL_END`
+- `RUN_ERROR`
+- `STATE_UPDATE`
+
+这些事件只能由 Gateway / Orchestrator / ProtocolConverter 生成。
+
+### 4.5 Artifact 映射由契约链决定
+
+Child Agent 可以输出 Artifact，但它不能决定前端如何渲染。
+
+Artifact 能否渲染，取决于：
+
+1. AgentCard.outputModes 是否声明。
+2. `artifact-contract` 是否支持该 Artifact type。
+3. `frontend-runtime-skills-contract` 是否支持对应 Frontend Skill。
+4. ProtocolConverter 是否实现映射。
+5. Security Contract 是否允许该渲染方式。
+
+---
+
+## 5. 与其他 Skills 的边界
+
+| 内容 | 由谁负责 | 本 Skill 是否负责 |
+|---|---|---:|
+| Frontend ↔ Gateway REST API | `platform-api-contract` | 否 |
+| Frontend ↔ Gateway AG-UI Event Stream | `agui-event-contract` | 否 |
+| Gateway ↔ Orchestrator 内部调用 | `gateway-orchestrator-contract` | 否 |
+| Planner / ExecutionPlan / TaskPlan | `intent-orchestration-contract` | 部分引用 |
+| Orchestrator ↔ Child Agent A2A | 本 Skill | 是 |
+| Child Agent runtime 细节 | `adk-runtime-contract` | 部分引用 |
+| Artifact Schema | `artifact-contract` | 部分引用 |
+| Artifact → Frontend Skill 参数 | `frontend-runtime-skills-contract` | 部分引用 |
+| Agent 运行安全边界 | `security-boundary-contract` | 部分引用 |
+| 测试和 Review | `testing-review-contract` | 部分引用 |
+
+---
+
+## 6. 必须维护的文件
+
+本 Skill 的主文件：
+
+```text
+.claude/skills/a2a-agent-contract/SKILL.md
+```
+
+本 Skill 的配套 reference 文件：
+
+```text
+.claude/skills/a2a-agent-contract/references/agent-card-policy.md
+.claude/skills/a2a-agent-contract/references/task-endpoints.md
+.claude/skills/a2a-agent-contract/references/send-subscribe-streaming.md
+.claude/skills/a2a-agent-contract/references/artifact-policy.md
+.claude/skills/a2a-agent-contract/references/a2a-error-policy.md
+.claude/skills/a2a-agent-contract/references/registry-discovery.md
+.claude/skills/a2a-agent-contract/references/child-agent-lifecycle.md
+.claude/skills/a2a-agent-contract/references/a2a-review-checklist.md
+```
+
+需要同步维护的项目契约文件：
 
 ```text
 docs/contracts/a2a-agent-card.md
 docs/contracts/a2a-task.md
 docs/contracts/a2a-errors.md
-```
-
-可选维护：
-
-```text
-docs/contracts/a2a-agent-card.schema.json
-docs/contracts/a2a-task.schema.json
 docs/contracts/a2a-review-checklist.md
 ```
 
-MVP v0.1 阶段必须至少明确：
+可能涉及的实现目录：
 
 ```text
-code-agent 的 AgentCard
-/a2a/tasks/sendSubscribe
-A2A streaming event: status / text / artifact
-code Artifact 输出约定
-A2A error → RUN_ERROR 的映射边界
+agents/adk/
+agents/*-agent/
+server/internal/a2a/
+server/internal/registry/
+server/internal/orchestrator/
+server/internal/model/
 ```
 
 ---
 
-## 5. 四份设计文档的优先级解释
+## 7. Version Profiles
 
-本 Skill 必须同时遵守四类文档：
+### 7.1 MVP v0.1 Historical Profile
 
-1. **PDR**：定义完整目标架构，Child Agents 基于 ADK Runtime，暴露 AgentCard，并通过 A2A 被 Orchestrator 调用。
-2. **MVP 文档**：定义 v0.1 最小实施范围，只要求 `code-agent` 跑通，支持流式回复和代码产物。
-3. **UML 文档**：定义 Orchestrator 通过 A2A Client 调用 Child Agent，Child Agent 输出 A2A stream event，再由 ProtocolConverter 转为 AG-UI Event。
-4. **Skills 设计规范**：定义 `a2a-agent-contract` 是必须自建的项目级 Skill，不能依赖泛社区 Skill。
+MVP v0.1 已完成，只作为回归测试基线。
 
-解释原则：
+历史基线：
 
 ```text
-PDR 决定长期方向。
-MVP 决定当前范围。
-UML 决定关键流程。
-Skills 设计规范决定 AI 开发约束。
+Child Agent 数量：1
+Agent discovery：静态配置
+Routing：硬编码 direct routing
+Strategy：single
+Artifact：code 为主
+Frontend Skill：code_preview 为主
+```
+
+MVP 历史基线不得继续阻止 v1.0 扩展。
+
+### 7.2 v1.0 Sprint Profile
+
+v1.0 Sprint 当前要求支持：
+
+```text
+Child Agent 数量：2+
+Agent discovery：Agent Registry
+Agent 能力声明：AgentCard
+Agent 健康检查：/health
+任务提交：/a2a/tasks/sendSubscribe
+Planner：基于 AgentCard.skills / outputModes 选择 Agent
+Execution Strategy：single / ordered-parallel
+失败处理：fallback / retry hint
+输出：text streaming + artifact streaming
+```
+
+v1.0 Sprint 不固定：
+
+```text
+具体 Agent 名称
+具体 Agent 数量上限
+具体 Agent 技能名称集合
+具体 Artifact 类型全集
+```
+
+### 7.3 Post-v1.0 Profile
+
+Post-v1.0 可扩展：
+
+```text
+Agent 动态注册
+Agent marketplace
+用户自定义 Agent
+Agent 权限模型
+A2A 鉴权
+A2A task cancel
+A2A task history
+多模态输入
+大文件 Artifact 存储
+跨 Agent 结果聚合总结
+真正并发事件交错处理
 ```
 
 ---
 
-## 6. MVP v0.1 实施范围
-
-MVP v0.1 只强制实现一个 Child Agent：
-
-```text
-code-agent
-```
-
-MVP v0.1 必须支持：
-
-- `code-agent` 暴露 AgentCard。
-- `code-agent` 提供 A2A Server。
-- `code-agent` 支持 `/a2a/tasks/sendSubscribe`。
-- `code-agent` 使用 ADK Runtime 约定。
-- `code-agent` 能接收用户消息和历史上下文。
-- `code-agent` 能流式输出文本。
-- `code-agent` 能在检测到代码块后生成 `code` Artifact。
-- `code` Artifact 的 metadata 至少包含 `language`。
-- `code` Artifact 的 title 可作为文件名，如 `main.go`。
-- `code` Artifact 最终可被 Orchestrator 转换为 `code_preview` Tool Call。
-- A2A `status/text/artifact/completed/failed` 能被 ProtocolConverter 识别。
-
-MVP v0.1 暂不强制实现：
-
-- `web-agent`。
-- `doc-agent`。
-- `custom-agent`。
-- Agent 动态注册中心。
-- Agent 自动发现。
-- Agent 健康检查面板。
-- 多 Agent 并行 / 串行协作。
-- A2A 非流式完整能力。
-- 复杂 Artifact 类型。
-- 复杂错误降级。
-- AgentCard 市场展示。
-- 自建 Agent 发布流程。
-
-MVP v0.1 可以使用配置文件写死 Agent：
-
-```text
-name: code-agent
-url: http://code-agent:8081
-```
-
-但不能因此取消 AgentCard 或 A2A endpoint 的 Contract 要求。
-
----
-
-## 7. Post-MVP 完整目标
-
-Post-MVP 可以扩展：
-
-- `web-agent`
-- `doc-agent`
-- `custom-agent`
-- Agent Registry
-- AgentCard 动态拉取
-- Agent 健康检查
-- Agent capability 匹配
-- Agent skill 路由
-- 多 Agent ExecutionPlan
-- 并行 / 串行 A2A Task
-- fallback / retry
-- Agent outputModes → Frontend Runtime Skills 自动映射
-- Artifact 多类型输出
-- A2A task cancel
-- A2A task get
-- A2A task history
-- A2A authentication
-- A2A service-to-service trace
-
-扩展时必须保持：
-
-- Orchestrator 仍然只通过 A2A 调 Child Agent。
-- Child Agent 仍然必须暴露 AgentCard。
-- AgentCard schema 向后兼容。
-- A2A Task schema 向后兼容。
-- Artifact 输出仍然必须能被 Artifact Contract / Frontend Runtime Skills Contract 接收。
-- 不得让 Frontend 直接调用 Child Agent。
-- 不得让 Gateway 直接调用 Child Agent。
-
----
-
-## 8. AgentCard 职责
+## 8. AgentCard Contract
 
 AgentCard 是 Child Agent 的能力声明。
 
-它用于：
+AgentCard 用于：
 
-- 告诉 Orchestrator 该 Agent 是谁。
-- 告诉 Orchestrator 该 Agent 的 URL。
-- 告诉 Orchestrator 该 Agent 支持哪些 inputModes。
-- 告诉 Orchestrator 该 Agent 可能输出哪些 outputModes。
-- 告诉 Orchestrator 该 Agent 有哪些 skills。
-- 支持 Post-MVP 的 Agent 选择、路由、能力过滤和前端展示。
+- Registry 发现 Agent。
+- Registry 缓存 Agent 能力。
+- Registry 判断 Agent 是否健康。
+- Planner 理解 Agent 能力。
+- Orchestrator 校验目标 Agent。
+- 前端通过 Gateway 展示 Agent 摘要。
 
 AgentCard 不是：
 
-- 运行时消息。
-- A2A Task。
-- 前端 UI schema。
+- system prompt。
+- 私有配置文件。
+- API key 容器。
+- 前端组件 schema。
+- A2A Task 本身。
 - OpenAPI REST response 的替代品。
-- Agent 内部 prompt 的完整暴露。
-- 敏感配置公开文件。
 
----
-
-## 9. AgentCard 必需字段
-
-MVP v0.1 推荐最小 AgentCard：
+### 8.1 最小 AgentCard
 
 ```json
 {
-  "name": "code-agent",
-  "description": "负责生成、解释和审查代码的 Agent",
-  "url": "http://code-agent:8081",
+  "name": "agent-name",
+  "description": "说明该 Agent 能做什么",
+  "url": "http://agent-service:8081",
   "version": "0.1.0",
   "capabilities": {
     "streaming": true,
-    "artifacts": true
+    "artifacts": true,
+    "tools": false,
+    "cancellable": false
   },
   "skills": [
     {
-      "id": "code_generate",
-      "name": "代码生成",
-      "description": "根据用户需求生成代码",
-      "outputTypes": ["code", "text"]
+      "id": "skill_id",
+      "name": "技能名称",
+      "description": "该技能能完成什么任务",
+      "inputTypes": ["text"],
+      "outputTypes": ["text", "code"]
     }
   ],
   "inputModes": ["text"],
@@ -259,216 +348,136 @@ MVP v0.1 推荐最小 AgentCard：
 }
 ```
 
-字段说明：
+### 8.2 字段规则
 
-| 字段 | 必填 | 说明 |
+| 字段 | 必填 | 规则 |
 |---|---:|---|
-| `name` | 是 | Agent 唯一名称，MVP 为 `code-agent` |
-| `description` | 是 | Agent 简要说明 |
-| `url` | 是 | A2A Server 地址 |
-| `version` | 是 | Agent 版本 |
-| `capabilities` | 是 | 能力声明 |
-| `skills` | 是 | Agent 具备的技能 |
-| `inputModes` | 是 | 支持的输入类型 |
-| `outputModes` | 是 | 可能输出的产物类型 |
+| `name` | 是 | 全局稳定，不能随版本随意变化 |
+| `description` | 是 | 给 Planner 和 UI 使用，必须简洁准确 |
+| `url` | 是 | A2A Server 地址，不得包含 token |
+| `version` | 是 | 用于兼容性和排查 |
+| `capabilities` | 是 | 声明是否 streaming、artifacts、tools、cancellable |
+| `skills` | 是 | 能力列表，Planner 主要依据 |
+| `inputModes` | 是 | 支持的输入模式 |
+| `outputModes` | 是 | 支持的输出模式 |
 
 规则：
 
-- `name` 必须稳定。
-- `url` 不应暴露内部敏感 token。
-- `version` 必须可用于排查兼容性。
 - `skills[].id` 必须稳定。
-- `outputModes` 必须能映射到 Artifact / Frontend Skill。
-- MVP v0.1 的 `code-agent` 必须包含 `code` outputMode。
-- AgentCard 不应暴露完整 system prompt、API key、内部服务 token。
+- `skills[].outputTypes` 必须与 `outputModes` 兼容。
+- `outputModes` 必须能映射到 Artifact / Frontend Runtime Skill。
+- AgentCard 不得暴露 API key、token、完整 system prompt、内部密钥。
+- 新增 Child Agent 前必须先定义 AgentCard。
 
 ---
 
-## 10. Agent capabilities
+## 9. inputModes / outputModes
 
-推荐 capabilities：
-
-```json
-{
-  "streaming": true,
-  "artifacts": true,
-  "tools": false,
-  "cancellable": false
-}
-```
-
-字段说明：
-
-| 字段 | 说明 |
-|---|---|
-| `streaming` | 是否支持流式输出 |
-| `artifacts` | 是否可能输出 Artifact |
-| `tools` | 是否支持调用外部工具 |
-| `cancellable` | 是否支持取消 task |
-
-MVP v0.1：
+v1.0 最小支持：
 
 ```text
-streaming = true
-artifacts = true
-tools = false 或暂不声明
-cancellable = false 或暂不强制
+inputModes:
+- text
+
+outputModes:
+- text
+- code
+- webpage
+- document
 ```
 
-Post-MVP 可扩展 tools、cancel、multiModal 等能力。
+注意：
 
----
+- 不是所有 Agent 都必须支持所有 outputModes。
+- 每个 Agent 只能声明自己真实支持的 outputModes。
+- Planner / Orchestrator 不能假设某个 Agent 一定支持某种输出。
 
-## 11. Agent skills
+推荐映射关系：
 
-AgentCard 中的 skills 用于表达 Agent 能力。
-
-示例：
-
-```json
-{
-  "id": "code_generate",
-  "name": "代码生成",
-  "description": "根据用户需求生成代码",
-  "outputTypes": ["code", "text"]
-}
-```
-
-规则：
-
-- `id` 必须稳定。
-- `name` 可用于展示。
-- `description` 用于 Orchestrator / 用户理解。
-- `outputTypes` 必须是系统认可的产物类型。
-- MVP v0.1 中 `code-agent` 至少包含代码生成能力。
-- Post-MVP 可加入 `code_review`、`code_explain`、`test_generate` 等能力。
-- `skills` 不能伪造 Agent 实际不支持的能力。
-
----
-
-## 12. inputModes / outputModes
-
-推荐 inputModes：
-
-```text
-text
-file
-image
-url
-```
-
-MVP v0.1 只强制：
-
-```text
-text
-```
-
-推荐 outputModes：
-
-```text
-text
-code
-webpage
-file
-image
-document
-diff
-terminal
-chart
-```
-
-MVP v0.1 只强制：
-
-```text
-text
-code
-```
-
-映射关系建议：
-
-| outputMode | Artifact type | Frontend Skill |
+| outputMode | Artifact type | Frontend Runtime Skill |
 |---|---|---|
+| `text` | 无 Artifact | `markdown_render` / StreamingText |
 | `code` | `code` | `code_preview` |
 | `webpage` | `webpage` | `web_preview` |
-| `file` | `file` | `file_download` |
-| `image` | `image` | `image_preview` |
-| `document` | `document` | `markdown_render` |
-| `diff` | `diff` | `diff_preview` |
-| `terminal` | `terminal` | `terminal_output` |
-| `chart` | `chart` | `chart_render` |
+| `document` | `document` 或 `markdown` | `markdown_render` |
 
-本 Skill 只规定 AgentCard 中声明 outputModes。  
-具体 Artifact schema 由 `artifact-contract` 定义。  
-具体 Frontend Skill 参数由 `frontend-runtime-skills-contract` 定义。
+新增 outputMode 时，必须同步：
+
+- `artifact-contract`
+- `frontend-runtime-skills-contract`
+- ProtocolConverter
+- Contract tests
 
 ---
 
-## 13. A2A endpoint 范围
+## 10. Required Endpoints
 
-MVP v0.1 必须支持：
-
-```text
-GET  /.well-known/agent.json
-POST /a2a/tasks/sendSubscribe
-```
-
-Post-MVP 可扩展：
-
-```text
-POST /a2a/tasks/send
-POST /a2a/tasks/sendSubscribe
-GET  /a2a/tasks/{id}
-POST /a2a/tasks/{id}/cancel
-```
-
-规则：
-
-- Orchestrator 是唯一允许调用这些 endpoint 的系统角色。
-- Frontend 不允许调用 A2A endpoint。
-- Gateway handler 不允许直接调用 A2A endpoint。
-- A2A endpoint 不属于 Frontend REST API，不得写进 `docs/contracts/openapi.yaml`。
-- A2A endpoint 的详细 contract 应写入 `docs/contracts/a2a-task.md`。
-- AgentCard contract 应写入 `docs/contracts/a2a-agent-card.md`。
-- 错误 contract 应写入 `docs/contracts/a2a-errors.md`。
-
----
-
-## 14. AgentCard endpoint
-
-AgentCard endpoint：
+每个 Child Agent 至少必须暴露：
 
 ```text
 GET /.well-known/agent.json
+GET /health
+POST /a2a/tasks/sendSubscribe
 ```
 
-响应必须返回 AgentCard。
+v1.0 不强制：
+
+```text
+POST /a2a/tasks/send
+GET /a2a/tasks/{id}
+POST /a2a/tasks/{id}/cancel
+GET /a2a/tasks/{id}/history
+```
 
 规则：
 
-- 必须可由 Orchestrator 或 Agent Registry 拉取。
-- MVP v0.1 可通过配置文件静态注册，但 endpoint 仍应保留。
-- Post-MVP Agent Registry 可周期性拉取并健康检查。
-- AgentCard response 不应包含密钥。
-- 如果 AgentCard 无效，Orchestrator 不应调用该 Agent。
-- 如果 AgentCard 的 `outputModes` 不包含 `code`，MVP 不应将其作为 `code-agent`。
+- `/.well-known/agent.json` 返回 AgentCard。
+- `/health` 返回健康状态。
+- `/a2a/tasks/sendSubscribe` 用于提交任务并读取流式结果。
+- A2A endpoint 不写入 Frontend OpenAPI。
+- Frontend 不直接调用这些 endpoint。
+- Gateway Handler 不直接调用这些 endpoint。
 
 ---
 
-## 15. sendSubscribe endpoint
+## 11. Health Check
 
-MVP v0.1 核心 endpoint：
+Endpoint：
+
+```text
+GET /health
+```
+
+最小响应：
+
+```json
+{
+  "status": "ok",
+  "agent": "agent-name",
+  "version": "0.1.0"
+}
+```
+
+规则：
+
+- `/health` 不应触发 LLM 请求。
+- `/health` 不应执行耗时工具。
+- `/health` 不应泄漏密钥。
+- Registry 必须周期性检查 `/health`。
+- unhealthy Agent 不应进入 Planner 的候选列表。
+- fallback 不应选择 unhealthy Agent。
+
+---
+
+## 12. A2A Task Contract
+
+v1.0 核心 endpoint：
 
 ```text
 POST /a2a/tasks/sendSubscribe
 ```
 
-用途：
-
-- Orchestrator 创建一个 A2A Task。
-- Child Agent 开始处理消息。
-- Child Agent 通过 SSE / streaming response 输出 `status`、`text`、`artifact`、`completed`、`failed` 等事件。
-
-请求逻辑结构：
+推荐请求：
 
 ```json
 {
@@ -476,80 +485,44 @@ POST /a2a/tasks/sendSubscribe
   "messages": [
     {
       "role": "user",
-      "content": "帮我写一个 Go HTTP 服务器"
+      "content": "请生成一个登录页面"
     }
   ],
   "metadata": {
     "runId": "run-001",
-    "threadId": "conv-001",
-    "traceId": "trace-001"
+    "threadId": "conversation-001",
+    "traceId": "trace-001",
+    "agentName": "target-agent"
   }
 }
 ```
 
 规则：
 
-- `id` 必须稳定，用作 taskId。
-- `messages` 必须包含用户输入和必要历史上下文。
-- `metadata.runId` 应来自 AG-UI Run。
-- `metadata.threadId` 应来自会话。
-- `metadata.traceId` 应贯穿 Gateway、Orchestrator、Child Agent。
-- 不应把 Authorization token、API key、完整敏感 prompt 放入 metadata。
-- 请求字段对外 JSON 使用 camelCase。
+- `id` 是 A2A task id。
+- `messages` 必须包含当前用户输入。
+- `messages` 可以包含结构化历史上下文。
+- `metadata.runId` 对应 AG-UI run。
+- `metadata.threadId` 对应 conversation。
+- `metadata.traceId` 用于跨服务追踪。
+- `metadata.agentName` 应与目标 AgentCard.name 一致。
+- metadata 不得携带 API key、Authorization token、用户私密 token。
 
 ---
 
-## 16. A2A message 结构
+## 13. A2A Streaming Event Contract
 
-推荐消息结构：
-
-```json
-{
-  "role": "user",
-  "content": "帮我写一个 Go HTTP 服务器"
-}
-```
-
-推荐 role：
+v1.0 必须支持以下事件语义：
 
 ```text
-user
-agent
-system
-tool
-```
-
-MVP v0.1 至少支持：
-
-```text
-user
-agent
-system
-```
-
-规则：
-
-- `content` 在 MVP 中可以是字符串。
-- Post-MVP 可以扩展为结构化 parts。
-- 历史消息应由 Orchestrator 构造后传给 Child Agent。
-- Child Agent 不直接查询 Gateway 会话数据库。
-- system prompt 可由 ADK Runtime / Agent 配置注入，不应由 Frontend 任意传入。
-
----
-
-## 17. A2A streaming event 类型
-
-MVP v0.1 必须支持：
-
-```text
-status
+status: working
 text
 artifact
+status: completed
+status: failed
 ```
 
-推荐事件形态：
-
-### status: working
+### 13.1 working
 
 ```json
 {
@@ -558,16 +531,16 @@ artifact
 }
 ```
 
-### text
+### 13.2 text
 
 ```json
 {
   "type": "text",
-  "content": "package main"
+  "content": "这里是流式文本片段"
 }
 ```
 
-### artifact
+### 13.3 artifact
 
 ```json
 {
@@ -583,7 +556,7 @@ artifact
 }
 ```
 
-### status: completed
+### 13.4 completed
 
 ```json
 {
@@ -592,77 +565,44 @@ artifact
 }
 ```
 
-### status: failed
+### 13.5 failed
 
 ```json
 {
   "type": "status",
   "status": "failed",
-  "error": "LLM API timeout"
+  "error": {
+    "code": "A2A_AGENT_ERROR",
+    "message": "Agent 执行失败",
+    "retryable": true
+  }
 }
 ```
 
 规则：
 
-- `status: working` 应被 Orchestrator 转换为 AG-UI `TEXT_MESSAGE_START`。
-- `text` 应被转换为 `TEXT_MESSAGE_CONTENT`。
-- `artifact` 必须先由 Orchestrator 缓存，不能立即透传给 Frontend。
-- `status: completed` 触发 `TEXT_MESSAGE_END`、flush artifacts、`TOOL_CALL_*`、`RUN_FINISHED`。
-- `status: failed` 触发 `RUN_ERROR`。
-- A2A event 不得直接暴露给 Frontend。
-- A2A event 不得由 Gateway handler 直接解析。
-
----
-
-## 18. A2A task 生命周期
-
-MVP v0.1 推荐生命周期：
-
-```text
-submitted
-working
-completed
-failed
-```
-
-Post-MVP 可扩展：
-
-```text
-cancelled
-queued
-requiresInput
-```
-
-生命周期规则：
-
-```text
-submitted → working → completed
-submitted → working → failed
-submitted → cancelled
-```
-
-MVP v0.1 中：
-
-- Orchestrator 发送 task 后，Agent 输出 `working`。
-- Agent 流式输出多个 `text`。
+- Agent 开始处理任务后应输出 `working`。
+- Agent 可以输出多个 `text` chunk。
 - Agent 可以输出 0 到多个 `artifact`。
-- Agent 最后输出 `completed` 或 `failed`。
-- `completed` 后不应继续输出 `text` 或 `artifact`。
-- `failed` 后不应继续输出正常事件。
+- Agent 最后必须输出 `completed` 或 `failed`。
+- `completed` 后不应继续输出内容。
+- `failed` 后不应继续输出正常结果。
+- A2A event 不直接暴露给 Frontend。
+- ProtocolConverter 负责把 A2A event 转换为 AG-UI event。
 
 ---
 
-## 19. Artifact 输出规则
+## 14. Artifact Output Contract
 
-A2A Artifact 是 Child Agent 输出的非文本产物。
+任何 Child Agent 都可以输出 Artifact，但必须满足：
 
-MVP v0.1 只强制支持：
+1. AgentCard.outputModes 声明该输出类型。
+2. Artifact type 被 `artifact-contract` 支持。
+3. ProtocolConverter 有映射规则。
+4. 前端已注册对应 Runtime Skill。
+5. 安全边界允许展示。
 
-```text
-type = code
-```
-
-`code` Artifact 推荐结构：
+### 14.1 code Artifact
 
 ```json
 {
@@ -675,152 +615,155 @@ type = code
 }
 ```
 
+映射：
+
+```text
+Artifact type = code
+Frontend Skill = code_preview
+```
+
+### 14.2 webpage Artifact
+
+```json
+{
+  "type": "webpage",
+  "title": "index.html",
+  "content": "<!DOCTYPE html><html>...</html>",
+  "metadata": {
+    "language": "html",
+    "css": "body { margin: 0; }",
+    "js": "console.log('ready')"
+  }
+}
+```
+
+映射：
+
+```text
+Artifact type = webpage
+Frontend Skill = web_preview
+```
+
+### 14.3 document / markdown Artifact
+
+```json
+{
+  "type": "document",
+  "title": "report.md",
+  "content": "# 报告标题\n\n正文...",
+  "metadata": {
+    "format": "markdown"
+  }
+}
+```
+
+映射：
+
+```text
+Artifact type = document / markdown
+Frontend Skill = markdown_render
+```
+
 规则：
 
-- `type` 必须是 `code`。
-- `title` 推荐作为文件名。
-- `content` 是代码文本。
-- `metadata.language` 必须存在。
-- 大代码可以作为 Artifact，不应塞进 `TEXT_MESSAGE_CONTENT`。
-- Orchestrator 将 `code` Artifact 映射为 `code_preview`。
-- 完整 Artifact schema 由 `artifact-contract` 定义。
-- A2A Agent 不直接决定前端组件，只声明 Artifact type 和内容。
-
-Post-MVP 可扩展：
-
-```text
-webpage
-file
-image
-document
-diff
-terminal
-chart
-```
+- Artifact 不应伪装成普通 text chunk。
+- 大型结构化产物应使用 Artifact。
+- Child Agent 不得直接输出 `code_preview` / `web_preview` / `markdown_render` Tool Call。
+- Tool Call 只能由 ProtocolConverter 生成。
 
 ---
 
-## 20. code-agent MVP Contract
+## 15. Agent Registry Contract
 
-MVP v0.1 的 `code-agent` 必须满足：
+Agent Registry 管理所有 Child Agents。
 
-### 20.1 AgentCard
+Registry 必须：
 
-```text
-name = code-agent
-inputModes 包含 text
-outputModes 包含 text, code
-capabilities.streaming = true
-capabilities.artifacts = true
-skills 至少包含 code_generate
-```
+- 从配置读取多个 Agent URL。
+- 拉取每个 Agent 的 AgentCard。
+- 调用每个 Agent 的 `/health`。
+- 缓存 AgentCard。
+- 缓存 healthy 状态。
+- 向 Planner 提供 healthy agents。
+- 向 Gateway API 提供 Agent 摘要。
+- 支持后续新增 Agent 时不修改 Orchestrator 核心流程。
 
-### 20.2 A2A Server
-
-必须暴露：
-
-```text
-GET  /.well-known/agent.json
-POST /a2a/tasks/sendSubscribe
-```
-
-### 20.3 流式输出
-
-必须输出：
-
-```text
-status: working
-text chunk*
-artifact? 
-status: completed
-```
-
-失败时输出：
-
-```text
-status: failed
-error
-```
-
-### 20.4 代码产物
-
-如果回复中生成代码块，应输出 `code` Artifact。
-
-Artifact 必须包含：
-
-```text
-type = code
-title
-content
-metadata.language
-```
-
-### 20.5 ADK Runtime
-
-`code-agent` 应通过 ADK Runtime 的统一能力输出：
-
-```text
-ctx.StreamText(...)
-ctx.AddArtifact(...)
-```
-
-ADK Runtime 的内部接口由 `adk-runtime-contract` 进一步细化。
-
----
-
-## 21. Orchestrator 调用规则
-
-Orchestrator 调用 Child Agent 时必须：
-
-- 根据配置或 Agent Registry 找到 Agent URL。
-- 读取或验证 AgentCard。
-- 根据 AgentCard 判断该 Agent 是否支持目标 outputModes。
-- 通过 A2A Client 调用 `/a2a/tasks/sendSubscribe`。
-- 将 Gateway 传入的 history 转换为 A2A messages。
-- 传递 `runId`、`threadId`、`traceId`。
-- 读取 A2A stream event。
-- 将 A2A event 交给 ProtocolConverter。
-- 不直接把 A2A event 传给 Frontend。
-- 不直接修改 Frontend UI state。
-- 不让 Gateway handler 参与 A2A 解析。
-
-MVP v0.1 可以跳过复杂 Agent 选择，直接调用 `code-agent`。  
-但仍应保留 AgentCard 和 A2A Client 边界。
-
----
-
-## 22. Agent Registry 规则
-
-MVP v0.1 可以使用配置文件静态注册：
+推荐配置形式：
 
 ```yaml
 agents:
-  - name: code-agent
+  - name: code-like-agent
     url: http://code-agent:8081
+  - name: web-like-agent
+    url: http://web-agent:8082
+  - name: document-like-agent
+    url: http://doc-agent:8083
 ```
 
-Post-MVP 可扩展 Agent Registry：
-
-- 拉取 AgentCard。
-- 健康检查。
-- 缓存 Agent 能力。
-- 按 skills / outputModes 查询 Agent。
-- 支持自建 Agent 注册。
-- 支持 Agent 版本管理。
-- 支持 fallback / retry 选择。
+注意：上面的名称只是示例，不是硬约束。
 
 规则：
 
-- Agent Registry 不属于 Frontend。
-- Frontend 可以通过 Gateway 查询 Agent 摘要，但不能直接读取 A2A endpoint。
-- Agent Registry 中的 Agent 必须有合法 AgentCard。
-- 无 AgentCard 的 Agent 不应参与编排。
+- Registry 不属于 Frontend。
+- Frontend 只能通过 Gateway 查询 Agent 摘要。
+- Registry 中的 Agent 必须有合法 AgentCard。
+- AgentCard 无效时，该 Agent 不应参与编排。
+- unhealthy Agent 不应参与编排。
+- fallback 只能选择 healthy Agent。
 
 ---
 
-## 23. 错误模型
+## 16. Orchestrator 调用规则
 
-A2A error 推荐结构：
+Orchestrator 调用 Child Agent 时必须：
+
+1. 从 Registry 获取 Agent。
+2. 校验 Agent 是否 healthy。
+3. 读取 AgentCard。
+4. 校验目标 skill 是否被 AgentCard.skills 支持。
+5. 校验任务期望输出是否与 AgentCard.outputModes 兼容。
+6. 通过 A2A Client 调用 `/a2a/tasks/sendSubscribe`。
+7. 传递结构化 messages。
+8. 传递 runId、threadId、traceId、agentName。
+9. 读取 A2A streaming event。
+10. 交给 ProtocolConverter 转换为 AG-UI event。
+11. 缓存 Artifact。
+12. flush Artifact 为 AG-UI `TOOL_CALL_*`。
+13. 失败时根据 retryable 和 Registry 状态 fallback。
+
+Orchestrator 不得：
+
+- 根据硬编码 agentName 判断能力。
+- 直接调用某个 Agent 的内部函数。
+- 让 Gateway Handler 解析 A2A event。
+- 把 A2A event 原样给 Frontend。
+
+---
+
+## 17. Ordered Parallel 规则
+
+v1.0 允许 ordered-parallel：
+
+```text
+ExecutionPlan.strategy = parallel
+实际执行可以按顺序调用多个 Agent
+前端感知为多个 Agent 参与
+避免 SSE 事件交错导致渲染混乱
+```
+
+规则：
+
+- Planner 可以返回多个 TaskPlan。
+- 每个 TaskPlan 指向一个 Agent。
+- Orchestrator 可以顺序执行这些 task。
+- 每次切换 Agent 时，应输出 AG-UI `STATE_UPDATE`。
+- 每个 Agent 的输出应能在前端显示 agentName。
+
+---
+
+## 18. 错误模型与 fallback
+
+推荐 A2A error：
 
 ```json
 {
@@ -829,18 +772,8 @@ A2A error 推荐结构：
   "error": {
     "code": "A2A_AGENT_ERROR",
     "message": "Agent 执行失败",
-    "retryable": false
+    "retryable": true
   }
-}
-```
-
-MVP v0.1 也允许简单字符串错误：
-
-```json
-{
-  "type": "status",
-  "status": "failed",
-  "error": "LLM API timeout"
 }
 ```
 
@@ -859,419 +792,258 @@ A2A_STREAM_INTERRUPTED
 A2A_INTERNAL
 ```
 
-错误映射规则：
-
-- A2A failed → OrchestratorError 或 AG-UI `RUN_ERROR`。
-- 错误不能泄漏 API key、token、内部堆栈。
-- `retryable = true` 可供 Post-MVP fallback / retry 使用。
-- MVP v0.1 不强制自动 retry。
-- A2A 连接失败由 Orchestrator 转成 `ORCHESTRATOR_A2A_CONNECT_FAILED` 或 AG-UI `RUN_ERROR`。
-
----
-
-## 24. 安全规则
-
-A2A Agent Contract 必须遵守：
-
-- Frontend 不得直接调用 A2A endpoint。
-- Gateway handler 不得直接调用 A2A endpoint。
-- 只有 Orchestrator / A2A Client 可以调用 Child Agent。
-- AgentCard 不得泄漏 API key。
-- A2A metadata 不得携带用户 token。
-- Agent 日志不得打印 LLM API key。
-- Agent 日志不得打印完整敏感 system prompt。
-- Artifact 内容在展示前必须经过 Artifact / Frontend Runtime Skills Contract 处理。
-- Agent 不能信任 Frontend 任意传来的 tool / skill 名称。
-- Post-MVP A2A 调用应增加服务间鉴权。
-- 自建 Agent 必须做权限隔离和能力校验。
-
----
-
-## 25. Trace 与观测性
-
-A2A 调用必须支持追踪字段：
-
-```text
-traceId
-runId
-threadId
-taskId
-agentName
-```
-
 规则：
 
-- Gateway 生成或透传 `traceId`。
-- Orchestrator 将 `traceId` 传入 A2A metadata。
-- Child Agent 日志必须包含 `traceId` 和 `taskId`。
-- A2A 错误必须能关联回 `runId`。
-- 不得在日志中打印 Authorization token 或 LLM API key。
-- Post-MVP 可在 AgentCard 中声明 observability 能力。
+- A2A `failed` 不一定立即变成 AG-UI `RUN_ERROR`。
+- 如果 `retryable = true`，Orchestrator 可以 fallback。
+- fallback 开始时应输出 AG-UI `STATE_UPDATE`。
+- 所有候选 Agent 都失败后，才输出 AG-UI `RUN_ERROR`。
+- 错误不得泄漏 API key、token、内部堆栈、完整 system prompt。
 
 ---
 
-## 26. Mock-first 规则
+## 19. 安全规则
 
-在真实 LLM / Agent 完成前，可以使用 Mock A2A Agent。
+必须遵守：
 
-Mock A2A Agent 必须：
+- Frontend 不得直接调用 Child Agent。
+- Gateway Handler 不得直接调用 Child Agent。
+- AgentCard 不得泄漏密钥。
+- `/health` 不得泄漏敏感配置。
+- A2A metadata 不得携带用户 token。
+- 日志不得打印 LLM API key。
+- 日志不得打印完整敏感 system prompt。
+- Artifact 内容展示必须走 Artifact Contract 和 Frontend Runtime Skills Contract。
+- Agent 不得信任 Frontend 任意传来的 tool / skill 名称。
+- HTML / webpage 类 Artifact 必须经过前端 sandbox 策略。
+
+---
+
+## 20. Mock-first 规则
+
+新增 Agent 时可以先实现 Mock A2A Agent。
+
+Mock Agent 必须：
 
 - 暴露合法 AgentCard。
+- 暴露 `/health`。
 - 暴露 `/a2a/tasks/sendSubscribe`。
-- 输出合法 A2A stream event。
-- 能模拟 `status: working`。
-- 能模拟多段 `text`。
-- 能模拟 `code` Artifact。
-- 能模拟 `status: completed`。
-- 能模拟 `status: failed`。
-- 不输出未定义事件。
-- 不绕过 Orchestrator。
-- 不直接输出 AG-UI Event。
+- 输出合法 A2A streaming event。
+- 能模拟 `working`。
+- 能模拟多个 `text` chunk。
+- 能模拟至少一个 Artifact。
+- 能模拟 `completed`。
+- 能模拟 `failed`。
+- 不直接输出 AG-UI event。
 
-推荐 mock 流程：
+---
+
+## 21. Contract Test 规则
+
+### 21.1 所有 Child Agent 必须通过
+
+- AgentCard endpoint 存在。
+- AgentCard JSON 合法。
+- AgentCard.name 存在且稳定。
+- AgentCard.version 存在。
+- AgentCard.skills 非空。
+- AgentCard.inputModes 非空。
+- AgentCard.outputModes 非空。
+- `/health` 存在。
+- `/health` 不触发 LLM。
+- `/a2a/tasks/sendSubscribe` 存在。
+- streaming lifecycle 合法。
+- completed / failed 后不再输出正常内容。
+- 不泄漏 secret。
+
+### 21.2 按 outputMode 动态测试
+
+如果 AgentCard.outputModes 包含 `code`：
+
+- 必须能输出 `code` Artifact。
+- `code` Artifact 必须包含 `title`、`content`、`metadata.language`。
+- `code` Artifact 必须能映射到 `code_preview`。
+
+如果 AgentCard.outputModes 包含 `webpage`：
+
+- 必须能输出 `webpage` Artifact。
+- `webpage` Artifact 必须包含 `title`、`content`。
+- `webpage` Artifact 必须能映射到 `web_preview`。
+
+如果 AgentCard.outputModes 包含 `document`：
+
+- 必须能输出 `document` 或 `markdown` Artifact。
+- Artifact 必须能映射到 `markdown_render`。
+
+---
+
+## 22. Example Agent Profiles
+
+以下只是示例，不是硬约束。
+
+### 22.1 code-like agent
+
+适用于：
+
+- 代码生成
+- 代码解释
+- 代码审查
+- 测试生成
+- 重构建议
+
+推荐：
 
 ```text
-status: working
-text: "下面是 Go HTTP Server 示例："
-text: "```go\npackage main..."
-artifact: {type:"code", title:"main.go", content:"...", metadata:{language:"go"}}
-status: completed
+inputModes = text
+outputModes = text, code
+skills = code_generate, code_explain, code_review, test_generate
+```
+
+### 22.2 web-like agent
+
+适用于：
+
+- HTML/CSS/JS 页面生成
+- UI 组件生成
+- 响应式布局
+- Web 页面预览
+
+推荐：
+
+```text
+inputModes = text
+outputModes = text, code, webpage
+skills = web_generation, ui_design, responsive_layout
+```
+
+### 22.3 document-like agent
+
+适用于：
+
+- Markdown 文档
+- 总结报告
+- PRD / 方案文档
+- 技术说明
+
+推荐：
+
+```text
+inputModes = text
+outputModes = text, document
+skills = document_generate, markdown_write, summarize
+```
+
+### 22.4 search-like agent
+
+适用于：
+
+- 搜索
+- 信息检索
+- 资料汇总
+- 引用整理
+
+推荐：
+
+```text
+inputModes = text
+outputModes = text, document
+skills = search, summarize, cite_sources
 ```
 
 ---
 
-## 27. Contract Test 规则
+## 23. Review Checklist
 
-A2A Agent Contract 至少应验证：
-
-### AgentCard
-
-- `/.well-known/agent.json` 是否存在。
-- `name` 是否稳定。
-- `url` 是否存在。
-- `version` 是否存在。
-- `capabilities.streaming` 是否正确。
-- `inputModes` 是否包含 `text`。
-- `outputModes` 是否包含 `code`。
-- `skills` 是否包含代码生成能力。
-- AgentCard 是否不泄漏敏感信息。
-
-### sendSubscribe
-
-- `/a2a/tasks/sendSubscribe` 是否存在。
-- request 是否包含 task id。
-- request 是否包含 messages。
-- request 是否透传 `runId`、`threadId`、`traceId`。
-- response 是否是 streaming。
-- 是否输出 `status: working`。
-- 是否输出 `text`。
-- 是否输出 `status: completed` 或 `status: failed`。
-- completed 后是否不再输出内容。
-
-### Artifact
-
-- 是否能输出 `code` Artifact。
-- `code` Artifact 是否包含 `title`。
-- `code` Artifact 是否包含 `content`。
-- `code` Artifact 是否包含 `metadata.language`。
-- Artifact 是否没有直接伪装成 text chunk。
-
-### 边界
-
-- Frontend 是否不能调用 A2A endpoint。
-- Gateway handler 是否没有直接调用 A2A endpoint。
-- Orchestrator 是否通过 A2A Client 调用。
-- A2A event 是否没有直接暴露给 Frontend。
-- A2A event 是否能被 ProtocolConverter 处理。
-
----
-
-## 28. 与其他 Skills 的协作
-
-### 28.1 与 project-architecture
-
-`project-architecture` 定义服务边界。  
-本 Skill 细化 Orchestrator 与 Child Agent 的 A2A 边界。
-
-如果发现 Frontend 或 Gateway handler 直接调用 A2A endpoint，必须拒绝。
-
----
-
-### 28.2 与 gateway-orchestrator-contract
-
-`gateway-orchestrator-contract` 规定 Gateway 如何调用 Orchestrator。  
-本 Skill 规定 Orchestrator 如何调用 Child Agent。
-
-A2A Client 属于 Orchestrator 边界。
-
----
-
-### 28.3 与 agui-event-contract
-
-A2A event 不直接到前端。  
-必须由 ProtocolConverter 转为 AG-UI event。
-
-A2A `text` → AG-UI `TEXT_MESSAGE_CONTENT`。  
-A2A `artifact` → 缓存 → AG-UI `TOOL_CALL_*`。
-
----
-
-### 28.4 与 artifact-contract
-
-A2A Artifact 的最终 schema 由 `artifact-contract` 细化。  
-本 Skill 只规定 Child Agent 可以输出 Artifact，且 MVP 必须支持 `code` Artifact。
-
----
-
-### 28.5 与 frontend-runtime-skills-contract
-
-Artifact 最终映射到 Frontend Skill。  
-MVP 中 `code` Artifact 必须映射到 `code_preview`。
-
-具体 `code_preview` 参数 schema 由 `frontend-runtime-skills-contract` 定义。
-
----
-
-### 28.6 与 adk-runtime-contract
-
-ADK Runtime 规定 Child Agent 内部如何处理 task、stream、artifact、LLM。
-
-本 Skill 只要求 Child Agent 对外符合 A2A Contract。  
-ADK Runtime 内部接口由 `adk-runtime-contract` 进一步定义。
-
----
-
-### 28.7 与 intent-orchestration-contract
-
-Post-MVP 中 Orchestrator 根据 ExecutionPlan 选择 Agent。  
-ExecutionPlan 与 Agent 选择策略由 `intent-orchestration-contract` 定义。  
-本 Skill 只规定被选中的 Agent 必须可通过 A2A 调用。
-
----
-
-## 29. 硬性规则
-
-Coding Agent 在处理 A2A / Child Agent 相关任务时必须遵守：
-
-1. Child Agent 必须暴露 AgentCard。
-2. Child Agent 必须通过 A2A endpoint 被调用。
-3. Orchestrator 是唯一允许调用 A2A endpoint 的系统角色。
-4. Frontend 不允许直接调用 A2A endpoint。
-5. Gateway handler 不允许直接调用 A2A endpoint。
-6. A2A endpoint 不属于 Frontend REST API，不得写入 `openapi.yaml`。
-7. MVP v0.1 必须支持 `code-agent`。
-8. MVP v0.1 必须支持 `/a2a/tasks/sendSubscribe`。
-9. MVP v0.1 必须支持 A2A `status/text/artifact` stream event。
-10. MVP v0.1 必须支持 `code` Artifact。
-11. `code` Artifact 必须能映射到 `code_preview`。
-12. AgentCard 的 `outputModes` 必须真实反映 Agent 能力。
-13. AgentCard 不得泄漏 API key、token、完整 system prompt。
-14. A2A event 不得直接暴露给 Frontend。
-15. A2A Artifact 不得直接塞进 `TEXT_MESSAGE_CONTENT`。
-16. A2A error 必须能映射为 `RUN_ERROR`。
-17. Mock Agent 也必须遵守 A2A Contract。
-18. Post-MVP 扩展新 Agent 前必须先定义 AgentCard。
-19. Post-MVP 扩展新 Artifact type 前必须同步 Artifact / Frontend Runtime Skills Contract。
-20. 必须遵守 `Contract first / Mock first / Real integration later / Review always`。
-
----
-
-## 30. 必须维护的文件
-
-使用本 Skill 时，至少需要维护：
-
-```text
-skills/a2a-agent-contract/SKILL.md
-docs/contracts/a2a-agent-card.md
-docs/contracts/a2a-task.md
-docs/contracts/a2a-errors.md
-```
-
-根据需要维护：
-
-```text
-docs/contracts/a2a-agent-card.schema.json
-docs/contracts/a2a-task.schema.json
-docs/contracts/a2a-review-checklist.md
-agents/adk/
-agents/code-agent/
-server/internal/a2a/
-server/internal/orchestrator/
-```
-
-MVP v0.1 阶段不要求马上生成业务代码。  
-如果用户只要求 Contract，则不要创建 Go 实现。
-
----
-
-## 31. 输出要求
-
-当用户要求设计 A2A / Child Agent Contract 时，Coding Agent 必须输出：
-
-1. 当前属于 MVP `code-agent` 范围还是 Post-MVP 多 Agent 范围。
-2. AgentCard 字段。
-3. Agent capabilities。
-4. Agent skills。
-5. inputModes / outputModes。
-6. A2A endpoint。
-7. `sendSubscribe` request。
-8. A2A streaming event。
-9. A2A task lifecycle。
-10. Artifact 输出规则。
-11. code-agent MVP Contract。
-12. Orchestrator 调用规则。
-13. 错误模型。
-14. 安全规则。
-15. traceId / runId / taskId。
-16. Mock-first 规则。
-17. Contract Test。
-18. Review Checklist。
-
-除非用户明确要求，不要直接生成 Child Agent / A2A Server 业务实现代码。
-
----
-
-## 32. Review Checklist
-
-在接受任何 A2A Agent 设计或实现前，必须检查：
+Review A2A / Child Agent 相关改动时必须检查：
 
 ### AgentCard
 
 - 是否暴露 `/.well-known/agent.json`？
-- 是否包含 `name`？
-- 是否包含 `url`？
-- 是否包含 `version`？
-- 是否包含 `capabilities`？
-- 是否包含 `skills`？
-- 是否包含 `inputModes`？
-- 是否包含 `outputModes`？
-- `code-agent` 是否包含 `code` outputMode？
-- AgentCard 是否没有泄漏敏感信息？
+- 是否包含 name / description / url / version？
+- 是否包含 capabilities？
+- 是否包含 skills？
+- 是否包含 inputModes / outputModes？
+- skills.outputTypes 是否与 outputModes 兼容？
+- 是否没有泄漏 secret？
 
-### A2A endpoint
+### Health
+
+- 是否暴露 `/health`？
+- `/health` 是否轻量？
+- `/health` 是否不触发 LLM？
+- unhealthy Agent 是否不会进入 Planner？
+
+### A2A
 
 - 是否暴露 `/a2a/tasks/sendSubscribe`？
-- 是否没有把 A2A endpoint 写入 Frontend OpenAPI？
-- 是否没有让 Frontend 直接调用？
-- 是否没有让 Gateway handler 直接调用？
-- 是否由 Orchestrator / A2A Client 调用？
-
-### Streaming event
-
-- 是否输出 `status: working`？
-- 是否输出 `text` chunk？
-- 是否能输出 `artifact`？
-- 是否输出 `status: completed`？
-- 失败时是否输出 `status: failed`？
-- completed / failed 后是否停止正常输出？
-- A2A event 是否能被 ProtocolConverter 处理？
+- 是否支持 streaming？
+- 是否输出 working / text / artifact / completed / failed？
+- failed 是否包含 error code？
 
 ### Artifact
 
-- MVP 是否支持 `code` Artifact？
-- `code` Artifact 是否包含 `title`？
-- `code` Artifact 是否包含 `content`？
-- `code` Artifact 是否包含 `metadata.language`？
-- Artifact 是否没有直接伪装成 text chunk？
-- `code` Artifact 是否能映射到 `code_preview`？
+- Artifact type 是否被 AgentCard.outputModes 声明？
+- Artifact type 是否被 `artifact-contract` 支持？
+- Artifact 是否能映射到 Frontend Runtime Skill？
+- Child Agent 是否没有直接输出 AG-UI Tool Call？
 
-### Orchestrator 边界
+### Orchestrator
 
-- Orchestrator 是否通过 A2A Client 调用？
-- Orchestrator 是否没有绕过 AgentCard？
-- Orchestrator 是否没有直接依赖 Agent 内部实现？
-- Orchestrator 是否把 A2A event 交给 ProtocolConverter？
-- A2A error 是否能转成 `RUN_ERROR`？
-
-### MVP / Post-MVP
-
-- MVP 是否只强制 `code-agent`？
-- MVP 是否不要求 `web-agent` / `doc-agent`？
-- MVP 是否不要求复杂 Agent Registry？
-- Post-MVP 扩展是否保留 AgentCard / A2A 兼容性？
+- 是否通过 Registry 获取 Agent？
+- 是否根据 AgentCard 判断能力？
+- 是否没有硬编码 agentName 判断能力？
+- 是否通过 A2A Client 调用？
+- 是否没有让 Gateway Handler 直接调用 Child Agent？
+- 是否没有让 Frontend 直接调用 Child Agent？
 
 ---
 
-## 33. 完成定义
+## 24. 硬性规则
 
-本 Skill 视为完成，当且仅当：
+1. Child Agent 必须暴露 AgentCard。
+2. Child Agent 必须暴露 `/health`。
+3. Child Agent 必须暴露 `/a2a/tasks/sendSubscribe`。
+4. v1.0 必须支持 2+ Child Agents。
+5. 本 Skill 不固定具体 Agent 名称。
+6. Agent 能力必须由 AgentCard 声明。
+7. Planner / Orchestrator 不得依赖 agentName 判断能力。
+8. Orchestrator 必须通过 Registry + A2A Client 调用 Child Agent。
+9. Frontend 不得直接调用 Child Agent。
+10. Gateway Handler 不得直接调用 Child Agent。
+11. Child Agent 不得直接输出 AG-UI event。
+12. Child Agent 不得直接输出 Frontend Tool Call。
+13. Artifact 映射必须经过 ProtocolConverter。
+14. 新增 outputMode 必须同步 Artifact / Frontend Runtime Skills Contract。
+15. A2A error 必须可 fallback 或映射为 AG-UI RUN_ERROR。
+16. AgentCard、health、metadata、logs 不得泄漏 secret。
+17. Mock Agent 也必须遵守本契约。
 
-```text
-skills/a2a-agent-contract/SKILL.md
-```
+---
 
-已经明确：
+## 25. 输出要求
 
-- A2A 属于 Orchestrator ↔ Child Agent 边界。
-- Child Agent 必须暴露 AgentCard。
-- Child Agent 必须提供 A2A endpoint。
-- MVP v0.1 只强制 `code-agent`。
-- MVP v0.1 必须支持 `sendSubscribe`。
-- MVP v0.1 必须支持 `status/text/artifact` 流式事件。
-- MVP v0.1 必须支持 `code` Artifact。
-- `code` Artifact 必须能映射到 `code_preview`。
-- A2A error 必须能映射到 `RUN_ERROR`。
-- AgentCard / A2A Task / A2A Errors 的正式文档清单。
-- 硬性规则。
-- Review Checklist。
+当用户要求设计或 Review A2A / Child Agent 时，必须输出：
 
-正式落地时还应生成：
+1. 当前属于 MVP 历史基线、v1.0 Sprint 还是 Post-v1.0。
+2. AgentCard 设计。
+3. capabilities。
+4. skills。
+5. inputModes / outputModes。
+6. required endpoints。
+7. health check。
+8. sendSubscribe request。
+9. streaming event。
+10. artifact 输出。
+11. registry 发现规则。
+12. orchestrator 调用规则。
+13. 错误与 fallback。
+14. 安全边界。
+15. contract tests。
+16. review checklist。
 
-```text
-docs/contracts/a2a-agent-card.md
-docs/contracts/a2a-task.md
-docs/contracts/a2a-errors.md
-```
+除非用户明确要求，不要直接生成业务实现代码。
 
-
-## 34. v1.1 对齐补充
-
-### 34.1 MVP 最小必需保持不变
-
-MVP v0.1 最小必需仍为：
-
-```text
-GET  /.well-known/agent.json
-POST /a2a/tasks/sendSubscribe
-```
-
-### 34.2 v1.1 / Post-MVP 完整 endpoint 范围
-
-```text
-GET    /.well-known/agent.json
-POST   /a2a/tasks/send
-POST   /a2a/tasks/sendSubscribe
-GET    /a2a/tasks/:id
-DELETE /a2a/tasks/:id/cancel
-GET    /health
-```
-
-### 34.3 兼容说明
-
-- v1.1 推荐取消路径：`DELETE /a2a/tasks/:id/cancel`。
-- 历史 `POST /a2a/tasks/{id}/cancel` 可作为兼容路径保留，新实现优先 DELETE。
-- MVP / PDR 使用 `/.well-known/agent.json`；Post-MVP 可兼容 `/.well-known/agent-card.json`；两者语义必须一致。
-
-### 34.4 /health 说明
-
-`/health` 用于 Agent 健康检查、Agent Registry、fallback、调试与部署探活。MVP v0.1 可先返回最小 healthy 状态；Post-MVP 可由后续 `data-persistence-contract` 细化 `AGENT_HEALTH_CHECK` 持久化。
-
-### 34.5 A2A 安全补充
-
-- A2A metadata 不得携带用户 token。
-- A2A 错误不得泄漏 token、API key、stack trace、内部地址、完整 system prompt。
-- A2A endpoint 不得暴露给 Frontend。
-- Gateway handler 不得直接调用 A2A endpoint。
-
-### 34.6 跨 Skill 引用补充
-
-- A2A 安全边界由后续 `security-boundary-contract` 细化。
-- A2A taskId、Agent health check 持久化由后续 `data-persistence-contract` 细化。
-- Agent 路由、fallback、registry 策略由后续 `intent-orchestration-contract` 细化。
-- Artifact 输出结构由后续 `artifact-contract` 细化。
-- Frontend Runtime Skill 参数与 ToolResult 由后续 `frontend-runtime-skills-contract` 细化。
-
-
+---
 
 ## References
 
@@ -1280,4 +1052,6 @@ GET    /health
 - `references/send-subscribe-streaming.md`
 - `references/artifact-policy.md`
 - `references/a2a-error-policy.md`
+- `references/registry-discovery.md`
+- `references/child-agent-lifecycle.md`
 - `references/a2a-review-checklist.md`

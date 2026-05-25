@@ -1,17 +1,76 @@
-# A2A Artifact Policy
+# Artifact Policy
 
-来源：`docs/contracts/a2a-task.md`、`docs/contracts/agui-events.md`。
+## 1. 定位
 
-## 1. MVP
+Child Agent 可以通过 A2A streaming event 输出 Artifact。
 
-- 强制支持 `type=code` Artifact。
-- 推荐包含 `title`、`content`、`metadata.language`。
+Artifact 是结构化产物，不是普通文本。
 
-## 2. 处理边界
+## 2. 输出前提
 
-- Artifact 在 Orchestrator 缓存并在 completed 后 flush。
-- 通过 `TOOL_CALL_*` 映射到前端技能（MVP 为 `code_preview`）。
+Agent 输出某类 Artifact 前必须满足：
 
-## 3. 禁止
+1. AgentCard.outputModes 声明该能力。
+2. `artifact-contract` 支持该 Artifact type。
+3. ProtocolConverter 支持映射。
+4. `frontend-runtime-skills-contract` 注册对应 Runtime Skill。
+5. 安全契约允许展示。
 
-- 将大产物直接塞进文本流。
+## 3. 推荐类型
+
+### code
+
+```json
+{
+  "type": "code",
+  "title": "main.go",
+  "content": "package main",
+  "metadata": {"language": "go"}
+}
+```
+
+映射：`code_preview`
+
+### webpage
+
+```json
+{
+  "type": "webpage",
+  "title": "index.html",
+  "content": "<!DOCTYPE html><html>...</html>",
+  "metadata": {
+    "language": "html",
+    "css": "body{}",
+    "js": "console.log('ok')"
+  }
+}
+```
+
+映射：`web_preview`
+
+### document / markdown
+
+```json
+{
+  "type": "document",
+  "title": "report.md",
+  "content": "# 标题\n\n正文",
+  "metadata": {"format": "markdown"}
+}
+```
+
+映射：`markdown_render`
+
+## 4. 禁止事项
+
+- Child Agent 不得直接输出 AG-UI Tool Call。
+- Child Agent 不得直接输出 `code_preview` / `web_preview` / `markdown_render`。
+- 大型结构化产物不应塞进 text chunk。
+- 未在 AgentCard.outputModes 声明的类型不应输出。
+
+## 5. Review 要点
+
+- Artifact type 是否被声明。
+- Artifact 字段是否完整。
+- Artifact 是否能被前端安全展示。
+- 是否有测试覆盖映射链路。
