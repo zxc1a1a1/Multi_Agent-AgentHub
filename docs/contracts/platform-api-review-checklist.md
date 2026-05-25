@@ -1,0 +1,22 @@
+# Platform API Review Checklist
+
+- [ ] API 是否只属于 Frontend ↔ Gateway？
+- [ ] 是否没有公开 `/internal/**`？
+- [ ] 是否没有公开 Orchestrator URL？
+- [ ] 是否没有公开 Child Agent endpoint？
+- [ ] 是否更新 `docs/contracts/openapi.yaml`？
+- [ ] 是否使用 OpenAPI 3.1？
+- [ ] 是否有稳定 `operationId`？
+- [ ] 是否有 request / response / error schema？
+- [ ] 是否声明 `bearerAuth`？
+- [ ] 是否没有写死具体 Agent 名称？
+- [ ] Agent 能力是否来自 `capabilities`？
+- [ ] Conversation 是否支持 `single | group`？
+- [ ] Message 是否支持 `senderType / senderName`？
+- [ ] token 是否只在 Authorization header？
+- [ ] 是否有对象级授权？
+- [ ] 错误是否脱敏？
+- [ ] 类型是否由 OpenAPI 生成？
+- [ ] Handler 是否不做 Agent 编排？
+- [ ] Handler 是否不直接调用 Child Agent 或 LLM Provider？
+- [ ] Handler 是否不返回未定义字段？

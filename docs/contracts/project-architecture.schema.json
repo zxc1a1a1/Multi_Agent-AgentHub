@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.local/schemas/project-architecture.schema.json",
+  "title": "AgentHub Project Architecture Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "services",
+    "processBoundary",
+    "profiles",
+    "review"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v1"
+    },
+    "services": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "category",
+          "public",
+          "responsibilities",
+          "forbidden"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "frontend",
+              "gateway",
+              "orchestrator",
+              "child-agent",
+              "data-layer",
+              "attached-resource"
+            ]
+          },
+          "public": {
+            "type": "boolean"
+          },
+          "responsibilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "forbidden": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "processBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gatewayAndOrchestratorSeparate",
+        "frontendOnlyAccessGateway",
+        "gatewayDoesNotOrchestrate"
+      ],
+      "properties": {
+        "gatewayAndOrchestratorSeparate": {
+          "type": "boolean",
+          "const": true
+        },
+        "frontendOnlyAccessGateway": {
+          "type": "boolean",
+          "const": true
+        },
+        "gatewayDoesNotOrchestrate": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "historicalMvp",
+        "v1Sprint"
+      ],
+      "properties": {
+        "historicalMvp": {
+          "type": "object"
+        },
+        "v1Sprint": {
+          "type": "object"
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mustNotHardcodeAgentNames",
+        "mustSupportGroupConversation",
+        "mustSupportRegistryHealth"
+      ],
+      "properties": {
+        "mustNotHardcodeAgentNames": {
+          "type": "boolean",
+          "const": true
+        },
+        "mustSupportGroupConversation": {
+          "type": "boolean",
+          "const": true
+        },
+        "mustSupportRegistryHealth": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    }
+  }
+}

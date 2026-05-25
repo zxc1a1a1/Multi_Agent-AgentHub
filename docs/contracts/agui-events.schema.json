@@ -1,348 +1,311 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agenthub.local/schemas/agui-events.schema.json",
-  "title": "AgentHub AG-UI Event Schema",
-  "description": "JSON Schema for AgentHub Frontend ↔ Gateway AG-UI SSE events.",
-  "$ref": "#/$defs/AGUIEvent",
-  "$defs": {
-    "AGUIEvent": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/RunStartedEvent"
-        },
-        {
-          "$ref": "#/$defs/RunFinishedEvent"
-        },
-        {
-          "$ref": "#/$defs/RunErrorEvent"
-        },
-        {
-          "$ref": "#/$defs/TextMessageStartEvent"
-        },
-        {
-          "$ref": "#/$defs/TextMessageContentEvent"
-        },
-        {
-          "$ref": "#/$defs/TextMessageEndEvent"
-        },
-        {
-          "$ref": "#/$defs/ToolCallStartEvent"
-        },
-        {
-          "$ref": "#/$defs/ToolCallArgsEvent"
-        },
-        {
-          "$ref": "#/$defs/ToolCallEndEvent"
-        },
-        {
-          "$ref": "#/$defs/StateUpdateEvent"
-        }
+  "$id": "https://agenthub.local/contracts/agui-events.schema.json",
+  "title": "AgentHub AG-UI Event",
+  "type": "object",
+  "required": [
+    "type"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "RUN_STARTED",
+        "RUN_FINISHED",
+        "RUN_ERROR",
+        "TEXT_MESSAGE_START",
+        "TEXT_MESSAGE_CONTENT",
+        "TEXT_MESSAGE_END",
+        "TOOL_CALL_START",
+        "TOOL_CALL_ARGS",
+        "TOOL_CALL_END",
+        "STATE_UPDATE"
       ]
     },
-    "IsoTimestamp": {
+    "runId": {
+      "type": "string"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "messageId": {
+      "type": "string"
+    },
+    "toolCallId": {
+      "type": "string"
+    },
+    "toolName": {
+      "type": "string"
+    },
+    "role": {
       "type": "string",
-      "format": "date-time"
+      "enum": [
+        "user",
+        "assistant",
+        "system",
+        "tool"
+      ]
     },
-    "RunStartedEvent": {
+    "timestamp": {
+      "type": "string"
+    },
+    "traceId": {
+      "type": "string"
+    },
+    "delta": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string"
+    },
+    "sender": {
       "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type",
-        "runId"
-      ],
       "properties": {
         "type": {
-          "const": "RUN_STARTED"
-        },
-        "runId": {
           "type": "string",
-          "minLength": 1
+          "enum": [
+            "user",
+            "agent",
+            "system"
+          ]
         },
-        "threadId": {
-          "type": "string",
-          "minLength": 1
+        "name": {
+          "type": "string"
         },
-        "timestamp": {
-          "$ref": "#/$defs/IsoTimestamp"
+        "displayName": {
+          "type": "string"
         }
-      }
+      },
+      "additionalProperties": true
     },
-    "RunFinishedEvent": {
+    "state": {
       "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type",
-        "runId"
-      ],
       "properties": {
-        "type": {
-          "const": "RUN_FINISHED"
-        },
-        "runId": {
+        "phase": {
           "type": "string",
-          "minLength": 1
-        },
-        "timestamp": {
-          "$ref": "#/$defs/IsoTimestamp"
-        }
-      }
-    },
-    "RunErrorEvent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type"
-      ],
-      "properties": {
-        "type": {
-          "const": "RUN_ERROR"
-        },
-        "runId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "code": {
-          "type": "string",
-          "minLength": 1
+          "enum": [
+            "accepted",
+            "planning",
+            "dispatching",
+            "agent_streaming",
+            "tool_calling",
+            "retrying",
+            "finished",
+            "failed"
+          ]
         },
         "message": {
           "type": "string"
         },
-        "error": {
-          "type": "string"
-        },
-        "timestamp": {
-          "$ref": "#/$defs/IsoTimestamp"
-        }
-      },
-      "anyOf": [
-        {
-          "required": [
-            "message"
-          ]
-        },
-        {
-          "required": [
-            "error"
-          ]
-        },
-        {
-          "required": [
-            "code"
-          ]
-        }
-      ]
-    },
-    "TextMessageStartEvent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type",
-        "messageId"
-      ],
-      "properties": {
-        "type": {
-          "const": "TEXT_MESSAGE_START"
-        },
-        "messageId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "role": {
+        "strategy": {
           "type": "string",
           "enum": [
-            "agent",
-            "user",
-            "system"
+            "single",
+            "parallel",
+            "ordered-parallel",
+            "sequential"
           ]
         },
-        "agentName": {
-          "type": "string",
-          "minLength": 1
-        },
-        "timestamp": {
-          "$ref": "#/$defs/IsoTimestamp"
-        }
-      }
-    },
-    "TextMessageContentEvent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type",
-        "messageId",
-        "content"
-      ],
-      "properties": {
-        "type": {
-          "const": "TEXT_MESSAGE_CONTENT"
-        },
-        "messageId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "content": {
+        "activeAgent": {
           "type": "string"
         },
-        "timestamp": {
-          "$ref": "#/$defs/IsoTimestamp"
-        }
-      }
-    },
-    "TextMessageEndEvent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type",
-        "messageId"
-      ],
-      "properties": {
-        "type": {
-          "const": "TEXT_MESSAGE_END"
-        },
-        "messageId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "timestamp": {
-          "$ref": "#/$defs/IsoTimestamp"
-        }
-      }
-    },
-    "ToolCallStartEvent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type",
-        "toolCallId",
-        "toolName"
-      ],
-      "properties": {
-        "type": {
-          "const": "TOOL_CALL_START"
-        },
-        "toolCallId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "toolName": {
-          "type": "string",
-          "minLength": 1
-        },
-        "messageId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "timestamp": {
-          "$ref": "#/$defs/IsoTimestamp"
-        }
-      }
-    },
-    "ToolCallArgsEvent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type",
-        "toolCallId",
-        "content"
-      ],
-      "properties": {
-        "type": {
-          "const": "TOOL_CALL_ARGS"
-        },
-        "toolCallId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "content": {
-          "type": "string"
-        },
-        "timestamp": {
-          "$ref": "#/$defs/IsoTimestamp"
-        }
-      }
-    },
-    "ToolCallEndEvent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type",
-        "toolCallId"
-      ],
-      "properties": {
-        "type": {
-          "const": "TOOL_CALL_END"
-        },
-        "toolCallId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "timestamp": {
-          "$ref": "#/$defs/IsoTimestamp"
-        }
-      }
-    },
-    "StateUpdateEvent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "type",
-        "state"
-      ],
-      "properties": {
-        "type": {
-          "const": "STATE_UPDATE"
-        },
-        "state": {
-          "type": "object",
-          "additionalProperties": true,
-          "properties": {
-            "phase": {
-              "type": "string"
-            },
-            "activeAgent": {
-              "type": "string"
-            },
-            "message": {
-              "type": "string"
-            },
-            "plan": {
-              "type": [
-                "string",
-                "object",
-                "array",
-                "null"
-              ]
-            }
+        "assignedAgents": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         },
-        "timestamp": {
-          "$ref": "#/$defs/IsoTimestamp"
+        "failedAgent": {
+          "type": "string"
+        },
+        "fallbackAgent": {
+          "type": "string"
         }
-      }
+      },
+      "additionalProperties": true
     },
-    "CodePreviewArgs": {
+    "error": {
       "type": "object",
-      "additionalProperties": false,
       "required": [
         "code",
-        "language",
-        "filename"
+        "message"
       ],
       "properties": {
         "code": {
           "type": "string",
-          "minLength": 1
+          "enum": [
+            "AGUI_BAD_REQUEST",
+            "AGUI_UNAUTHORIZED",
+            "AGUI_STREAM_INTERRUPTED",
+            "AGUI_PLANNING_FAILED",
+            "AGUI_AGENT_UNAVAILABLE",
+            "AGUI_AGENT_FAILED",
+            "AGUI_TOOL_ARGS_INVALID",
+            "AGUI_TOOL_UNSUPPORTED",
+            "AGUI_INTERNAL",
+            "AGUI_RUN_FAILED"
+          ]
         },
-        "language": {
-          "type": "string",
-          "minLength": 1
+        "message": {
+          "type": "string"
         },
-        "filename": {
-          "type": "string",
-          "minLength": 1
+        "retryable": {
+          "type": "boolean"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
         }
+      },
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "RUN_STARTED"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "runId",
+          "threadId"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "RUN_FINISHED"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "runId"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "RUN_ERROR"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "runId",
+          "error"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "TEXT_MESSAGE_START"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "runId",
+          "messageId",
+          "role"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "TEXT_MESSAGE_CONTENT"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "messageId"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "TEXT_MESSAGE_END"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "messageId"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "TOOL_CALL_START"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "toolCallId",
+          "toolName"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "TOOL_CALL_ARGS"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "toolCallId"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "TOOL_CALL_END"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "toolCallId"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "STATE_UPDATE"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "runId"
+        ]
       }
     }
-  }
+  ],
+  "additionalProperties": true
 }
