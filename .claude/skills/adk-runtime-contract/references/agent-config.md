@@ -64,6 +64,8 @@ permissions:
 | `agentCard.skills` | 必填 |
 | `permissions` | 必填，默认最小权限 |
 
+`agentCard.skills[].id` 是能力 ID 的事实源。`TaskPlan.capabilityIds` 必须引用此 ID。ADK tool registration（`tools.items[].name`）不等于此 capabilityId，不得混用。
+
 ## 禁止事项
 
 - 不得在 `config.yaml` 写 API key。
@@ -79,6 +81,7 @@ permissions:
 - [ ] name 稳定。
 - [ ] version 存在。
 - [ ] skills 与 Handler 能力一致。
+- [ ] skills[].id 可被 Orchestrator 作为 capabilityIds 引用。
 - [ ] outputModes 与 Artifact 能力一致。
 - [ ] permissions 默认最小权限。
 - [ ] 文件中没有 secret。

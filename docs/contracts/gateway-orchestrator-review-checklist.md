@@ -32,6 +32,11 @@
 - [ ] 不写浏览器响应。
 - [ ] 输出稳定 stream events。
 - [ ] 返回 OrchestratorResult。
+- [ ] fallback.mode 为正式枚举：none / same_capability_alternative / lower_risk_plan / single_agent_fallback / fail_fast。
+- [ ] 未使用 legacy first_healthy_agent 作为 fallback.mode。
+- [ ] same_capability_alternative 候选排序按 healthy 优先。
+- [ ] 外部请求 planningMode 不含 fallback。
+- [ ] fallback plan 由 Orchestrator 内部生成，关联原 plan（parentPlanId / fallbackOf）。
 
 ## 通用性
 

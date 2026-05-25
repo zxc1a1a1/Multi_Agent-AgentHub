@@ -93,11 +93,31 @@ v1.0 不强制 `tools` 和 `cancellable`。
 
 规则：
 
+- `skills[].id` 是 Agent 对外声明的**能力 ID 事实源**。`TaskPlan.capabilityIds` 必须引用此 ID，`CapabilitySummary.id` 是它的公开摘要投影。
 - `id` 必须稳定。
 - `description` 应便于 Planner 理解。
 - `outputTypes` 必须与 AgentCard.outputModes 兼容。
+- 不得将 `toolName`、`artifact.type` 或 `outputMode` 作为 capabilityId。
 
 ## 7. inputModes / outputModes
+
+### 7.1 三层边界
+
+`outputModes` 是 Agent 声明可产出的**语义类别**，不是平台归一化后的 `artifact.type`，也不是前端 `toolName`。
+
+```text
+AgentCard.outputModes  = Agent 声明可产出的语义类别（Agent 视角）
+Artifact.type          = 平台归一化后的产物类型（平台视角）
+Runtime toolName       = 前端执行/渲染能力名（前端视角）
+```
+
+三者必须通过映射表转换，不得直接等同：
+
+```text
+outputMode → artifact.type → previewType → toolName
+```
+
+### 7.2 推荐支持类型
 
 v1.0 推荐支持类型：
 
@@ -107,6 +127,21 @@ outputModes: text, code, webpage, document
 ```
 
 每个 Agent 只能声明自己真实支持的类型。
+
+### 7.3 映射示例
+
+| outputMode | artifact.type | previewType | toolName |
+|---|---|---|---|
+| `code` | `code` | `code_preview` | `code_preview` |
+| `webpage` | `webpage` | `web_preview` | `web_preview` |
+| `document` | `document` 或 `markdown` | `document_preview` 或 `markdown_render` | `document_preview` 或 `markdown_render` |
+| `text` | 无 Artifact | — | `markdown_render` / StreamingText |
+
+规则：
+
+- `outputMode` 不得直接当作 `artifact.type`。
+- `outputMode` 不得直接当作 `toolName`。
+- 不得通过 `agentName` 推断 outputMode 或选择 toolName。
 
 ## 8. 安全要求
 

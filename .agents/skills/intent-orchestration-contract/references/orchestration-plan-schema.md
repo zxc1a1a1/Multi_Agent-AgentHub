@@ -8,12 +8,19 @@ OrchestrationPlan 是意图编排的唯一可执行计划格式。
 - `planId`
 - `runId`
 - `conversationId`
-- `planningMode`
+- `planningMode` — 外部请求：`direct` / `mention` / `auto` / `manual`；内部 fallback plan：`fallback`
 - `strategy`
 - `intentSummary`
 - `tasks`
 - `fallback`
 - `validation`
+
+## planningMode 规则
+
+- `direct` / `mention` / `auto` / `manual` 可由外部请求传入，也可由 Orchestrator 内部标记。
+- `fallback` **只能** 由 Orchestrator 内部设置。Gateway 和 Frontend 不得传入 `planningMode=fallback`。
+- `planningMode=fallback` 的 plan 必须通过 `parentPlanId` 或 `fallbackOf` 关联原 plan。
+- OrchestrationPlan 可额外包含 `parentPlanId`、`fallbackOf`、`reason` 字段。
 
 ## 规则
 

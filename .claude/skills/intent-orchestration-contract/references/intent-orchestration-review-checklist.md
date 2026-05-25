@@ -31,6 +31,11 @@
 - expectedOutputs 是否支持？
 - dependsOn 是否无环？
 - fallback 是否不会无限循环？
+- fallback.mode 是否为正式枚举：none / same_capability_alternative / lower_risk_plan / single_agent_fallback / fail_fast？
+- same_capability_alternative 是否按 healthy 优先选择？
+- 外部请求 planningMode 是否不含 fallback？
+- fallback plan 是否由 Orchestrator 内部生成？
+- fallback plan 是否关联原 plan（parentPlanId / fallbackOf）？
 
 ## 安全
 

@@ -299,6 +299,11 @@ components:
     AgentSummary:
       type: object
       required: [name, displayName, status, health]
+      description: |
+        status = 生命周期/启用状态（enabled|disabled|experimental|deprecated）。
+        health = 当前健康状态（healthy|degraded|unhealthy|unknown），由 Registry 周期性探测 /health 后归一化写入。
+        disabled 属于 status，不属于 health。
+        AgentSummary 不得暴露内部 healthcheck 细节（如原始探针 latency、探针 endpoint）。
       properties:
         id: { type: string }
         name: { type: string }
@@ -334,7 +339,13 @@ components:
       properties:
         runId: { type: string }
         conversationId: { type: string }
-        status: { type: string, enum: [accepted, running, completed, failed, cancelled] }
+        status:
+          type: string
+          enum: [accepted, running, completed, failed, cancelled]
+          description: 粗粒度生命周期状态。内部细粒度阶段不得写入此字段。
+        phase:
+          type: string
+          description: 可选细粒度当前阶段（如 planning、dispatching、aggregating），用于展示运行细节。不等同于 status。
         strategy: { type: string, enum: [single, ordered_parallel, sequential] }
         messageRefs: { type: array, items: { $ref: '#/components/schemas/ResourceRef' } }
         artifactRefs: { type: array, items: { $ref: '#/components/schemas/ResourceRef' } }
@@ -348,20 +359,43 @@ components:
         retryable: { type: boolean }
     Artifact:
       type: object
-      required: [id, type, status, createdAt]
+      required: [id, type, status, version, createdAt]
       properties:
-        id: { type: string }
+        id:
+          type: string
+          description: Core artifactId 的公开投影。Core artifactId = DB artifacts.id = Public API id，是同一个系统 ID 在不同层级的命名。
         type: { type: string }
         title: { type: string }
         mimeType: { type: string }
         summary: { type: string }
-        contentRef: { type: string }
-        previewType: { type: string }
-        status: { type: string, enum: [created, ready, failed, deleted] }
-        version: { type: string }
-        messageId: { type: string }
-        conversationId: { type: string }
-        runId: { type: string }
+        contentRef:
+          type: string
+          description: 公开授权访问入口（短期有效下载/读取 URL）。非 Core Artifact.contentRef 对象。推荐新代码使用 contentUrl。
+        contentUrl:
+          type: string
+          description: 公开下载/访问 URL。推荐使用此字段，避免与 Core Artifact.contentRef 对象混名。
+        previewType:
+          type: string
+          description: 从 Core Artifact.preview.previewType 投影的预览意图。
+        status:
+          type: string
+          enum: [pending, normalizing, ready, failed, superseded, deleted]
+          description: |
+            直接对齐 Core Artifact 生命周期状态。
+            legacy created 映射：pending/normalizing → created。
+        version:
+          type: integer
+          minimum: 1
+          description: Core Artifact.version 的整数投影。
+        messageId:
+          type: string
+          description: 从 Core Artifact.links.messageId 投影。
+        conversationId:
+          type: string
+          description: 从 Core Artifact.links.conversationId 投影。
+        runId:
+          type: string
+          description: 从 Core Artifact.links.runId 投影。
         createdAt: { type: string, format: date-time }
     ListConversationsResponse: { allOf: [ { $ref: '#/components/schemas/SuccessEnvelope' } ] }
     ConversationResponse: { allOf: [ { $ref: '#/components/schemas/SuccessEnvelope' } ] }

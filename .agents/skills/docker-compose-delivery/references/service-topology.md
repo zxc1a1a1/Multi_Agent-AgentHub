@@ -29,7 +29,7 @@ reverse-proxy
 - 容器之间通过 Compose service name 通信。
 - 宿主机访问容器才使用 `localhost`。
 - Agent 服务优先只在 Compose 网络内部暴露。
-- Gateway 通过环境变量或配置文件发现 Agent。
+- Orchestrator / Registry 通过环境变量或配置文件发现 Agent。
 - 可选服务不应破坏默认启动路径。
 
 ## 示例

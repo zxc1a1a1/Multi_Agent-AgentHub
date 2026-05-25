@@ -4,7 +4,9 @@
 
 Agent Registry 负责管理所有 Child Agents。
 
-它是 Planner / Orchestrator 的 Agent 能力来源。
+它是 Planner / Orchestrator 的 Agent 能力来源。AgentCard 注册、刷新、健康检查的权威消费方是 Registry / Orchestrator。
+
+Gateway 不得直接持有 Agent URL、不得基于 Agent URL 执行调度。Gateway 可以读取 Registry 脱敏摘要用于前端展示（`/api/agents`），但摘要不得包含内部调用 URL。
 
 ## 2. 职责
 
@@ -17,7 +19,7 @@ Registry 必须：
 - 缓存 AgentCard。
 - 缓存 healthy 状态。
 - 向 Planner 提供 healthy agents。
-- 向 Gateway API 提供 Agent 摘要。
+- 向 Gateway API 提供 Agent 摘要（脱敏，不含内部 URL）。
 
 ## 3. 配置示例
 
@@ -44,6 +46,8 @@ agents:
 
 - Frontend 不直接访问 Registry 内部状态。
 - Frontend 通过 Gateway API 查询 Agent 摘要。
+- Gateway 可以展示 Registry 摘要，但不得基于 Agent URL 执行调度。
+- Gateway 不得直接持有 Child Agent 调用地址。
 - Registry 不调用 LLM。
 - Registry 不处理用户任务。
 
@@ -54,3 +58,7 @@ agents:
 - 是否能处理 AgentCard 拉取失败。
 - 是否能处理健康检查失败。
 - 是否能为 Planner 提供能力列表。
+- Agent URL 是否只由 Registry / Orchestrator 持有，未被 Gateway 直接使用。
+- Gateway 的 Agent 摘要是否脱敏，不包含内部调用 URL。
+- `CapabilitySummary.id` 是否是 `AgentCard.skills[].id` 的公开投影（非独立 ID）。
+- 是否没有把 `toolName`、`artifact.type`、`outputMode` 当作 capabilityId。

@@ -69,8 +69,9 @@ traceId
 runId
 taskId
 agentName
-skillId
+capabilityId
 ```
+`skillId` 如保留，只能作为 `capabilityId` 的历史别名。
 
 ### ctx.Logger()
 

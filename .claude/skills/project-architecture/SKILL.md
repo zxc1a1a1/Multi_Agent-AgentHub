@@ -228,12 +228,18 @@ Conversation 是一级架构对象。
 
 Agent Registry 是 Orchestrator 选择 Agent 的能力目录来源。Health Check 是 Agent 可用性判断来源。
 
+Agent 发现、Agent URL、AgentCard、Health 信息的权威调用方是 Registry / Orchestrator。
+
 规则：
 
 - Gateway 可以读取脱敏 Agent 摘要用于前端展示。
+- Gateway 不得直接持有 Child Agent 调用地址（Agent URL / service name）。
+- Gateway 不得基于 Agent URL 执行调度，不得直接调用 Child Agent。
 - Orchestrator 读取 Agent 能力与健康状态用于编排。
+- Orchestrator 通过 Registry 获取 AgentCard、能力、健康状态和调用地址。
 - Child Agent 暴露健康检查和能力声明。
 - Frontend 不直接调用 Child Agent 的 AgentCard endpoint。
+- Agent URL / service name 属于 Registry 或 Orchestrator 配置，不属于 Gateway 业务编排配置。
 - Registry 可以由配置、数据库、服务发现或专用注册表实现。
 - 本 Skill 不固定 Registry 的具体存储或发现机制。
 

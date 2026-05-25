@@ -32,3 +32,5 @@ TOOL_CALL_END
 - malformed JSON 不得导致页面崩溃。
 - 重复 END 不得导致重复执行。
 - 未知 `toolName` 必须降级。
+- 不得把 `artifact.type` 直接当 `toolName`。
+- 不得使用 `download` 作为 toolName 查找（已废弃，统一使用 `file_download`）。

@@ -13,6 +13,23 @@ superseded
 deleted
 ```
 
+### Public API 状态投影
+
+推荐 Public API 直接对齐上述 Core 枚举。
+
+如需兼容旧 API（legacy created），状态映射：
+
+| Core 状态 | legacy API 投影 |
+|---|---|
+| `pending` | `created` |
+| `normalizing` | `created` |
+| `ready` | `ready` |
+| `failed` | `failed` |
+| `superseded` | `deleted`（或 hidden） |
+| `deleted` | `deleted` |
+
+不推荐使用 legacy 映射，新代码应直接使用 Core 枚举。
+
 ## 状态含义
 
 | 状态 | 含义 | 是否可预览 |

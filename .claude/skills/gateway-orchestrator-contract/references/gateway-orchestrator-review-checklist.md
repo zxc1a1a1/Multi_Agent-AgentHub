@@ -24,14 +24,28 @@
 - [ ] 没有 fallback 决策。
 - [ ] 没有直接调用 Child Agent。
 - [ ] 没有解析 Child Agent 原始事件。
+- [ ] 没有直接透传 Child Agent A2A event 给 Frontend。
 
 ## Orchestrator
 
 - [ ] 负责 planning / task / multi-agent / fallback。
 - [ ] 不处理用户登录。
 - [ ] 不写浏览器响应。
-- [ ] 输出稳定 stream events。
+- [ ] 输出稳定 stream events（OrchestratorStreamEvent，snake_case）。
+- [ ] 未直接输出 AG-UI Event 名称（UPPER_SNAKE_CASE）。
 - [ ] 返回 OrchestratorResult。
+- [ ] fallback.mode 为正式枚举：none / same_capability_alternative / lower_risk_plan / single_agent_fallback / fail_fast。
+- [ ] 未使用 legacy first_healthy_agent 作为 fallback.mode。
+- [ ] same_capability_alternative 候选排序按 healthy 优先。
+- [ ] 外部请求 planningMode 不含 fallback。
+- [ ] fallback plan 由 Orchestrator 内部生成，关联原 plan（parentPlanId / fallbackOf）。
+
+## Run.status / phase / step_type 分层
+
+- [ ] Run.status 只使用 5 值（accepted / running / completed / failed / cancelled）。
+- [ ] 内部细粒度阶段（如 planning、dispatching）未写入 Run.status。
+- [ ] STATE_UPDATE.state.phase 仅用于 UI 展示，未替代 Run.status 做持久化。
+- [ ] run_steps.step_type 用于持久化详细步骤类型。
 
 ## 通用性
 

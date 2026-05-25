@@ -10,6 +10,7 @@
 - 支持 2+ Agent。
 - 支持单聊和群聊。
 - 支持 direct / mention / auto / manual。
+- 外部请求 **不得** 传入 `fallback`。`fallback` 只能由 Orchestrator 内部生成。
 
 ## 必要字段
 

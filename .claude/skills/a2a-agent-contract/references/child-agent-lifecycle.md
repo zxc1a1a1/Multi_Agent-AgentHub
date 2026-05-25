@@ -44,7 +44,9 @@ POST /a2a/tasks/sendSubscribe
 
 ## 4. Registry discovery
 
-Registry 拉取 AgentCard，并缓存能力信息。
+Registry 拉取 AgentCard，并缓存能力信息。AgentCard 注册、刷新、健康检查由 Registry / Orchestrator 消费。
+
+Gateway 可以展示 Registry 摘要，但不得基于 Agent URL 执行调度。
 
 AgentCard 无效时，Agent 不参与编排。
 
@@ -52,7 +54,22 @@ AgentCard 无效时，Agent 不参与编排。
 
 Registry 周期性调用 `/health`。
 
-unhealthy Agent 不进入 Planner 候选列表。
+`/health.status` 是 A2A 原始探针状态，进入 Registry 后归一化为 `Agent.health`：
+
+```text
+/health.status = ok       → Agent.health = healthy
+/health.status = degraded → Agent.health = degraded
+timeout / non-2xx / invalid response → Agent.health = unhealthy
+未探测                        → Agent.health = unknown
+```
+
+`Agent.status`（生命周期/启用状态）与 `Agent.health`（健康状态）分离：
+- `Agent.status`：`enabled` / `disabled` / `experimental` / `deprecated`
+- `Agent.health`：`healthy` / `degraded` / `unhealthy` / `unknown`
+
+`disabled` 属于 `Agent.status`，不属于 `Agent.health`。
+
+unhealthy / degraded Agent 不进入 Planner 候选列表。
 
 ## 6. Planner selection
 
@@ -69,7 +86,7 @@ Orchestrator 使用 A2A Client 提交 task。
 - task id
 - messages
 - runId
-- threadId
+- threadId（即 conversationId，A2A 协议别名）
 - traceId
 - agentName
 

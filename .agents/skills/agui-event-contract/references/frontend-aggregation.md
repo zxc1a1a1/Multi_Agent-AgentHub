@@ -7,7 +7,7 @@
 | Run 状态 | `runId` |
 | 文本消息 | `messageId` |
 | Tool Call 参数 | `toolCallId` |
-| 对话状态 | `threadId` |
+| 对话状态 | `threadId`（即 `conversationId`） |
 
 ## 必须兼容字段
 

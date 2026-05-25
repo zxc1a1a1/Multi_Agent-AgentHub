@@ -41,10 +41,12 @@
 
 ### 6. Artifact
 
-- [ ] Artifact 类型由 outputModes 和 artifact-contract 决定。
-- [ ] 不用 agentName 判断 Artifact 类型。
-- [ ] Artifact 字段完整。
+- [ ] ArtifactDraft 类型由 outputModes 和 artifact-contract 决定。
+- [ ] 不用 agentName 判断 ArtifactDraft 类型。
+- [ ] ArtifactDraft 字段只包含 `type`、`title`、`content`（或 `contentRefDraft`）、`metadata`。
+- [ ] ArtifactDraft 没有包含 `artifactId`、`version`、`links.*`、`source.*`、`preview.*`、`status`、`createdAt` 等平台字段。
 - [ ] Handler 不直接构造前端 Tool Call。
+- [ ] 没有把 ArtifactDraft 当作 Core Artifact。
 
 ### 7. 工具
 

@@ -12,6 +12,12 @@ data: {"type":"RUN_STARTED","runId":"run-001"}
 
 ```
 
+## 会话标识
+
+AG-UI 事件中的 `threadId` 是 `conversationId` 的前端协议别名。SSE 传输层不改变此映射关系，`threadId` 不得视为独立于 `conversationId` 的第二套会话 ID。
+
+SSE 中只允许出现 AG-UI Event 名称（UPPER_SNAKE_CASE，如 `TEXT_MESSAGE_CONTENT`）。内部 `OrchestratorStreamEvent` 名称（snake_case，如 `message_delta`）和 Child Agent A2A event 不得直接出现在 SSE 中。
+
 ## 必须遵守
 
 - 一个 SSE event block 只承载一个 JSON event。

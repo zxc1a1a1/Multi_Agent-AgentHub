@@ -42,6 +42,10 @@ AGUI_INTERNAL
 - provider 原始敏感错误
 - 内网拓扑
 
+## 事件来源
+
+`RUN_ERROR` 由 `OrchestratorStreamEvent.run_error` 经 Gateway / ProtocolConverter 映射而来。Orchestrator 内部的 `SafeError` 经脱敏后映射为 AG-UI Event 的 `error` 字段。
+
 ## fallback
 
 如果可以恢复，应先发送：

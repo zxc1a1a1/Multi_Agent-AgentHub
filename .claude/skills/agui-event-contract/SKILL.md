@@ -55,6 +55,10 @@ LLM Provider 调用方式
 
 如果某个后端内部事件最终要显示给前端，必须先转换为本文定义的 AG-UI event。
 
+AG-UI Event 使用 `UPPER_SNAKE_CASE` 命名（如 `TEXT_MESSAGE_CONTENT`）。内部 `OrchestratorStreamEvent` 使用 `snake_case` 命名（如 `message_delta`）。两者的映射由 Gateway / ProtocolConverter 负责。
+
+禁止将 `OrchestratorStreamEvent` 事件名直接作为 AG-UI Event 名称输出，禁止将 Child Agent A2A event 直接透传给 Frontend。
+
 ---
 
 ## 3. 当前阶段
@@ -73,7 +77,7 @@ v1.0 Sprint 当前要求 AG-UI 事件流支持：
 - 2+ Agent 的消息展示。
 - 单聊与群聊。
 - LLM 意图编排状态展示。
-- `single` 与 `ordered-parallel` 执行策略。
+- `single` 与 `ordered_parallel` 执行策略。
 - 多条 assistant message。
 - 多 Agent 消息归属。
 - `STATE_UPDATE`。
@@ -89,7 +93,7 @@ STATE_UPDATE
 群聊消息归属
 web_preview Tool Call
 markdown_render Tool Call
-ordered-parallel 状态展示
+ordered_parallel 状态展示
 fallback / retrying 状态
 ```
 
@@ -255,7 +259,7 @@ v1.0 事件 JSON 字段优先使用 delta/state。
 |---|---|---:|---|
 | `type` | string | 是 | 事件类型，大写下划线 |
 | `runId` | string | 视事件而定 | 当前运行 ID |
-| `threadId` | string | 视事件而定 | 当前对话 ID |
+| `threadId` | string | 视事件而定 | `conversationId` 的 AG-UI 协议别名 |
 | `messageId` | string | 视事件而定 | 当前消息 ID |
 | `toolCallId` | string | 视事件而定 | 当前 Tool Call ID |
 | `timestamp` | string | 建议 | RFC3339 时间 |
@@ -593,7 +597,24 @@ markdown_render
 - `STATE_UPDATE` 不得作为最终消息内容持久化。
 - 前端可以把 `STATE_UPDATE` 渲染为状态条、系统提示或编排可视化。
 
-### 11.1 phase 枚举
+### 11.1 phase 与 Run.status 的区别
+
+`STATE_UPDATE.state.phase` 是前端可见的阶段提示，用于 UI 展示当前进度。**它不等同于持久化 Run.status**。
+
+| 概念 | 用途 | 示例值 |
+|---|---|---|
+| `Run.status` | 粗粒度生命周期状态，持久化到 DB | `accepted` / `running` / `completed` / `failed` / `cancelled` |
+| `STATE_UPDATE.state.phase` | 前端可见的阶段提示，不持久化 | `planning` / `dispatching` / `agent_streaming` / `retrying` |
+| `Run.phase` | 可选细粒度当前阶段（内部字段） | `context_loaded` / `plan_ready` / `aggregating` |
+| `run_steps.step_type` | 持久化详细步骤类型 | `planning` / `dispatch` / `agent_call` / `retry` / `aggregate` |
+
+规则：
+
+- `state.phase` 不得用于替代 Run.status 做持久化判断。
+- 需要展示运行细节时使用 `state.phase`，不应扩展 Run.status 枚举。
+- 内部阶段（如 `context_loaded`、`plan_ready`）可出现在 Run.phase 或 run_steps.step_type 中，不得出现在 Run.status 中。
+
+### 11.2 phase 枚举
 
 v1.0 推荐 `phase`：
 
@@ -608,7 +629,7 @@ finished
 failed
 ```
 
-### 11.2 dispatching 示例
+### 11.3 dispatching 示例
 
 ```json
 {
@@ -616,7 +637,7 @@ failed
   "runId": "run-001",
   "state": {
     "phase": "dispatching",
-    "strategy": "parallel",
+    "strategy": "ordered_parallel",
     "assignedAgents": ["agent-a", "agent-b"],
     "activeAgent": "agent-a",
     "message": "已分派给 2 个 Agent"
@@ -624,7 +645,7 @@ failed
 }
 ```
 
-### 11.3 retrying 示例
+### 11.4 retrying 示例
 
 ```json
 {
@@ -669,7 +690,7 @@ v1.0 支持一个 Run 中出现多个 Agent 消息。
 ```text
 RUN_STARTED
 STATE_UPDATE(planning)
-STATE_UPDATE(dispatching, strategy=parallel, assignedAgents=[...])
+STATE_UPDATE(dispatching, strategy=ordered_parallel, assignedAgents=[...])
 
 TEXT_MESSAGE_START(messageId=msg-a, sender=agent-a)
 TEXT_MESSAGE_CONTENT(messageId=msg-a, delta=...)
@@ -689,15 +710,17 @@ RUN_FINISHED
 
 ---
 
-## 13. ordered-parallel 事件规则
+## 13. ordered_parallel 事件规则
 
-v1.0 允许 `ordered-parallel`。
+v1.0 正式枚举值为 `ordered_parallel`。
 
 含义：
 
 ```text
-执行策略可以表达为 parallel。
-UI 可以展示多个 Agent 参与。
+执行策略规范值为 ordered_parallel。
+legacy parallel / ordered-parallel 仅作为兼容输入别名；
+进入 Gateway、数据库、AG-UI state、Run DTO 前必须归一化为 ordered_parallel。
+UI 可以展示多个 Agent 参与，但展示文案"并行"不等于协议字段 parallel。
 Gateway 输出事件时仍按 message 粒度顺序发送。
 不要求多个 Agent 的 token 交错输出。
 ```
@@ -707,7 +730,7 @@ Gateway 输出事件时仍按 message 粒度顺序发送。
 - 不同 message 的 `TEXT_MESSAGE_CONTENT` 可以不交错。
 - 如果实现交错输出，必须保证每个 content 都带正确 `messageId`。
 - v1.0 推荐先使用顺序输出，降低前端聚合复杂度。
-- `strategy = parallel` 不等于 SSE token 必须并发交错。
+- `strategy = ordered_parallel` 不等于 SSE token 必须并发交错。
 
 ---
 
@@ -789,6 +812,32 @@ Frontend AG-UI Client 必须：
 ---
 
 ## 16. Gateway 输出规则
+
+### 16.1 事件来源与映射
+
+AG-UI Event 来源于 `OrchestratorStreamEvent`，由 Gateway / ProtocolConverter 负责映射。
+
+| OrchestratorStreamEvent（内部，snake_case） | AG-UI Event（SSE 前端，UPPER_SNAKE_CASE） |
+|---|---|
+| `run_started` | `RUN_STARTED` |
+| `state_update` | `STATE_UPDATE` |
+| `message_start` | `TEXT_MESSAGE_START` |
+| `message_delta` | `TEXT_MESSAGE_CONTENT` |
+| `message_end` | `TEXT_MESSAGE_END` |
+| `tool_call_start` | `TOOL_CALL_START` |
+| `tool_call_args` | `TOOL_CALL_ARGS` |
+| `tool_call_end` | `TOOL_CALL_END` |
+| `run_finished` | `RUN_FINISHED` |
+| `run_error` | `RUN_ERROR` |
+
+### 16.2 映射责任
+
+- **Orchestrator** 只输出 `OrchestratorStreamEvent`（snake_case），不得直接输出 AG-UI Event 名称（UPPER_SNAKE_CASE），不得直接写 SSE。
+- **Gateway / ProtocolConverter** 负责将 `OrchestratorStreamEvent` 映射为 AG-UI Event，输出到 SSE。
+- **Frontend** 只消费 AG-UI Event，不得直接接收 `OrchestratorStreamEvent` 或 Child Agent A2A event。
+- Child Agent 原始 A2A event 必须由 Orchestrator 接收后转换为 `OrchestratorStreamEvent`，再由 Gateway 映射为 AG-UI Event。不得绕过此链路直接透传。
+
+### 16.3 输出规则
 
 Gateway 必须：
 
@@ -990,6 +1039,10 @@ AG-UI event 必须遵守：
 - 是否没有把大型产物塞进 `TEXT_MESSAGE_CONTENT`？
 - 是否没有要求真正并发交错 token？
 - 是否有 SSE 粘包 / 拆包测试？
+- AG-UI Event 是否来源于 OrchestratorStreamEvent 经 Gateway / ProtocolConverter 映射？
+- SSE 中是否只出现 AG-UI Event 名称（UPPER_SNAKE_CASE），未出现 OrchestratorStreamEvent 名称（snake_case）？
+- Child Agent A2A event 是否未直接透传给 Frontend？
+- Gateway 是否未绕过 ProtocolConverter 直接透传内部事件？
 
 ---
 
@@ -1017,6 +1070,8 @@ Coding Agent 在处理 AG-UI 事件时必须遵守：
 18. Tool Call 必须通过 `messageId` 归属到消息。
 19. `RUN_FINISHED` 或 `RUN_ERROR` 必须结束当前 Run。
 20. 不得硬编码具体 Agent 名称作为事件协议规则。
+21. 不得将 Child Agent A2A event 直接透传给 Frontend。A2A event 必须先经 Orchestrator 转为 `OrchestratorStreamEvent`，再由 Gateway 映射为 AG-UI Event。
+22. 不得将 `OrchestratorStreamEvent` 事件名（如 `message_delta`）直接作为 AG-UI Event 名称（如应使用 `TEXT_MESSAGE_CONTENT`）输出到 SSE。
 
 ---
 
@@ -1038,7 +1093,7 @@ docs/contracts/agui-event-review-checklist.md
 - v1.0 事件集完整。
 - `STATE_UPDATE` 是当前必需事件。
 - 多 Agent / 群聊消息归属规则明确。
-- `ordered-parallel` 事件顺序明确。
+- `ordered_parallel` 事件顺序明确。
 - Tool Call 传输规则明确。
 - `delta` 与 `content` 兼容规则明确。
 - SSE wire format 明确。

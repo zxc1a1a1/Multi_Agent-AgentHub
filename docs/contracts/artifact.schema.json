@@ -146,7 +146,7 @@
             "document_preview",
             "data_preview",
             "image_preview",
-            "download"
+            "file_download"
           ]
         },
         "available": {

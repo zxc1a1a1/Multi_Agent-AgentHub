@@ -75,6 +75,14 @@ ctx.Logger() Logger
 
 ## 7. Artifact
 
+`ctx.AddArtifact()` 输出的是 **ArtifactDraft**，不是标准 Core Artifact。
+
+ArtifactDraft 只包含 `type`、`title`、`content`（或 `contentRefDraft`）、`metadata`。
+
+`artifactId`、`mimeType`、`source.*`、`links.*`、`preview.*`、`version`、`status`、`createdAt` 等平台字段由 Orchestrator / ArtifactRegistry 归一化时生成。
+
+ADK Runtime 不要求 Handler 提供这些平台字段。
+
 Artifact 类型由 `artifact-contract` 决定。
 
 Runtime 不得用 agentName 判断 Artifact 类型。

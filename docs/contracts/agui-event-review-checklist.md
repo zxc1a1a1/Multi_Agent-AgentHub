@@ -56,7 +56,26 @@
 - [ ] 一个 Run 可以有多条 assistant message
 - [ ] 每条 message 有独立 `sender`
 - [ ] Tool Call 通过 `messageId` 归属
-- [ ] ordered-parallel 不要求 token 交错
+- [ ] ordered_parallel 不要求 token 交错
+
+## 安全
+
+- [ ] `threadId` 正确映射为 `conversationId`，未作为独立会话 ID
+
+## 事件来源与映射
+
+- [ ] AG-UI Event 是否来源于 OrchestratorStreamEvent 经 Gateway / ProtocolConverter 映射？
+- [ ] SSE 中是否只出现 AG-UI Event 名称（UPPER_SNAKE_CASE），未出现 OrchestratorStreamEvent 名称（snake_case）？
+- [ ] Child Agent A2A event 是否未直接透传给 Frontend？
+- [ ] Gateway 是否未绕过 ProtocolConverter 直接输出内部事件？
+
+## Run.status / phase / step_type 分层
+
+- [ ] Run.status 是否只使用 5 值（accepted / running / completed / failed / cancelled）？
+- [ ] 内部细粒度阶段（如 planning、dispatching）是否未写入 Run.status？
+- [ ] `STATE_UPDATE.state.phase` 是否仅用于 UI 展示，未作为持久化 Run.status？
+- [ ] `run_steps.step_type` 是否用于持久化详细步骤类型，与 Run.status 清晰分离？
+- [ ] 需要展示运行细节时是否使用 phase 或 state.phase，而非扩展 Run.status 枚举？
 
 ## 安全
 

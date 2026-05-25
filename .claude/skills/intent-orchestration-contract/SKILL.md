@@ -273,10 +273,13 @@ Gateway 不得：
 - `tasks` 不得为空。
 - `intentSummary` 必须是摘要，不得保存完整敏感 prompt。
 - `validation.validated = true` 只能由本地校验器设置，LLM 不得自行设置可信状态。
+- `capabilityIds` 必须来自目标 Agent 的 `AgentCard.skills[].id`，不得凭自然语言临时编造。
 
 ## 11. TaskPlan
 
 `TaskPlan` 是 OrchestrationPlan 中的单个执行单元。
+
+`TaskPlan.capabilityIds` 必须引用目标 Agent 的 `AgentCard.skills[].id`。不得凭自然语言临时生成未注册的 capabilityId，不得使用 `toolName`、`artifact.type` 或 `outputMode` 作为 capabilityId。
 
 字段规则：
 
@@ -284,7 +287,7 @@ Gateway 不得：
 |---|---|
 | `taskId` | 必须唯一 |
 | `agentName` | 必须来自 `availableAgents` |
-| `capabilityIds` | 必须来自目标 Agent 的声明能力 |
+| `capabilityIds` | 必须来自目标 Agent 的 `AgentCard.skills[].id` |
 | `taskContent` | 必须是给目标 Agent 的清晰任务，不得包含 secret |
 | `dependsOn` | 只能引用同 Plan 内已有 taskId |
 | `expectedOutputs` | 必须来自目标能力支持的输出类型 |
@@ -294,8 +297,11 @@ Gateway 不得：
 
 - 通过 Agent 名称推断能力。
 - 让 LLM 编造 `agentName`。
-- 让 LLM 编造不存在的 capability。
-- 把完整系统 prompt 或 API key 写入 `taskContent`。
+- 让 LLM 编造不存在的 capabilityId。
+- 把完整 system prompt 或 API key 写入 `taskContent`。
+- 把 `toolName` 当作 capabilityId。
+- 把 `artifact.type` 当作 capabilityId。
+- 把 `outputMode` 当作 capabilityId。
 
 ## 12. AgentCapabilitySet
 
@@ -338,7 +344,7 @@ Plan Validation 必须在执行前完成。
 4. 校验 task 数量。
 5. 校验每个 `agentName` 存在。
 6. 校验 Agent `enabled` / `healthy`。
-7. 校验 `capabilityIds` 存在。
+7. 校验 `capabilityIds` 存在（必须来自目标 Agent 的 `AgentCard.skills[].id`）。
 8. 校验 `expectedOutputs` 可被目标能力支持。
 9. 校验 `dependsOn` 无环。
 10. 校验 fallback 不会无限循环。
@@ -349,15 +355,19 @@ Plan Validation 必须在执行前完成。
 
 ## 14. Routing Priority
 
-推荐路由优先级：
+推荐路由优先级（外部请求）：
 
 ```text
 manual selected agents
   > explicit @mention
   > conversation direct target
   > auto planner
-  > fallback planner
 ```
+
+`fallback` 不在路由优先级排序中。它是 Orchestrator 在主计划失败、风险过高或健康检查失败后的内部降级行为：
+- fallback plan 由 Orchestrator 内部生成，不由 Gateway 或 Frontend 传入。
+- fallback plan 必须关联原 plan（`parentPlanId` / `fallbackOf`）。
+- fallback plan 仍需通过 Plan Validation。
 
 规则：
 
@@ -566,6 +576,8 @@ Review 时必须检查：
 - LLM 是否不能直接执行计划。
 - Gateway 是否不承担意图编排。
 - plan / trace / error 是否脱敏。
+- `capabilityIds` 是否来自目标 Agent 的 `AgentCard.skills[].id`。
+- 是否没有把 `toolName`、`artifact.type`、`outputMode` 当作 capabilityId。
 
 ## 25. 完成定义
 

@@ -69,7 +69,7 @@ MVP v0.1 已完成，仅作为历史兼容和回归测试基线。
 
 - 支持 2+ Child Agent 的本地启动模式。
 - 支持 `frontend`、`gateway`、`mysql` 和多个 Child Agent 服务。
-- 支持 Agent 服务通过 Compose service name 被 Gateway 访问。
+- 支持 Agent 服务通过 Compose service name 被 Orchestrator / Registry 访问。
 - 支持 healthcheck 全覆盖。
 - 支持 `.env.example` 完整说明。
 - 支持 `docker compose up --build` 一键启动。
@@ -244,7 +244,7 @@ http://localhost:8080
 - 有独立 `build` 或 `image`。
 - 有明确内部端口。
 - 提供 `/health`。
-- 可通过 Compose service name 被 Gateway 访问。
+- 可通过 Compose service name 被 Orchestrator / Registry 访问。
 - 不把 secret 写入 image。
 - 可以被 smoke test 单独检查。
 - 日志能标识 agent name。
@@ -274,22 +274,17 @@ services:
 - 默认只使用 `expose` 暴露给 Compose 网络。
 - 需要宿主机调试时才使用 `ports`。
 - Agent 服务端口不得硬编码到 Gateway 源码。
-- Agent URL 应通过环境变量或配置文件提供给 Gateway。
+- Agent URL 应通过环境变量或配置文件提供给 Orchestrator / Registry，不得直接提供给 Gateway。
 
 ---
 
-## 10. Gateway 与 Agent 发现配置
+## 10. Orchestrator / Registry 与 Agent 发现配置
 
-Gateway 应通过配置发现多个 Agent。
+Agent 发现、Agent URL、AgentCard、Health 信息的权威消费方是 **Orchestrator / Registry**。
 
-v1.0 兼容方式可以保留：
+Gateway 不得直接持有 Child Agent 调用地址，不得通过 service name 直接调用 Child Agent。Gateway 只能调用 Orchestrator，或通过 `/api/agents` 返回脱敏 Agent 摘要给 Frontend。
 
-```text
-AGENT_CODE_URL=http://code-agent:8081
-AGENT_WEB_URL=http://web-agent:8082
-```
-
-推荐通用方式：
+Orchestrator / Registry 通过配置发现多个 Agent：
 
 ```text
 AGENT_URLS=code-agent=http://code-agent:8081,web-agent=http://web-agent:8082,doc-agent=http://doc-agent:8083
@@ -301,13 +296,19 @@ AGENT_URLS=code-agent=http://code-agent:8081,web-agent=http://web-agent:8082,doc
 AGENT_REGISTRY_FILE=/app/config/agents.yaml
 ```
 
+这些配置属于 Orchestrator / Registry 的 loader 配置，不属于 Gateway 业务编排配置。
+
+历史兼容变量（如 `AGENT_CODE_URL`、`AGENT_WEB_URL`）如仍存在于仓库中，其消费方也应迁移为 Orchestrator / Registry，不得继续由 Gateway 直接使用。
+
 规则：
 
+- Agent URL / service name 属于 Registry 或 Orchestrator 配置。
+- Gateway 不得直接持有 Child Agent 调用地址。
 - 新增 Agent 服务时，不应要求修改 Gateway 源码。
-- 新增 Agent 服务时，必须同步更新 `.env.example`。
+- 新增 Agent 服务时，必须同步更新 `.env.example`（标注为 Orchestrator / Registry 配置）。
 - 新增 Agent 服务时，必须同步更新 smoke test。
 - 可选 Agent 未启动时，不应导致整个基础栈无法启动，除非它属于当前 Demo 必需服务。
-- Gateway 日志应能显示已加载的 Agent 配置，但不得输出 secret。
+- Orchestrator / Registry 日志应能显示已加载的 Agent 配置，但不得输出 secret。
 
 ---
 
@@ -335,7 +336,7 @@ secrets/*.txt
 - Gateway 端口。
 - API token 占位值。
 - LLM Provider 占位变量。
-- Agent URL / Agent registry 配置。
+- Agent URL / Agent registry 配置（Orchestrator / Registry 使用，非 Gateway 配置）。
 - 前端 API base URL。
 - 是否必须设置。
 - 默认值是否仅用于本地 Demo。
@@ -357,6 +358,7 @@ LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=your-api-key-here
 ANTHROPIC_MODEL=your-model-here
 
+# Orchestrator / Registry 使用：
 AGENT_URLS=code-agent=http://code-agent:8081,web-agent=http://web-agent:8082
 VITE_API_URL=http://localhost:8080
 ```
@@ -707,6 +709,8 @@ Demo 前必须检查：
 - 新增 Agent 但不更新 `.env.example`。
 - 新增 Agent 但不更新 smoke test。
 - 新增 Agent 但不更新 Makefile / 文档。
+- 把 Agent URL 直接配置给 Gateway。
+- Gateway 直接通过 service name 调用 Child Agent。
 - 把本地 Compose 当生产部署承诺。
 - 默认 profile 启动过重的可选组件。
 - reset 命令无提示删除数据。
@@ -738,7 +742,7 @@ Demo 前必须检查：
 
 - gateway 是否等待 mysql healthy？
 - frontend 是否正确访问 gateway？
-- gateway 是否通过配置发现 agents？
+- Orchestrator / Registry 是否通过配置发现 agents（而非 Gateway 直接持有 Agent URL）？
 - 可选 Agent 不健康是否不会拖垮整栈？
 
 ### 环境

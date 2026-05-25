@@ -52,6 +52,7 @@ permissions:
 - `name` 必填。
 - `description` 必填。
 - `version` 必填。
+- `url` 是 Agent 自身地址，供 Registry / Orchestrator 内部使用。不得通过 Public API 暴露给 Frontend。
 - `runtime.streaming` 必填。
 - `runtime.artifacts` 必填。
 - `agentCard.inputModes` 必填。
@@ -66,7 +67,7 @@ permissions:
 |---|---|
 | name | name |
 | description | description |
-| url | url |
+| url | url（供 Registry / Orchestrator 内部使用，非公开） |
 | version | version |
 | runtime.streaming | capabilities.streaming |
 | runtime.artifacts | capabilities.artifacts |

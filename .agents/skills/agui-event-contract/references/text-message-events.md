@@ -48,6 +48,8 @@ const chunk = event.delta ?? event.content ?? ''
 
 ## 规则
 
+- 所有 Text Message 事件携带 `threadId`，其值为 `conversationId` 的 AG-UI 协议别名。
+- Text Message 事件由 `OrchestratorStreamEvent` 的 `message_start` / `message_delta` / `message_end` 经 Gateway / ProtocolConverter 映射而来。
 - `messageId` 是文本聚合主键。
 - 多 Agent 场景必须使用独立 `messageId`。
 - `TEXT_MESSAGE_CONTENT` 只承载文本，不承载大型产物。
