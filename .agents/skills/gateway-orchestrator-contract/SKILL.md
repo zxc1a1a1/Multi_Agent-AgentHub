@@ -207,6 +207,7 @@ Gateway 禁止：
 
 - 直接选择具体 Agent。
 - 直接调用 Child Agent。
+- 直接持有 Child Agent 调用地址（Agent URL / service name）。
 - 直接调用 LLM。
 - 直接生成 OrchestrationPlan。
 - 直接执行 fallback / retry 决策。
@@ -217,6 +218,7 @@ Gateway 禁止：
 - 通过具体 `agentName` 写死能力判断。
 - 把用户原始 Authorization token 当服务间 token 透传给 Orchestrator。
 - 把内部错误堆栈直接返回前端。
+- 直接透传 Child Agent A2A event 给 Frontend。A2A event 必须先由 Orchestrator 转为 OrchestratorStreamEvent，再由 Gateway 映射为 AG-UI Event。
 
 判断标准：
 
@@ -264,6 +266,7 @@ Orchestrator 禁止：
 - 保存用户原始 Authorization token。
 - 在结果中返回内部堆栈、密钥、私有路径或完整 system prompt。
 - 使用具体 Agent 名称硬编码能力判断。
+- 直接输出 AG-UI Event 名称（UPPER_SNAKE_CASE）。Orchestrator 只输出 OrchestratorStreamEvent（snake_case），由 Gateway 负责命名映射。
 
 ---
 
@@ -394,7 +397,7 @@ Authorization: Bearer <internal-service-token>
 | 字段 | 说明 |
 |---|---|
 | `runId` | 本次编排运行 ID |
-| `conversationId` | 会话 ID |
+| `conversationId` | 会话 ID（AG-UI 侧称 `threadId`，A2A 侧称 `metadata.threadId`） |
 | `userId` | 用户 ID 或匿名用户标识 |
 | `conversationType` | `single` 或 `group` |
 | `messages` | 当前请求中的用户消息 |
@@ -428,7 +431,7 @@ Authorization: Bearer <internal-service-token>
 
 `planningMode` 表示 Orchestrator 如何生成计划。
 
-允许值：
+外部请求（OrchestratorRequest.planningMode）只允许：
 
 ```text
 direct
@@ -436,6 +439,8 @@ mention
 auto
 manual
 ```
+
+**禁止 Gateway 或 Frontend 传入 `fallback`。** `fallback` 只能由 Orchestrator 在主计划失败、风险过高或健康检查失败后内部生成，作为 OrchestrationPlan.planningMode 的内部来源标记。
 
 含义：
 
@@ -583,6 +588,37 @@ run_error
 - 多 Agent 输出不得复用同一个 `messageId`。
 - 错误事件必须使用脱敏 `SafeError`。
 
+### 19.1 事件映射表
+
+`OrchestratorStreamEvent` 是 Gateway ↔ Orchestrator 内部服务间事件（snake_case），不得直接作为 AG-UI Event 名称输出。
+
+Gateway / ProtocolConverter 负责将内部事件映射为前端 AG-UI Event（UPPER_SNAKE_CASE）：
+
+| OrchestratorStreamEvent（内部） | AG-UI Event（SSE 前端） | 说明 |
+|---|---|---|
+| `run_started` | `RUN_STARTED` | Run 开始 |
+| `state_update` | `STATE_UPDATE` | 编排状态更新 |
+| `message_start` | `TEXT_MESSAGE_START` | 消息开始 |
+| `message_delta` | `TEXT_MESSAGE_CONTENT` | 消息文本增量 |
+| `message_end` | `TEXT_MESSAGE_END` | 消息结束 |
+| `tool_call_start` | `TOOL_CALL_START` | Tool Call 开始 |
+| `tool_call_args` | `TOOL_CALL_ARGS` | Tool Call 参数增量 |
+| `tool_call_end` | `TOOL_CALL_END` | Tool Call 结束 |
+| `run_finished` | `RUN_FINISHED` | Run 正常结束 |
+| `run_error` | `RUN_ERROR` | Run 错误结束 |
+
+### 19.2 映射责任
+
+- **Orchestrator** 只输出 `OrchestratorStreamEvent`（snake_case）。Orchestrator 不得直接输出 AG-UI Event 名称（UPPER_SNAKE_CASE），不得直接写 SSE。
+- **Gateway / ProtocolConverter** 负责将 `OrchestratorStreamEvent` 映射为 AG-UI Event，输出到 SSE。Gateway 不得改变事件业务语义，只做命名映射和格式包装。
+- **Frontend** 只消费 AG-UI Event。Frontend 不得直接接收 OrchestratorStreamEvent 或 Child Agent A2A event。
+
+### 19.3 禁止透传
+
+- Child Agent 原始 A2A event 不得直接发给 Frontend。A2A event 必须由 Orchestrator 接收后转换为 `OrchestratorStreamEvent`，再由 Gateway 映射为 AG-UI Event。
+- `OrchestratorStreamEvent` 的事件名（如 `message_delta`）不得直接作为 AG-UI Event 名称出现在 SSE 中。
+- Gateway 不得绕过 ProtocolConverter 直接透传内部事件给 SSE。
+
 ---
 
 ## 20. OrchestratorResult
@@ -596,6 +632,7 @@ run_error
   "runId": "run_001",
   "conversationId": "conv_001",
   "status": "completed",
+  "phase": "aggregating",
   "strategy": "ordered_parallel",
   "intentSummary": "用户希望完成一个多 Agent 任务",
   "messages": [],
@@ -619,11 +656,55 @@ run_error
 - result 不得返回大对象内容，优先返回引用和摘要。
 - Gateway 负责基于 result 做持久化。
 
+### 20.1 Run.status 与 Run.phase
+
+`status` 是粗粒度生命周期状态（Public API / 持久化字段）。`phase` 是可选细粒度当前阶段（内部字段，可用于展示）。
+
+Run.status 正式枚举（5 值）：
+
+```text
+accepted
+running
+completed
+failed
+cancelled
+```
+
+内部阶段（phase）到 Run.status 的映射：
+
+| 内部阶段（phase） | Run.status |
+|---|---|
+| `accepted` | `accepted` |
+| `context_loaded` | `running` |
+| `planning` | `running` |
+| `plan_ready` | `running` |
+| `dispatching` | `running` |
+| `agent_task_running` | `running` |
+| `agent_task_completed` | `running` |
+| `agent_task_failed`（有可恢复 fallback） | `running` |
+| `retrying` | `running` |
+| `fallback` | `running` |
+| `aggregating` | `running` |
+| `agent_task_failed`（无可恢复 fallback） | `failed` |
+| `completed` | `completed` |
+| `failed` | `failed` |
+| `cancelled` | `cancelled` |
+
+规则：
+
+- 内部阶段不等同于 Public API Run.status。
+- 不得将细粒度阶段（如 `planning`、`dispatching`）写入 Run.status。
+- `STATE_UPDATE.state.phase` 可用于前端展示当前阶段，但不等同于持久化 Run.status。
+
 ---
 
 ## 21. Run Lifecycle
 
-推荐生命周期：
+### 21.1 内部阶段（phase）
+
+以下为 Orchestrator 内部阶段，用于追踪 Run 的细粒度进度。**这些阶段不等同于 Run.status**。
+
+推荐内部阶段序列：
 
 ```text
 accepted
@@ -638,7 +719,20 @@ accepted
 → completed / failed / cancelled
 ```
 
-跨服务流程：
+### 21.2 内部阶段 → Run.status 映射
+
+| 内部阶段 | Run.status |
+|---|---|
+| `accepted` | `accepted` |
+| `context_loaded` / `planning` / `plan_ready` / `dispatching` | `running` |
+| `agent_task_running` / `agent_task_completed` | `running` |
+| `agent_task_failed`（有可恢复 fallback） / `retrying` / `fallback` | `running` |
+| `aggregating` | `running` |
+| `completed` | `completed` |
+| `agent_task_failed`（无可恢复 fallback） / `failed` | `failed` |
+| `cancelled` | `cancelled` |
+
+### 21.3 跨服务流程
 
 ```text
 Gateway 接收请求
@@ -687,14 +781,19 @@ Gateway 关闭前端流
 
 fallback / retry 是当前通用编排能力。
 
-推荐策略：
+正式 `fallback.mode` 枚举：
 
 ```text
 none
 same_capability_alternative
-first_healthy_agent
+lower_risk_plan
+single_agent_fallback
 fail_fast
 ```
+
+`same_capability_alternative` 在候选排序时必须优先选择 healthy Agent。
+healthy 优先是选择算法，不是独立的 `fallback.mode`。
+legacy `first_healthy_agent` 语义已归入 `same_capability_alternative` 的排序规则。
 
 规则：
 
@@ -896,7 +995,9 @@ Review Gateway ↔ Orchestrator 变更时必须检查：
 - 是否没有 Agent 选择逻辑？
 - 是否没有 fallback 决策？
 - 是否没有直接调用 Child Agent？
+- 是否没有直接持有 Child Agent 调用地址（Agent URL / service name）？
 - 是否没有解析 Child Agent 原始事件？
+- 是否没有直接透传 Child Agent A2A event 给 Frontend？
 
 ### Orchestrator
 
@@ -904,7 +1005,22 @@ Review Gateway ↔ Orchestrator 变更时必须检查：
 - 是否不处理用户登录？
 - 是否不写浏览器响应？
 - 是否输出稳定 stream events？
+- 是否没有直接输出 AG-UI Event 名称（UPPER_SNAKE_CASE）？
 - 是否返回 OrchestratorResult？
+
+### 事件映射
+
+- OrchestratorStreamEvent 是否只使用 snake_case？
+- Gateway / ProtocolConverter 是否正确映射为 AG-UI Event（UPPER_SNAKE_CASE）？
+- Child Agent A2A event 是否未直接透传给 Frontend？
+- SSE 中是否只出现 AG-UI Event 名称？
+
+### Run.status / phase 分层
+
+- Run.status 是否只使用 5 值（accepted / running / completed / failed / cancelled）？
+- 内部细粒度阶段（如 planning、dispatching）是否未写入 Run.status？
+- `STATE_UPDATE.state.phase` 是否未替代 Run.status 做持久化判断？
+- `run_steps.step_type` 是否用于持久化详细步骤类型？
 
 ### 通用性
 

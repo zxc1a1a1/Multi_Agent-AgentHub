@@ -37,7 +37,7 @@ Handler 只能通过：
 
 ```text
 ctx.StreamText
-ctx.AddArtifact
+ctx.AddArtifact （输出 ArtifactDraft，非 Core Artifact）
 ctx.Fail / return error
 ```
 
@@ -48,7 +48,7 @@ ctx.Fail / return error
 - prompt 组装。
 - LLM 调用。
 - 解析 LLM 输出。
-- 构造 Artifact。
+- 构造 ArtifactDraft（不含平台字段）。
 - 调用已授权工具。
 - 记录日志。
 

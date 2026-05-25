@@ -41,10 +41,16 @@ OrchestrationPlan 是意图编排结果的标准结构。
 }
 ```
 
+## planningMode 说明
+
+- `direct` / `mention` / `auto` / `manual` — 对应外部请求来源。
+- `fallback` — **仅限内部**，由 Orchestrator 在主计划失败后生成。外部请求不得传入此值。
+- fallback plan 必须通过 `parentPlanId` 或 `fallbackOf` 关联原 plan。
+
 ## 规则
 
 - `tasks` 不得为空。
 - `agentName` 必须来自当前可用 Agent 集合。
-- `capabilityIds` 必须来自目标 Agent 的能力集合。
+- `capabilityIds` 必须来自目标 Agent 的 `AgentCard.skills[].id`。不得凭自然语言临时生成未注册的 capabilityId，不得将 `toolName`、`artifact.type` 或 `outputMode` 作为 capabilityId。
 - `expectedOutputs` 必须可被目标能力支持。
 - `validation.validated` 只能由本地校验器设置。

@@ -198,13 +198,46 @@ Message API 必须支持多 Agent 消息归属。推荐字段包括 `id`、`conv
 
 Agent API 只返回前端展示和选择所需的摘要信息。推荐字段包括 `id`、`name`、`displayName`、`description`、`status`、`health`、`capabilities`、`inputModes`、`outputModes`、`tags`、`version`、`updatedAt`。
 
-前端不得通过 Agent 名称推断能力，能力必须来自摘要字段。
+`status` 与 `health` 分离：
+- `status`：生命周期/启用状态（`enabled` / `disabled` / `experimental` / `deprecated`）。
+- `health`：当前健康状态（`healthy` / `degraded` / `unhealthy` / `unknown`）。
+- `disabled` 属于 `status`，不属于 `health`。
+
+`CapabilitySummary.id` 是 `AgentCard.skills[].id` 的公开摘要投影，非独立 ID。`capabilityIds` 的事实源是 `AgentCard.skills[].id`。
+
+前端不得通过 Agent 名称推断能力，能力必须来自摘要字段。不得将 `toolName`、`artifact.type` 或 `outputMode` 作为 capabilityId。
 
 ## 20. Artifact API Policy
 
-Artifact API 只返回平台资源形态。推荐字段包括 `id`、`type`、`title`、`mimeType`、`summary`、`contentRef`、`previewType`、`status`、`version`、`messageId`、`conversationId`、`runId`。
+Artifact API 只返回平台资源形态，是对 Core Artifact 的公开投影。
 
-API 可以返回 `previewType`，但不定义前端组件。大内容必须通过 `contentRef` 或 download URL，且 download URL 必须短期有效。
+### 字段映射
+
+Public API DTO 字段与 Core Artifact 字段的关系：
+
+| Public API DTO | Core Artifact（事实源） | 说明 |
+|---|---|---|
+| `id` | `artifactId` | Core `artifactId` = DB `artifacts.id` = Public API `id`，是同一个系统 ID 在不同层级的命名。API `id` 是 `artifactId` 的公开投影，非独立 ID。 |
+| `type` | `type` | 直接透传。 |
+| `title` | `title` | 直接透传。 |
+| `mimeType` | `mimeType` | 直接透传。 |
+| `summary` | `summary` | 直接透传。 |
+| `contentRef`（string） | `contentRef`（object） | API 中是公开授权访问入口 URL，非 Core contentRef 对象。 |
+| `contentUrl` | — | **推荐**使用此字段代替 API contentRef 字符串，避免混名。 |
+| `previewType` | `preview.previewType` | API 扁平投影。 |
+| `status` | `status` | 直接对齐 Core 枚举：`pending`/`normalizing`/`ready`/`failed`/`superseded`/`deleted`。 |
+| `version` | `version` | integer，与 Core 一致。 |
+| `messageId` | `links.messageId` | API 扁平投影。 |
+| `conversationId` | `links.conversationId` | API 扁平投影。 |
+| `runId` | `links.runId` | API 扁平投影。 |
+
+### 规则
+
+- Gateway Handler 输出 Public API DTO 时负责将 Core Artifact 投影为扁平 API 结构。
+- API 可以返回 `previewType`，但不定义前端组件。
+- 大内容必须通过 `contentRef`（string URL）或 `contentUrl` 提供下载入口，且 URL 必须短期有效。
+- 推荐 Public API 使用 `contentUrl` 字段提供公开访问地址，避免与 Core `contentRef` 对象混名。
+- `previewType` 是预览意图，不等于前端组件名。
 
 ## 21. Run API Policy
 
@@ -224,6 +257,29 @@ POST /api/agui/run/{runId}/cancel
 ```
 
 新增 API 优先使用 `/api/runs`。Run response 只保留平台资源摘要，不展开 Orchestrator 内部计划。
+
+### 21.1 Run.status 枚举
+
+Run.status 是粗粒度生命周期状态，只使用 5 个值：
+
+```text
+accepted
+running
+completed
+failed
+cancelled
+```
+
+不得将内部细粒度阶段（如 `planning`、`dispatching`、`retrying`、`fallback`）写入 Run.status。
+
+### 21.2 Run.phase 与 STATE_UPDATE.state.phase
+
+- `Run.status`：粗粒度生命周期状态，持久化到 `runs.status`，通过 Public API 返回。
+- `Run.phase`：可选细粒度当前阶段（内部字段），可通过 API 返回用于展示细节，但不等同于 status。
+- `STATE_UPDATE.state.phase`：前端 SSE 事件中的阶段提示，用于 UI 展示当前进度，不持久化。
+- `run_steps.step_type`：持久化详细步骤类型，用于审计和排障。
+
+需要展示运行细节时使用 `Run.phase` 或 `STATE_UPDATE.state.phase`，不应扩展 Run.status 枚举。
 
 ## 22. Frontend API Client 规则
 
@@ -247,7 +303,7 @@ Gateway Handler 是 Platform API 的实现层，不是编排层。它可以处�
 
 ## 27. Review Checklist
 
-提交 Platform API 变更前必须检查：是否只定义 Frontend ↔ Gateway API；是否没有暴露 `/internal/**`；是否没有暴露 Orchestrator 或 Child Agent endpoint；是否没有写死具体 Agent 名称；OpenAPI 是否更新；operationId 是否稳定；schema 是否完整；前端类型是否由 OpenAPI 生成；Gateway Handler 是否没有编排逻辑；错误是否脱敏。
+提交 Platform API 变更前必须检查：是否只定义 Frontend ↔ Gateway API；是否没有暴露 `/internal/**`；是否没有暴露 Orchestrator 或 Child Agent endpoint；是否没有写死具体 Agent 名称；OpenAPI 是否更新；operationId 是否稳定；schema 是否完整；前端类型是否由 OpenAPI 生成；Gateway Handler 是否没有编排逻辑；错误是否脱敏；Run.status 是否只使用 5 值枚举；细粒度阶段是否未写入 Run.status；Artifact `id` 是否是 `artifactId` 的公开投影（非独立 ID）；`CapabilitySummary.id` 是否是 `AgentCard.skills[].id` 的公开摘要投影（非独立 ID）；是否没有将 `toolName`、`artifact.type`、`outputMode` 当作 capabilityId；`AgentSummary.status` 与 `AgentSummary.health` 是否分离；`disabled` 是否没有出现在 health 字段中；是否没有暴露内部 healthcheck 细节。
 
 ## 28. 完成定义
 

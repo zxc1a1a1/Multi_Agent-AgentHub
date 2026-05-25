@@ -34,6 +34,8 @@ status: failed
 
 ## 4. artifact
 
+A2A streaming 中的 `event.artifact` 是 **ArtifactDraft**，不是标准 Core Artifact。
+
 ```json
 {
   "type": "artifact",
@@ -48,9 +50,11 @@ status: failed
 
 规则：
 
-- Artifact 必须是结构化对象。
-- Artifact 类型必须与 AgentCard.outputModes 兼容。
-- Artifact 由 ProtocolConverter 转成 AG-UI Tool Call。
+- ArtifactDraft 只包含 Child Agent 能提供的字段：`type`、`title`、`content` 或 `contentRefDraft`、`metadata`。
+- `event.artifact` 不得包含 `artifactId`、`mimeType`、`source.*`、`links.*`、`preview.*`、`version`、`status`、`createdAt` 等平台字段。
+- ArtifactDraft 类型必须与 AgentCard.outputModes 兼容。
+- ArtifactDraft 由 Orchestrator / ArtifactRegistry 归一化为 Core Artifact。
+- ProtocolConverter 再把 Core Artifact 转成 AG-UI Tool Call。
 
 ## 5. completed
 
@@ -83,7 +87,11 @@ status: failed
 - retryable = true 时 Orchestrator 可以 fallback。
 - 错误信息不得泄漏 secret。
 
-## 7. 转换关系
+## 7. 会话标识
+
+A2A `metadata.threadId` 是 `conversationId` 的协议别名。Orchestrator 调用 `/a2a/tasks/sendSubscribe` 时通过 `metadata.threadId` 传递，其值等于 `conversationId`，不得视为独立会话 ID。
+
+## 8. 转换关系
 
 ```text
 A2A working     → AG-UI TEXT_MESSAGE_START

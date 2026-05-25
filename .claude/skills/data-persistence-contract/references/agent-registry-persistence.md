@@ -15,6 +15,7 @@ description
 url
 version
 status
+health
 agent_card
 skills
 input_modes
@@ -46,16 +47,46 @@ checked_at
 - 健康检查错误必须脱敏。
 - AgentCard 可以保存摘要，但不得保存 secret。
 - Agent 禁用时不应被正常调度。
+- `url` 和 `agent_url` 字段是 Registry / Orchestrator 内部使用的调用地址，不得通过 Public API 暴露给 Frontend。
 
-## 状态
+## Agent.status（生命周期/启用状态）
 
-推荐：
+```text
+enabled
+disabled
+experimental
+deprecated
+```
+
+`disabled` 属于 `Agent.status`，不属于 `Agent.health`。
+
+## Agent.health（当前健康状态）
+
+由 Registry 周期性探测 `/health` 并归一化后写入：
+
+```text
+/health.status = ok       → healthy
+/health.status = degraded → degraded
+timeout / non-2xx / invalid response → unhealthy
+未探测                        → unknown
+```
+
+枚举：
 
 ```text
 healthy
+degraded
 unhealthy
 unknown
-disabled
+```
+
+## agent_health_checks.status（归一化后健康检查记录）
+
+```text
+healthy
+degraded
+unhealthy
+unknown
 ```
 
 ## 禁止
@@ -64,3 +95,4 @@ disabled
 - 把 API key 写入 AgentCard。
 - 把健康检查结果只写日志。
 - 只允许一个 Agent。
+- 把 Agent URL 通过 Public API 暴露给 Frontend。

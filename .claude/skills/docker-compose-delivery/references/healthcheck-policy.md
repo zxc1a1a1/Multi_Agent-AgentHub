@@ -46,3 +46,5 @@ healthcheck:
 - 用 LLM 调用判断健康。
 - 用固定 sleep 代替 readiness。
 - healthcheck 打印敏感配置。
+- 把容器 healthcheck 结果直接等同于 `Agent.status`（容器 healthcheck 只是 Registry health 的输入之一）。
+- 把容器 healthcheck 结果直接等同于 `Agent.health`（需经 Registry 归一化）。

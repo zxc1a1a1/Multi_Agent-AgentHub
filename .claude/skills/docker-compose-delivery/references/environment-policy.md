@@ -21,7 +21,7 @@ secrets/*.txt
 - Gateway 配置。
 - API token 占位符。
 - LLM Provider 占位配置。
-- Agent URL 或 registry 配置。
+- Agent URL 或 registry 配置（Orchestrator / Registry 使用，非 Gateway 配置）。
 - 前端 API URL。
 - 每个变量的用途说明。
 
@@ -45,6 +45,7 @@ DB_NAME=agenthub
 GATEWAY_PORT=8080
 AGENTHUB_API_TOKEN=change-me
 
+# Orchestrator / Registry 使用：
 AGENT_URLS=code-agent=http://code-agent:8081,web-agent=http://web-agent:8082
 
 LLM_PROVIDER=anthropic

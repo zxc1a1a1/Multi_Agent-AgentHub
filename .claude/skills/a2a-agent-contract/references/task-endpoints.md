@@ -40,12 +40,22 @@ GET /health
 }
 ```
 
+`/health.status` 是 A2A 原始探针状态，进入 Registry 后归一化为 `Agent.health`：
+
+```text
+/health.status = ok       → Agent.health = healthy
+/health.status = degraded → Agent.health = degraded
+timeout / non-2xx / invalid response → Agent.health = unhealthy
+未探测                        → Agent.health = unknown
+```
+
 规则：
 
 - 不触发 LLM。
 - 不执行昂贵工具。
 - 不泄漏环境变量。
-- unhealthy Agent 不进入 Planner。
+- unhealthy / degraded Agent 不进入 Planner。
+- `disabled` 属于 `Agent.status`（生命周期），不属于 `Agent.health`。
 
 ## 4. sendSubscribe endpoint
 
@@ -71,6 +81,8 @@ POST /a2a/tasks/sendSubscribe
   }
 }
 ```
+
+`metadata.threadId` 是 `conversationId` 的 A2A 协议别名，不得视为独立会话 ID。
 
 ## 5. v1.0 暂不强制
 

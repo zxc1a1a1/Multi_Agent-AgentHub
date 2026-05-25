@@ -4,12 +4,20 @@ fallback / retry 是通用编排能力，不绑定具体 Agent。
 
 ## 策略
 
+正式 `fallback.mode` 枚举：
+
 ```text
 none
 same_capability_alternative
-first_healthy_agent
+lower_risk_plan
+single_agent_fallback
 fail_fast
 ```
+
+`same_capability_alternative` 的候选排序规则：
+- 必须优先选择 healthy Agent。
+- healthy 优先是选择算法，不是独立的 `fallback.mode`。
+- legacy `first_healthy_agent` 语义已归入此排序规则。
 
 ## 规则
 

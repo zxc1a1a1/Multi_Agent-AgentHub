@@ -40,7 +40,7 @@ POST /a2a/tasks/sendSubscribe
 | `messages` | 是 | 结构化消息列表 |
 | `metadata` | 否 | 追踪与上下文信息 |
 | `metadata.runId` | 推荐 | AG-UI run id |
-| `metadata.threadId` | 推荐 | conversation id |
+| `metadata.threadId` | 推荐 | `conversationId` 的 A2A 协议别名，不得视为独立会话 ID |
 | `metadata.traceId` | 推荐 | 跨服务追踪 id |
 | `metadata.agentName` | 推荐 | 目标 Agent 名称 |
 
@@ -86,6 +86,8 @@ system
 
 ### artifact
 
+A2A streaming 中的 `event.artifact` 是 **ArtifactDraft**，不是标准 Core Artifact。
+
 ```json
 {
   "type": "artifact",
@@ -97,6 +99,8 @@ system
   }
 }
 ```
+
+ArtifactDraft 只包含 Child Agent 能提供的字段（`type`、`title`、`content` 或 `contentRefDraft`、`metadata`）。`artifactId`、`mimeType`、`source.*`、`links.*`、`preview.*`、`version`、`status`、`createdAt` 等平台字段由 Orchestrator / ArtifactRegistry 归一化时生成。
 
 ### completed
 
@@ -133,7 +137,24 @@ submitted → working → failed
 - 最终必须 completed 或 failed。
 - completed / failed 后不得继续输出正常内容。
 
-## 8. 安全
+## 8. Health Check 归一化
+
+A2A `/health` endpoint 返回原始探针状态。进入 AgentHub Registry 后必须归一化：
+
+```text
+/health.status = ok       → Agent.health = healthy
+/health.status = degraded → Agent.health = degraded
+timeout / non-2xx / invalid response → Agent.health = unhealthy
+未探测                        → Agent.health = unknown
+```
+
+`Agent.status`（生命周期/启用状态）与 `Agent.health`（健康状态）分离：
+- `Agent.status`：`enabled` / `disabled` / `experimental` / `deprecated`
+- `Agent.health`：`healthy` / `degraded` / `unhealthy` / `unknown`
+
+`disabled` 属于 `Agent.status`，不属于 `Agent.health`。
+
+## 9. 安全
 
 metadata 不得包含：
 
@@ -141,4 +162,4 @@ metadata 不得包含：
 - Authorization token
 - 用户私密 token
 - 数据库密码
-- 完整 system prompt
+- 完整系统 prompt

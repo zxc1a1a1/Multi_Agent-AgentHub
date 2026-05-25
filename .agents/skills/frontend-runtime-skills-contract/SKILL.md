@@ -247,6 +247,10 @@ type FrontendRuntimeSkill = {
 - `toolName` 使用 `snake_case`。
 - `component` 不是 `toolName`。
 - `artifact.type` 不是 `toolName`。
+- `outputMode` 不是 `toolName`。
+- `previewType` 应优先等于 Runtime `toolName`。
+- `toolName` 由 `preview.previewType` 决定，不由 `outputMode` 直接决定。
+- 不得使用 `download` 作为 toolName（已废弃，统一使用 `file_download`）。
 - `status = implemented` 才允许自动执行。
 - `status = seeded` 表示推荐注册但不代表当前代码已经完整实现。
 - `status = reserved` 表示已占名但不可执行。
@@ -266,6 +270,10 @@ type FrontendRuntimeSkill = {
 | `code_preview` | 代码预览 | 否 | `implemented` |
 | `web_preview` | HTML/Web 预览 | 否 | `implemented` 或 `seeded` |
 | `markdown_render` | Markdown 渲染 | 否 | `implemented` 或 `seeded` |
+| `image_preview` | 图片预览 | 否 | `reserved` |
+| `file_download` | 文件下载 | 否 | `reserved` |
+| `document_preview` | 文档预览 | 否 | `reserved` |
+| `data_preview` | 数据预览 | 否 | `reserved` |
 
 规则：
 
@@ -273,6 +281,25 @@ type FrontendRuntimeSkill = {
 - 任意 Agent 都可以触发这些能力，只要 Tool Call 合法。
 - 新 Agent 不得要求前端增加 `if agentName === ...`。
 - 新能力必须通过 registry 扩展，而不是修改 Agent 分支判断。
+
+### 9.1 toolName 的三层来源
+
+`toolName` 是前端运行时能力名，由 `preview.previewType` 决定，不由 `outputMode` 直接决定：
+
+```text
+outputMode → artifact.type → previewType → toolName
+```
+
+- `outputMode`：Agent 声明的语义类别（上游，不直接驱动前端）。
+- `artifact.type`：平台归一化后的产物类型（中游）。
+- `previewType`：预览意图，应优先等于 toolName。
+- `toolName`：前端 Registry 查询键（下游）。
+
+规则：
+
+- 不得通过 `outputMode` 直接选择 toolName。
+- 不得通过 `agentName` 选择 toolName。
+- 所有 outputMode → artifact.type → toolName 转换必须通过映射表表达。
 
 ---
 
@@ -284,6 +311,8 @@ type FrontendRuntimeSkill = {
 |---|---|---|
 | `image_preview` | `reserved` | 图片预览 |
 | `file_download` | `reserved` | 文件下载 |
+| `document_preview` | `reserved` | 文档预览（artifact-contract planned） |
+| `data_preview` | `reserved` | 数据/JSON 预览（artifact-contract planned） |
 | `diff_preview` | `reserved` | Diff 预览 |
 | `terminal_output` | `reserved` | 终端输出展示 |
 | `chart_render` | `reserved` | 图表展示 |
@@ -298,6 +327,7 @@ type FrontendRuntimeSkill = {
 - `disabled` 能力不得执行。
 - 交互型能力必须等待用户明确动作。
 - 副作用型能力默认禁用，必须有确认门和权限控制。
+- `document_preview` / `data_preview` 标记为 planned/reserved，不要求当前实现。
 
 ---
 
@@ -694,6 +724,13 @@ XSS 规则：
 - 是否没有把某个 Agent 写成某个 capability 的专属来源？
 - 是否只通过 `toolName` 查询 registry？
 - 是否没有通过 Agent 名称绕过参数校验？
+- `previewType` 是否等于 Runtime toolName？
+- 是否没有把 `artifact.type` 直接当 `toolName`？
+- 是否没有把 `outputMode` 直接当 `toolName`？
+- 是否没有通过 `outputMode` 直接选择 toolName？
+- 是否没有通过 `agentName` 选择 toolName？
+- 是否所有 outputMode → artifact.type → toolName 转换都通过映射表表达？
+- 是否没有使用 `download` 作为 toolName？
 
 ### Registry
 

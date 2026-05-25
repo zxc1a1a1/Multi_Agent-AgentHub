@@ -16,3 +16,4 @@
 - 不存在、禁用或不健康的目标必须拒绝或 fallback。
 - 多个目标可生成 ordered_parallel 或 sequential。
 - 所有路由结果必须统一成为 OrchestrationPlan。
+- `capabilityIds` 必须来自目标 Agent 的 `AgentCard.skills[].id`，不得凭自然语言临时编造。

@@ -2,6 +2,12 @@
 
 本契约支持任意 2+ Agent，不固定具体 Agent 名称。
 
+## 状态说明
+
+Run.status 是粗粒度生命周期状态：`accepted` / `running` / `completed` / `failed` / `cancelled`。内部阶段（如 `dispatching`、`agent_task_running`、`retrying`）是细粒度 phase，不得写入 Run.status。
+
+run_steps.step_type 记录每个步骤的持久化详细类型（如 `planning` / `dispatch` / `agent_call` / `retry` / `aggregate`），用于审计和排障。
+
 ## 策略
 
 ```text

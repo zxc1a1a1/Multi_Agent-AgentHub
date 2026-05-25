@@ -63,7 +63,7 @@ AgentCard Registry
 /health 健康检查
 结构化多轮消息
 LLM Planner 选择 Agent
-single / ordered-parallel 执行策略
+single / ordered_parallel 执行策略
 fallback / retry 提示
 code / webpage / markdown 等多产物输出
 ```
@@ -100,7 +100,7 @@ ADK Runtime 负责：
 - 创建 Task Runtime Context。
 - 调用 Agent Task Handler。
 - 将 `ctx.StreamText()` 转成 A2A text event。
-- 将 `ctx.AddArtifact()` 转成 A2A artifact event。
+- 将 `ctx.AddArtifact()` 转成 A2A artifact event（其中 artifact 为 ArtifactDraft）。
 - 将 handler error / `ctx.Fail()` 转成 A2A failed status。
 - 将 handler 成功返回转成 A2A completed status。
 
@@ -191,7 +191,7 @@ Task 输入: 结构化多轮消息
 Task 输出: text streaming + artifacts
 Artifact 类型: 按 artifact-contract 启用
 LLMClient: 启动时初始化并注入 Handler
-Execution: single + ordered-parallel
+Execution: single + ordered_parallel
 Failure: fallback / retry hint
 ```
 
@@ -374,7 +374,7 @@ ADK Runtime 必须把内部 Runtime API 映射为 A2A 事件。
 |---|---|
 | Handler 开始执行 | `status: working` |
 | `ctx.StreamText(chunk)` | `text` event |
-| `ctx.AddArtifact(artifact)` | `artifact` event |
+| `ctx.AddArtifact(artifact)` | `artifact` event（artifact 为 ArtifactDraft） |
 | `ctx.Fail(err)` | `status: failed` |
 | Handler return error | `status: failed` |
 | Handler return nil | `status: completed` |
@@ -444,7 +444,7 @@ Handler 不可以做：
 ```go
 ctx.Context() context.Context
 ctx.StreamText(chunk string) error
-ctx.AddArtifact(artifact adk.Artifact) error
+ctx.AddArtifact(artifact adk.ArtifactDraft) error
 ctx.Fail(err error) error
 ctx.Metadata() map[string]string
 ctx.Logger() Logger
@@ -462,7 +462,7 @@ ctx.LoadState(key string) (any, bool)
 ### 12.3 使用规则
 
 - `StreamText` 只输出用户可读文本。
-- `AddArtifact` 输出结构化产物。
+- `AddArtifact` 输出结构化产物（ArtifactDraft，非 Core Artifact）。
 - `Fail` 输出可控失败，不泄漏内部细节。
 - `Metadata` 只读访问 trace / run / task / agent 信息。
 - `Logger` 必须自动带上 trace 字段。
@@ -522,9 +522,11 @@ func main() {
 
 ## 15. Artifact Output Rules
 
-Artifact 是非普通文本的结构化产物。
+`ctx.AddArtifact()` 输出的是 **ArtifactDraft**，不是标准 Core Artifact。
 
-ADK Runtime 只负责输出标准 Artifact，不负责决定前端如何渲染。
+ArtifactDraft 是 Handler 能自主提供的最小产物描述。ADK Runtime 将其序列化为 A2A artifact event，之后由 Orchestrator / ArtifactRegistry 归一化为 Core Artifact。
+
+ADK Runtime 只负责输出 ArtifactDraft，不负责生成 `artifactId`、`mimeType`、`source.*`、`links.*`、`preview.*`、`version`、`status`、`createdAt` 等平台字段。
 
 Artifact 是否允许，由以下契约共同决定：
 
@@ -544,22 +546,39 @@ document / markdown
 
 但本 Skill 不固定 Agent 名称，也不规定某个 Agent 专属某种 Artifact。
 
+### 15.1 ArtifactDraft 结构
+
+```go
+type ArtifactDraft struct {
+    Type            string
+    Title           string
+    Content         string
+    ContentRefDraft string
+    Metadata        map[string]string
+}
+```
+
 规则：
 
-- 任意 Agent 都可以输出其 AgentCard.outputModes 声明且 Artifact Contract 支持的 Artifact。
+- `Type` 必须存在，对应 Artifact type。
+- `Title` 必须存在。
+- `Content` 或 `ContentRefDraft` 至少存在一个。
+- `Metadata` 应尽量提供 `language`、`mimeType` 提示。
+- Handler 不得在 ArtifactDraft 中设置 `artifactId`、`version`、`links.*`、`source.*`、`preview.*`、`status`、`createdAt`。
+- 任意 Agent 都可以输出其 AgentCard.outputModes 声明且 Artifact Contract 支持的 ArtifactDraft。
 - 不得用 agentName 判断 Artifact 类型。
-- Artifact 必须包含 `type`、`title`、`content`、`metadata`。
-- `metadata.language` / `metadata.mimeType` 应尽量提供。
-- 大型产物应作为 Artifact，不应只塞进文本流。
+- 大型产物应作为 ArtifactDraft，不应只塞进文本流。
 - Handler 不直接构造 `code_preview` / `web_preview` 参数。
-- Runtime 把 Artifact 转成 A2A artifact event。
-- Orchestrator 再把 A2A artifact 转成 AG-UI Tool Call。
+- Runtime 把 ArtifactDraft 转成 A2A artifact event。
+- Orchestrator 再把 ArtifactDraft 归一化为 Core Artifact，然后转成 AG-UI Tool Call。
 
 ---
 
 ## 16. Tool Registration and Permissions
 
 工具系统默认关闭。
+
+ADK tool registration（如 `config.yaml` 中 `tools.items[].name`）**不等于** AgentHub capabilityId。capabilityId 的事实源是 `AgentCard.skills[].id`。如需在工具与 capability 之间建立关联，应通过显式映射实现，不得直接用 tool name 作为 capabilityId。
 
 任何 Agent 启用工具前，必须在配置中声明：
 
@@ -636,11 +655,13 @@ traceId
 runId
 taskId
 agentName
-skillId
+capabilityId
 durationMs
 artifactCount
 errorCode
 ```
+
+`capabilityId` 对应 `AgentCard.skills[].id`。历史代码中如保留 `skillId` 字段，它只能是 `capabilityId` 的历史别名，不得作为独立概念存在。
 
 规则：
 
@@ -774,6 +795,7 @@ skills: data_analysis, sql_generate, report_write
 - AgentCard 是否与 Handler 实际能力一致？
 - outputModes 是否没有虚假声明？
 - skills[].id 是否稳定？
+- `skills[].id` 是否可被 Orchestrator 作为 `capabilityIds` 引用？
 
 ### Handler
 
@@ -794,10 +816,12 @@ skills: data_analysis, sql_generate, report_write
 
 ### Artifact
 
-- Artifact 是否包含 type / title / content / metadata？
+- `ctx.AddArtifact()` 输出的 ArtifactDraft 是否只包含 `type` / `title` / `content`（或 `contentRefDraft`）/ `metadata`？
+- ArtifactDraft 是否没有包含 `artifactId`、`version`、`links.*`、`source.*`、`preview.*`、`status`、`createdAt` 等平台字段？
 - 是否没有用 agentName 判断 Artifact 类型？
 - 是否没有直接构造前端 Tool Call？
 - 是否与 artifact-contract 兼容？
+- 是否没有把 ArtifactDraft 当作 Core Artifact？
 
 ### 工具与权限
 
@@ -806,6 +830,7 @@ skills: data_analysis, sql_generate, report_write
 - 是否有 timeout？
 - 危险工具是否 requiresConfirmation？
 - 是否遵守 security-boundary-contract？
+- ADK tool name 是否没有被直接当作 AgentHub capabilityId？
 
 ### 观测性
 

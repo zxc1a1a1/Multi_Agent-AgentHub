@@ -39,7 +39,8 @@ Review 以下内容时使用本清单：
 
 - [ ] 是否暴露 `POST /a2a/tasks/sendSubscribe`？
 - [ ] 是否支持结构化 messages？
-- [ ] 是否支持 metadata.runId / threadId / traceId / agentName？
+- [ ] 是否支持 metadata.runId / threadId（即 conversationId）/ traceId / agentName？
+- [ ] metadata.threadId 是否为 conversationId 的协议别名，未作为独立会话 ID？
 - [ ] metadata 是否不含 secret？
 - [ ] 是否由 Orchestrator / A2A Client 调用？
 - [ ] Frontend 是否没有直接调用？
@@ -57,12 +58,15 @@ Review 以下内容时使用本清单：
 ## 6. Artifact
 
 - [ ] Artifact type 是否被 AgentCard.outputModes 声明？
-- [ ] Artifact 是否包含 title？
-- [ ] Artifact 是否包含 content？
+- [ ] event.artifact 是否是 ArtifactDraft（非 Core Artifact）？
+- [ ] ArtifactDraft 是否只包含 `type`、`title`、`content`（或 `contentRefDraft`）、`metadata`？
+- [ ] ArtifactDraft 是否没有 `artifactId`、`version`、`links.*`、`source.*`、`preview.*`、`status`、`createdAt` 等平台字段？
 - [ ] Artifact metadata 是否足够？
 - [ ] Artifact 是否被 `artifact-contract` 支持？
-- [ ] Artifact 是否能映射到 Frontend Runtime Skill？
+- [ ] ArtifactDraft 是否能归一化为 Core Artifact？
 - [ ] Child Agent 是否没有直接输出 AG-UI Tool Call？
+- [ ] Child Agent A2A event 是否未直接透传给 Frontend？A2A event 必须先由 Orchestrator 转为 OrchestratorStreamEvent，再由 Gateway 映射为 AG-UI Event。
+- [ ] 是否没有把 ArtifactDraft 当作 Core Artifact？
 
 ## 7. Registry
 

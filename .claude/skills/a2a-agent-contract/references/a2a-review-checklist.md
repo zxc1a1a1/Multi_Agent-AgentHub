@@ -41,11 +41,12 @@
 ## Artifact
 
 - [ ] Artifact type 是否被 AgentCard.outputModes 声明？
-- [ ] Artifact 是否包含 title？
-- [ ] Artifact 是否包含 content？
+- [ ] ArtifactDraft 是否只包含 Child Agent 可提供的字段（`type`、`title`、`content`/`contentRefDraft`、`metadata`）？
+- [ ] ArtifactDraft 是否没有包含 `artifactId`、`version`、`links.*`、`source.*`、`preview.*`、`status`、`createdAt` 等平台字段？
 - [ ] Artifact metadata 是否足够？
-- [ ] Artifact 是否能映射到 Frontend Runtime Skill？
+- [ ] ArtifactDraft 是否能归一化为 Core Artifact？
 - [ ] Child Agent 是否没有直接输出 AG-UI Tool Call？
+- [ ] 是否没有把 ArtifactDraft 当作 Core Artifact？
 
 ## Orchestrator
 

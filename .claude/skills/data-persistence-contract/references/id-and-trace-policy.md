@@ -22,7 +22,8 @@ user_id
 - 每条 message 必须有稳定 id。
 - 每次 run 必须有稳定 id。
 - 多 Agent 场景下每个 AgentTask 必须能关联 run。
-- Artifact 必须能关联 message、run、agent。
+- Artifact 必须能关联 message、run、agent。DB `artifacts.id` 存储 Core `artifactId` 值。Core `artifactId` = DB `id` = Public API `id` 是同一个系统 ID 在不同层级的命名，不另行生成独立的 public id。
+- `conversationId` 是 AgentHub 内部主字段。AG-UI `threadId` 和 A2A `metadata.threadId` 是其协议别名，不得视为独立会话 ID。
 - ToolCall 必须能关联 message 或 artifact。
 - 错误必须能通过 request_id 或 trace_id 排查。
 

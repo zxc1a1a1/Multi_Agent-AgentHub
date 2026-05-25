@@ -35,6 +35,7 @@
     },
     "planningMode": {
       "type": "string",
+      "description": "外部请求只允许 direct/mention/manual/auto。fallback 仅限 Orchestrator 内部生成的降级计划。",
       "enum": [
         "direct",
         "mention",
@@ -105,6 +106,23 @@
           "maximum": 5
         }
       }
+    },
+    "parentPlanId": {
+      "type": "string",
+      "description": "fallback plan 的原计划 ID"
+    },
+    "fallbackOf": {
+      "type": "object",
+      "description": "fallback plan 指向的原计划引用",
+      "additionalProperties": false,
+      "properties": {
+        "planId": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+    "reason": {
+      "type": "string",
+      "description": "触发 fallback 的原因摘要"
     },
     "validation": {
       "type": "object",

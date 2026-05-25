@@ -2,6 +2,9 @@
 
 ## Conversation
 
+`conversationId` 是 AgentHub 内部会话主标识。DB `conversations.id` 存储此值。
+AG-UI `threadId` 和 A2A `metadata.threadId` 是其协议别名，不得视为第二套独立会话 ID。
+
 `conversations` 表表达会话本体。
 
 关键字段：

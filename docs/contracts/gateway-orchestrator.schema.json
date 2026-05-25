@@ -223,7 +223,25 @@
         },
         "fallback": {
           "type": "object",
-          "additionalProperties": true
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "same_capability_alternative",
+                "lower_risk_plan",
+                "single_agent_fallback",
+                "fail_fast"
+              ]
+            },
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            }
+          }
         }
       },
       "additionalProperties": false

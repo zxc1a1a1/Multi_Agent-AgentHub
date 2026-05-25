@@ -36,6 +36,12 @@ Tool Call 用于让前端渲染某类产物或交互控件。
 
 前端只能在收到 `TOOL_CALL_END` 后解析并执行。
 
+## 事件来源
+
+Tool Call 事件由 `OrchestratorStreamEvent` 的 `tool_call_start` / `tool_call_args` / `tool_call_end` 经 Gateway / ProtocolConverter 映射而来。
+
+Child Agent 原始 A2A artifact event 不得直接透传给 Frontend。
+
 ## 规则
 
 - 未知 `toolName` 不得导致前端崩溃。

@@ -338,6 +338,7 @@ description
 url
 version
 status
+health
 agent_card
 skills
 input_modes
@@ -352,7 +353,9 @@ deleted_at
 规则：
 
 - `name` 必须唯一。
-- `status = healthy | unhealthy | unknown | disabled`。
+- `status = enabled | disabled | experimental | deprecated`（生命周期/启用状态）。
+- `health = healthy | degraded | unhealthy | unknown`（当前健康状态，由 Registry 周期性探测后归一化写入）。
+- `disabled` 属于 `status`，不属于 `health`。
 - `agent_card` 可保存能力声明摘要。
 - `skills`、`input_modes`、`output_modes` 可以使用 JSON，但必须有结构说明。
 - 不得保存 Agent 内部 secret。
@@ -372,10 +375,12 @@ error_message
 checked_at
 created_at
 ```
+`status = healthy | degraded | unhealthy | unknown`（归一化后健康状态）
 
 规则：
 
 - 健康检查失败必须可追踪。
+- `status = healthy | degraded | unhealthy | unknown`（归一化后的健康状态，非 A2A 原始探针值）。
 - `error_message` 必须脱敏。
 - 可只保留最近一段时间的历史。
 - 如果不建独立历史表，`agents` 表必须至少保存当前健康状态。
@@ -389,6 +394,7 @@ id
 conversation_id
 user_id
 status
+phase
 strategy
 intent_summary
 trace_id
@@ -403,7 +409,9 @@ updated_at
 
 规则：
 
-- `strategy = single | parallel | sequential`。
+- `status` 是粗粒度生命周期状态，只允许 5 值：`accepted | running | completed | failed | cancelled`。内部细粒度阶段不得写入 `status`。
+- `phase` 是可选细粒度当前阶段（如 `planning` / `dispatching` / `aggregating`），用于展示运行细节。`phase` 不等同于 `status`。
+- `strategy = single | ordered_parallel | sequential`。legacy `parallel` / `ordered-parallel` 仅作为兼容输入别名，入库前归一化为 `ordered_parallel`。
 - `intent_summary` 只能保存脱敏摘要。
 - Run 不应绑定唯一 Agent。
 - 一个 Run 可以关联多个 message、step、agent task、artifact、tool call。
@@ -431,7 +439,7 @@ updated_at
 
 规则：
 
-- `step_type = planning | dispatch | agent_task | tool_call | artifact | retry | fallback`。
+- `step_type` 是持久化详细步骤类型：`planning | dispatch | agent_call | tool_call | artifact | retry | fallback | aggregate`。`step_type` 比 `runs.phase` 更细粒度，用于审计和排障。
 - `input_summary` 与 `output_summary` 只能保存摘要。
 - 不保存完整敏感 prompt。
 
@@ -513,6 +521,7 @@ deleted_at
 
 规则：
 
+- `id` 存储 Core Artifact.artifactId 值。DB `artifacts.id` = Core `artifactId` = Public API `id`，是同一个系统 ID 在不同层级的命名，不另行生成独立的 public id。
 - `type` 不固定为单一类型。
 - v1.0 至少能持久化 `code`、`webpage`、`markdown` 类产物。
 - 小内容可以 `content` inline。
@@ -773,6 +782,9 @@ contract: 删除旧字段、清理兼容逻辑
 - 是否有 messages？
 - 是否有 agents？
 - 是否有 agent_health_checks 或等价字段？
+- `agents.status` 是否只使用 `enabled | disabled | experimental | deprecated`？
+- `agents.health` 是否与 `agents.status` 分离？
+- `disabled` 是否没有出现在 health 字段中？
 - 是否有 runs？
 - 是否有 run_steps？
 - 是否有 agent_tasks 或兼容表？
@@ -786,6 +798,8 @@ contract: 删除旧字段、清理兼容逻辑
 - run 是否能关联多 message？
 - agent_task 是否关联 run？
 - artifact 是否关联 message / run / agent？
+- `artifacts.id` 是否存储 Core `artifactId` 值，未另行生成独立 public id？
+- Core `artifactId` = DB `id` = Public API `id` 是否在文档中明确为同一 ID？
 - tool_call 是否关联 message / artifact？
 - 多 Agent 消息是否能追溯 agentName？
 

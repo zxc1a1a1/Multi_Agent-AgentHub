@@ -10,5 +10,5 @@
 
 - Fake LLM 必须确定性。
 - Fake Agent 必须通用命名。
-- Fake Registry 必须支持 healthy / unhealthy / disabled。
+- Fake Registry 必须支持 status（enabled/disabled）与 health（healthy/unhealthy）。
 - Replay fixtures 必须包含中断和 malformed event。

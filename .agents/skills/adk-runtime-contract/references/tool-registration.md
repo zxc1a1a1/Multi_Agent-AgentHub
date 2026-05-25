@@ -4,6 +4,8 @@
 
 本文定义 ADK Runtime 的工具注册与权限规则。
 
+ADK tool registration（`tools.items[].name`）**不等于** AgentHub capabilityId。capabilityId 的事实源是 `AgentCard.skills[].id`。如需在工具与 capability 之间建立关联，应通过显式映射实现，不得直接用 tool name 作为 capabilityId。
+
 v1.0 中工具系统可以保持最小实现，但 Contract 必须为后续新增 Agent 留出安全边界。
 
 ## 默认策略
@@ -64,6 +66,7 @@ tools:
 - 不得默认启用 shell。
 - 不得默认启用浏览器自动化。
 - 不得默认启用部署能力。
+- ADK tool name 不得直接当作 AgentHub capabilityId。
 
 ## Review Checklist
 

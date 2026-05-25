@@ -33,10 +33,31 @@ Registry 是前端 Runtime Capability 的唯一入口。
 | `disabled` | 存在但禁用 |
 | `deprecated` | 兼容旧能力，不推荐新增使用 |
 
+## 三层边界
+
+`toolName` 是前端运行时能力名，由 `preview.previewType` 决定，不由 `outputMode` 直接决定：
+
+```text
+outputMode → artifact.type → previewType → toolName
+```
+
+- `outputMode`：Agent 声明的语义类别（上游，不直接驱动前端）。
+- `artifact.type`：平台归一化后的产物类型（中游）。
+- `previewType`：预览意图，应优先等于 toolName。
+- `toolName`：前端 Registry 查询键（下游）。
+
+三者不得直接等同。所有转换必须通过映射表表达。
+
 ## 硬性规则
 
 - `toolName` 必须唯一。
 - `toolName` 必须使用 `snake_case`。
+- `previewType` 应优先等于 Runtime `toolName`。
+- `artifact.type` 不是 `toolName`。
+- `outputMode` 不是 `toolName`。
+- `toolName` 由 `preview.previewType` 决定，不由 `outputMode` 直接决定。
+- 不得通过 `agentName` 推断 outputMode 或选择 toolName。
+- 不得使用 `download` 作为 toolName（已废弃，统一使用 `file_download`）。
 - `status !== implemented` 时不得自动执行。
 - Registry 不得包含 `agentName → component` 映射。
 - Registry 不得使用 `allowedInMvp` 这类历史阶段字段作为执行判断。

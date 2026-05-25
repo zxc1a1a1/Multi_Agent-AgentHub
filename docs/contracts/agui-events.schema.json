@@ -26,7 +26,8 @@
       "type": "string"
     },
     "threadId": {
-      "type": "string"
+      "type": "string",
+      "description": "conversationId 的 AG-UI 协议别名。内部统一使用 conversationId。"
     },
     "messageId": {
       "type": "string"
@@ -101,8 +102,7 @@
           "type": "string",
           "enum": [
             "single",
-            "parallel",
-            "ordered-parallel",
+            "ordered_parallel",
             "sequential"
           ]
         },

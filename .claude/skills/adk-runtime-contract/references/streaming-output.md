@@ -41,13 +41,15 @@ ctx.StreamText(chunk) → A2A text event → AG-UI TEXT_MESSAGE_CONTENT
 
 ## Artifact 关系
 
-如果内容需要结构化预览，应同时输出 Artifact。
+如果内容需要结构化预览，应同时输出 ArtifactDraft（通过 `ctx.AddArtifact()`）。
 
 例如：
 
-- 代码预览：输出 `code` Artifact。
-- 网页预览：输出 `webpage` Artifact。
-- Markdown 文档下载或独立预览：输出 `document` Artifact。
+- 代码预览：输出 `code` ArtifactDraft。
+- 网页预览：输出 `webpage` ArtifactDraft。
+- Markdown 文档下载或独立预览：输出 `document` ArtifactDraft。
+
+注意：`ctx.AddArtifact()` 输出的是 ArtifactDraft，由 Orchestrator / ArtifactRegistry 归一化为 Core Artifact。
 
 ## 禁止事项
 
