@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.local/contracts/security-boundaries.schema.json",
+  "title": "AgentHub Security Boundary Contract Schema",
+  "description": "用于校验 AgentHub 安全边界条目、风险等级、权限、确认、审计和禁止项的契约结构。",
+  "type": "object",
+  "required": [
+    "version",
+    "trustBoundaries",
+    "securityPolicies",
+    "reviewChecklist"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "契约版本。"
+    },
+    "trustBoundaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "trustLevel",
+          "rules"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "trustLevel": {
+            "type": "string",
+            "enum": [
+              "trusted",
+              "internal",
+              "partially_trusted",
+              "untrusted"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "forbidden": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securityPolicies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "category",
+          "riskLevel",
+          "requirements"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "riskLevel": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ]
+          },
+          "requiresAuth": {
+            "type": "boolean"
+          },
+          "requiresAuthorization": {
+            "type": "boolean"
+          },
+          "requiresConfirmation": {
+            "type": "boolean"
+          },
+          "auditRequired": {
+            "type": "boolean"
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "forbidden": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "reviewChecklist": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

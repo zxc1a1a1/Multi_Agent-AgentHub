@@ -134,7 +134,7 @@ mysql -u root -p"$DB_PASSWORD" -e "USE agenthub; SHOW TABLES;"
 
 ```bash
 echo "LLM_PROVIDER=$LLM_PROVIDER"           # openai
-echo "OPENAI_BASE_URL=$OPENAI_BASE_URL"     # https://api.example.com/v1
+echo "OPENAI_BASE_URL=$OPENAI_BASE_URL"     # <your-openai-base-url>
 echo "OPENAI_MODEL=$OPENAI_MODEL"           # <your-endpoint-id>
 echo "AGENTHUB_API_TOKEN=$AGENTHUB_API_TOKEN"  # (21 chars)
 echo "DB_PASSWORD=$DB_PASSWORD"             # test123
@@ -590,7 +590,7 @@ grep -iE '(panic|fatal|sk-ant-|sk-[a-z0-9]{20,}|API.key|secret)' /tmp/code-agent
 ### 8.3 LLM 请求详情
 
 ```
-Endpoint: POST https://api.example.com/v1/chat/completions
+Endpoint: POST <your-openai-base-url>/chat/completions
 Model:    <your-endpoint-id>
 Auth:     Authorization: Bearer <46 chars>
 Protocol: OpenAI Chat Completions (stream: true)

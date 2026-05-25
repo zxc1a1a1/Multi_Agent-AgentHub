@@ -1,171 +1,67 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agenthub.local/contracts/llm-provider.schema.json",
-  "title": "AgentHub LLM Provider Contract",
+  "$id": "https://agenthub.local/schemas/llm-provider.schema.json",
+  "title": "AgentHub LLM Provider Contract Schema",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "version",
-    "defaultProvider",
-    "providers",
-    "security"
-  ],
   "properties": {
-    "version": {
-      "type": "string"
-    },
-    "defaultProvider": {
-      "type": "string",
-      "minLength": 1
-    },
-    "defaultModel": {
-      "type": "string",
-      "minLength": 1
-    },
     "providers": {
       "type": "array",
-      "minItems": 1,
       "items": {
-        "$ref": "#/$defs/provider"
-      }
+        "$ref": "#/$defs/providerDefinition"
+      },
+      "minItems": 1
     },
-    "fallback": {
-      "$ref": "#/$defs/fallbackPolicy"
-    },
-    "security": {
-      "$ref": "#/$defs/securityPolicy"
-    },
-    "observability": {
-      "$ref": "#/$defs/observabilityPolicy"
+    "models": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/modelDefinition"
+      },
+      "minItems": 1
     }
   },
+  "required": [
+    "providers",
+    "models"
+  ],
   "$defs": {
-    "providerType": {
-      "enum": [
-        "openai",
-        "anthropic",
-        "gemini",
-        "openai_compatible",
-        "local"
-      ]
-    },
-    "costClass": {
-      "enum": [
-        "unknown",
-        "low",
-        "medium",
-        "high",
-        "premium"
-      ]
-    },
-    "provider": {
+    "providerDefinition": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "name",
-        "type",
-        "enabled",
-        "defaultModel",
-        "timeoutMs",
-        "retry",
-        "models"
-      ],
       "properties": {
-        "name": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9-]*$"
-        },
-        "type": {
-          "$ref": "#/$defs/providerType"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "baseURL": {
-          "type": "string",
-          "format": "uri"
-        },
-        "apiKeyEnv": {
-          "type": "string",
-          "pattern": "^[A-Z][A-Z0-9_]*$",
-          "description": "Environment variable name only. Never store the real API key here."
-        },
-        "defaultModel": {
+        "providerName": {
           "type": "string",
           "minLength": 1
+        },
+        "providerType": {
+          "enum": [
+            "openai",
+            "anthropic",
+            "gemini",
+            "openai_compatible",
+            "local"
+          ]
+        },
+        "status": {
+          "enum": [
+            "enabled",
+            "disabled",
+            "experimental",
+            "deprecated"
+          ]
+        },
+        "baseURL": {
+          "type": "string"
+        },
+        "apiKeyEnv": {
+          "type": "string"
+        },
+        "defaultModel": {
+          "type": "string"
         },
         "timeoutMs": {
           "type": "integer",
-          "minimum": 1000,
-          "maximum": 600000
-        },
-        "retry": {
-          "$ref": "#/$defs/retryPolicy"
-        },
-        "rateLimit": {
-          "$ref": "#/$defs/rateLimitPolicy"
-        },
-        "models": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/model"
-          }
-        }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "enum": [
-                  "openai",
-                  "anthropic",
-                  "gemini",
-                  "openai_compatible"
-                ]
-              }
-            },
-            "required": [
-              "type"
-            ]
-          },
-          "then": {
-            "required": [
-              "apiKeyEnv"
-            ]
-          }
-        }
-      ]
-    },
-    "model": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "providerModel",
-        "enabled",
-        "supportsStreaming",
-        "supportsStructuredOutput",
-        "supportsJsonSchema",
-        "supportsToolUse",
-        "supportsVision",
-        "maxInputTokens",
-        "maxOutputTokens",
-        "costClass",
-        "defaultTimeoutMs"
-      ],
-      "properties": {
-        "id": {
-          "type": "string",
-          "pattern": "^[a-zA-Z0-9._:-]+$"
-        },
-        "providerModel": {
-          "type": "string",
-          "minLength": 1
-        },
-        "enabled": {
-          "type": "boolean"
+          "minimum": 1
         },
         "supportsStreaming": {
           "type": "boolean"
@@ -173,247 +69,115 @@
         "supportsStructuredOutput": {
           "type": "boolean"
         },
-        "supportsJsonSchema": {
-          "type": "boolean"
-        },
         "supportsToolUse": {
           "type": "boolean"
+        }
+      },
+      "required": [
+        "providerName",
+        "providerType",
+        "status",
+        "timeoutMs",
+        "supportsStreaming",
+        "supportsStructuredOutput",
+        "supportsToolUse"
+      ]
+    },
+    "modelDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "modelId": {
+          "type": "string",
+          "minLength": 1
         },
-        "supportsVision": {
-          "type": "boolean"
+        "providerName": {
+          "type": "string",
+          "minLength": 1
         },
-        "maxInputTokens": {
-          "type": "integer",
-          "minimum": 1
+        "displayName": {
+          "type": "string"
         },
-        "maxOutputTokens": {
-          "type": "integer",
-          "minimum": 1
+        "status": {
+          "enum": [
+            "enabled",
+            "disabled",
+            "deprecated"
+          ]
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "streaming": {
+              "type": "boolean"
+            },
+            "structuredOutput": {
+              "type": "boolean"
+            },
+            "jsonSchema": {
+              "type": "boolean"
+            },
+            "toolUse": {
+              "type": "boolean"
+            },
+            "vision": {
+              "type": "boolean"
+            },
+            "reasoning": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "streaming",
+            "structuredOutput",
+            "jsonSchema",
+            "toolUse",
+            "vision",
+            "reasoning"
+          ]
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxInputTokens": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxOutputTokens": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "defaultTimeoutMs": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         },
         "costClass": {
-          "$ref": "#/$defs/costClass"
-        },
-        "defaultTimeoutMs": {
-          "type": "integer",
-          "minimum": 1000,
-          "maximum": 600000
-        },
-        "metadata": {
-          "type": "object",
-          "additionalProperties": true
-        }
-      }
-    },
-    "retryPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "maxAttempts",
-        "backoff",
-        "jitter"
-      ],
-      "properties": {
-        "maxAttempts": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 10
-        },
-        "backoff": {
           "enum": [
-            "none",
-            "fixed",
-            "linear",
-            "exponential"
+            "free",
+            "low",
+            "medium",
+            "high",
+            "unknown"
           ]
         },
-        "initialDelayMs": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "maxDelayMs": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "jitter": {
-          "type": "boolean"
-        },
-        "retryableStatusCodes": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "uniqueItems": true
-        }
-      }
-    },
-    "rateLimitPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "requestsPerMinute": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "tokensPerMinute": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "maxConcurrentRequests": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "budgetUsdPerDay": {
-          "type": "number",
-          "minimum": 0
-        }
-      }
-    },
-    "fallbackPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "enabled"
-      ],
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "maxAttempts": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 10
-        },
-        "fallbackModels": {
+        "useCases": {
           "type": "array",
           "items": {
             "type": "string"
           }
-        },
-        "fallbackProviders": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "preserveStructuredOutput": {
-          "type": "boolean"
-        },
-        "preserveSafetyLevel": {
-          "type": "boolean"
         }
-      }
-    },
-    "securityPolicy": {
-      "type": "object",
-      "additionalProperties": false,
+      },
       "required": [
-        "secretSource",
-        "forbidInlineApiKey",
-        "redactSecretsInLogs",
-        "allowProviderRawErrorsToUser"
-      ],
-      "properties": {
-        "secretSource": {
-          "enum": [
-            "env",
-            "secret_manager",
-            "runtime_injected"
-          ]
-        },
-        "forbidInlineApiKey": {
-          "const": true
-        },
-        "redactSecretsInLogs": {
-          "const": true
-        },
-        "allowProviderRawErrorsToUser": {
-          "const": false
-        }
-      }
-    },
-    "observabilityPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "emitUsageMetrics": {
-          "type": "boolean"
-        },
-        "emitCostEstimate": {
-          "type": "boolean"
-        },
-        "emitProviderLatency": {
-          "type": "boolean"
-        },
-        "includeTraceId": {
-          "type": "boolean"
-        }
-      }
+        "modelId",
+        "providerName",
+        "status",
+        "capabilities",
+        "costClass"
+      ]
     }
-  },
-  "examples": [
-    {
-      "version": "v0.1-p1",
-      "defaultProvider": "anthropic-main",
-      "defaultModel": "claude-sonnet",
-      "providers": [
-        {
-          "name": "anthropic-main",
-          "type": "anthropic",
-          "enabled": true,
-          "apiKeyEnv": "ANTHROPIC_API_KEY",
-          "defaultModel": "claude-sonnet",
-          "timeoutMs": 60000,
-          "retry": {
-            "maxAttempts": 3,
-            "backoff": "exponential",
-            "initialDelayMs": 500,
-            "maxDelayMs": 8000,
-            "jitter": true,
-            "retryableStatusCodes": [
-              429,
-              500,
-              502,
-              503,
-              504
-            ]
-          },
-          "rateLimit": {
-            "requestsPerMinute": 60,
-            "maxConcurrentRequests": 4
-          },
-          "models": [
-            {
-              "id": "claude-sonnet",
-              "providerModel": "claude-sonnet",
-              "enabled": true,
-              "supportsStreaming": true,
-              "supportsStructuredOutput": false,
-              "supportsJsonSchema": false,
-              "supportsToolUse": true,
-              "supportsVision": true,
-              "maxInputTokens": 200000,
-              "maxOutputTokens": 8192,
-              "costClass": "premium",
-              "defaultTimeoutMs": 60000
-            }
-          ]
-        }
-      ],
-      "fallback": {
-        "enabled": false
-      },
-      "security": {
-        "secretSource": "env",
-        "forbidInlineApiKey": true,
-        "redactSecretsInLogs": true,
-        "allowProviderRawErrorsToUser": false
-      },
-      "observability": {
-        "emitUsageMetrics": true,
-        "emitCostEstimate": false,
-        "emitProviderLatency": true,
-        "includeTraceId": true
-      }
-    }
-  ]
+  }
 }

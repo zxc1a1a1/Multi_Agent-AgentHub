@@ -1,38 +1,29 @@
 openapi: 3.1.0
 info:
   title: AgentHub Platform API
-  version: 0.1.0
-  description: |
-    AgentHub Frontend ↔ Gateway REST API Contract（唯一事实源）。
-
-    边界说明：
-    - 本文档仅覆盖 Frontend ↔ Gateway 的 REST API（持久化资源查询与管理）。
-    - AG-UI 事件流语义不在此展开，由 agui-event-contract 定义。
-    - A2A Task 不在此展开，由 a2a-agent-contract 定义。
-    - Gateway ↔ Orchestrator 内部 Run 协议不在此展开，由 gateway-orchestrator-contract 定义。
-
+  version: 1.0.0
+  description: AgentHub Frontend 与 Gateway Service 之间的公开平台资源 API。Gateway 与 Orchestrator 分进程；本文件不得包含 Orchestrator 内部 API 或 Child Agent API。
 servers:
-  - url: http://localhost:8080
+  - url: /api
+    description: Gateway Service public API
 security:
   - bearerAuth: []
 tags:
-  - name: Conversation
-  - name: Agent
-  - name: CustomAgent
-  - name: Artifact
-  - name: AGUI
-
+  - name: Conversations
+  - name: Messages
+  - name: Agents
+  - name: Runs
+  - name: Artifacts
 paths:
-  /api/conversations:
+  /conversations:
     get:
-      tags: [Conversation]
-      summary: 查询会话列表
+      tags: [Conversations]
       operationId: listConversations
+      summary: 查询会话列表
+      x-agenthub-lifecycle: implemented
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/SortBy'
-        - $ref: '#/components/parameters/SortOrder'
         - $ref: '#/components/parameters/Keyword'
       responses:
         '200':
@@ -40,37 +31,14 @@ paths:
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageResponse'
-                  - type: object
-                    properties:
-                      data:
-                        allOf:
-                          - $ref: '#/components/schemas/PageData'
-                          - type: object
-                            properties:
-                              list:
-                                type: array
-                                items:
-                                  $ref: '#/components/schemas/ConversationSummary'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+                $ref: '#/components/schemas/ListConversationsResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '502':
-          $ref: '#/components/responses/BadGateway'
-        '504':
-          $ref: '#/components/responses/GatewayTimeout'
     post:
-      tags: [Conversation]
-      summary: 创建会话
+      tags: [Conversations]
       operationId: createConversation
+      summary: 创建会话
+      x-agenthub-lifecycle: implemented
       requestBody:
         required: true
         content:
@@ -78,132 +46,39 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateConversationRequest'
       responses:
-        '201':
-          description: 创建成功
+        '200':
+          description: 成功
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/ConversationDetail'
+                $ref: '#/components/schemas/ConversationResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /api/conversations/{id}:
+  /conversations/{conversationId}:
     get:
-      tags: [Conversation]
-      summary: 查询会话详情
+      tags: [Conversations]
       operationId: getConversation
+      summary: 查询会话详情
+      x-agenthub-lifecycle: implemented
       parameters:
-        - $ref: '#/components/parameters/IdPath'
+        - $ref: '#/components/parameters/ConversationId'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/ConversationDetail'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: '#/components/schemas/ConversationResponse'
         '404':
           $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    patch:
-      tags: [Conversation]
-      summary: 更新会话
-      operationId: updateConversation
-      parameters:
-        - $ref: '#/components/parameters/IdPath'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateConversationRequest'
-      responses:
-        '200':
-          description: 更新成功
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/ConversationDetail'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    delete:
-      tags: [Conversation]
-      summary: 删除会话
-      operationId: deleteConversation
-      parameters:
-        - $ref: '#/components/parameters/IdPath'
-      responses:
-        '200':
-          description: 删除成功
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        required: [id, deleted]
-                        properties:
-                          id:
-                            type: string
-                            format: uuid
-                          deleted:
-                            type: boolean
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /api/conversations/{id}/messages:
+  /conversations/{conversationId}/messages:
     get:
-      tags: [Conversation]
-      summary: 查询会话消息分页列表
-      operationId: listMessages
+      tags: [Messages]
+      operationId: listConversationMessages
+      summary: 查询会话消息
+      x-agenthub-lifecycle: implemented
       parameters:
-        - $ref: '#/components/parameters/ConversationIdPath'
+        - $ref: '#/components/parameters/ConversationId'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
       responses:
@@ -212,38 +87,29 @@ paths:
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageResponse'
-                  - type: object
-                    properties:
-                      data:
-                        allOf:
-                          - $ref: '#/components/schemas/PageData'
-                          - type: object
-                            properties:
-                              list:
-                                type: array
-                                items:
-                                  $ref: '#/components/schemas/MessageSummary'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /api/agents:
+                $ref: '#/components/schemas/ListMessagesResponse'
+  /conversations/{conversationId}/participants:
     get:
-      tags: [Agent]
-      summary: 查询 Agent 列表
+      tags: [Conversations]
+      operationId: listConversationParticipants
+      summary: 查询会话参与者
+      x-agenthub-lifecycle: planned
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListParticipantsResponse'
+  /agents:
+    get:
+      tags: [Agents]
       operationId: listAgents
+      summary: 查询 Agent 摘要列表
+      x-agenthub-lifecycle: implemented
       parameters:
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/Keyword'
       responses:
         '200':
@@ -251,917 +117,257 @@ paths:
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageResponse'
-                  - type: object
-                    properties:
-                      data:
-                        allOf:
-                          - $ref: '#/components/schemas/PageData'
-                          - type: object
-                            properties:
-                              list:
-                                type: array
-                                items:
-                                  $ref: '#/components/schemas/AgentSummary'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /api/agents/{name}/card:
+                $ref: '#/components/schemas/ListAgentsResponse'
+  /agents/{agentName}:
     get:
-      tags: [Agent]
-      summary: 查询指定 AgentCard
-      operationId: getAgentCard
+      tags: [Agents]
+      operationId: getAgent
+      summary: 查询 Agent 摘要详情
+      x-agenthub-lifecycle: implemented
       parameters:
-        - $ref: '#/components/parameters/AgentNamePath'
+        - $ref: '#/components/parameters/AgentName'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/AgentCard'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: '#/components/schemas/AgentResponse'
         '404':
           $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /api/agents/custom:
+  /runs:
     post:
-      tags: [CustomAgent]
-      summary: 创建自定义 Agent
-      operationId: createCustomAgent
+      tags: [Runs]
+      operationId: createRun
+      summary: 创建一次平台运行
+      x-agenthub-lifecycle: implemented
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateCustomAgentRequest'
-      responses:
-        '201':
-          description: 创建成功
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/AgentSummary'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /api/agents/custom/{id}:
-    patch:
-      tags: [CustomAgent]
-      summary: 更新自定义 Agent
-      operationId: updateCustomAgent
-      parameters:
-        - $ref: '#/components/parameters/IdPath'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateCustomAgentRequest'
+              $ref: '#/components/schemas/CreateRunRequest'
       responses:
         '200':
-          description: 更新成功
+          description: 成功
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/AgentSummary'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    delete:
-      tags: [CustomAgent]
-      summary: 删除（禁用）自定义 Agent
-      operationId: deleteCustomAgent
-      parameters:
-        - $ref: '#/components/parameters/IdPath'
-      responses:
-        '200':
-          description: 删除成功
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        required: [id, isActive]
-                        properties:
-                          id:
-                            type: string
-                            format: uuid
-                          isActive:
-                            type: boolean
-                            example: false
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /api/artifacts/{id}:
+                $ref: '#/components/schemas/RunResponse'
+  /runs/{runId}:
     get:
-      tags: [Artifact]
-      summary: 查询 Artifact 元数据
+      tags: [Runs]
+      operationId: getRun
+      summary: 查询运行状态
+      x-agenthub-lifecycle: implemented
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /runs/{runId}/cancel:
+    post:
+      tags: [Runs]
+      operationId: cancelRun
+      summary: 取消运行
+      x-agenthub-lifecycle: implemented
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /artifacts/{artifactId}:
+    get:
+      tags: [Artifacts]
       operationId: getArtifact
+      summary: 查询 Artifact 元数据
+      x-agenthub-lifecycle: implemented
       parameters:
-        - $ref: '#/components/parameters/IdPath'
+        - $ref: '#/components/parameters/ArtifactId'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Artifact'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                $ref: '#/components/schemas/ArtifactResponse'
         '404':
           $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /api/artifacts/{id}/preview:
-    get:
-      tags: [Artifact]
-      summary: 查询 Artifact 预览数据
-      operationId: previewArtifact
-      parameters:
-        - $ref: '#/components/parameters/IdPath'
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/ArtifactPreview'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /api/agui/run:
-    post:
-      tags: [AGUI]
-      summary: 发起 AG-UI Run（仅登记 HTTP 形态）
-      operationId: runAGUI
-      description: |
-        该接口属于 AG-UI 入口。本文档只登记 HTTP 形态。
-        事件类型（如 RUN_STARTED/TEXT_MESSAGE_CONTENT/TOOL_CALL）由 agui-event-contract 定义。
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AGUIRunRequest'
-      responses:
-        '202':
-          description: 已接受
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        required: [runId, status]
-                        properties:
-                          runId:
-                            type: string
-                          status:
-                            type: string
-                            enum: [accepted]
-            text/event-stream:
-              schema:
-                type: string
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /api/agui/run/{runId}/cancel:
-    post:
-      tags: [AGUI]
-      summary: 取消 AG-UI Run（仅登记 HTTP 形态）
-      operationId: cancelAGUIRun
-      description: 该接口语义由 agui-event-contract 定义。
-      parameters:
-        - $ref: '#/components/parameters/RunIdPath'
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/AGUICancelRunResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /api/agui/run/{runId}/tool-result:
-    post:
-      tags: [AGUI]
-      summary: 回传 AG-UI ToolResult（仅登记 HTTP 形态）
-      operationId: submitAGUIToolResult
-      description: ToolResult 语义由 agui-event-contract 定义。
-      parameters:
-        - $ref: '#/components/parameters/RunIdPath'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AGUIToolResultRequest'
-      responses:
-        '200':
-          description: 已接收
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        required: [runId, toolCallId, status]
-                        properties:
-                          runId:
-                            type: string
-                          toolCallId:
-                            type: string
-                          status:
-                            type: string
-                            enum: [received]
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
-
+      bearerFormat: 用户访问令牌
   parameters:
-    IdPath:
-      name: id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    ConversationIdPath:
-      name: id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    AgentNamePath:
-      name: name
-      in: path
-      required: true
-      schema:
-        type: string
-        minLength: 1
-    RunIdPath:
-      name: runId
-      in: path
-      required: true
-      schema:
-        type: string
-        minLength: 1
-    Page:
-      name: page
-      in: query
-      required: false
-      schema:
-        type: integer
-        minimum: 1
-        default: 1
-    PageSize:
-      name: pageSize
-      in: query
-      required: false
-      schema:
-        type: integer
-        minimum: 1
-        maximum: 100
-        default: 20
-    SortBy:
-      name: sortBy
-      in: query
-      required: false
-      schema:
-        type: string
-    SortOrder:
-      name: sortOrder
-      in: query
-      required: false
-      schema:
-        type: string
-        enum: [asc, desc]
-    Keyword:
-      name: keyword
-      in: query
-      required: false
-      schema:
-        type: string
-
+    Page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+    PageSize: { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+    Keyword: { name: keyword, in: query, schema: { type: string, maxLength: 100 } }
+    ConversationId: { name: conversationId, in: path, required: true, schema: { type: string } }
+    AgentName: { name: agentName, in: path, required: true, schema: { type: string } }
+    RunId: { name: runId, in: path, required: true, schema: { type: string } }
+    ArtifactId: { name: artifactId, in: path, required: true, schema: { type: string } }
   responses:
-    BadRequest:
-      description: 参数错误
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 400001
-            data: null
-            message: 参数错误
-    Unauthorized:
-      description: 未登录
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 401001
-            data: null
-            message: 未登录
-    Forbidden:
-      description: 无权限
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 403001
-            data: null
-            message: 无权限
-    NotFound:
-      description: 资源不存在
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 404001
-            data: null
-            message: 资源不存在
-    Conflict:
-      description: 资源冲突
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 409001
-            data: null
-            message: 资源冲突
-    TooManyRequests:
-      description: 请求过于频繁
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 429001
-            data: null
-            message: 请求过于频繁
-    InternalError:
-      description: 内部服务错误
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 500001
-            data: null
-            message: 内部服务错误
-    BadGateway:
-      description: 下游服务错误
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 502001
-            data: null
-            message: 下游服务错误
-    GatewayTimeout:
-      description: 服务超时
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 504001
-            data: null
-            message: 服务超时
-
+    BadRequest: { description: 请求参数无效, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+    Unauthorized: { description: 未认证, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+    NotFound: { description: 资源不存在或不可见, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+    Conflict: { description: 资源状态冲突, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
   schemas:
-    ApiResponse:
+    SuccessEnvelope:
       type: object
       required: [code, data, message]
       properties:
-        code:
-          type: integer
-          example: 0
+        code: { type: integer, const: 0 }
         data: {}
-        message:
-          type: string
-          example: success
-
-    ErrorResponse:
+        message: { type: string }
+    ErrorEnvelope:
       type: object
       required: [code, data, message]
       properties:
-        code:
-          type: integer
-        data:
-          type: 'null'
-          example: null
-        message:
-          type: string
-
-    PageData:
+        code: { type: integer }
+        data: { type: 'null' }
+        message: { type: string }
+    PageMeta:
       type: object
-      required: [list, total, page, pageSize]
+      required: [page, pageSize, total]
       properties:
-        list:
-          type: array
-          items: {}
-        total:
-          type: integer
-          minimum: 0
-        page:
-          type: integer
-          minimum: 1
-        pageSize:
-          type: integer
-          minimum: 1
-          maximum: 100
-
-    PageResponse:
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+    Participant:
       type: object
-      required: [code, data, message]
+      required: [type, id, name]
       properties:
-        code:
-          type: integer
-          example: 0
-        data:
-          $ref: '#/components/schemas/PageData'
-        message:
-          type: string
-          example: success
-
-    ConversationSummary:
+        type: { type: string, enum: [user, agent, system] }
+        id: { type: string }
+        name: { type: string }
+        displayName: { type: string }
+    Conversation:
       type: object
-      required: [id, title, type, isPinned, isArchived, lastMessage, unreadCount, createdAt, updatedAt]
+      required: [id, title, conversationType, createdAt, updatedAt]
       properties:
-        id:
-          type: string
-          format: uuid
-        title:
-          type: string
-        type:
-          type: string
-          enum: [single, group]
-        isPinned:
-          type: boolean
-        isArchived:
-          type: boolean
-        lastMessage:
-          type: string
-        unreadCount:
-          type: integer
-          minimum: 0
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
-    ConversationDetail:
-      allOf:
-        - $ref: '#/components/schemas/ConversationSummary'
-        - type: object
-          properties:
-            participants:
-              type: array
-              items:
-                type: string
-            initialAgentName:
-              type: [string, 'null']
-            lastMessageAt:
-              type: [string, 'null']
-              format: date-time
-
+        id: { type: string }
+        title: { type: string }
+        conversationType: { type: string, enum: [single, group] }
+        participants: { type: array, items: { $ref: '#/components/schemas/Participant' } }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        archived: { type: boolean }
     CreateConversationRequest:
       type: object
-      required: [title, type, participants]
+      required: [conversationType]
       properties:
-        title:
-          type: string
-          minLength: 1
-        type:
-          type: string
-          enum: [single, group]
-        participants:
-          type: array
-          minItems: 1
-          items:
-            type: string
-        initialAgentName:
-          type: [string, 'null']
-
-    UpdateConversationRequest:
+        title: { type: string }
+        conversationType: { type: string, enum: [single, group] }
+        participants: { type: array, items: { $ref: '#/components/schemas/Participant' } }
+        initialAgentName: { type: string, deprecated: true, description: 兼容字段，新增代码应使用 participants。 }
+    Message:
       type: object
+      required: [id, conversationId, senderType, content, status, createdAt]
       properties:
-        title:
-          type: string
-        isPinned:
-          type: boolean
-        isArchived:
-          type: boolean
-      additionalProperties: false
-
-    MessageContent:
+        id: { type: string }
+        conversationId: { type: string }
+        runId: { type: string }
+        senderType: { type: string, enum: [user, agent, system] }
+        senderId: { type: string }
+        senderName: { type: string }
+        content: { type: string }
+        contentFormat: { type: string, enum: [text, markdown, json] }
+        status: { type: string, enum: [created, streaming, completed, failed, cancelled] }
+        artifactRefs: { type: array, items: { $ref: '#/components/schemas/ResourceRef' } }
+        toolCallRefs: { type: array, items: { $ref: '#/components/schemas/ResourceRef' } }
+        createdAt: { type: string, format: date-time }
+    ResourceRef:
       type: object
-      required: [type]
+      required: [id]
       properties:
-        type:
-          type: string
-          enum: [text, markdown, artifact_ref, system]
-        text:
-          type: string
-        artifactId:
-          type: string
-          format: uuid
-      additionalProperties: true
-
-    MessageSummary:
-      type: object
-      required: [id, conversationId, senderId, senderType, content, status, mentions, aguiRunId, a2aTaskId, createdAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        conversationId:
-          type: string
-          format: uuid
-        senderId:
-          type: string
-        senderType:
-          type: string
-          enum: [user, agent, system]
-        senderAgent:
-          type: [string, 'null']
-        content:
-          $ref: '#/components/schemas/MessageContent'
-        status:
-          type: string
-          enum: [sending, streaming, sent, failed]
-        mentions:
-          type: array
-          items:
-            type: string
-        aguiRunId:
-          type: [string, 'null']
-        a2aTaskId:
-          type: [string, 'null']
-        createdAt:
-          type: string
-          format: date-time
-
+        id: { type: string }
+        type: { type: string }
+        title: { type: string }
     AgentSummary:
       type: object
-      required: [id, name, type, avatar, description, status, skills, inputModes, outputModes, createdAt, updatedAt]
+      required: [name, displayName, status, health]
       properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        type:
-          type: string
-          enum: [builtin, custom]
-        avatar:
-          type: [string, 'null']
-        description:
-          type: string
-        status:
-          type: string
-          enum: [healthy, unhealthy, unknown]
-        skills:
-          type: array
-          items:
-            type: string
-        inputModes:
-          type: array
-          items:
-            type: string
-        outputModes:
-          type: array
-          items:
-            type: string
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
-    AgentCard:
+        id: { type: string }
+        name: { type: string }
+        displayName: { type: string }
+        description: { type: string }
+        status: { type: string, enum: [enabled, disabled, experimental, deprecated] }
+        health: { type: string, enum: [healthy, degraded, unhealthy, unknown] }
+        capabilities: { type: array, items: { $ref: '#/components/schemas/CapabilitySummary' } }
+        inputModes: { type: array, items: { type: string } }
+        outputModes: { type: array, items: { type: string } }
+        version: { type: string }
+    CapabilitySummary:
       type: object
-      required: [name, description, url, version, capabilities, skills, inputModes, outputModes]
+      required: [id, name]
       properties:
-        name:
-          type: string
-        description:
-          type: string
-        url:
-          type: string
-        version:
-          type: string
-        capabilities:
-          type: object
-          additionalProperties: true
-        skills:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-        inputModes:
-          type: array
-          items:
-            type: string
-        outputModes:
-          type: array
-          items:
-            type: string
-      additionalProperties: true
-
-    CreateCustomAgentRequest:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        inputTypes: { type: array, items: { type: string } }
+        outputTypes: { type: array, items: { type: string } }
+    CreateRunRequest:
       type: object
-      required: [name, description, systemPrompt, llmModel, skills, tools, inputModes, outputModes]
+      required: [conversationId, message]
       properties:
-        name:
-          type: string
-          minLength: 1
-        description:
-          type: string
-        systemPrompt:
-          type: string
-        llmModel:
-          type: string
-        skills:
-          type: array
-          items:
-            type: string
-        tools:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-        inputModes:
-          type: array
-          items:
-            type: string
-        outputModes:
-          type: array
-          items:
-            type: string
-            enum: [text, code, webpage, diff, file, image, deploy, document, terminal, chart]
-
-    UpdateCustomAgentRequest:
+        conversationId: { type: string }
+        message: { type: string }
+        mentions: { type: array, items: { type: string } }
+        selectedAgentNames: { type: array, items: { type: string } }
+        stream: { type: boolean, default: true }
+    Run:
+      type: object
+      required: [runId, conversationId, status, createdAt]
+      properties:
+        runId: { type: string }
+        conversationId: { type: string }
+        status: { type: string, enum: [accepted, running, completed, failed, cancelled] }
+        strategy: { type: string, enum: [single, ordered_parallel, sequential] }
+        messageRefs: { type: array, items: { $ref: '#/components/schemas/ResourceRef' } }
+        artifactRefs: { type: array, items: { $ref: '#/components/schemas/ResourceRef' } }
+        error: { $ref: '#/components/schemas/SafeError' }
+        createdAt: { type: string, format: date-time }
+    SafeError:
       type: object
       properties:
-        description:
-          type: string
-        systemPrompt:
-          type: string
-        llmModel:
-          type: string
-        skills:
-          type: array
-          items:
-            type: string
-        tools:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-        inputModes:
-          type: array
-          items:
-            type: string
-        outputModes:
-          type: array
-          items:
-            type: string
-            enum: [text, code, webpage, diff, file, image, deploy, document, terminal, chart]
-        isActive:
-          type: boolean
-      additionalProperties: false
-
+        code: { type: string }
+        message: { type: string }
+        retryable: { type: boolean }
     Artifact:
       type: object
-      required: [id, type, title, metadata, version, messageId, conversationId, createdAt, updatedAt]
+      required: [id, type, status, createdAt]
       properties:
-        id:
-          type: string
-          format: uuid
-        type:
-          type: string
-          enum: [code, webpage, diff, file, image, deploy, document, terminal, chart]
-        title:
-          type: string
-        content:
-          type: [string, 'null']
-        fileUrl:
-          type: [string, 'null']
-        metadata:
-          type: object
-          additionalProperties: true
-        version:
-          type: integer
-          minimum: 1
-        messageId:
-          type: string
-          format: uuid
-        conversationId:
-          type: string
-          format: uuid
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
-    ArtifactPreview:
-      type: object
-      required: [id, type, skillName, data]
-      properties:
-        id:
-          type: string
-          format: uuid
-        type:
-          type: string
-          enum: [code, webpage, diff, file, image, deploy, document, terminal, chart]
-        skillName:
-          type: string
-        data:
-          type: object
-          additionalProperties: true
-
-    AGUIRunRequest:
-      type: object
-      required: [conversationId, messages]
-      properties:
-        conversationId:
-          type: string
-          format: uuid
-        threadId:
-          type: [string, 'null']
-        messages:
-          type: array
-          minItems: 1
-          items:
-            type: object
-            required: [role, content]
-            properties:
-              role:
-                type: string
-                enum: [user, assistant, system]
-              content:
-                $ref: '#/components/schemas/MessageContent'
-            additionalProperties: true
-        history:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-        tools:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-        context:
-          type: object
-          additionalProperties: true
-
-    AGUICancelRunResponse:
-      type: object
-      required: [runId, status]
-      properties:
-        runId:
-          type: string
-        status:
-          type: string
-          enum: [cancelling, cancelled]
-        cancelledAt:
-          type: [string, 'null']
-          format: date-time
-
-    AGUIToolResultRequest:
-      type: object
-      required: [toolCallId, result]
-      properties:
-        toolCallId:
-          type: string
-        result:
-          type: object
-          additionalProperties: true
-        occurredAt:
-          type: [string, 'null']
-          format: date-time
+        id: { type: string }
+        type: { type: string }
+        title: { type: string }
+        mimeType: { type: string }
+        summary: { type: string }
+        contentRef: { type: string }
+        previewType: { type: string }
+        status: { type: string, enum: [created, ready, failed, deleted] }
+        version: { type: string }
+        messageId: { type: string }
+        conversationId: { type: string }
+        runId: { type: string }
+        createdAt: { type: string, format: date-time }
+    ListConversationsResponse: { allOf: [ { $ref: '#/components/schemas/SuccessEnvelope' } ] }
+    ConversationResponse: { allOf: [ { $ref: '#/components/schemas/SuccessEnvelope' } ] }
+    ListMessagesResponse: { allOf: [ { $ref: '#/components/schemas/SuccessEnvelope' } ] }
+    ListParticipantsResponse: { allOf: [ { $ref: '#/components/schemas/SuccessEnvelope' } ] }
+    ListAgentsResponse: { allOf: [ { $ref: '#/components/schemas/SuccessEnvelope' } ] }
+    AgentResponse: { allOf: [ { $ref: '#/components/schemas/SuccessEnvelope' } ] }
+    RunResponse: { allOf: [ { $ref: '#/components/schemas/SuccessEnvelope' } ] }
+    ArtifactResponse: { allOf: [ { $ref: '#/components/schemas/SuccessEnvelope' } ] }
