@@ -1,656 +1,598 @@
 ---
 name: intent-orchestration-contract
-description: 当定义、实现、修改或审查 AgentHub 中用户意图到 ExecutionPlan、Agent 路由、AgentCard.skills 校验、single/parallel/sequential 编排、LLM planner 或 fallback 策略时，使用本 Skill。
+description: "用于定义 AgentHub Orchestrator Service 中用户意图到结构化编排计划的独立契约，包括 Planner 输入、PlanningMode、通用 OrchestrationPlan、能力校验、路由优先级、single/ordered_parallel/sequential、LLM 结构化输出、fallback/retry、群聊 @mention、计划追踪和安全错误。"
 ---
 
 # intent-orchestration-contract
 
-## 1. 目的
+## 1. Skill 目的
 
-本 Skill 定义 AgentHub 意图编排的开发契约。
+本 Skill 定义 AgentHub 中 **Intent Orchestration（意图编排）** 的通用契约。
 
-意图编排是指：将用户消息、会话上下文、Agent Registry 和 AgentCard.skills 转换为可验证、可执行、可追踪的 ExecutionPlan，并最终调度为 A2A Task。
-
-本 Skill 约束的核心链路是：
+它关注的是：
 
 ```text
-User Message
-+ Conversation History
-+ Agent Registry
-+ AgentCards
-→ ExecutionPlan
-→ Plan Validation
-→ A2A Task Dispatch
+用户输入 + 会话上下文 + 可用能力集合
+  → PlannerInput
+  → OrchestrationPlan
+  → Plan Validation
+  → 可执行调度决策
 ```
 
-本 Skill 的目标是确保 Coding Agent 在开发 Orchestrator 意图编排能力时：
+本 Skill 的目标是保证 Orchestrator Service 在面对多个子 Agent、群聊、显式 @mention、手动选择、LLM 编排、规则降级和 fallback 时，仍然使用**结构化、可校验、可追踪、可回放**的计划对象，而不是依赖临时字符串拼接或硬编码 Agent 名称。
 
-- 不执行非结构化自然语言计划。
-- 不让 LLM 编排出不存在的 Agent。
-- 不让 LLM 编排出不存在的 skill。
-- 不绕过 Agent Registry。
-- 不绕过 AgentCard.skills 校验。
-- 不把 Gateway handler 写成复杂编排器。
-- 不让 Orchestrator 直接生成前端 UI 组件。
-- 不把 A2A Task 协议、Artifact schema、AG-UI 事件结构混进意图编排 contract。
+## 2. 独立性原则
 
-## 2. 官方 / 标准约束优先级
+本 Skill 必须独立可读。
 
-本 Skill 没有单一的“官方意图编排规范”。
+本 Skill 不要求读者先阅读其他 Skill 才能理解本文。
 
-但本 Skill 依赖以下官方或事实标准：
+可以在边界说明中提到外部概念，但不得复制或展开其他 Skill 的详细规则。
 
-1. A2A 官方规范  
-   用于约束 AgentCard、skills、Task、Message、Artifact、Streaming、错误语义和 Agent 能力发现。
+本 Skill 不定义：
 
-2. JSON Schema 官方规范  
-   用于约束 `execution-plan.schema.json`。
+- Gateway 与 Orchestrator 的服务间 HTTP / RPC API。
+- 前端实时事件字段。
+- 子 Agent 的内部协议。
+- 前端 Runtime Skill 参数细节。
+- Artifact 完整 schema。
+- 数据库表结构。
+- LLM Provider SDK 封装。
+- 某个具体 Agent 的实现。
 
-3. LLM provider 的 structured output 官方能力  
-   如果后续使用 LLM planner，应优先使用 provider 官方支持的结构化输出能力，并仍然在 Orchestrator 层进行 schema validation。
+## 3. 当前阶段识别
 
-优先级规则：
+当前约束：
 
 ```text
-A2A 官方规范 > 本项目 A2A 落地约定
-JSON Schema 官方规范 > 手写非标准校验格式
-结构化 ExecutionPlan schema > LLM 自然语言 plan
+mvpStatus = completed
+activeProfile = v1-generic-orchestration
+gatewayMode = separate-process
+orchestratorMode = separate-process
+agentCount = 2+
 ```
 
-如果项目文档与官方 A2A 最新规范冲突：
+MVP v0.1 已完成，只作为历史兼容与回归测试基线。
 
-```text
-官方 A2A 规范 = 长期兼容目标
-项目 MVP 约束 = 当前落地范围
-```
+当前阶段必须支持：
 
-不得把 MVP 直接路由逻辑描述成长期唯一编排方式。
+- 2+ Agent 候选。
+- 单聊与群聊上下文。
+- @mention / manual / direct / auto / fallback 路由模式。
+- LLM Planner 与规则 fallback。
+- 结构化 OrchestrationPlan。
+- schema validation。
+- Agent / capability / expected output 校验。
+- `single` / `ordered_parallel` / `sequential`。
+- fallback / retry。
+- PlanTrace / SafeError。
 
-## 3. 适用场景
+本 Skill 不固定任何具体 Agent 名称。
 
-当进行以下工作时，启用本 Skill：
+## 4. MVP v0.1 Historical Profile
 
-- 修改 Orchestrator 路由逻辑。
-- 新增或修改 ExecutionPlan schema。
-- 新增 `single`、`parallel`、`sequential` 编排策略。
-- 新增 @Agent 手动路由。
-- 新增 LLM planner。
-- 新增 fallback 策略。
-- 新增多 Agent 聚合逻辑。
-- 校验 `task.agent` 是否存在。
-- 校验 `task.skill` 是否存在于目标 AgentCard.skills。
-- 修改 Agent Registry 使用方式。
-- 修改计划校验、计划执行、计划失败降级逻辑。
-- 审查 Orchestrator 是否执行了非结构化 plan。
-- 审查 Gateway handler 是否承担了复杂编排职责。
+MVP v0.1 历史基线包括：
 
-## 4. 长期契约基线
+- 单 Agent 直接路由。
+- 静态 Agent 配置。
+- 最小文本流。
+- 最小错误返回。
+- 不启用 LLM Planner。
+- 不启用多 Agent 策略。
+- 不启用 fallback / retry。
 
-长期架构中，Orchestrator 必须将用户意图转换为结构化 ExecutionPlan。
+这些历史规则不得继续作为当前开发禁令。
 
-ExecutionPlan 必须先校验，再执行。
+旧字段或旧 schema 可以保留兼容，但新增设计必须面向通用多 Agent 编排。
 
-长期 contract 必须支持：
-
-```text
-strategy: single | parallel | sequential
-```
-
-长期 contract 必须定义：
-
-- ExecutionPlan schema。
-- Agent Registry 使用规则。
-- AgentCard.skills 校验规则。
-- `task.agent` 校验。
-- `task.skill` 校验。
-- `task.input` 规则。
-- `parallel` 聚合规则。
-- `sequential` 依赖规则。
-- `@Agent` 手动路由优先级。
-- fallback 策略。
-- 失败降级规则。
-- plan trace 规则。
-- run / message / conversation 关联规则。
-
-必须防止：
-
-- LLM 编排出不存在的 Agent。
-- LLM 编排出不存在的 skill。
-- LLM 返回非结构化 plan。
-- schema validation 失败后继续执行。
-- Orchestrator 直接调用前端 Runtime Skill。
-- Gateway handler 承担复杂意图编排。
-- 子 Agent 自己决定全局编排策略。
-
-本契约的事实源文件是：
-
-项目 contract 文件位于项目根目录
-
-```text
-<repo-root>/docs/contracts/intent-orchestration.md
-<repo-root>/docs/contracts/execution-plan.schema.json
-```
-
-本 Skill 的辅助参考文件位于当前 Skill 目录：
-
-```text
-<current-skill-dir>/references/execution-plan-schema.md
-<current-skill-dir>/references/routing-rules.md
-<current-skill-dir>/references/planner-validation.md
-<current-skill-dir>/references/fallback-policy.md
-<current-skill-dir>/references/multi-agent-strategy.md
-```
-
-## 5. MVP 约束
-
-MVP 阶段只实现单 Agent 直接路由。
-
-MVP 策略：
-
-```text
-strategy = single
-routing = direct
-plannerLLM = disabled
-```
-
-MVP 目标 Agent 来源：
-
-```text
-req.AgentName
-或 conversation.agentName
-```
-
-MVP Agent Registry：
-
-```text
-config file
-```
-
-MVP 默认目标：
-
-```text
-code-agent
-```
-
-MVP 默认 skill：
-
-```text
-code_generate
-```
-
-MVP 阶段不实现：
-
-- LLM planner。
-- `parallel`。
-- `sequential`。
-- fallback。
-- @Agent。
-- 多 Agent 聚合。
-- 动态 Agent Registry。
-- 复杂失败降级。
-- 自动 Agent 选择。
-
-MVP 阶段如果目标 Agent 不存在：
-
-```text
-返回 RUN_ERROR 或等价 run error
-```
-
-MVP 阶段如果 A2A 调用失败：
-
-```text
-返回 RUN_ERROR 或等价 run error
-```
-
-## 6. 阶段演进规则
-
-### 6.1 MVP 阶段
-
-MVP 阶段只允许：
-
-```text
-single direct routing
-```
-
-MVP 阶段不得把 direct routing 写死成长期唯一策略。
-
-MVP 阶段不得为了“完整智能编排”提前引入 LLM planner。
-
-MVP 阶段不得实现 parallel / sequential / fallback，除非项目负责人明确要求。
-
-MVP 阶段不得让 Gateway handler 承担复杂编排逻辑。
-
-### 6.2 正式开发阶段
-
-MVP 完成后，可以按需求逐步启用更完整的意图编排能力。
-
-新增或修改编排策略前，必须先更新：
-
-```text
-docs/contracts/intent-orchestration.md
-docs/contracts/execution-plan.schema.json
-```
-
-新增 Agent 或 skill 前，必须确保：
-
-- Agent Registry 已更新。
-- AgentCard 已更新。
-- AgentCard.skills 与实际 handler 能力一致。
-- Orchestrator 能校验 task.agent。
-- Orchestrator 能校验 task.skill。
-
-启用 LLM planner 前，必须确保：
-
-- planner 输出 JSON。
-- planner 输出符合 `execution-plan.schema.json`。
-- schema validation 失败时不得执行。
-- LLM 不得创造 Agent Registry 中不存在的 Agent。
-- LLM 不得创造 AgentCard.skills 中不存在的 skill。
-- planner prompt 只使用 Agent Registry / AgentCard 中存在的能力。
-
-### 6.3 多 Agent 阶段
-
-多 Agent 阶段可以逐步支持：
-
-- @Agent 手动路由。
-- `single`。
-- `parallel`。
-- `sequential`。
-- `parallel` 聚合。
-- `sequential` 依赖。
-- fallbackAgent。
-- 部分失败降级。
-- plan trace。
-- run step 追踪。
-- 多 Artifact 聚合。
-- 多 Agent 回复汇总。
-
-## 7. 本 Skill 负责
+## 5. 本 Skill 负责什么
 
 本 Skill 负责：
 
-- ExecutionPlan schema 规则。
-- `single` / `parallel` / `sequential` 策略规则。
-- Agent Registry 使用规则。
-- AgentCard.skills 校验规则。
-- `task.agent` 校验规则。
-- `task.skill` 校验规则。
-- @Agent 手动路由优先级。
-- LLM planner 结构化输出规则。
-- planner validation 规则。
-- fallback 策略。
-- 多 Agent 聚合规则。
-- 失败降级规则。
-- MVP direct routing 规则。
-- 正式开发阶段编排能力扩展规则。
+- PlannerInput 的通用输入结构。
+- PlanningMode 的枚举和优先级。
+- OrchestrationPlan 的结构。
+- TaskPlan 的结构。
+- AgentCapabilitySet 的抽象。
+- Plan Validation 的规则。
+- 路由优先级。
+- `single` / `ordered_parallel` / `sequential` 策略。
+- LLM Planner 结构化输出规则。
+- rule / mention / manual Planner 规则。
+- fallback / retry 规则。
+- 群聊与 @mention 规则。
+- PlanTrace 与审计摘要。
+- SafeError。
+- Contract Test 与 Review Checklist。
 
-## 8. 本 Skill 不负责
+## 6. 本 Skill 不负责什么
 
 本 Skill 不负责：
 
-- A2A HTTP endpoint 细节。
-- A2A Task envelope 完整定义。
-- A2A streaming 事件结构。
-- AG-UI 事件名称。
-- AG-UI 事件字段结构。
-- 前端 Runtime Skill 注册。
-- React Component 实现。
-- Artifact schema。
-- Artifact 存储策略。
-- ADK Runtime API。
-- 子 Agent handler 实现。
-- LLM provider 具体封装。
-- 数据库完整 DDL。
-- Gateway-Orchestrator 内部 API 细节。
-- 通用 Go / TypeScript 代码风格。
+- Gateway Service 如何通过网络调用 Orchestrator Service。
+- Orchestrator Service 如何调用子 Agent。
+- 前端如何消费流式事件。
+- 前端如何渲染 Runtime Capability。
+- Artifact 如何持久化。
+- 数据库 migration。
+- Docker Compose 服务定义。
+- 具体 LLM Provider 的请求格式。
 
-涉及以上内容时，只引用相关 contract，不在本 Skill 中重新定义。
+如果这些内容出现在当前任务中，只能作为输入或输出摘要参与意图编排，不得在本 Skill 内展开实现细节。
 
-## 9. Contract first 规则
+## 7. 核心原则
 
-任何新增或修改意图编排行为前，必须先更新 contract。
+### 7.1 结构化计划优先
 
-必须优先更新：
+Orchestrator Service 不得直接执行自然语言路由结果。
 
-```text
-docs/contracts/intent-orchestration.md
-docs/contracts/execution-plan.schema.json
-```
+任何自动、手动、mention、规则或 LLM 产生的调度决策，都必须先转成结构化 `OrchestrationPlan`。
 
-未更新 contract 的实现变更不得接受。
+### 7.2 先校验，后执行
 
-不得先改 Orchestrator 编排实现，再补 contract。
+计划必须经过 schema、Agent、capability、expectedOutputs、dependsOn、fallback、安全字段校验后，才允许执行。
 
-如果修改 Agent / skill 校验，还必须检查：
+### 7.3 绑定能力，不绑定 Agent 名称分支
+
+不得写：
 
 ```text
-docs/contracts/a2a-agent-card.md
-docs/contracts/a2a-task.md
-docs/contracts/adk-runtime.md
-docs/contracts/agent-config.md
+if agentName == "某个具体 Agent" then ...
 ```
 
-如果修改 Artifact 预期输出，还必须检查：
+应该写：
 
 ```text
-docs/contracts/artifact-schema.md
-docs/contracts/artifact.schema.json
+根据 availableAgents 中声明的 capabilities / outputTypes / healthy 状态进行选择与校验。
 ```
 
-## 10. 必须更新的文件
+### 7.4 LLM 不直接驱动执行
 
-修改意图编排 contract 时，必须优先更新：
+LLM 可以生成候选计划，但不能直接调用 Agent、工具或外部系统。
 
-```text
-docs/contracts/intent-orchestration.md
-docs/contracts/execution-plan.schema.json
-```
+LLM 输出必须是结构化 JSON，并由 Orchestrator Service 本地校验。
 
-如果涉及 MVP 实现，可能影响：
+### 7.5 Gateway 不承担意图编排
 
-```text
-server/internal/orchestrator/orchestrator.go
-server/internal/orchestrator/converter.go
-server/internal/a2a/client.go
-server/internal/config/config.go
-```
+Gateway 和 Orchestrator 分进程。
 
-如果涉及 Agent Registry，可能影响：
+意图编排只属于 Orchestrator Service。
 
-```text
-server/internal/config/config.go
-docs/contracts/agent-config.md
-docs/contracts/a2a-agent-card.md
-```
+Gateway 不得：
 
-如果涉及 LLM planner，可能影响：
+- 调用 LLM Planner。
+- 生成 OrchestrationPlan。
+- 根据关键词选择 Agent。
+- 执行 fallback。
+- 绕过 Orchestrator 直接执行调度。
 
-```text
-docs/contracts/llm-provider.md
-server/internal/orchestrator/planner.go
-```
+## 8. PlannerInput
 
-## 11. ExecutionPlan 规则
+`PlannerInput` 是 Planner 的唯一标准输入。
 
-ExecutionPlan 是 Orchestrator 执行计划的唯一结构化表达。
-
-ExecutionPlan 必须是 JSON。
-
-ExecutionPlan 必须通过 schema validation。
-
-MVP 最小结构：
+推荐结构：
 
 ```json
 {
-  "version": "v0.1",
-  "strategy": "single",
-  "reason": "Direct routing to selected code-agent.",
-  "tasks": [
-    {
-      "id": "task_1",
-      "agent": "code-agent",
-      "skill": "code_generate",
-      "input": {
-        "message": "帮我写一个 Go HTTP 服务器"
-      },
-      "dependsOn": [],
-      "requiredArtifacts": ["code"]
-    }
-  ],
-  "fallback": null
+  "runId": "run_001",
+  "conversationId": "conv_001",
+  "conversationType": "group",
+  "userMessage": "用户当前输入",
+  "historySummary": "可选历史摘要",
+  "messages": [],
+  "availableAgents": [],
+  "runtimeCapabilities": [],
+  "mentions": [],
+  "manualSelectedAgents": [],
+  "planningMode": "auto",
+  "constraints": {
+    "maxTasks": 4,
+    "maxRetries": 1,
+    "allowSequential": true,
+    "allowOrderedParallel": true
+  },
+  "traceId": "trace_001"
 }
 ```
 
-长期结构可包含：
+规则：
 
-- `planId`
-- `runId`
-- `conversationId`
-- `messageId`
-- `traceId`
-- `version`
-- `strategy`
-- `reason`
-- `tasks`
-- `aggregation`
-- `fallback`
-- `approvalRequired`
-- `createdAt`
+- `availableAgents` 是当前可选 Agent 的摘要。
+- `runtimeCapabilities` 是前端可处理能力摘要，不等价于 Agent 能力。
+- `mentions` 是用户显式路由提示，不是无校验执行命令。
+- `manualSelectedAgents` 是用户或 UI 显式选择，不得绕过校验。
+- `historySummary` 必须可控，不得无限塞入完整历史。
+- `traceId` 必须可用于排查一次计划生成过程。
 
-详细规则见：
+## 9. PlanningMode
 
-```text
-references/execution-plan-schema.md
-```
+支持以下 PlanningMode：
 
-## 12. Agent Registry 规则
-
-`task.agent` 必须来自 Agent Registry。
-
-Agent Registry 可以来自：
-
-- MVP 配置文件。
-- AgentCard discovery。
-- 数据库。
-- 服务注册表。
-- 静态配置 + 健康检查。
-
-MVP 阶段使用：
-
-```text
-config file
-```
-
-正式开发阶段，Agent Registry 必须能提供：
-
-- Agent name。
-- Agent URL。
-- AgentCard。
-- health status。
-- supported skills。
-- inputModes。
-- outputModes。
-- enabled / disabled 状态。
-
-不存在的 Agent 不得执行。
-
-## 13. AgentCard.skills 校验规则
-
-`task.skill` 必须来自目标 Agent 的 AgentCard.skills。
+| 模式 | 含义 |
+|---|---|
+| `direct` | 会话、请求或上游上下文已有明确目标 |
+| `mention` | 用户通过 @agent-name 指定目标 |
+| `manual` | 用户或 UI 手动选择一个或多个候选 Agent |
+| `auto` | Planner 自动选择 Agent 和策略 |
+| `fallback` | 主计划失败后的降级计划 |
 
 规则：
 
-1. 先解析 ExecutionPlan。
-2. 校验 `task.agent` 是否存在。
-3. 读取目标 Agent 的 AgentCard。
-4. 校验 `task.skill` 是否存在于 `AgentCard.skills`。
-5. 只有校验通过后，才能调度 A2A Task。
+- `direct` / `mention` / `manual` 也必须生成结构化 Plan。
+- 任何模式都必须校验 Agent 是否存在、启用且可用。
+- `mention` 优先级较高，但不是无条件执行。
+- `auto` 可以由 LLM、规则或混合 Planner 实现。
+- `fallback` 必须有最大次数和终止条件。
 
-不得允许 LLM planner 自造 skill。
+## 10. OrchestrationPlan
 
-不得允许 Orchestrator 调用 AgentCard 未声明的能力。
+`OrchestrationPlan` 是意图编排结果的标准结构。
 
-## 14. 路由优先级
+推荐结构：
 
-长期路由优先级：
-
-```text
-1. 用户显式 @Agent
-2. 当前 conversation 默认 Agent
-3. 用户创建对话时选择的 Agent
-4. LLM planner 基于 AgentCard 选择
-5. fallback Agent
+```json
+{
+  "version": "v1",
+  "planId": "plan_001",
+  "runId": "run_001",
+  "conversationId": "conv_001",
+  "planningMode": "auto",
+  "strategy": "ordered_parallel",
+  "intentSummary": "用户想生成一个完整应用方案",
+  "tasks": [
+    {
+      "taskId": "task_001",
+      "agentName": "some-agent",
+      "capabilityIds": ["capability_id"],
+      "taskContent": "给该 Agent 的任务描述",
+      "dependsOn": [],
+      "expectedOutputs": ["code", "markdown"],
+      "priority": 1
+    }
+  ],
+  "aggregation": {
+    "mode": "message_per_task",
+    "summaryRequired": false
+  },
+  "fallback": {
+    "mode": "same_capability_alternative",
+    "maxAttempts": 1
+  },
+  "validation": {
+    "schemaVersion": "v1",
+    "validated": false
+  }
+}
 ```
 
-MVP 阶段只使用：
+规则：
 
-```text
-req.AgentName
-或 conversation.agentName
+- `planId` 必须唯一。
+- `runId` 必须来自当前 Run。
+- `strategy` 必须是允许枚举。
+- `tasks` 不得为空。
+- `intentSummary` 必须是摘要，不得保存完整敏感 prompt。
+- `validation.validated = true` 只能由本地校验器设置，LLM 不得自行设置可信状态。
+- `capabilityIds` 必须来自目标 Agent 的 `AgentCard.skills[].id`，不得凭自然语言临时编造。
+
+## 11. TaskPlan
+
+`TaskPlan` 是 OrchestrationPlan 中的单个执行单元。
+
+`TaskPlan.capabilityIds` 必须引用目标 Agent 的 `AgentCard.skills[].id`。不得凭自然语言临时生成未注册的 capabilityId，不得使用 `toolName`、`artifact.type` 或 `outputMode` 作为 capabilityId。
+
+字段规则：
+
+| 字段 | 规则 |
+|---|---|
+| `taskId` | 必须唯一 |
+| `agentName` | 必须来自 `availableAgents` |
+| `capabilityIds` | 必须来自目标 Agent 的 `AgentCard.skills[].id` |
+| `taskContent` | 必须是给目标 Agent 的清晰任务，不得包含 secret |
+| `dependsOn` | 只能引用同 Plan 内已有 taskId |
+| `expectedOutputs` | 必须来自目标能力支持的输出类型 |
+| `priority` | 用于 ordered_parallel 或排序，不代表安全级别 |
+
+禁止：
+
+- 通过 Agent 名称推断能力。
+- 让 LLM 编造 `agentName`。
+- 让 LLM 编造不存在的 capabilityId。
+- 把完整 system prompt 或 API key 写入 `taskContent`。
+- 把 `toolName` 当作 capabilityId。
+- 把 `artifact.type` 当作 capabilityId。
+- 把 `outputMode` 当作 capabilityId。
+
+## 12. AgentCapabilitySet
+
+本 Skill 使用 `AgentCapabilitySet` 抽象可用能力集合，不绑定具体 Agent 实现。
+
+推荐结构：
+
+```json
+{
+  "agentName": "some-agent",
+  "healthy": true,
+  "enabled": true,
+  "capabilities": [
+    {
+      "id": "capability_id",
+      "description": "能力说明",
+      "inputTypes": ["text"],
+      "outputTypes": ["markdown", "code"]
+    }
+  ]
+}
 ```
 
-详细规则见：
+规则：
+
+- `agentName` 只用于标识目标。
+- 能力判断必须基于 `capabilities` / `inputTypes` / `outputTypes`。
+- `healthy=false` 或 `enabled=false` 的 Agent 不得被主计划选择。
+- fallback 可以选择同能力的其他 healthy Agent。
+
+## 13. Plan Validation
+
+Plan Validation 必须在执行前完成。
+
+校验步骤：
+
+1. 校验 JSON schema。
+2. 校验 `version`。
+3. 校验 `strategy`。
+4. 校验 task 数量。
+5. 校验每个 `agentName` 存在。
+6. 校验 Agent `enabled` / `healthy`。
+7. 校验 `capabilityIds` 存在（必须来自目标 Agent 的 `AgentCard.skills[].id`）。
+8. 校验 `expectedOutputs` 可被目标能力支持。
+9. 校验 `dependsOn` 无环。
+10. 校验 fallback 不会无限循环。
+11. 校验安全字段无敏感信息。
+12. 标记本地 validation 结果。
+
+任何校验失败都不得执行该计划。
+
+## 14. Routing Priority
+
+推荐路由优先级（外部请求）：
 
 ```text
-references/routing-rules.md
+manual selected agents
+  > explicit @mention
+  > conversation direct target
+  > auto planner
 ```
 
-## 15. 编排策略规则
+`fallback` 不在路由优先级排序中。它是 Orchestrator 在主计划失败、风险过高或健康检查失败后的内部降级行为：
+- fallback plan 由 Orchestrator 内部生成，不由 Gateway 或 Frontend 传入。
+- fallback plan 必须关联原 plan（`parentPlanId` / `fallbackOf`）。
+- fallback plan 仍需通过 Plan Validation。
 
-### 15.1 single
+规则：
 
-`single` 表示只执行一个目标 Agent 任务。
+- 高优先级输入也必须校验。
+- 目标 Agent 不存在或不可用时，不得盲目执行。
+- 用户显式选择多个 Agent 时，可以生成 `ordered_parallel` 或 `sequential`。
+- 无显式选择时，`auto` Planner 可以选择一个或多个 Agent。
 
-MVP 阶段只允许：
+## 15. Strategy
+
+支持策略：
+
+| strategy | 含义 |
+|---|---|
+| `single` | 一个 task |
+| `ordered_parallel` | 多个独立 task，语义上可并行，但输出按稳定顺序聚合 |
+| `sequential` | 多个有依赖 task，必须按 `dependsOn` 执行 |
+
+兼容规则：
 
 ```text
-strategy = single
+legacy parallel = ordered_parallel
 ```
 
-### 15.2 parallel
+禁止：
 
-`parallel` 表示多个任务可以并行执行。
+- 在没有稳定 message/task 隔离的情况下做 token 级交错输出。
+- 在 `sequential` 中忽略 `dependsOn`。
+- 在 `ordered_parallel` 中让输出顺序不可预测。
 
-正式开发阶段启用前，必须定义：
+## 16. LLM Planner Rules
 
-- 并发限制。
-- 聚合规则。
-- 失败处理。
-- 超时策略。
-- Artifact 合并规则。
+LLM Planner 是当前可用 Planner 类型之一，但不是唯一 Planner。
 
-### 15.3 sequential
+规则：
 
-`sequential` 表示任务按依赖顺序执行。
-
-正式开发阶段启用前，必须定义：
-
-- `dependsOn`。
-- 依赖失败处理。
-- 中间结果传递。
-- 取消策略。
-- trace 规则。
-
-详细规则见：
-
-```text
-references/multi-agent-strategy.md
-```
-
-## 16. LLM planner 规则
-
-MVP 阶段不启用 LLM planner。
-
-正式开发阶段如果启用 LLM planner，必须满足：
-
-- 输出必须是 JSON。
-- 输出必须符合 `execution-plan.schema.json`。
+- LLM Planner 输出必须是结构化 JSON。
+- 优先使用 provider 原生 structured output。
+- 不管 provider 是否声称严格输出，都必须本地 schema validation。
 - schema validation 失败不得执行。
-- LLM 不得创造不存在的 Agent。
-- LLM 不得创造不存在的 skill。
-- LLM 不得绕过 Agent Registry。
-- LLM 不得直接返回可执行代码作为 plan。
-- planner prompt 必须只包含允许被选择的 Agent 和 skills。
-- planner 输出必须可审计。
-- planner 输出必须关联 `traceId` 或等价追踪字段。
+- LLM Planner 不得直接调用 Agent。
+- LLM Planner 不得返回自然语言计划后让代码猜测执行。
+- LLM Planner prompt 只能包含可选 Agent / capability 摘要，不得包含 secret。
+- LLM 原始输出不得直接作为执行依据。
+- 必要时只保存脱敏摘要和 PlanTrace。
 
-如果 provider 支持 structured outputs，应优先使用结构化输出。
+## 17. Rule / Mention / Manual Planner Rules
 
-即使 provider 支持 structured outputs，Orchestrator 仍必须执行本地 schema validation。
+非 LLM Planner 也必须输出结构化 OrchestrationPlan。
 
-详细规则见：
+规则：
 
-```text
-references/planner-validation.md
+- rule planner 可以用于 fallback 和低成本路由。
+- mention planner 只能把 @mention 转为候选目标。
+- manual planner 只能把用户选择转为候选目标。
+- 所有 Planner 输出都必须统一走 Plan Validation。
+- 不得为不同 Planner 维护多套执行路径。
+
+## 18. Fallback / Retry Rules
+
+支持的 fallback mode：
+
+| mode | 含义 |
+|---|---|
+| `none` | 不 fallback，失败即失败 |
+| `same_capability_alternative` | 选择具备相同能力的其他健康 Agent |
+| `lower_risk_plan` | 降级为更简单、更低风险计划 |
+| `single_agent_fallback` | 降级为单 task 计划 |
+| `fail_fast` | 快速失败并返回安全错误 |
+
+规则：
+
+- retry 必须有最大次数。
+- fallback 必须有最大次数。
+- fallback 不得无限循环。
+- fallback 不得选择已失败且不可恢复的目标。
+- fallback 后必须重新校验计划。
+- fallback 后实际执行 Agent 必须可追踪。
+- 所有 Agent 都失败时必须返回 SafeError。
+
+## 19. Group Conversation / Mention Rules
+
+群聊与 @mention 规则：
+
+- 群聊中一个用户输入可以生成多个 task。
+- @mention 是路由提示，不是无校验执行命令。
+- 多个 @mention 可以生成 `ordered_parallel` 或 `sequential`。
+- 无 mention 时，auto planner 可以选择一个或多个 Agent。
+- 每个 task 必须记录 `agentName`。
+- fallback 后必须记录实际执行 Agent。
+- 同一个 Run 可以有多条 Agent 回复。
+
+## 20. PlanTrace / Audit
+
+推荐 PlanTrace：
+
+```json
+{
+  "planId": "plan_001",
+  "runId": "run_001",
+  "plannerType": "llm_planner",
+  "planningMode": "auto",
+  "selectedAgentNames": ["some-agent"],
+  "rejectedAgentNames": [],
+  "validationErrors": [],
+  "fallbackAttempts": 0,
+  "createdAt": "2026-05-25T00:00:00Z"
+}
 ```
 
-## 17. fallback 规则
+规则：
 
-MVP 阶段不实现 fallback。
+- PlanTrace 用于调试、审计和 Demo 解释。
+- PlanTrace 不得保存 API key、token、完整 system prompt。
+- PlanTrace 不得保存未脱敏 LLM 原始长输出。
+- PlanTrace 应能说明为什么选择某些 Agent。
 
-正式开发阶段启用 fallback 前，必须定义：
+## 21. SafeError
 
-- fallbackAgent。
-- fallbackSkill。
-- fallback 条件。
-- fallback 最大次数。
-- fallback 是否继承上下文。
-- fallback 是否继承 partial artifacts。
-- fallback 失败后的最终错误。
-- fallback trace 规则。
+推荐结构：
 
-详细规则见：
-
-```text
-references/fallback-policy.md
+```json
+{
+  "code": "PLAN_VALIDATION_FAILED",
+  "message": "编排计划校验失败",
+  "retryable": false,
+  "details": {
+    "reason": "agent_not_available"
+  }
+}
 ```
 
-## 18. 错误处理规则
+错误规则：
 
-意图编排必须安全处理以下错误：
+- 用户可见错误必须脱敏。
+- 内部日志可以记录更多上下文，但不得记录 secret。
+- LLM 原始错误不得直接返回给用户。
+- plan validation 失败应返回明确错误码。
 
-- plan JSON 解析失败。
-- schema validation 失败。
-- strategy 不支持。
-- task.agent 不存在。
-- task.skill 不存在。
-- AgentCard 缺失。
-- Agent disabled。
-- Agent health check failed。
-- A2A 调用失败。
-- task 超时。
-- parallel 部分失败。
-- sequential 依赖失败。
+推荐错误码：
+
+```text
+PLANNER_INPUT_INVALID
+PLANNER_LLM_FAILED
+PLANNER_OUTPUT_INVALID_JSON
+PLAN_SCHEMA_INVALID
+PLAN_VALIDATION_FAILED
+PLAN_AGENT_NOT_FOUND
+PLAN_AGENT_UNHEALTHY
+PLAN_CAPABILITY_NOT_FOUND
+PLAN_OUTPUT_UNSUPPORTED
+PLAN_DEPENDENCY_CYCLE
+PLAN_FALLBACK_EXHAUSTED
+PLAN_INTERNAL_ERROR
+```
+
+## 22. Contract-first 规则
+
+修改意图编排行为前，必须先更新：
+
+```text
+docs/contracts/intent-orchestration.md
+docs/contracts/orchestration-plan.md
+docs/contracts/orchestration-plan.schema.json
+```
+
+如果保留历史 `execution-plan` 命名，必须明确它是兼容别名，不得与 `orchestration-plan` 分叉。
+
+## 23. Contract Test 规则
+
+至少应测试：
+
+- LLM 返回非法 JSON。
+- LLM 返回不存在的 Agent。
+- LLM 返回不存在的 capability。
+- Agent unhealthy。
+- expectedOutputs 不支持。
+- dependsOn 成环。
+- ordered_parallel 多 task。
+- sequential 依赖顺序。
+- @mention 不存在 Agent。
+- fallback 成功。
 - fallback 失败。
+- plan 中包含疑似 secret。
 
-MVP 阶段简化错误：
+## 24. Review Checklist
 
-```text
-target agent not found → RUN_ERROR
-A2A call failed → RUN_ERROR
-```
+Review 时必须检查：
 
-错误信息不得包含：
+- 是否没有写死具体 Agent 名称。
+- 是否没有通过 agentName 推断能力。
+- 是否支持 2+ Agent 候选。
+- 是否支持单聊与群聊。
+- 是否定义 PlannerInput。
+- 是否定义 PlanningMode。
+- 是否定义 OrchestrationPlan。
+- 是否所有 Planner 都输出结构化计划。
+- 是否本地 schema validation。
+- 是否校验 Agent enabled / healthy。
+- 是否校验 capabilityIds。
+- 是否校验 expectedOutputs。
+- 是否校验 dependsOn 无环。
+- 是否支持 `single` / `ordered_parallel` / `sequential`。
+- fallback 是否有最大次数。
+- fallback 是否重新校验。
+- LLM 是否不能直接执行计划。
+- Gateway 是否不承担意图编排。
+- plan / trace / error 是否脱敏。
+- `capabilityIds` 是否来自目标 Agent 的 `AgentCard.skills[].id`。
+- 是否没有把 `toolName`、`artifact.type`、`outputMode` 当作 capabilityId。
 
-- stack trace。
-- API key。
-- token。
-- system prompt。
-- LLM 原始敏感输出。
-- 内部服务地址。
-- 内部文件路径。
+## 25. 完成定义
 
-## 19. 禁止事项
+本 Skill 视为完成，当且仅当：
 
-Coding Agent 不得：
-
-- 执行非结构化自然语言 plan。
-- 在未更新 contract 的情况下新增编排策略。
-- 让 LLM planner 直接驱动执行。
-- 让 LLM 创造不存在的 Agent。
-- 让 LLM 创造不存在的 skill。
-- 跳过 `execution-plan.schema.json` 校验。
-- 跳过 Agent Registry 校验。
-- 跳过 AgentCard.skills 校验。
-- 在 MVP 阶段启用 LLM planner。
-- 在 MVP 阶段启用 parallel / sequential。
-- 在 MVP 阶段启用 fallback。
-- 让 Gateway handler 写复杂编排逻辑。
-- 让 Orchestrator 直接调用 React Component。
-- 让 Orchestrator 直接生成前端 Runtime Skill 参数。
-- 把 Artifact schema 写进本 Skill。
-- 把 A2A Task 协议写进本 Skill。
-- 把 MVP direct routing 规则扩展成长期唯一策略。
-
-## 20. 相关契约
-
-本 Skill 只引用以下契约，不重新定义它们：
-
-- `a2a-agent-contract`：负责 AgentCard、AgentCard.skills、A2A Task、Streaming 和错误语义。
-- `adk-runtime-contract`：负责子 Agent Runtime、Task handler、AgentCard 生成和 Runtime API。
-- `artifact-contract`：负责 Artifact schema、类型、生命周期、存储和预览映射。
-- `gateway-orchestrator-contract`：负责 Gateway 与 Orchestrator 的内部 run 协议。
-- `frontend-runtime-skills-contract`：负责前端 Runtime Skill 注册、参数校验、组件映射和 ToolResult。
-- `llm-provider-contract`：负责 LLM provider、prompt、结构化输出、重试和降级。
-- `security-boundary-contract`：负责鉴权、安全边界、危险操作确认和敏感信息保护。
-- `observability-debugging-contract`：负责 traceId、runId、stepId、日志和调试规则。
+- `SKILL.md` 独立可读。
+- MVP v0.1 已降级为历史基线。
+- 当前契约支持 2+ Agent。
+- 不固定任何具体 Agent 名称。
+- Gateway 与 Orchestrator 分进程的职责边界明确。
+- 意图编排只属于 Orchestrator Service。
+- PlannerInput / PlanningMode / OrchestrationPlan / TaskPlan / AgentCapabilitySet 明确。
+- Plan Validation 明确。
+- LLM Planner 结构化输出与本地校验规则明确。
+- fallback / retry 明确。
+- 群聊与 @mention 规则明确。
+- PlanTrace / SafeError 明确。
+- references 和 docs/contracts 同步更新。

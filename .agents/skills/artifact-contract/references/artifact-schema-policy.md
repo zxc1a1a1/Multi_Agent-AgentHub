@@ -1,105 +1,66 @@
-# Artifact Schema 规则
+# Artifact Schema Policy
 
-## 1. 目的
+## 基础要求
 
-本文定义 AgentHub normalized Artifact 的标准结构。
+Artifact schema 必须使用 JSON Schema 2020-12。
 
-注意：
+项目级 schema 文件：
 
 ```text
-AgentHub Artifact ≠ A2A 官方 Artifact
+docs/contracts/artifact.schema.json
 ```
 
-AgentHub Artifact 是项目内标准化后的产物对象。
+说明文档：
 
-## 2. 标准结构
-
-推荐结构：
-
-```ts
-type AgentHubArtifact = {
-  artifactId: string;
-  type: ArtifactType;
-  title: string;
-  summary: string;
-
-  content?: unknown;
-  contentRef?: ContentRef;
-
-  metadata: Record<string, unknown>;
-
-  conversationId: string;
-  messageId: string;
-  runId: string;
-  a2aTaskId?: string;
-  stepId?: string;
-  agentName?: string;
-
-  version: number;
-  status: "created" | "normalized" | "persisted" | "preview_mapped" | "previewed" | "failed";
-
-  createdAt: string;
-  updatedAt: string;
-};
+```text
+docs/contracts/artifact-schema.md
 ```
 
-## 3. 必需字段
-
-长期 Artifact 必须包含：
+## 最小必填字段
 
 ```text
 artifactId
 type
 title
-summary
-metadata
-conversationId
-messageId
-runId
+mimeType
+links.conversationId
+links.messageId
+links.runId
 version
 status
 createdAt
-updatedAt
 ```
 
-## 4. content / contentRef
+`content` 与 `contentRef` 至少存在一个。
 
-Artifact 必须至少有一个：
+## 字段命名
 
-```text
-content
-contentRef
-```
+- 对外 JSON 字段使用 camelCase。
+- Core `artifactId` 不使用 `id`，避免和 messageId / runId 混淆。
+- Public API DTO 中 `id` 是 `artifactId` 的公开投影。DB `artifacts.id` 存储 `artifactId`。
+- `type` 表示 Artifact 类型。
+- Core `preview.previewType` 表示预览意图。Public API DTO 扁平化为 `previewType`。
+- `links` 在 Core 中是嵌套对象（`links.conversationId` 等），在 Public API DTO 中扁平化为顶层字段。
+- `metadata` 用于类型特定扩展。
 
-长期大型内容应优先使用：
+## ArtifactDraft 与 Core Artifact
 
-```text
-contentRef
-```
+标准 Artifact schema 定义的是 **Core Artifact**（归一化后的完整产物对象）。
 
-MVP small code 可以使用：
+Child Agent / ADK Handler 输出的 **ArtifactDraft** 不是 Core Artifact：
 
-```text
-content
-```
+- ArtifactDraft 只包含 `type`、`title`、`content`（或 `contentRefDraft`）、`metadata`。
+- Core Artifact 的 `artifactId`、`mimeType`、`source.*`、`links.*`、`preview.*`、`version`、`status`、`createdAt` 由 Orchestrator / ArtifactRegistry 归一化时生成。
+- ArtifactDraft 不得包含平台字段。
+- 不得把 ArtifactDraft 当作 Core Artifact。
 
-## 5. metadata
+## schema 修改规则
 
-metadata 必须按 Artifact type 校验。
+任何字段新增、删除、重命名、类型变化，都必须同步更新：
 
-`code` metadata 至少包含：
+- Markdown 契约。
+- JSON Schema。
+- Review checklist。
+- 示例 Artifact。
 
-```text
-language
-```
-
-## 6. 禁止事项
-
-不得：
-
-- Artifact 缺少 runId。
-- Artifact 缺少 messageId。
-- Artifact 缺少 type。
-- metadata 任意扩张且不校验。
-- 大内容直接塞进 content。
-- contentRef 指向未经授权的私有 URL。
+不得让实现代码成为事实源。

@@ -1,74 +1,65 @@
-# Preview Mapping 规则
+# Preview Mapping Policy
 
-## 1. 目的
+## 定义
 
-本文定义 Artifact type 到前端 Runtime Skill 的映射。
-
-本文件只定义：
+Preview Mapping 定义三层映射：
 
 ```text
-artifact.type → frontend runtime skill
+outputMode → artifact.type → previewType → Frontend Runtime toolName
 ```
 
-不定义：
+其中：
+- `outputMode`（上游）是 Agent 声明的语义类别。
+- `artifact.type` 是平台归一化后的产物类型。
+- `previewType` 应优先等于 Frontend Runtime Registry 中的 `toolName`。
 
-```text
-frontend runtime skill → React Component
-```
+三层不得直接等同，所有转换必须通过映射表表达。
 
-## 2. 长期映射
+它不定义前端组件实现。
 
-```text
-code      → code_preview
-webpage   → web_preview
-diff      → diff_preview
-file      → file_download
-image     → image_preview
-deploy    → deploy_status
-document  → markdown_render
-terminal  → terminal_output
-chart     → chart_render
-```
+## v1.0 映射（required）
 
-## 3. MVP 映射
+| artifact.type | previewType | toolName |
+|---|---|---|
+| `code` | `code_preview` | `code_preview` |
+| `webpage` | `web_preview` | `web_preview` |
+| `markdown` | `markdown_render` | `markdown_render` |
 
-MVP 只启用：
+## planned 映射
 
-```text
-code → code_preview
-```
+| artifact.type | previewType | toolName |
+|---|---|---|
+| `document` | `document_preview` | `document_preview` |
+| `data` | `data_preview` | `data_preview` |
+| `image` | `image_preview` | `image_preview` |
+| `archive` | `file_download` | `file_download` |
 
-其他映射可以 reserved，但不得执行完整链路。
+## 完整三层映射链（含上游 outputMode）
 
-## 4. Tool args 构建边界
+| outputMode | artifact.type | previewType | toolName | 说明 |
+|---|---|---|---|---|
+| `code` | `code` | `code_preview` | `code_preview` | 代码类产物 |
+| `webpage` | `webpage` | `web_preview` | `web_preview` | 网页类产物 |
+| `document` | `document` 或 `markdown` | `document_preview` 或 `markdown_render` | `document_preview` 或 `markdown_render` | 归一化时根据 metadata.format 确定 artifact.type |
+| `text` | 无 Artifact | — | `markdown_render` / StreamingText | 纯文本流 |
 
-artifact-contract 可以定义 Artifact 到 preview skill 的字段映射。
+## 规则
 
-但具体 Runtime Skill 参数 schema 和 React Component 绑定归：
+- `previewType` 是预览意图。
+- `previewType` 应优先等于 Runtime toolName。
+- `previewType` 不是 Artifact 类型。
+- `artifact.type` 不是 `toolName`。
+- `outputMode` 不是 `toolName`。
+- `outputMode` 不是 `artifact.type`（除非映射表显式声明兼容）。
+- `previewType` 不是组件名。
+- 不得使用 `download` 作为 previewType（已废弃，统一使用 `file_download`）。
+- 不得通过 `agentName` 推断 outputMode 或选择 toolName。
+- `document_preview` / `data_preview` 当前为 planned/reserved，不要求实现。
+- Artifact 可以没有可用预览。
+- 未知 previewType 必须安全降级。
 
-```text
-frontend-runtime-skills-contract
-```
+### Public API 投影
 
-## 5. MVP code 字段映射
+Core 中 `previewType` 嵌套在 `preview` 对象下（含 `previewType`、`available`、`reason`）。
 
-```text
-artifact.content
-→ code_preview.args.code
-
-artifact.metadata.language
-→ code_preview.args.language
-
-artifact.title
-→ code_preview.args.filename
-```
-
-## 6. 禁止事项
-
-不得：
-
-- 写 code → CodePreview。
-- 把 React Component 写进 preview mapping。
-- 把 unknown artifact.type 映射到默认组件。
-- 缺少 metadata.language 仍渲染 code_preview。
-- implemented=false 的 mapping 进入执行链路。
+Public API DTO 将 `previewType` 扁平化为顶层字段。`preview.available` 和 `preview.reason` 是 Core 内部字段，不直接暴露给 Public API。

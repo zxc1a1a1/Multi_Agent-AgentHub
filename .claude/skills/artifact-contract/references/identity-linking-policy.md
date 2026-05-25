@@ -1,100 +1,63 @@
-# Identity Linking 规则
+# Identity Linking Policy
 
-## 1. 目的
+## 目的
 
-本文定义 Artifact 与 AgentHub 执行链路的 ID 关联规则。
+Artifact 必须可追溯到它的上下文和来源。
 
-Artifact 不得成为孤立对象。
+## 必填关联
 
-## 2. 必须关联
-
-长期 Artifact 必须关联：
+Core Artifact 使用嵌套结构：
 
 ```text
 artifactId
-conversationId
-messageId
-runId
+links.conversationId
+links.messageId
+links.runId
 ```
 
-## 3. 条件关联
+Public API DTO 将这些字段扁平化投影为顶层 `conversationId`、`messageId`、`runId`。Gateway Handler 负责从 `links.*` 展开。
 
-当存在对应上下文时，Artifact 应关联：
+## 推荐来源字段
 
 ```text
-a2aTaskId
-stepId
-agentName
-agentSkill
-toolCallId
-traceId
+source.agentName
+source.taskId
+source.stepId
 ```
 
-## 4. 关联语义
+## Artifact ID 三层映射
 
-`conversationId`：
+Core Artifact.artifactId、DB artifacts.id、Public API Artifact.id 是**同一个系统 ID 在不同层级的命名**，不是三套不同 ID。
 
-```text
-产物所属会话。
-```
+| 层级 | 字段名 | 说明 |
+|---|---|---|
+| Core Artifact（内部 JSON / schema） | `artifactId` | 内部事实源字段名 |
+| DB（MySQL artifacts 表） | `id` 或 `artifact_id` | 存储 Core Artifact.artifactId 值，不另行生成独立的 public id |
+| Public API DTO（对外 JSON） | `id` | `artifactId` 的公开投影 |
 
-`messageId`：
+规则：
 
-```text
-产物归属的消息。
-```
+- 内部 JSON / schema 优先使用 `artifactId`。
+- DB 主键字段名可以是 `id`，但必须说明其值等于 `artifactId`。
+- Public API 的 `id` 字段值是 `artifactId` 的公开投影，非独立 ID。
+- 不得为 Public API 另行生成与 `artifactId` 不同的 public id。
+- 如果在代码或文档中同时出现 `artifact_id`、`id`、`artifactId`，必须注明它们映射到同一个值。
 
-`runId`：
+## 多 Agent 场景
 
-```text
-产物所属的一次执行。
-```
+多 Agent 或群聊中：
 
-`a2aTaskId`：
+- 同一 run 可以产生多个 message。
+- 同一 message 可以产生多个 Artifact。
+- 不同 Agent 可以生成同名文件。
+- Artifact ID 不得由 title 单独派生。
+- source.agentName 用于展示和调试，不用于判断 Artifact 类型。
 
-```text
-产物来源的 A2A Task。
-```
+## 禁止
 
-`stepId`：
-
-```text
-多 Agent / 多步骤编排中的步骤。
-```
-
-`toolCallId`：
-
-```text
-产物预览所触发的 AG-UI Tool Call。
-```
-
-`traceId`：
-
-```text
-排障和日志追踪 ID。
-```
-
-## 5. MVP
-
-MVP 至少必须保留：
-
-```text
-conversationId
-messageId
-runId
-```
-
-如果 A2A Task 已生成 ID，应保留：
-
-```text
-a2aTaskId
-```
-
-## 6. 禁止事项
-
-不得：
-
-- Artifact 没有 messageId。
-- Artifact 没有 runId。
-- 多 Agent 阶段 Artifact 没有 stepId。
-- 预览失败但无法通过 artifactId / toolCallId 排查。
+- 用 filename 当 artifactId。
+- 用 messageId 当 artifactId。
+- 用 agentName 决定 artifact.type。
+- 缺少 runId。
+- 为 Public API 另行生成与 artifactId 不同的 public id。
+- 在文档中暗示 artifactId、DB id、API id 是三套不同 ID。

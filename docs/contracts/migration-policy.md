@@ -1,63 +1,74 @@
-# Migration Policy
+# 数据库 Migration 契约
 
-## 1. 文档目的
+## 目标
 
-本文档定义 AgentHub 数据库 migration 规则。
+所有数据结构变化必须可追溯、可 review、可回滚或可解释。
 
-所有 schema 变更必须有版本化 migration，不允许手工改库后不留记录。
+## 命名
 
-## 2. 基本规则
-
-- migration 文件必须版本化。
-- migration 必须可重复执行或可明确失败。
-- 不允许直接在生产库执行未 review SQL。
-- migration 必须包含 up/down 或明确不可逆说明。
-- 修改表字段必须同步数据模型文档。
-- 修改 API 相关字段必须同步 OpenAPI。
-- 修改 Artifact 相关字段必须同步 Artifact Contract。
-- 修改安全相关字段必须同步 Security Contract。
-
-## 3. 命名建议
+推荐：
 
 ```text
-000001_init_schema.sql
-000002_add_runs.sql
-000003_add_artifacts.sql
-000004_add_tool_calls.sql
-000005_add_post_mvp_tracking_tables.sql
+migrations/0001_init.sql
+migrations/0002_add_conversation_participants.sql
+migrations/0003_add_agent_registry.sql
 ```
 
-## 4. MVP v0.1
+或使用项目现有 migration 工具约定。
 
-MVP v0.1 可以先只包含核心表：
+## expand / migrate / contract
 
-```text
-users
-conversations
-messages
-agents
-runs
-a2a_tasks
-tool_calls
-artifacts
+### expand
+
+添加兼容字段、表、索引。
+
+示例：
+
+```sql
+ALTER TABLE conversations ADD COLUMN conversation_type VARCHAR(32) NOT NULL DEFAULT 'single';
 ```
 
-Post-MVP planned 表可以后续 migration：
+### migrate
 
-```text
-conversation_participants
-run_steps
-approvals
-agent_health_checks
+回填数据、双写、切换读取路径。
+
+示例：
+
+```sql
+UPDATE conversations SET conversation_type = 'single' WHERE conversation_type IS NULL;
 ```
 
-## 5. Review Checklist
+### contract
 
-- [ ] migration 是否版本化？
-- [ ] 是否说明 up/down？
-- [ ] 是否同步 data-model.md？
-- [ ] 是否同步 OpenAPI？
-- [ ] 是否同步 Artifact Contract？
-- [ ] 是否没有明文密钥字段？
-- [ ] 是否没有把大文件直接塞进普通业务表？
-- [ ] 是否保留跨协议 ID？
+确认新路径稳定后删除旧字段或旧逻辑。
+
+## 破坏性变更
+
+以下变更必须分阶段：
+
+- 删除列。
+- 重命名列。
+- 改字段类型。
+- 改 nullable。
+- 改主键。
+- 改唯一约束。
+- 大规模拆表。
+
+## 禁止
+
+- 直接手工改库。
+- 只改 `init.sql` 不写 migration。
+- 生产数据表上直接执行长时间锁表操作。
+- 没有备份策略就删除字段。
+- migration 中写入 secret。
+
+## Review 要求
+
+每个 migration 必须说明：
+
+- 为什么改。
+- 影响哪些表。
+- 是否兼容旧代码。
+- 是否需要回填。
+- 是否需要索引。
+- 是否有数据安全风险。

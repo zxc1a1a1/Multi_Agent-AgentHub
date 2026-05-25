@@ -1,46 +1,70 @@
 # Security Review Checklist
 
-## 1. MVP 安全检查
+## 事实源
 
-- [ ] Gateway 是否鉴权 `/api/*`？
-- [ ] 是否使用 `Authorization: Bearer <token>`？
-- [ ] Token 是否不在 query string？
-- [ ] LLM API key 是否只来自环境变量？
-- [ ] API key 是否没有写进代码？
-- [ ] RUN_ERROR 是否不泄漏 stack trace？
-- [ ] REST ErrorResponse 是否不泄漏内部错误？
-- [ ] code_preview 是否只展示不执行？
-- [ ] A2A endpoint 是否没有暴露给 Frontend？
-- [ ] Gateway handler 是否没有直接调用 A2A endpoint？
+- 是否参考 `SPRINT-v1.0-Plan.md`？
+- 是否把 MVP v0.1 降级为 Historical Profile？
+- 是否没有把 Sprint 示例固化为长期 Agent 名称限制？
 
-## 2. Secret 检查
+## 分进程
 
-- [ ] AgentCard 是否不包含密钥？
-- [ ] OpenAPI 示例是否不包含密钥？
-- [ ] Contract 示例是否不包含密钥？
-- [ ] 日志是否不打印 token / API key？
-- [ ] `.env.example` 是否没有真实值？
+- Gateway 与 Orchestrator 是否分进程？
+- Frontend 是否不能直连 Orchestrator？
+- Orchestrator `/internal/**` 是否没有暴露给前端？
+- Gateway → Orchestrator 是否有 service-to-service auth？
+- 用户 token 是否没有被当成 service token 透传？
 
-## 3. Artifact 检查
+## 公开 API
 
-- [ ] 大 Artifact 是否不塞进文本流？
-- [ ] HTML 预览是否 sandbox？
-- [ ] 文件下载是否鉴权？
-- [ ] 私有 URL 是否短期有效？
-- [ ] Artifact metadata 是否不包含密钥？
+- `/api/**` 是否鉴权？
+- 是否有对象级授权？
+- token 是否不在 query string？
+- 错误是否脱敏？
+- 是否有 rate limit？
 
-## 4. 高危能力检查
+## Agent
 
-- [ ] run_command 是否默认未启用？
-- [ ] file_upload 是否默认未启用？
-- [ ] deploy 是否需要 confirm_action？
-- [ ] 文件覆盖是否需要 confirm_action？
-- [ ] 外部付费调用是否需要 confirm_action？
+- AgentCard 是否不泄密？
+- Registry 是否只接受可信来源？
+- Health Check 是否不暴露内部错误？
+- Orchestrator 是否只调用 enabled + healthy Agent？
+- 用户自建 Agent 是否有隔离策略？
 
-## 5. Post-MVP 检查
+## LLM
 
-- [ ] JWT signing secret 是否安全管理？
-- [ ] A2A 是否有 service-to-service auth？
-- [ ] 自建 Agent 是否有 sandbox？
-- [ ] 是否有 audit log？
-- [ ] 是否有 rate limit？
+- LLM 输出是否只作为不可信建议？
+- Planner 输出是否 schema validation？
+- LLM 是否不能绕过权限 / confirm_action？
+- system prompt / secret 是否不传给不可信 Agent？
+- fallback plan 是否重新校验？
+
+## Artifact / Runtime
+
+- code preview 是否只展示不执行？
+- markdown 是否防 XSS？
+- web preview 是否 iframe sandbox？
+- download 是否鉴权？
+- Artifact metadata 是否不含 secret？
+
+## Tool / 高危动作
+
+- run_command 是否 sandbox / whitelist / timeout？
+- deploy / overwrite / external publish 是否 confirm_action？
+- 高危动作是否审计？
+- LLM 是否不能直接执行高危动作？
+
+## Secret
+
+- API key 是否只来自 env / secret manager？
+- `.env.example` 是否无真实值？
+- 日志 / trace / Artifact / AgentCard 是否无 secret？
+
+## 测试
+
+- 未鉴权是否返回 401？
+- 无权限是否返回 403？
+- 错误是否无 stack trace？
+- AgentCard 是否无密钥？
+- iframe 是否有 sandbox？
+- high-risk tool 是否需要 confirm_action？
+- smoke test 是否包含安全检查？

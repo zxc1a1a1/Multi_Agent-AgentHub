@@ -1,36 +1,20 @@
-# Provider Fallback 规则
+# Fallback Policy
 
-MVP 阶段不要求 fallback。
+Fallback 是 Provider / Model 选择层的降级能力，不等于 retry。
 
-正式开发阶段可以支持：
+## 模式
 
 ```text
-same model retry
-same provider fallback model
-cross provider fallback
-local model fallback
-user-safe failure
+same_provider_different_model
+different_provider_same_capability
+lower_cost_model
+fail_fast
 ```
 
-Fallback 必须显式配置。
+## 规则
 
-Fallback 不得降低安全等级。
-
-Fallback 不得绕过：
-
-- structured output schema validation。
-- tool permission。
-- content safety。
-- secret policy。
-- user authorization。
-
-如果主模型用于 structured output，fallback 模型必须也支持所需结构化输出能力，或者必须进入安全失败。
-
-禁止：
-
-- 隐式 fallback。
-- 无限 fallback。
-- fallback 到未注册 Provider。
-- fallback 到 disabled 模型。
-- fallback 到低安全等级模型。
-- fallback 后跳过 schema validation。
+- fallback 只能选择 enabled Provider / Model。
+- fallback 必须满足 requiredCapabilities。
+- fallback 不得无限循环。
+- fallback 后必须记录实际 providerName / modelId。
+- structured output 请求不得 fallback 到不支持 schema 的模型，除非显式降级并重新校验。

@@ -1,69 +1,54 @@
-# Metrics 规则
+# Metrics Policy
 
-## 1. 目的
+## 目的
 
-本文定义 AgentHub 指标命名和采集规则。
+定义 AgentHub 指标命名、维度和禁止事项。
 
-MVP 阶段可以先不接 metrics backend，但事件和字段要预留。
+## 指标方向
 
-## 2. 推荐指标
+指标优先覆盖：
 
-```text
-agenthub_run_started_total
-agenthub_run_finished_total
-agenthub_run_failed_total
-agenthub_run_duration_ms
-agenthub_a2a_task_started_total
-agenthub_a2a_task_failed_total
-agenthub_a2a_task_duration_ms
-agenthub_llm_request_total
-agenthub_llm_request_failed_total
-agenthub_llm_latency_ms
-agenthub_llm_tokens_total
-agenthub_artifact_created_total
-agenthub_artifact_failed_total
-agenthub_agui_sse_events_total
-agenthub_tool_call_failed_total
-```
+- latency
+- traffic
+- errors
+- saturation
 
-## 3. 推荐标签
+## 推荐指标
 
-低基数字段：
+- `gateway_http_requests_total`
+- `gateway_http_request_duration_ms`
+- `gateway_stream_disconnects_total`
+- `orchestrator_runs_total`
+- `orchestrator_run_duration_ms`
+- `orchestrator_agent_tasks_total`
+- `orchestrator_agent_task_duration_ms`
+- `orchestrator_fallback_attempts_total`
+- `llm_requests_total`
+- `llm_request_duration_ms`
+- `llm_tokens_input_total`
+- `llm_tokens_output_total`
+- `artifact_created_total`
+- `tool_calls_total`
+- `registry_health_check_failures_total`
 
-```text
-service
-environment
-agentName
-agentSkill
-provider
-model
-status
-errorCode
-```
+## 允许低基数标签
 
-## 4. 禁止标签
+- `service`
+- `environment`
+- `route`
+- `status`
+- `strategy`
+- `planningMode`
+- `provider`
+- `model`
+- `errorCode`
 
-不得作为 metrics label：
+## 禁止标签
 
-```text
-userId
-messageId
-runId
-traceId
-prompt
-rawError
-apiKey
-token
-fullURLWithSecret
-```
-
-高基数字段应进入 trace / log，不应进入 metrics label。
-
-## 5. 禁止事项
-
-不得：
-
-- 在 metric label 中写敏感信息。
-- 用高基数字段做 label。
-- 指标名称每个服务各自发明。
-- 没有 errorCode 就统计失败。
+- `runId`
+- `traceId`
+- `messageId`
+- `user input`
+- `prompt`
+- `token`
+- `full URL with token`

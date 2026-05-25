@@ -1,25 +1,50 @@
 # Tool Call Events
 
-来源：`docs/contracts/agui-events.md`、`docs/contracts/gateway-orchestrator-events.md`。
-
-## 1. 顺序
+## 事件
 
 ```text
 TOOL_CALL_START
-TOOL_CALL_ARGS*
+TOOL_CALL_ARGS
 TOOL_CALL_END
 ```
 
-## 2. MVP code_preview
+## 作用
 
-`code` Artifact 映射到：
+Tool Call 用于让前端渲染某类产物或交互控件。
 
-```text
-toolName = code_preview
-args = { code, language, filename }
-```
+本文件只定义传输过程，不定义具体工具参数 Schema。
 
-## 3. 约束
+## TOOL_CALL_START
 
-- `TOOL_CALL_ARGS` / `END` 必须关联同一 `toolCallId`。
-- 未注册 Skill 不应强行触发。
+必须包含：
+
+- `toolCallId`
+- `toolName`
+- `messageId`
+
+## TOOL_CALL_ARGS
+
+新实现优先使用 `delta`，兼容旧字段 `content`。
+
+前端必须按 `toolCallId` 拼接参数片段。
+
+拼接完成后必须是合法 JSON。
+
+## TOOL_CALL_END
+
+表示参数传输结束。
+
+前端只能在收到 `TOOL_CALL_END` 后解析并执行。
+
+## 事件来源
+
+Tool Call 事件由 `OrchestratorStreamEvent` 的 `tool_call_start` / `tool_call_args` / `tool_call_end` 经 Gateway / ProtocolConverter 映射而来。
+
+Child Agent 原始 A2A artifact event 不得直接透传给 Frontend。
+
+## 规则
+
+- 未知 `toolName` 不得导致前端崩溃。
+- malformed args 不得导致前端崩溃。
+- `toolCallId` 不得复用。
+- Tool Call 应归属到某条 `messageId`。

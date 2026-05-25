@@ -1,24 +1,5 @@
-# Frontend API Client Policy
+# Frontend API Client 策略
 
-来源：`docs/contracts/openapi.yaml`、`docs/contracts/api-client-generation.md`、`docs/skill/platform-api-contract/SKILL.md`。
+Frontend 必须从 OpenAPI 生成 API 类型与 client。
 
-## 1. 类型来源
-
-- 前端 API 类型必须来自 OpenAPI 生成结果。
-- 禁止长期手写后端 response 类型。
-
-## 2. 修改顺序
-
-```text
-先改 openapi.yaml
-→ 更新生成类型
-→ 修改前端调用
-→ 修改后端实现
-→ 补 contract test
-```
-
-## 3. 禁止事项
-
-- 调用未定义接口。
-- 私自增加 response 字段。
-- 混入 AG-UI / A2A 内部字段到 REST DTO。
+不得手写 API response interface，不得直接 `fetch` OpenAPI 未定义路径，不得访问 `/internal/**`，不得访问 Orchestrator 真实地址。Mock 数据必须符合 OpenAPI schema。

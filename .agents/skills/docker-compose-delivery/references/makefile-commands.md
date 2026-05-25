@@ -1,73 +1,37 @@
-# Makefile 命令
+# Makefile 命令策略
 
-## 1. 目的
-
-本文定义本地开发和 Demo 的标准命令。
-
-## 2. 必需命令
+## 推荐命令
 
 ```text
 make docker-up
 make docker-down
+make docker-build
 make docker-reset
-make logs
-make smoke
-make dev
+make docker-logs
+make docker-ps
+make smoke-test
+make smoke-test-ci
+make demo-up
+make demo-reset
 ```
 
-## 3. 命令语义
+## 语义
 
-`make docker-up`：
+- `docker-up`：启动本地栈。
+- `docker-down`：停止本地栈，不删除数据。
+- `docker-build`：构建镜像。
+- `docker-reset`：停止并删除 volume，危险操作。
+- `docker-logs`：查看日志。
+- `docker-ps`：查看服务状态。
+- `smoke-test`：本地 smoke test。
+- `smoke-test-ci`：CI 友好 smoke test。
+- `demo-up`：Demo profile 启动。
+- `demo-reset`：Demo 数据清理。
 
-```text
-docker compose up -d --build
-```
+## 规则
 
-`make docker-down`：
-
-```text
-docker compose down
-```
-
-`make docker-reset`：
-
-```text
-docker compose down -v
-```
-
-`make logs`：
-
-```text
-docker compose logs -f
-```
-
-`make smoke`：
-
-```text
-scripts/smoke-test.sh
-```
-
-`make dev`：
-
-```text
-启动本地开发所需服务或打印开发说明
-```
-
-## 4. 可选命令
-
-```text
-make compose-config
-make ps
-make restart
-make clean
-make seed
-```
-
-## 5. 禁止事项
-
-不得：
-
-- Makefile 命令和 README 不一致。
-- docker-up 后还需手动启动服务。
-- reset 不清理 volume。
-- smoke 不返回非零退出码。
+- Makefile 不得隐藏破坏性行为。
+- reset / clean 必须明确会删除 volume。
+- 默认 up 不应删除数据。
+- 命令失败时应返回非零退出码。
+- 文档中不得列不存在的命令。

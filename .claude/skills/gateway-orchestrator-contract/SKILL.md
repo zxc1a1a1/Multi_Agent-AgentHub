@@ -1,1076 +1,1086 @@
 ---
 name: gateway-orchestrator-contract
-description: "用于定义 AgentHub Gateway 与 Orchestrator 之间的职责边界和事件流转规则，包括请求入口、Run 生命周期、OrchestratorEvent 与 AG-UI 的映射、取消语义和 MVP 内嵌编排边界。"
+description: "用于定义 AgentHub Gateway Service 与 Orchestrator Service 的独立进程间通信契约，包括服务职责边界、内部 API、流式事件、编排计划、多 Agent 执行、fallback/retry、取消超时、服务间鉴权、trace 传播和错误脱敏。"
 ---
 
 # gateway-orchestrator-contract
 
 ## 1. Skill 目的
 
-本 Skill 用于定义 AgentHub 项目中 **Gateway ↔ Orchestrator** 的内部调用契约。
+本 Skill 用于定义 AgentHub 中：
 
-它约束 Gateway 如何把来自 Frontend 的 AG-UI Run 请求交给 Orchestrator 处理，以及 Orchestrator 如何把编排结果、A2A 调度结果、协议转换后的 AG-UI Event 返回给 Gateway。
+```text
+Gateway Service ↔ Orchestrator Service
+```
+
+之间的独立进程间通信契约。
+
+它约束：
+
+- Gateway Service 与 Orchestrator Service 的职责边界。
+- Gateway 如何通过内部 API 调用 Orchestrator。
+- Orchestrator 如何以稳定的流式事件返回编排过程。
+- Run 生命周期如何跨进程表达。
+- OrchestrationPlan / TaskPlan 如何表达多 Agent 编排。
+- single / ordered_parallel / sequential 如何执行和输出事件。
+- fallback / retry 如何表达。
+- 浏览器断连、用户取消、服务超时如何传播。
+- requestId / traceId / runId 如何贯穿 Gateway 与 Orchestrator。
+- 服务间鉴权、错误脱敏和日志边界。
 
 一句话：
 
-**Gateway 负责对外入口和连接管理，Orchestrator 负责路由 / 编排 / A2A 调度 / 协议转换；二者之间必须有清晰的内部 Contract。**
+**Gateway 是对外入口；Orchestrator 是内部编排服务；两者必须分进程，通过受保护的内部 API 通信，不得通过同进程 import 或 handler 内嵌逻辑绕过服务边界。**
 
 ---
 
-## 2. 适用场景
+## 2. 独立性原则
 
-当任务涉及以下内容时，必须使用本 Skill：
+本 Skill 必须独立可读，不要求读者先阅读其他 Skill。
 
-- 编写或修改 Gateway 调用 Orchestrator 的逻辑。
-- 编写或修改 `server/internal/orchestrator/`。
-- 编写或修改独立 `orchestrator-service`。
-- 设计 Gateway ↔ Orchestrator 的 Go interface。
-- 设计 Gateway ↔ Orchestrator 的 internal HTTP contract。
-- 设计 `OrchestratorRequest`。
-- 设计 `OrchestratorResult`。
-- 设计 Orchestrator 输出给 Gateway 的事件通道。
-- 设计 Gateway 如何向 Frontend 转发 AG-UI SSE。
-- 设计 Orchestrator 如何调用 A2A Client。
-- 设计 MVP 中 Gateway 与 Orchestrator 合并进程时的模块边界。
-- 设计 Post-MVP 中 Gateway 与 Orchestrator 拆分服务时的内部协议。
-- Review Gateway handler 是否越界实现编排逻辑。
-- Review Orchestrator 是否越界处理 HTTP、鉴权、前端连接、数据库持久化。
+本 Skill 只定义 Gateway 与 Orchestrator 的服务间契约，不展开前端事件协议、子 Agent 协议、Artifact Schema、数据库表结构、LLM Provider API 或具体 Agent 实现。
 
----
+可以出现以下概念，但只作为内部字段或边界名使用：
 
-## 3. Contract 所属边界
+- Agent
+- Run
+- Task
+- Event
+- ArtifactRef
+- ToolCallRef
+- RuntimeCapability
 
-本 Skill 只约束：
-
-```text
-Gateway ↔ Orchestrator
-```
-
-本 Skill 不约束：
-
-```text
-Frontend ↔ Gateway REST API
-Frontend ↔ Gateway AG-UI Event Stream
-Orchestrator ↔ Child Agent A2A
-Artifact Schema
-Frontend Runtime Skills Schema
-ADK Runtime
-```
-
-对应关系如下：
-
-| 通信方向 | 使用协议 / Contract | 是否由本 Skill 管 |
-|---|---|---|
-| Frontend → Gateway REST API | OpenAPI | 否，由 `platform-api-contract` 管 |
-| Frontend ↔ Gateway AG-UI SSE | AG-UI Event Contract | 否，由 `agui-event-contract` 管 |
-| Gateway ↔ Orchestrator | Go interface / internal contract | 是 |
-| Orchestrator ↔ Child Agent | A2A | 否，由 `a2a-agent-contract` 管 |
-| Orchestrator 输出 Artifact | Artifact Contract | 否，由 `artifact-contract` 管 |
-| Artifact → Frontend Skill | Frontend Runtime Skills Contract | 否，由 `frontend-runtime-skills-contract` 管 |
+不得在本 Skill 中复制其他协议的完整字段定义。
 
 ---
 
-## 4. 核心文件
+## 3. 当前阶段识别
 
-本 Skill 落地后应生成或维护：
+当前项目已经完成 MVP v0.1，MVP 规则仅作为历史回归基线。
 
-```text
-docs/contracts/gateway-orchestrator.md
-docs/contracts/gateway-orchestrator-events.md
-```
-
-可选维护：
+当前阶段要求：
 
 ```text
-docs/contracts/gateway-orchestrator.schema.json
-docs/contracts/gateway-orchestrator-review-checklist.md
+Gateway Service 与 Orchestrator Service 必须分进程。
 ```
 
-MVP v0.1 阶段，核心实现可以是 Go interface，不一定需要真实 HTTP internal endpoint。
+当前契约面向：
 
-Post-MVP 阶段，如果拆分独立 Orchestrator Service，则必须将同一逻辑 Contract 映射为 internal HTTP / RPC contract。
+- 2+ Child Agent。
+- 单聊与群聊。
+- 手动指定、@mention、规则路由、LLM Planner 等多种 planning 来源。
+- single / ordered_parallel / sequential 执行策略。
+- fallback / retry。
+- 多条 assistant message。
+- 多个 agent task。
+- 多个 artifact / tool call 引用。
+
+本 Skill 不固定具体 Agent 名称。
+
+禁止把 `code-agent`、`web-agent`、`doc-agent` 等具体 Agent 名称写成契约硬编码。它们只能出现在示例中。
 
 ---
 
-## 5. 四份设计文档的优先级解释
+## 4. MVP v0.1 Historical Profile
 
-本 Skill 必须同时遵守四类文档：
+MVP v0.1 已完成，仅作为历史兼容和回归测试基线。
 
-1. **PDR**：定义完整目标架构，Gateway 和 Orchestrator 是清晰分层的两个系统角色。
-2. **MVP 文档**：定义 v0.1 最小实施范围，允许 Orchestrator 嵌入 Gateway 进程。
-3. **UML 文档**：定义关键链路、时序、协议转换和模块关系。
-4. **Skills 设计规范**：定义本 Contract 必须自建，不能交给通用后端 Skill 代替。
+历史基线包括：
 
-解释原则：
+- Gateway 与 Orchestrator 可以同进程。
+- Orchestrator 可以作为 `server/internal/orchestrator` 模块。
+- 单 Agent 直接路由。
+- 最小文本流。
+- 最小 preview/tool call 映射。
+- Gateway handler 可以直接调用同进程 Orchestrator 对象。
+
+这些历史实现不得继续作为当前架构约束。
+
+当前新增开发必须朝向：
+
+- Gateway 独立服务。
+- Orchestrator 独立服务。
+- Gateway 通过 `ORCHESTRATOR_URL` 访问 Orchestrator。
+- Orchestrator 暴露内部 `/health` 与内部 streaming endpoint。
+- Gateway 不再 import Orchestrator 业务包执行编排。
+
+---
+
+## 5. 进程边界硬规则
+
+Gateway 和 Orchestrator 必须是两个独立进程。
+
+硬性规则：
+
+1. Gateway 不得 import Orchestrator 的业务包来执行编排逻辑。
+2. Gateway 不得在 HTTP handler 中实现 Agent 选择、任务拆解、fallback 或多 Agent 调度。
+3. Orchestrator 必须通过内部网络 endpoint 被 Gateway 调用。
+4. Orchestrator 必须拥有独立启动入口、独立端口和独立 `/health`。
+5. Frontend 不得直接访问 Orchestrator。
+6. Child Agent 不得反向依赖 Gateway 的前端 API。
+7. Orchestrator 的内部 endpoint 不属于对外公开 API。
+8. Gateway 与 Orchestrator 的通信必须有 timeout、trace、错误脱敏和服务间鉴权。
+
+目标拓扑：
 
 ```text
-PDR 决定长期方向。
-MVP 决定当前范围。
-UML 决定关键流程。
-Skills 设计规范决定 AI 开发约束。
+Frontend
+  ↓ HTTP / SSE
+Gateway Service
+  ↓ Internal HTTP / Streaming RPC
+Orchestrator Service
+  ↓ Agent Client / Registry / Planner
+Child Agent Services
 ```
 
 ---
 
-## 6. MVP v0.1 实施模式
+## 6. 本 Skill 负责什么
 
-MVP v0.1 中，Orchestrator 允许嵌入 Gateway 进程，作为 `server/internal/orchestrator/` 模块存在。
+本 Skill 负责：
 
-推荐目录：
-
-```text
-server/
-  internal/
-    handler/
-      agui.go
-      conversation.go
-      agent.go
-    orchestrator/
-      orchestrator.go
-      converter.go
-      types.go
-    a2a/
-      client.go
-      types.go
-    store/
-      mysql.go
-    config/
-      config.go
-```
-
-MVP v0.1 的调用关系：
-
-```text
-handler/agui.go
-  → orchestrator.Process(ctx, req, history, eventSink)
-  → a2a.Client.SendSubscribe(...)
-  → converter.Convert(...)
-  → eventSink.Emit(AGUIEvent)
-  → handler/agui.go 写出 SSE
-```
-
-MVP v0.1 允许：
-
-- Gateway 与 Orchestrator 在同一个 Go 进程中。
-- Orchestrator 使用 Go interface / function call。
-- Orchestrator 直接路由到用户选择的 `code-agent`。
-- 不调用 LLM 生成 ExecutionPlan。
-- Agent 注册通过配置文件写死。
-- 只调 `code-agent`。
-- 只处理 `code` Artifact → `code_preview`。
-- 使用 MySQL 8 保存会话和消息。
-- 使用固定 Token 或环境变量 Token 鉴权。
-
-MVP v0.1 不允许：
-
-- 在 Gateway handler 中直接写 A2A 调度逻辑。
-- 在 Gateway handler 中直接写 A2A → AG-UI 协议转换逻辑。
-- 在 Gateway handler 中直接解析 Artifact 并拼装 `code_preview` Tool Call。
-- 因为同进程而删除 Orchestrator 模块边界。
-- Frontend 直接调用 Orchestrator。
-- Frontend 直接调用 Child Agent。
-- Orchestrator 直接写 HTTP response。
-- Orchestrator 直接管理 SSE 连接。
-- Orchestrator 直接做用户鉴权。
-- Orchestrator 直接访问 React UI 或前端组件。
+- 服务职责边界。
+- 服务间 API。
+- 服务间鉴权。
+- OrchestratorRequest。
+- OrchestrationPlan。
+- OrchestratorStreamEvent。
+- OrchestratorResult。
+- Run 生命周期。
+- 多 Agent 执行规则。
+- ordered_parallel 事件顺序规则。
+- fallback / retry 规则。
+- cancellation / timeout 跨进程传播规则。
+- trace / requestId / runId 传播规则。
+- Gateway handler 边界。
+- Orchestrator service 边界。
+- Mock-first 和 Contract Test 规则。
 
 ---
 
-## 7. Post-MVP 完整模式
+## 7. 本 Skill 不负责什么
 
-Post-MVP 可以将 Orchestrator 拆分为独立服务：
+本 Skill 不负责：
+
+- 前端公开 REST API 的完整定义。
+- 浏览器 SSE wire format 的完整规范。
+- 子 Agent 协议字段。
+- Agent Runtime 内部 API。
+- Artifact 详细 schema。
+- 前端 Runtime Capability 参数 schema。
+- 数据库表结构。
+- Docker Compose 文件实现。
+- LLM Provider 请求格式。
+- 某个具体 Agent 的业务逻辑。
+
+如果这些信息需要被 Gateway 或 Orchestrator 使用，本 Skill 只定义它们在服务间 request / result 中的摘要字段或引用字段。
+
+---
+
+## 8. Gateway Service 职责
+
+Gateway Service 是对外入口。
+
+Gateway 负责：
+
+- 接收前端 HTTP 请求。
+- 接收和维护前端流式连接。
+- 执行用户鉴权。
+- 校验基础请求格式。
+- 生成或透传 `requestId`、`traceId`、`runId`、`conversationId`。
+- 保存用户消息。
+- 查询必要历史上下文。
+- 装配 `conversationType`、mentions、selectedAgents、runtimeCapabilities 等上下文。
+- 构造 `OrchestratorRequest`。
+- 使用 `ORCHESTRATOR_URL` 调用 Orchestrator Service。
+- 将 Orchestrator 流式事件转发给 Frontend。
+- 处理浏览器断连。
+- 将断连、显式取消、服务超时传播给 Orchestrator。
+- 持久化 `OrchestratorResult` 中的 assistant messages、task refs、artifact refs、tool call refs。
+- 将内部错误转换成前端安全错误。
+
+---
+
+## 9. Gateway Service 禁止事项
+
+Gateway 禁止：
+
+- 直接选择具体 Agent。
+- 直接调用 Child Agent。
+- 直接持有 Child Agent 调用地址（Agent URL / service name）。
+- 直接调用 LLM。
+- 直接生成 OrchestrationPlan。
+- 直接执行 fallback / retry 决策。
+- 直接解析 Child Agent 原始流。
+- 直接做多 Agent 调度。
+- 在 handler 中写复杂编排逻辑。
+- import Orchestrator 业务包执行编排。
+- 通过具体 `agentName` 写死能力判断。
+- 把用户原始 Authorization token 当服务间 token 透传给 Orchestrator。
+- 把内部错误堆栈直接返回前端。
+- 直接透传 Child Agent A2A event 给 Frontend。A2A event 必须先由 Orchestrator 转为 OrchestratorStreamEvent，再由 Gateway 映射为 AG-UI Event。
+
+判断标准：
 
 ```text
-gateway-service
-orchestrator-service
+如果代码在回答“应该调用哪个 Agent、如何拆任务、如何 fallback、如何排序多 Agent 输出”，它不应该在 Gateway。
 ```
 
-长期调用关系：
+---
+
+## 10. Orchestrator Service 职责
+
+Orchestrator Service 是内部编排服务。
+
+Orchestrator 负责：
+
+- 独立启动。
+- 暴露内部 `/health`。
+- 暴露内部 run stream endpoint。
+- 接收 Gateway 传入的 `OrchestratorRequest`。
+- 读取用户消息、历史上下文、conversationType、mentions、runtimeCapabilities、availableAgents。
+- 执行 planning。
+- 生成或接收 `OrchestrationPlan`。
+- 校验计划中的目标 Agent 是否可用。
+- 生成一个或多个 AgentTask。
+- 执行 single / ordered_parallel / sequential。
+- 输出 Gateway 可转发的流式事件。
+- 调用一个或多个 Child Agent。
+- 聚合任务结果。
+- 处理 fallback / retry。
+- 生成 `OrchestratorResult`。
+- 记录脱敏日志和 trace。
+
+---
+
+## 11. Orchestrator Service 禁止事项
+
+Orchestrator 禁止：
+
+- 直接处理前端用户登录鉴权。
+- 直接暴露给 Frontend。
+- 直接写浏览器 HTTP/SSE response。
+- 直接持有 Gateway 的 HTTP framework context。
+- 依赖 Gateway handler 类型。
+- 反向调用 Gateway 的前端公开 API。
+- 保存用户原始 Authorization token。
+- 在结果中返回内部堆栈、密钥、私有路径或完整 system prompt。
+- 使用具体 Agent 名称硬编码能力判断。
+- 直接输出 AG-UI Event 名称（UPPER_SNAKE_CASE）。Orchestrator 只输出 OrchestratorStreamEvent（snake_case），由 Gateway 负责命名映射。
+
+---
+
+## 12. Service-to-Service API
+
+Gateway 调用 Orchestrator 必须通过内部 API。
+
+推荐最小 endpoint：
 
 ```text
-Gateway
-  → internal HTTP / RPC
-  → Orchestrator Service
-  → A2A
-  → Child Agents
-```
-
-拆分后必须保持：
-
-- 逻辑字段不变。
-- `OrchestratorRequest` 语义不变。
-- Orchestrator 输出事件语义不变。
-- AG-UI Event 仍然遵守 `agui-event-contract`。
-- A2A 调用仍然遵守 `a2a-agent-contract`。
-- Gateway 仍然不做编排。
-- Orchestrator 仍然不暴露给 Frontend。
-- 内部接口必须有服务间鉴权、traceId、timeout、错误映射。
-
-如果 Post-MVP 使用 internal HTTP，推荐路径形态：
-
-```text
-POST /internal/orchestrator/runs
+GET  /health
+POST /internal/orchestrator/runs/stream
 POST /internal/orchestrator/runs/{runId}/cancel
 ```
 
-注意：
-
-- 这些 internal endpoint 不属于 Frontend REST API。
-- 不能写进 `docs/contracts/openapi.yaml` 的 Frontend Platform API 中。
-- 应由 `gateway-orchestrator-contract` 独立维护。
-- 不允许 Frontend 调用 `/internal/*`。
-
----
-
-## 8. Gateway 职责
-
-Gateway 在本 Contract 中负责：
-
-1. 接收 Frontend 的 `POST /api/agui/run`。
-2. 执行鉴权。
-3. 校验基础请求格式。
-4. 生成或透传 `runId`、`threadId`、`traceId`。
-5. 保存用户消息。
-6. 查询会话历史。
-7. 构造 `OrchestratorRequest`。
-8. 创建事件通道或 `EventSink`。
-9. 调用 Orchestrator。
-10. 将 Orchestrator 输出的 AG-UI Event 写成 SSE。
-11. 处理客户端断开、取消、超时。
-12. 在运行结束后保存 Agent 回复和 Artifact 引用。
-13. 统一日志、requestId、traceId。
-14. 将 Orchestrator 错误映射为 AG-UI `RUN_ERROR` 或统一错误响应。
-
-Gateway 不负责：
-
-- LLM 意图分析。
-- ExecutionPlan 生成。
-- A2A 调度。
-- A2A Stream 解析。
-- A2A → AG-UI 协议转换。
-- Artifact → Frontend Skill 映射。
-- 多 Agent 结果聚合。
-- Child Agent 选择策略。
-- 直接调用 Child Agent。
-- 直接调用 LLM。
-
----
-
-## 9. Orchestrator 职责
-
-Orchestrator 在本 Contract 中负责：
-
-1. 接收 `OrchestratorRequest`。
-2. 读取用户消息、历史消息、前端声明的 Tools / Skills。
-3. MVP v0.1 中直接路由到指定 `code-agent`。
-4. Post-MVP 中执行意图分析和 ExecutionPlan 生成。
-5. 通过 A2A Client 调用 Child Agent。
-6. 接收 A2A Stream Event。
-7. 调用 ProtocolConverter 将 A2A 事件转换为 AG-UI Event。
-8. 缓存 Artifact，并在 completed 后 flush 为 Tool Call。
-9. 将 AG-UI Event 推送给 Gateway 的 `EventSink`。
-10. 输出 `RUN_STARTED`、`TEXT_MESSAGE_*`、`TOOL_CALL_*`、`RUN_FINISHED`、`RUN_ERROR`。
-11. 返回 `OrchestratorResult`，供 Gateway 持久化 Agent 回复和 Artifact 引用。
-12. 保持可取消、可超时、可追踪。
-
-Orchestrator 不负责：
-
-- 对外暴露 Frontend API。
-- 直接处理浏览器连接。
-- 直接写 SSE response。
-- 执行用户登录鉴权。
-- 管理前端状态。
-- 保存用户消息。
-- 查询会话列表。
-- 直接操作 React 组件。
-- 返回普通 REST response 给 Frontend。
-
----
-
-## 10. MVP v0.1 必须支持的内部调用流程
-
-MVP v0.1 的最小流程：
+可选 endpoint：
 
 ```text
-1. Gateway 接收 POST /api/agui/run
-2. Gateway 鉴权
-3. Gateway 保存用户消息
-4. Gateway 查询最近历史消息
-5. Gateway 构造 OrchestratorRequest
-6. Gateway 创建 EventSink
-7. Gateway 调用 Orchestrator.Process
-8. Orchestrator 输出 RUN_STARTED
-9. Orchestrator 选择 code-agent
-10. Orchestrator 调用 A2A sendSubscribe
-11. Orchestrator 接收 A2A status/text/artifact/completed
-12. Orchestrator 转换为 AG-UI Event
-13. Gateway 将 AG-UI Event 通过 SSE 写给 Frontend
-14. Orchestrator 返回 OrchestratorResult
-15. Gateway 保存 Agent 回复和 Artifact
-16. Gateway 关闭 SSE
-```
-
-MVP v0.1 不要求：
-
-- 多 Agent ExecutionPlan。
-- LLM 意图分析。
-- 群聊 Agent 选择。
-- 失败自动切换备用 Agent。
-- 分布式 Orchestrator Service。
-- 复杂任务状态持久化。
-- `cancel` 完整实现。
-- 多路并发 Agent 聚合。
-
----
-
-## 11. OrchestratorRequest 规范
-
-MVP v0.1 推荐的逻辑结构：
-
-```go
-type OrchestratorRequest struct {
-    RunID     string
-    ThreadID  string
-    UserID    string
-    AgentName string
-
-    Messages []AGUIMessage
-    History  []Message
-
-    Tools   []AGUITool
-    Context map[string]any
-
-    TraceID   string
-    RequestID string
-}
-```
-
-字段含义：
-
-| 字段 | 说明 |
-|---|---|
-| `RunID` | 单次 AG-UI run 的 ID |
-| `ThreadID` | 对话 / conversation ID |
-| `UserID` | 当前用户 ID；MVP 可用固定用户 |
-| `AgentName` | MVP 直接路由目标，默认 `code-agent` |
-| `Messages` | 本次 Run 携带的消息 |
-| `History` | Gateway 查询到的历史上下文 |
-| `Tools` | Frontend 声明的可用 Skills，如 `code_preview` |
-| `Context` | 额外上下文，如 mentions、conversationType |
-| `TraceID` | 跨服务追踪 ID |
-| `RequestID` | Gateway 请求 ID |
-
-规则：
-
-- `RunID` 必须存在。
-- `ThreadID` 必须存在。
-- MVP v0.1 中 `AgentName` 应明确指向 `code-agent` 或由 Gateway 设置默认值。
-- `Tools` 必须传给 Orchestrator，用于判断前端是否支持 `code_preview`。
-- `History` 由 Gateway 提供，Orchestrator 不直接查询会话数据库。
-- 字段命名对外 JSON 使用 camelCase；Go 内部结构可以使用 PascalCase，但 json tag 必须统一。
-
----
-
-## 12. EventSink 规范
-
-MVP v0.1 推荐使用事件通道或接口：
-
-```go
-type EventSink interface {
-    Emit(ctx context.Context, event AGUIEvent) error
-}
-```
-
-或：
-
-```go
-type EventChan chan<- AGUIEvent
+GET  /internal/orchestrator/runs/{runId}
+POST /internal/orchestrator/runs/{runId}/result
 ```
 
 规则：
 
-- Orchestrator 只向 `EventSink` 输出 AG-UI Event。
-- `AGUIEvent` 必须遵守 `agui-event-contract`。
-- Orchestrator 不直接调用 `c.SSEvent`。
-- Orchestrator 不直接持有 Gin `Context`。
-- EventSink 必须支持客户端取消和 context 超时。
-- Gateway 负责把 EventSink 中的事件转成 SSE。
-- EventSink 中不能传 A2A 原始事件给 Frontend。
-- EventSink 中不能传 Gateway-Orchestrator 私有调试对象给 Frontend。
+- `/health` 用于 Orchestrator 服务健康检查。
+- `/internal/orchestrator/runs/stream` 用于创建并流式执行 run。
+- `/internal/orchestrator/runs/{runId}/cancel` 用于跨进程取消。
+- 所有 `/internal/*` endpoint 只允许 Gateway 或内部测试调用。
+- 不得暴露给 Frontend。
+- 不得写入前端公开 API 文档。
+- 必须设置 timeout。
+- 必须传播 trace headers。
+- 必须使用服务间鉴权。
 
 ---
 
-## 13. OrchestratorResult 规范
+## 13. Service-to-Service Auth
 
-Orchestrator 完成后应返回结构化结果，供 Gateway 持久化。
+Gateway 调 Orchestrator 必须携带服务间凭证。
+
+v1 最小允许方案：
+
+```text
+Authorization: Bearer <internal-service-token>
+```
+
+推荐环境变量：
+
+```text
+Gateway:
+- ORCHESTRATOR_URL
+- ORCHESTRATOR_INTERNAL_TOKEN
+- ORCHESTRATOR_TIMEOUT_MS
+
+Orchestrator:
+- ORCHESTRATOR_PORT
+- INTERNAL_SERVICE_TOKEN
+```
+
+规则：
+
+- Orchestrator 必须校验服务间 token。
+- Frontend 不得持有服务间 token。
+- 用户 token 不得作为服务间 token 透传。
+- service token 不得写入日志。
+- service token 不得写入 Dockerfile。
+- service token 不得进入错误响应。
+- Orchestrator 不得公网裸露。
+
+长期可以升级为 mTLS 或更完整的服务身份机制。
+
+---
+
+## 14. Trace Headers
+
+Gateway 调 Orchestrator 时必须携带请求链路信息。
+
+推荐 headers：
+
+```text
+X-Request-Id: req_...
+X-Trace-Id: trace_...
+X-Run-Id: run_...
+X-Conversation-Id: conv_...
+X-Deadline-Ms: 120000
+Authorization: Bearer <internal-service-token>
+```
+
+规则：
+
+- `X-Trace-Id` 贯穿 Gateway、Orchestrator、Agent 调用和日志。
+- `X-Request-Id` 代表本次外部请求。
+- `X-Run-Id` 代表一次编排运行。
+- `X-Deadline-Ms` 用于跨进程表达超时预算。
+- 缺失 traceId 时，Gateway 必须生成。
+- Orchestrator 不得覆盖 Gateway 传入的 traceId，除非它为空。
+
+---
+
+## 15. OrchestratorRequest
+
+`OrchestratorRequest` 是 Gateway 发送给 Orchestrator 的 JSON 请求体。
 
 推荐结构：
 
-```go
-type OrchestratorResult struct {
-    RunID      string
-    ThreadID   string
-    Status     string
-
-    AssistantMessage string
-    Artifacts        []ArtifactRef
-
-    AgentName string
-    TaskID    string
-
-    StartedAt  time.Time
-    FinishedAt time.Time
+```json
+{
+  "runId": "run_001",
+  "conversationId": "conv_001",
+  "userId": "user_001",
+  "conversationType": "group",
+  "messages": [],
+  "history": [],
+  "availableAgents": [],
+  "selectedAgentNames": [],
+  "mentions": [],
+  "runtimeCapabilities": [],
+  "planningMode": "auto",
+  "traceId": "trace_001",
+  "requestId": "req_001",
+  "deadlineMs": 120000,
+  "metadata": {}
 }
 ```
 
-字段含义：
+字段规则：
 
 | 字段 | 说明 |
 |---|---|
-| `Status` | `completed` / `failed` / `cancelled` |
-| `AssistantMessage` | Agent 最终文本回复 |
-| `Artifacts` | 产物引用或元数据 |
-| `AgentName` | 实际执行的 Agent |
-| `TaskID` | A2A Task ID |
-| `StartedAt` / `FinishedAt` | 运行时间 |
+| `runId` | 本次编排运行 ID |
+| `conversationId` | 会话 ID（AG-UI 侧称 `threadId`，A2A 侧称 `metadata.threadId`） |
+| `userId` | 用户 ID 或匿名用户标识 |
+| `conversationType` | `single` 或 `group` |
+| `messages` | 当前请求中的用户消息 |
+| `history` | Gateway 裁剪后的历史上下文 |
+| `availableAgents` | 当前可用 Agent 摘要 |
+| `selectedAgentNames` | 用户手动选择的 Agent 名称，可为空 |
+| `mentions` | 用户输入中提到的 Agent 名称，可为空 |
+| `runtimeCapabilities` | 前端当前可处理的 runtime 能力摘要 |
+| `planningMode` | `direct` / `mention` / `auto` / `manual` |
+| `traceId` | 链路追踪 ID |
+| `requestId` | 外部请求 ID |
+| `deadlineMs` | 本次编排总超时预算 |
+| `metadata` | 脱敏扩展字段 |
 
 规则：
 
-- Gateway 负责把 `AssistantMessage` 和 `Artifacts` 保存为消息记录。
-- Orchestrator 可以在运行中聚合文本，但不直接写数据库。
-- Artifact 具体 schema 由 `artifact-contract` 定义。
-- MVP v0.1 中 Artifact 可先以内联 metadata 或 JSON 字段持久化，但不能塞进 `TEXT_MESSAGE_CONTENT`。
-- 如果运行失败，`Status` 必须为 `failed`，并且已经或即将输出 `RUN_ERROR`。
+- JSON 字段使用 camelCase。
+- 不传 Go 私有类型。
+- 不传 HTTP request 对象。
+- 不传 Gin / Echo / net/http context。
+- 不传数据库连接对象。
+- 不传 LLM API key。
+- 不传用户原始 Authorization token。
+- `availableAgents` 是摘要，不是完整内部对象。
+- `runtimeCapabilities` 表示前端能力，不等价于 Agent 能力。
+- `agentName` 如需兼容，只能作为 `selectedAgentNames[0]` 的 legacy alias。
 
 ---
 
-## 14. 错误模型
+## 16. PlanningMode
 
-内部错误推荐结构：
+`planningMode` 表示 Orchestrator 如何生成计划。
 
-```go
-type OrchestratorError struct {
-    Code    string
-    Message string
-    Cause   error
-    Retryable bool
+外部请求（OrchestratorRequest.planningMode）只允许：
+
+```text
+direct
+mention
+auto
+manual
+```
+
+**禁止 Gateway 或 Frontend 传入 `fallback`。** `fallback` 只能由 Orchestrator 在主计划失败、风险过高或健康检查失败后内部生成，作为 OrchestrationPlan.planningMode 的内部来源标记。
+
+含义：
+
+| planningMode | 含义 |
+|---|---|
+| `direct` | 单聊或上下文已指定目标 Agent |
+| `mention` | 用户输入中包含 `@agent-name` |
+| `auto` | Orchestrator 自动规划，可使用规则或 LLM |
+| `manual` | 前端或用户显式选择一个或多个 Agent |
+
+规则：
+
+- Gateway 可以提取 mentions，但不得执行复杂编排。
+- Orchestrator 必须校验 mention 是否可用。
+- direct / mention / manual 也必须生成统一的 OrchestrationPlan。
+- auto 可以使用 LLM，也可以使用规则 fallback。
+- 本 Skill 不规定具体 Planner 算法。
+
+---
+
+## 17. OrchestrationPlan
+
+`OrchestrationPlan` 是 Orchestrator 的内部编排计划。
+
+推荐结构：
+
+```json
+{
+  "planId": "plan_001",
+  "intentSummary": "用户希望完成一个多步骤任务",
+  "strategy": "ordered_parallel",
+  "createdBy": "auto",
+  "tasks": [
+    {
+      "taskId": "task_001",
+      "agentName": "some-agent",
+      "capabilityIds": ["capability_id"],
+      "taskContent": "给该 Agent 的任务说明",
+      "dependsOn": [],
+      "expectedOutputs": ["text"]
+    }
+  ],
+  "fallback": {
+    "mode": "same_capability_alternative",
+    "maxAttempts": 2
+  }
 }
 ```
+
+规则：
+
+- Plan 可以由 LLM、规则、mention、manual selection 生成。
+- Plan 必须校验后才能执行。
+- `agentName` 只作为目标标识，不用于能力推断。
+- `capabilityIds` 与 `expectedOutputs` 是能力摘要，不固定具体 Agent。
+- `tasks` 可以有 1 个或多个任务。
+- `strategy` 必须明确。
+- Plan 不得包含 API key、token、完整 system prompt 或未脱敏敏感输入。
+
+---
+
+## 18. Execution Strategy
+
+允许策略：
+
+```text
+single
+ordered_parallel
+sequential
+```
+
+### single
+
+一个 run 只执行一个 TaskPlan。
+
+### ordered_parallel
+
+语义上包含多个独立 task，UI 可展示为多 Agent 参与。
+
+规则：
+
+- Orchestrator 可以内部并发执行，也可以顺序执行。
+- 对 Gateway 输出的事件必须保持 message 粒度可聚合。
+- 不要求不同 Agent token 级交错输出。
+- 如果内部并发执行，Orchestrator 必须负责排序或 messageId 隔离。
+- 每个 Agent 输出必须有独立 messageId。
+
+### sequential
+
+多个 task 存在依赖关系。
+
+规则：
+
+- 后续 task 可以使用前序 task 的脱敏摘要。
+- 不得把完整敏感中间结果无条件传递给下游 task。
+- 前序 task 失败时，应根据 fallback 策略决定是否继续。
+
+---
+
+## 19. OrchestratorStreamEvent
+
+`OrchestratorStreamEvent` 是 Orchestrator 通过内部流式 endpoint 发送给 Gateway 的事件。
+
+推荐事件类型：
+
+```text
+run_started
+state_update
+message_start
+message_delta
+message_end
+tool_call_start
+tool_call_args
+tool_call_end
+run_finished
+run_error
+```
+
+推荐结构：
+
+```json
+{
+  "type": "message_delta",
+  "runId": "run_001",
+  "messageId": "msg_001",
+  "sender": {
+    "type": "agent",
+    "name": "some-agent"
+  },
+  "delta": "文本片段",
+  "state": null,
+  "toolCall": null,
+  "error": null
+}
+```
+
+规则：
+
+- Orchestrator 只输出稳定的 `OrchestratorStreamEvent`。
+- Gateway 不接收 Child Agent 原始流。
+- Gateway 不改变事件业务语义。
+- Gateway 可以把内部事件包装为前端传输格式。
+- 所有事件必须包含 `runId`。
+- message 类事件必须包含 `messageId`。
+- 多 Agent 输出不得复用同一个 `messageId`。
+- 错误事件必须使用脱敏 `SafeError`。
+
+### 19.1 事件映射表
+
+`OrchestratorStreamEvent` 是 Gateway ↔ Orchestrator 内部服务间事件（snake_case），不得直接作为 AG-UI Event 名称输出。
+
+Gateway / ProtocolConverter 负责将内部事件映射为前端 AG-UI Event（UPPER_SNAKE_CASE）：
+
+| OrchestratorStreamEvent（内部） | AG-UI Event（SSE 前端） | 说明 |
+|---|---|---|
+| `run_started` | `RUN_STARTED` | Run 开始 |
+| `state_update` | `STATE_UPDATE` | 编排状态更新 |
+| `message_start` | `TEXT_MESSAGE_START` | 消息开始 |
+| `message_delta` | `TEXT_MESSAGE_CONTENT` | 消息文本增量 |
+| `message_end` | `TEXT_MESSAGE_END` | 消息结束 |
+| `tool_call_start` | `TOOL_CALL_START` | Tool Call 开始 |
+| `tool_call_args` | `TOOL_CALL_ARGS` | Tool Call 参数增量 |
+| `tool_call_end` | `TOOL_CALL_END` | Tool Call 结束 |
+| `run_finished` | `RUN_FINISHED` | Run 正常结束 |
+| `run_error` | `RUN_ERROR` | Run 错误结束 |
+
+### 19.2 映射责任
+
+- **Orchestrator** 只输出 `OrchestratorStreamEvent`（snake_case）。Orchestrator 不得直接输出 AG-UI Event 名称（UPPER_SNAKE_CASE），不得直接写 SSE。
+- **Gateway / ProtocolConverter** 负责将 `OrchestratorStreamEvent` 映射为 AG-UI Event，输出到 SSE。Gateway 不得改变事件业务语义，只做命名映射和格式包装。
+- **Frontend** 只消费 AG-UI Event。Frontend 不得直接接收 OrchestratorStreamEvent 或 Child Agent A2A event。
+
+### 19.3 禁止透传
+
+- Child Agent 原始 A2A event 不得直接发给 Frontend。A2A event 必须由 Orchestrator 接收后转换为 `OrchestratorStreamEvent`，再由 Gateway 映射为 AG-UI Event。
+- `OrchestratorStreamEvent` 的事件名（如 `message_delta`）不得直接作为 AG-UI Event 名称出现在 SSE 中。
+- Gateway 不得绕过 ProtocolConverter 直接透传内部事件给 SSE。
+
+---
+
+## 20. OrchestratorResult
+
+`OrchestratorResult` 是 Orchestrator 对一次 run 的最终摘要。
+
+推荐结构：
+
+```json
+{
+  "runId": "run_001",
+  "conversationId": "conv_001",
+  "status": "completed",
+  "phase": "aggregating",
+  "strategy": "ordered_parallel",
+  "intentSummary": "用户希望完成一个多 Agent 任务",
+  "messages": [],
+  "tasks": [],
+  "artifacts": [],
+  "toolCalls": [],
+  "error": null,
+  "startedAt": "2026-05-25T00:00:00Z",
+  "finishedAt": "2026-05-25T00:00:03Z"
+}
+```
+
+规则：
+
+- 一个 result 可以包含多个 assistant messages。
+- 一个 result 可以包含多个 tasks。
+- 一个 result 可以包含多个 artifact refs。
+- 一个 result 可以包含多个 tool call refs。
+- result 不得返回内部堆栈。
+- result 不得返回完整敏感 prompt。
+- result 不得返回大对象内容，优先返回引用和摘要。
+- Gateway 负责基于 result 做持久化。
+
+### 20.1 Run.status 与 Run.phase
+
+`status` 是粗粒度生命周期状态（Public API / 持久化字段）。`phase` 是可选细粒度当前阶段（内部字段，可用于展示）。
+
+Run.status 正式枚举（5 值）：
+
+```text
+accepted
+running
+completed
+failed
+cancelled
+```
+
+内部阶段（phase）到 Run.status 的映射：
+
+| 内部阶段（phase） | Run.status |
+|---|---|
+| `accepted` | `accepted` |
+| `context_loaded` | `running` |
+| `planning` | `running` |
+| `plan_ready` | `running` |
+| `dispatching` | `running` |
+| `agent_task_running` | `running` |
+| `agent_task_completed` | `running` |
+| `agent_task_failed`（有可恢复 fallback） | `running` |
+| `retrying` | `running` |
+| `fallback` | `running` |
+| `aggregating` | `running` |
+| `agent_task_failed`（无可恢复 fallback） | `failed` |
+| `completed` | `completed` |
+| `failed` | `failed` |
+| `cancelled` | `cancelled` |
+
+规则：
+
+- 内部阶段不等同于 Public API Run.status。
+- 不得将细粒度阶段（如 `planning`、`dispatching`）写入 Run.status。
+- `STATE_UPDATE.state.phase` 可用于前端展示当前阶段，但不等同于持久化 Run.status。
+
+---
+
+## 21. Run Lifecycle
+
+### 21.1 内部阶段（phase）
+
+以下为 Orchestrator 内部阶段，用于追踪 Run 的细粒度进度。**这些阶段不等同于 Run.status**。
+
+推荐内部阶段序列：
+
+```text
+accepted
+→ context_loaded
+→ planning
+→ plan_ready
+→ dispatching
+→ agent_task_running
+→ agent_task_completed / agent_task_failed
+→ retrying / fallback
+→ aggregating
+→ completed / failed / cancelled
+```
+
+### 21.2 内部阶段 → Run.status 映射
+
+| 内部阶段 | Run.status |
+|---|---|
+| `accepted` | `accepted` |
+| `context_loaded` / `planning` / `plan_ready` / `dispatching` | `running` |
+| `agent_task_running` / `agent_task_completed` | `running` |
+| `agent_task_failed`（有可恢复 fallback） / `retrying` / `fallback` | `running` |
+| `aggregating` | `running` |
+| `completed` | `completed` |
+| `agent_task_failed`（无可恢复 fallback） / `failed` | `failed` |
+| `cancelled` | `cancelled` |
+
+### 21.3 跨服务流程
+
+```text
+Gateway 接收请求
+Gateway 鉴权和基础校验
+Gateway 保存用户消息
+Gateway 构造 OrchestratorRequest
+Gateway 调用 Orchestrator stream endpoint
+Orchestrator 输出 run_started
+Orchestrator 加载上下文并规划
+Orchestrator 输出 state_update
+Orchestrator 执行一个或多个 task
+Orchestrator 输出 message / tool / state 事件
+Orchestrator 输出 run_finished 或 run_error
+Gateway 持久化 OrchestratorResult
+Gateway 关闭前端流
+```
+
+规则：
+
+- 一个 run 可以产生多条 assistant message。
+- 一个 run 可以执行多个 task。
+- 一个 run 可以产生多个 artifact / tool call 引用。
+- run 失败时必须返回安全错误。
+- run 取消后不得继续输出普通事件。
+
+---
+
+## 22. Multi-Agent / Group Conversation Rules
+
+多 Agent 与群聊场景必须遵守：
+
+- Gateway 传入 `conversationType`。
+- Gateway 可以传入 mentions 和 selectedAgentNames。
+- Orchestrator 负责校验目标 Agent 是否可用。
+- 一个 run 可以生成多个 AgentTask。
+- 一个 run 可以生成多条 assistant message。
+- 每条 assistant message 必须有稳定 `messageId`。
+- 每条 assistant message 应包含 `sender.name`。
+- Agent 名称只用于身份标识，不用于能力推断。
+- 群聊中的 `@agent-name` 是路由提示，不是无校验执行命令。
+- fallback 后必须记录实际执行 Agent。
+
+---
+
+## 23. Fallback / Retry Rules
+
+fallback / retry 是当前通用编排能力。
+
+正式 `fallback.mode` 枚举：
+
+```text
+none
+same_capability_alternative
+lower_risk_plan
+single_agent_fallback
+fail_fast
+```
+
+`same_capability_alternative` 在候选排序时必须优先选择 healthy Agent。
+healthy 优先是选择算法，不是独立的 `fallback.mode`。
+legacy `first_healthy_agent` 语义已归入 `same_capability_alternative` 的排序规则。
+
+规则：
+
+- fallback 不得选择不可用 Agent。
+- fallback 不得无限重试。
+- `maxAttempts` 必须明确。
+- retry / fallback 必须输出 state_update。
+- fallback 后生成的 message / task / result 必须标记实际执行 Agent。
+- 所有候选都失败时，run 必须进入 failed。
+- 错误信息必须脱敏。
+
+---
+
+## 24. Cancellation / Timeout Across Processes
+
+Gateway 与 Orchestrator 分进程后，取消语义必须跨网络传播。
+
+Gateway 必须：
+
+- 浏览器断连时取消本地 context。
+- 如果 Orchestrator stream 正在进行，应关闭内部请求。
+- 如果已有 runId，应调用 cancel endpoint 或等价取消机制。
+- timeout 后不得继续向前端写普通事件。
+- 取消后必须释放连接和 goroutine。
+
+Orchestrator 必须：
+
+- 检测内部请求断开。
+- 收到 cancel 后停止未完成 task。
+- 取消后不得继续启动新 task。
+- 将取消信号传递给下游调用。
+- 输出 cancelled 或 failed 的最终状态。
+- 防止 goroutine / stream 泄漏。
+
+推荐取消 endpoint：
+
+```text
+POST /internal/orchestrator/runs/{runId}/cancel
+```
+
+---
+
+## 25. SafeError
+
+所有跨服务错误必须脱敏。
+
+推荐结构：
+
+```json
+{
+  "code": "ORCHESTRATOR_AGENT_UNAVAILABLE",
+  "message": "当前任务暂时无法完成，请稍后重试",
+  "retryable": true,
+  "details": null
+}
+```
+
+禁止在错误中包含：
+
+- API key。
+- Authorization token。
+- service token。
+- 数据库连接串。
+- 内部堆栈。
+- 本地绝对路径。
+- 内网拓扑。
+- 完整 system prompt。
+- 未脱敏 LLM 原始请求 / 响应。
 
 推荐错误码：
 
 ```text
-ORCHESTRATOR_INVALID_REQUEST
-ORCHESTRATOR_AGENT_NOT_FOUND
-ORCHESTRATOR_A2A_CONNECT_FAILED
-ORCHESTRATOR_A2A_STREAM_FAILED
-ORCHESTRATOR_CONVERTER_FAILED
+ORCHESTRATOR_BAD_REQUEST
+ORCHESTRATOR_UNAUTHORIZED_SERVICE
 ORCHESTRATOR_TIMEOUT
 ORCHESTRATOR_CANCELLED
+ORCHESTRATOR_PLANNING_FAILED
+ORCHESTRATOR_AGENT_UNAVAILABLE
+ORCHESTRATOR_AGENT_FAILED
+ORCHESTRATOR_STREAM_INTERRUPTED
 ORCHESTRATOR_INTERNAL
 ```
 
-错误处理规则：
-
-- Orchestrator 内部错误不能直接泄漏堆栈给 Frontend。
-- Gateway 应将可展示错误映射为 AG-UI `RUN_ERROR`。
-- 如果 `Orchestrator.Process` 返回错误，但尚未输出 `RUN_ERROR`，Gateway 必须补发 `RUN_ERROR`。
-- 如果已输出 `RUN_ERROR`，Gateway 不应重复发送冲突的错误事件。
-- MVP v0.1 不强制自动 fallback 到备用 Agent。
-- Post-MVP 可以通过 `STATE_UPDATE` 表示 retrying / fallback 状态。
-
 ---
 
-## 15. Context、取消与超时
+## 26. Deployment Config
 
-Gateway 调用 Orchestrator 时必须传入 `context.Context`。
-
-规则：
-
-- 浏览器断开 SSE 时，Gateway 必须取消 context。
-- 用户取消 run 时，Gateway 必须取消 context 或调用 cancel contract。
-- Orchestrator 必须把 context 传给 A2A Client。
-- A2A Client 必须支持 context 取消。
-- LLM / Agent 长时间无响应时应触发 timeout。
-- timeout 应转成 `RUN_ERROR` 或 `Status=failed`。
-- 不能产生 goroutine 泄漏。
-- 不能在 context cancelled 后继续向 EventSink 写事件。
-
-MVP v0.1 可以只支持浏览器断开触发取消，不强制实现完整 `/api/agui/run/{runId}/cancel`。
-
----
-
-## 16. Trace 与日志
-
-Gateway ↔ Orchestrator 内部调用必须支持追踪字段：
+Gateway 推荐环境变量：
 
 ```text
-traceId
-requestId
-runId
-threadId
-taskId
-agentName
+ORCHESTRATOR_URL=http://orchestrator:8090
+ORCHESTRATOR_INTERNAL_TOKEN=change-me
+ORCHESTRATOR_TIMEOUT_MS=120000
+```
+
+Orchestrator 推荐环境变量：
+
+```text
+ORCHESTRATOR_PORT=8090
+INTERNAL_SERVICE_TOKEN=change-me
 ```
 
 规则：
 
-- Gateway 生成或透传 `traceId`。
-- Gateway 将 `traceId` 写入 `OrchestratorRequest`。
-- Orchestrator 调 A2A 时继续透传。
-- 日志中必须包含 `runId` 和 `traceId`。
-- 日志中不能打印 Authorization token。
-- 日志中不能打印完整敏感 prompt 或 API key。
-- 错误日志必须能定位 Gateway、Orchestrator、A2A、Child Agent 哪一层失败。
+- Gateway 只能通过 `ORCHESTRATOR_URL` 访问 Orchestrator。
+- 容器间通信必须使用 service name，不使用 localhost。
+- Orchestrator 必须有独立 `/health`。
+- Orchestrator 不得暴露给前端网络边界。
+- 环境变量示例不得包含真实 token。
 
 ---
 
-## 17. AG-UI Event 输出规则
+## 27. Mock-first Rules
 
-Orchestrator 输出给 Gateway 的事件必须遵守 `agui-event-contract`。
+在 Orchestrator Service 未完成真实实现前，可以使用 Mock Orchestrator Service。
 
-MVP v0.1 必须事件链：
+Mock 必须：
 
-```text
-RUN_STARTED
-TEXT_MESSAGE_START
-TEXT_MESSAGE_CONTENT*
-TEXT_MESSAGE_END
-TOOL_CALL_START
-TOOL_CALL_ARGS
-TOOL_CALL_END
-RUN_FINISHED
-```
+- 作为独立进程启动。
+- 暴露 `/health`。
+- 暴露内部 stream endpoint。
+- 校验 service token。
+- 接收合法 OrchestratorRequest。
+- 输出合法 OrchestratorStreamEvent。
+- 支持至少一个 single run。
+- 支持至少一个 ordered_parallel 示例 run。
+- 支持 run_error 示例。
+- 支持 cancel 示例。
 
-错误时：
+Mock 禁止：
 
-```text
-RUN_ERROR
-```
-
-规则：
-
-- `TEXT_MESSAGE_CONTENT` 只传文本 chunk。
-- 大代码、大网页、大文件不能塞进 `TEXT_MESSAGE_CONTENT`。
-- Artifact 必须映射为 `TOOL_CALL_*` 或 Artifact Contract。
-- `code` Artifact 必须映射为 `code_preview`。
-- `TOOL_CALL_ARGS` 可以分片，但必须通过 `toolCallId` 聚合。
-- Gateway 不应该修改 Orchestrator 输出的事件语义。
-- Gateway 可以添加 SSE 包装，但不能改变 event payload 字段。
+- 被 Gateway import 为同进程对象。
+- 直接返回前端专用对象而不经过内部事件。
+- 输出 secret。
+- 写死具体 Agent 名称作为契约要求。
 
 ---
 
-## 18. A2A 调用边界
+## 28. Contract Test Rules
 
-Orchestrator 是唯一允许调用 Child Agent A2A endpoint 的系统角色。
+至少应测试：
 
-Gateway 不允许直接调用：
+### 进程边界
 
-```text
-/a2a/tasks/send
-/a2a/tasks/sendSubscribe
-/a2a/tasks/{id}
-/a2a/tasks/{id}/cancel
-/.well-known/agent.json
-```
+- Gateway 与 Orchestrator 是否独立启动。
+- Gateway 是否通过 URL 调用 Orchestrator。
+- Gateway 是否没有 import Orchestrator 业务包。
+- Frontend 是否不能直接访问 Orchestrator。
 
-MVP v0.1 中，Orchestrator 调用：
+### 内部 API
 
-```text
-POST /a2a/tasks/sendSubscribe
-```
+- `/health` 是否可用。
+- stream endpoint 是否校验 service token。
+- 请求是否 JSON 可序列化。
+- trace headers 是否透传。
+- timeout 是否生效。
 
-目标 Agent：
+### 编排
 
-```text
-code-agent
-```
+- direct / mention / auto / manual 是否能生成统一 OrchestrationPlan。
+- single 是否能执行。
+- ordered_parallel 是否能输出多 message。
+- sequential 是否能表达依赖。
+- fallback 是否能输出 state_update。
 
-A2A 调用规则由 `a2a-agent-contract` 细化，本 Skill 只规定：
+### 取消与错误
 
-- A2A Client 属于 Orchestrator 边界。
-- A2A Stream Event 不得直接透传给 Gateway / Frontend。
-- A2A Event 必须先经过 ProtocolConverter。
-- A2A Artifact 必须经过 Artifact → Frontend Skill 映射。
-- A2A 错误必须转换为 OrchestratorError 或 AG-UI `RUN_ERROR`。
-
----
-
-## 19. ProtocolConverter 边界
-
-ProtocolConverter 属于 Orchestrator 边界。
-
-它负责：
-
-- A2A `status: working` → AG-UI `TEXT_MESSAGE_START`
-- A2A `text` → AG-UI `TEXT_MESSAGE_CONTENT`
-- A2A `artifact` → 缓存 Artifact
-- A2A `status: completed` → `TEXT_MESSAGE_END` → flush artifacts → `TOOL_CALL_*` → `RUN_FINISHED`
-- A2A `status: failed` → `RUN_ERROR`
-- `code` Artifact → `code_preview` Tool Call
-
-它不负责：
-
-- 写 SSE。
-- 保存 DB。
-- 处理用户鉴权。
-- 查询会话列表。
-- 渲染前端组件。
-- 定义 Artifact schema。
-- 定义 Frontend Skill schema。
+- 浏览器断连是否关闭内部请求。
+- cancel endpoint 是否停止 run。
+- run_error 是否脱敏。
+- service token 是否不出现在日志或错误中。
 
 ---
 
-## 20. Gateway Handler 边界
+## 29. Review Checklist
 
-Gateway handler 可以做：
+Review Gateway ↔ Orchestrator 变更时必须检查：
 
-```text
-HTTP parse
-auth
-request validate
-DB save user message
-DB load history
-create eventSink
-call orchestrator
-write SSE
-persist result
-```
+### 进程边界
 
-Gateway handler 不可以做：
+- Gateway 和 Orchestrator 是否是两个独立服务？
+- Gateway 是否没有 import Orchestrator 业务包？
+- Orchestrator 是否有独立 main / health / port？
+- Frontend 是否不能直接访问 Orchestrator？
+- Child Agent 是否不反向依赖 Gateway 前端 API？
 
-```text
-intent planning
-A2A client call
-A2A stream parse
-artifactBuffer
-artifact → code_preview mapping
-multi-agent orchestration
-result aggregation
-LLM call
-```
+### 内部 API
 
-判断标准：
+- Gateway 是否通过 `ORCHESTRATOR_URL` 调用？
+- 是否有 service-to-service auth？
+- 是否有 timeout？
+- 是否传播 requestId / traceId / runId？
+- 请求/响应是否 JSON 可序列化？
+- 是否没有传 HTTP context / DB handle / Go channel？
 
-如果代码在回答“应该调用哪个 Agent / 如何拆任务 / 如何处理 A2A artifact / 如何转换成 Tool Call”，它应该在 Orchestrator 或 Converter 中，不应该在 Gateway handler 中。
+### Gateway
 
----
+- 是否只负责外部 HTTP / SSE / auth / persistence / request assembly？
+- 是否没有 Agent 选择逻辑？
+- 是否没有 fallback 决策？
+- 是否没有直接调用 Child Agent？
+- 是否没有直接持有 Child Agent 调用地址（Agent URL / service name）？
+- 是否没有解析 Child Agent 原始事件？
+- 是否没有直接透传 Child Agent A2A event 给 Frontend？
 
-## 21. MVP v0.1 直接路由规则
+### Orchestrator
 
-MVP v0.1 不调用 LLM 做意图编排，使用直接路由。
+- 是否负责 planning / task / multi-agent / fallback？
+- 是否不处理用户登录？
+- 是否不写浏览器响应？
+- 是否输出稳定 stream events？
+- 是否没有直接输出 AG-UI Event 名称（UPPER_SNAKE_CASE）？
+- 是否返回 OrchestratorResult？
 
-直接路由输入来源：
+### 事件映射
 
-- 用户新建对话时选择的 Agent。
-- `AGUIRunRequest.agentName`。
-- Gateway 根据 conversation 绑定的 `agentName` 设置。
-- 默认 `code-agent`。
+- OrchestratorStreamEvent 是否只使用 snake_case？
+- Gateway / ProtocolConverter 是否正确映射为 AG-UI Event（UPPER_SNAKE_CASE）？
+- Child Agent A2A event 是否未直接透传给 Frontend？
+- SSE 中是否只出现 AG-UI Event 名称？
 
-规则：
+### Run.status / phase 分层
 
-- 如果没有指定 Agent，MVP 可以默认 `code-agent`。
-- 如果指定了不存在的 Agent，返回 `ORCHESTRATOR_AGENT_NOT_FOUND` 并输出 `RUN_ERROR`。
-- MVP 不实现多 Agent parallel / sequential。
-- MVP 不实现 Agent fallback。
-- MVP 不实现 LLM ExecutionPlan。
-- 这些能力保留给 `intent-orchestration-contract` 和 Post-MVP。
+- Run.status 是否只使用 5 值（accepted / running / completed / failed / cancelled）？
+- 内部细粒度阶段（如 planning、dispatching）是否未写入 Run.status？
+- `STATE_UPDATE.state.phase` 是否未替代 Run.status 做持久化判断？
+- `run_steps.step_type` 是否用于持久化详细步骤类型？
 
----
+### 通用性
 
-## 22. Post-MVP 编排规则
+- 是否没有固定具体 Agent 名称？
+- 是否支持 2+ Agent？
+- 是否支持 single / ordered_parallel / sequential？
+- 是否没有通过 agentName 推断能力？
 
-Post-MVP 中，Orchestrator 可以扩展：
+### 取消超时
 
-- LLM 意图分析。
-- AgentCard 读取。
-- ExecutionPlan 生成。
-- single / parallel / sequential 策略。
-- 多 Agent 结果聚合。
-- fallback / retry。
-- 群聊 activeAgent 状态切换。
-- `STATE_UPDATE` 编排状态输出。
+- 浏览器断连是否传播到 Orchestrator？
+- Gateway timeout 是否关闭内部请求？
+- 是否有 cancel endpoint 或等价机制？
+- Orchestrator 是否停止未完成 task？
+- 是否没有 goroutine / stream 泄漏？
 
-但扩展时必须保持：
+### 安全
 
-- Gateway-Orchestrator Contract 向后兼容。
-- Gateway handler 不承担编排。
-- Orchestrator 输出仍然是 AG-UI Event。
-- A2A 调用仍然只在 Orchestrator 中。
-- ExecutionPlan schema 由 `intent-orchestration-contract` 定义。
-- AgentCard schema 由 `a2a-agent-contract` 定义。
+- service token 是否不进日志？
+- 用户 token 是否不当作 service token？
+- Orchestrator 是否不公网暴露？
+- 错误是否脱敏？
 
 ---
 
-## 23. 内部 HTTP 模式规范
-
-如果 Post-MVP 将 Orchestrator 拆成独立服务，internal HTTP contract 推荐：
-
-```text
-POST /internal/orchestrator/runs
-```
-
-Request body 逻辑等价于：
-
-```text
-OrchestratorRequest
-```
-
-Response 有两种可选模式：
-
-### 模式一：Gateway 仍然负责 SSE，Orchestrator 返回内部事件流
-
-```text
-Gateway → Orchestrator internal stream
-Orchestrator → Gateway AG-UI event stream
-Gateway → Frontend SSE
-```
-
-### 模式二：Gateway 通过消息通道接收事件
-
-```text
-Gateway → Orchestrator start run
-Orchestrator → internal event bus
-Gateway → subscribe events → Frontend SSE
-```
-
-无论哪种模式：
-
-- Frontend 不得直接连接 Orchestrator。
-- Orchestrator internal stream 不等于 AG-UI public endpoint。
-- 内部接口必须有 service token。
-- 内部接口必须支持 traceId。
-- 内部接口必须支持 timeout。
-- 内部接口不能写入 `docs/contracts/openapi.yaml` 的 Frontend API 范围。
-
----
-
-## 24. Mock-first 规则
-
-在真实 A2A / LLM 完成前，允许使用 mock Orchestrator。
-
-Mock Orchestrator 必须：
-
-- 接收真实形态的 `OrchestratorRequest`。
-- 输出符合 `agui-event-contract` 的 AG-UI Event。
-- 能模拟文本流。
-- 能模拟 `code` Artifact → `code_preview` Tool Call。
-- 能模拟 `RUN_ERROR`。
-- 不返回未定义事件。
-- 不绕过 EventSink。
-- 不把 A2A mock event 直接发给 Frontend。
-
-推荐 MVP mock 事件链：
-
-```text
-RUN_STARTED
-TEXT_MESSAGE_START
-TEXT_MESSAGE_CONTENT
-TEXT_MESSAGE_CONTENT
-TEXT_MESSAGE_END
-TOOL_CALL_START
-TOOL_CALL_ARGS
-TOOL_CALL_END
-RUN_FINISHED
-```
-
----
-
-## 25. Contract Test 规则
-
-Gateway-Orchestrator Contract 至少应验证：
-
-- Gateway 是否构造了合法 `OrchestratorRequest`。
-- `RunID` / `ThreadID` / `Tools` / `History` 是否正确传递。
-- Orchestrator 是否通过 EventSink 输出事件。
-- Orchestrator 是否不直接写 HTTP response。
-- Gateway 是否把事件写成 SSE。
-- A2A 原始事件是否没有直接暴露给 Frontend。
-- Orchestrator 错误是否映射为 `RUN_ERROR`。
-- context cancellation 是否能停止 Orchestrator。
-- MVP 直接路由是否选择 `code-agent`。
-- `code` Artifact 是否通过 Converter 转为 `code_preview`。
-
----
-
-## 26. 安全规则
-
-Gateway ↔ Orchestrator Contract 必须遵守：
-
-- 不传递 Authorization 原始 token，除非内部协议明确需要。
-- 不在日志中输出 token、API key、完整 system prompt。
-- 不允许 Frontend 访问 `/internal/*`。
-- 内部服务模式必须有 service-to-service 鉴权。
-- Orchestrator 不直接信任 Frontend 传来的 AgentName，必须经过 Gateway / config 校验。
-- Tools / Skills 必须来自前端声明并经过白名单校验。
-- Artifact 内容在输出给 Frontend Skill 前要遵守 Artifact / Frontend Runtime Skills Contract。
-- 错误信息不能泄漏内部路径、密钥、堆栈。
-
----
-
-## 27. 与其他 Skills 的协作
-
-### 27.1 与 project-architecture
-
-`project-architecture` 定义服务边界。  
-本 Skill 细化 Gateway 与 Orchestrator 的内部边界。
-
-如果发现 Gateway handler 写了编排逻辑，必须拒绝。
-
----
-
-### 27.2 与 platform-api-contract
-
-`platform-api-contract` 只管 Frontend ↔ Gateway REST API。  
-本 Skill 不允许把 `/internal/orchestrator/*` 写成前端 API。
-
----
-
-### 27.3 与 agui-event-contract
-
-Orchestrator 通过本 Contract 输出的事件必须遵守 `agui-event-contract`。  
-本 Skill 不重新定义 AG-UI event schema，只引用其语义。
-
----
-
-### 27.4 与 a2a-agent-contract
-
-Orchestrator 调用 Child Agent 的具体 A2A request / response / AgentCard 由 `a2a-agent-contract` 定义。  
-本 Skill 只规定 A2A 调用属于 Orchestrator 边界。
-
----
-
-### 27.5 与 intent-orchestration-contract
-
-MVP v0.1 中不实现复杂意图编排。  
-Post-MVP 的 ExecutionPlan、TaskPlan、routing strategy 由 `intent-orchestration-contract` 定义。
-
----
-
-### 27.6 与 artifact-contract
-
-Artifact 的字段、类型、metadata 由 `artifact-contract` 定义。  
-本 Skill 只规定 Artifact 不能直接塞进文本流，必须通过 Converter 映射为 Tool Call 或 Artifact 引用。
-
----
-
-### 27.7 与 frontend-runtime-skills-contract
-
-`code_preview`、`web_preview` 等前端 Skill 参数由 `frontend-runtime-skills-contract` 定义。  
-本 Skill 只规定 Orchestrator / Converter 必须按照已注册 Skill 构造 Tool Call。
-
----
-
-## 28. 硬性规则
-
-Coding Agent 在处理 Gateway ↔ Orchestrator 相关任务时必须遵守：
-
-1. Gateway 对外，Orchestrator 对内编排。
-2. Gateway handler 不允许写复杂编排逻辑。
-3. Gateway handler 不允许直接调用 Child Agent。
-4. Orchestrator 不允许直接暴露给 Frontend。
-5. Orchestrator 不允许直接写 SSE response。
-6. Orchestrator 不允许直接处理用户鉴权。
-7. Orchestrator 是唯一允许调用 A2A Client 的模块。
-8. ProtocolConverter 属于 Orchestrator 边界。
-9. A2A Event 不得直接透传给 Frontend。
-10. Orchestrator 输出给 Gateway 的事件必须符合 `agui-event-contract`。
-11. Gateway 负责将 AG-UI Event 写成 SSE。
-12. Gateway 负责保存用户消息和 Agent 回复。
-13. Orchestrator 不直接查询会话列表。
-14. MVP v0.1 可以把 Orchestrator 嵌入 Gateway 进程，但不能合并职责。
-15. MVP v0.1 必须优先跑通 `code-agent + code_preview`。
-16. MVP v0.1 不提前实现复杂多 Agent 编排，除非用户明确要求。
-17. Post-MVP 拆分独立 Orchestrator Service 时，内部接口不能暴露给 Frontend。
-18. Internal contract 不属于 `docs/contracts/openapi.yaml` 的 Frontend REST API。
-19. 所有内部调用必须携带或生成 `runId`、`threadId`、`traceId`。
-20. 所有错误必须可映射为 `RUN_ERROR`。
-21. 必须遵守 `Contract first / Mock first / Real integration later / Review always`。
-
----
-
-## 29. 必须维护的文件
-
-使用本 Skill 时，至少需要维护：
-
-```text
-skills/gateway-orchestrator-contract/SKILL.md
-docs/contracts/gateway-orchestrator.md
-docs/contracts/gateway-orchestrator-events.md
-```
-
-根据需要维护：
-
-```text
-docs/contracts/gateway-orchestrator.schema.json
-docs/contracts/gateway-orchestrator-review-checklist.md
-server/internal/orchestrator/types.go
-server/internal/orchestrator/orchestrator.go
-server/internal/orchestrator/converter.go
-server/internal/a2a/client.go
-server/internal/handler/agui.go
-```
-
-MVP v0.1 阶段不要求马上生成业务代码。  
-如果用户只要求 Contract，则不要创建 Go 实现。
-
----
-
-## 30. 输出要求
-
-当用户要求设计 Gateway ↔ Orchestrator Contract 时，Coding Agent 必须输出：
-
-1. 当前属于 MVP 同进程模式还是 Post-MVP 独立服务模式。
-2. Gateway 职责。
-3. Orchestrator 职责。
-4. `OrchestratorRequest` 字段。
-5. EventSink / EventChan 规则。
-6. `OrchestratorResult` 字段。
-7. 错误模型。
-8. context cancellation / timeout 规则。
-9. traceId / runId / threadId 追踪规则。
-10. AG-UI Event 输出边界。
-11. A2A 调用边界。
-12. Gateway handler 禁止事项。
-13. MVP v0.1 直接路由规则。
-14. Post-MVP 扩展规则。
-15. Review Checklist。
-
-除非用户明确要求，不要直接生成 Gateway / Orchestrator 业务实现代码。
-
----
-
-## 31. Review Checklist
-
-在接受任何 Gateway ↔ Orchestrator 设计或实现前，必须检查：
-
-### 文件与 Contract
-
-- 是否有 `docs/contracts/gateway-orchestrator.md`？
-- 是否有 `docs/contracts/gateway-orchestrator-events.md`？
-- 是否明确 MVP 同进程模式？
-- 是否明确 Post-MVP 独立服务模式？
-- 是否没有把 internal contract 写进 Frontend OpenAPI？
-
-### Gateway 边界
-
-- Gateway 是否只负责 HTTP / SSE / auth / session / persistence？
-- Gateway 是否没有做意图编排？
-- Gateway 是否没有直接调用 Child Agent？
-- Gateway 是否没有直接解析 A2A Artifact？
-- Gateway 是否通过 Orchestrator 调用 A2A？
-- Gateway 是否负责把 AG-UI Event 写成 SSE？
-
-### Orchestrator 边界
-
-- Orchestrator 是否接收 `OrchestratorRequest`？
-- Orchestrator 是否输出 AG-UI Event？
-- Orchestrator 是否通过 A2A Client 调 Child Agent？
-- Orchestrator 是否没有直接写 HTTP response？
-- Orchestrator 是否没有直接管理前端连接？
-- Orchestrator 是否没有直接做用户鉴权？
-- Orchestrator 是否没有直接依赖 React UI？
-
-### MVP v0.1 检查
-
-- 是否支持 Orchestrator 嵌入 Gateway 进程？
-- 是否保持 handler / orchestrator / a2a / converter 模块边界？
-- 是否直接路由到 `code-agent`？
-- 是否不要求 LLM ExecutionPlan？
-- 是否只要求 `code` Artifact → `code_preview`？
-- 是否没有提前实现群聊和复杂多 Agent？
-
-### 事件与协议
-
-- Orchestrator 输出事件是否符合 `agui-event-contract`？
-- A2A Event 是否没有直接暴露给 Frontend？
-- Artifact 是否没有塞进 `TEXT_MESSAGE_CONTENT`？
-- `RUN_ERROR` 是否覆盖失败场景？
-- context cancellation 是否能停止 A2A 调用？
-
-### 安全与可观测性
-
-- 是否有 `traceId`？
-- 是否有 `runId`？
-- 是否有 `threadId`？
-- 是否不打印 token / API key？
-- Post-MVP internal endpoint 是否不暴露给 Frontend？
-- 错误信息是否不泄漏内部堆栈？
-
----
-
-## 32. 完成定义
+## 30. 完成定义
 
 本 Skill 视为完成，当且仅当：
 
-```text
-skills/gateway-orchestrator-contract/SKILL.md
-```
+- 明确 Gateway 与 Orchestrator 必须分进程。
+- 明确 Gateway Service 和 Orchestrator Service 职责边界。
+- 明确服务间 API。
+- 明确服务间鉴权。
+- 明确 OrchestratorRequest。
+- 明确 OrchestrationPlan。
+- 明确 OrchestratorStreamEvent。
+- 明确 OrchestratorResult。
+- 明确 Run 生命周期。
+- 明确 single / ordered_parallel / sequential。
+- 明确 fallback / retry。
+- 明确 cancellation / timeout 跨进程规则。
+- 明确 trace / safe error 规则。
+- 明确不固定具体 Agent 名称。
+- 明确 MVP v0.1 仅作为历史基线。
+- 明确 Review Checklist。
 
-已经明确：
-
-- Gateway 与 Orchestrator 的职责边界。
-- MVP v0.1 同进程 Go interface 模式。
-- Post-MVP 独立服务 internal contract 模式。
-- Gateway → Orchestrator 的请求字段。
-- Orchestrator → Gateway 的事件输出方式。
-- OrchestratorResult。
-- 错误模型。
-- 取消与超时。
-- traceId / runId / threadId。
-- AG-UI / A2A / REST 的边界。
-- 硬性规则。
-- Review Checklist。
-
-正式落地时还应生成：
-
-```text
-docs/contracts/gateway-orchestrator.md
-docs/contracts/gateway-orchestrator-events.md
-```
-
-
-## 33. v1.1 对齐补充
-
-### 33.1 MVP v0.1 简化保留
-
-- MVP v0.1 中，Orchestrator 可以在 Gateway 同进程内输出 AG-UI-compatible event，以降低实现复杂度。
-- Gateway 负责 SSE 包装和对外推送。
-- 这只是 MVP 简化，不代表长期唯一架构。
-
-### 33.2 Post-MVP / v1.1 长期标准
-
-- Post-MVP / v1.1 标准中，Orchestrator 应输出内部 `OrchestratorEvent`。
-- Gateway 负责将 `OrchestratorEvent` 映射成 AG-UI Event。
-- Gateway 仍不承担复杂编排。
-- Orchestrator 仍不直接暴露给 Frontend。
-
-### 33.3 v1.1 推荐 internal endpoints
-
-```text
-POST /internal/runs
-GET  /internal/runs/{runId}/events
-POST /internal/runs/{runId}/tool-result
-POST /internal/runs/{runId}/cancel
-```
-
-兼容说明：`/internal/orchestrator/runs` 可作为早期语义化备选或兼容路径；v1.1 推荐标准路径为 `/internal/runs*`。
-
-### 33.4 tool-result / cancel 与 approval.required
-
-- MVP v0.1 可暂不实现 tool-result / cancel 的完整 HTTP 化接口。
-- Post-MVP 引入交互式 Frontend Runtime Skill、confirm_action、取消运行后，应补齐这些 internal endpoints。
-- `approval.required` 表示 Orchestrator 需要用户确认高危操作。
-- `confirm_action` 参数与 ToolResult 由后续 `frontend-runtime-skills-contract` 细化。
-- 高危操作安全策略由后续 `security-boundary-contract` 细化。
-- 审批持久化由后续 `data-persistence-contract` 细化。
-
-
+---
 
 ## References
 
-- `references/orchestrator-event-policy.md`
-- `references/run-lifecycle.md`
-- `references/cancellation-policy.md`
-- `references/gateway-agui-mapping.md`
+- `references/service-boundary.md`
+- `references/service-to-service-api.md`
+- `references/orchestrator-request-policy.md`
+- `references/orchestrator-stream-event-policy.md`
+- `references/orchestrator-result-policy.md`
+- `references/orchestration-plan-policy.md`
+- `references/multi-agent-execution-policy.md`
+- `references/fallback-retry-policy.md`
+- `references/cancellation-timeout-policy.md`
+- `references/service-auth-policy.md`
+- `references/trace-and-error-policy.md`
+- `references/deployment-config-policy.md`
 - `references/gateway-orchestrator-review-checklist.md`

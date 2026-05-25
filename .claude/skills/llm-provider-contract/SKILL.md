@@ -1,325 +1,393 @@
 ---
 name: llm-provider-contract
-description: 当定义、实现、修改或审查 AgentHub 中 LLM Provider 适配、模型注册表、流式归一化、结构化输出、Prompt 模板、API Key 安全、重试限流或 Provider fallback 时，使用本 Skill。
+description: "用于定义 AgentHub 中所有 LLM 调用的统一 Provider Adapter 契约，包括 Provider Registry、Model Registry、LLMRequest/LLMResponse、流式归一化、结构化输出、tool use 适配边界、timeout/retry/rate limit、fallback、secret、prompt 模板、usage/cost 和错误脱敏。本 Skill 不绑定具体 Agent。"
 ---
 
 # llm-provider-contract
 
-## 1. 目的
+## 1. Skill 目的
 
-本 Skill 定义 AgentHub 的 LLM Provider 开发契约。
+本 Skill 定义 AgentHub 中所有 LLM 调用的统一 Provider Adapter 契约。
 
-LLM Provider 是 AgentHub 内部统一调用不同模型服务的适配层。
+它的目标是让 AgentHub 可以在不污染业务代码的前提下，安全、可观测、可替换地接入多个 LLM Provider 与多个模型。
 
-核心链路：
+本 Skill 约束：
 
-```text
-OpenAI / Anthropic / Gemini / OpenAI-compatible / Local Model
-→ Provider Adapter
-→ AgentHub LLMRequest
-→ AgentHub LLMStreamEvent / LLMResponse
-→ ADK Runtime / Orchestrator / Agent Handler
-```
+- Provider Registry
+- Model Registry
+- Provider Adapter 接口
+- LLMRequest / LLMResponse
+- LLMStreamEvent
+- 流式输出归一化
+- 结构化输出与本地 schema 校验
+- tool use / function calling 的适配边界
+- timeout / retry / rate limit
+- Provider fallback / model fallback
+- usage / cost 元数据
+- secret 与配置
+- prompt 模板
+- Provider 错误归一化
+- trace / logging
 
-目标：
+一句话：
 
-- 不把业务逻辑绑定到某一家 Provider SDK。
-- 不把 Provider 原始 streaming event 直接传入 ADK Runtime、A2A 或 AG-UI。
-- 不把 API key 写入配置、AgentCard、日志、Artifact 或 Prompt。
-- 不把 Provider 原始错误直接暴露给用户。
-- 不让 LLM Provider 直接生成 AgentHub Artifact 或 AG-UI 事件。
-- 不让结构化输出绕过 JSON Schema validation。
-- 不让 retry、rate limit、fallback 变成隐式行为。
+**任何模型调用都必须通过统一 Provider Adapter，不得让业务层直接绑定具体 Provider SDK 或原始响应格式。**
 
-## 2. 官方文档优先级
+---
 
-涉及具体 Provider 行为时，以各 Provider 官方文档为准。
+## 2. 独立性原则
 
-官方文档优先范围包括：
+本 Skill 必须独立可读。
 
-- OpenAI API：Structured Outputs、Responses / Chat API、tool calling、streaming、error、rate limit。
-- Anthropic Claude API：Messages API、streaming、tool use、error、rate limit、SDK 行为。
-- Google Gemini API：generateContent、structured output、streaming、tool use、error、rate limit。
-- JSON Schema 官方规范：结构化输出和本项目 schema 的基础规范。
-- OpenAI-compatible Provider：以其兼容声明和真实行为为准，不默认等同 OpenAI 官方完整能力。
-
-优先级：
-
-```text
-Provider 官方文档 > AgentHub adapter 假设
-JSON Schema 官方规范 > 手写非标准 schema
-AgentHub LLMProvider Contract > 业务代码直接调用 Provider SDK
-```
-
-如果 Provider 官方能力与本项目统一抽象不一致：
-
-```text
-Provider Adapter 负责差异转换
-AgentHub 内部只消费统一 LLMRequest / LLMResponse / LLMStreamEvent
-```
-
-## 3. 文件位置说明
-
-### 项目级 Contract 文件
-
-以下文件属于 AgentHub 项目仓库，是项目级事实源：
-
-```text
-<repo-root>/docs/contracts/llm-provider.md
-<repo-root>/docs/contracts/llm-provider.schema.json
-```
-
-### 当前 Skill 的参考文件
-
-以下文件属于当前 Coding Agent Skill：
-
-```text
-<current-skill-dir>/references/provider-adapter.md
-<current-skill-dir>/references/model-registry.md
-<current-skill-dir>/references/streaming-normalization.md
-<current-skill-dir>/references/structured-output.md
-<current-skill-dir>/references/retry-rate-limit-policy.md
-<current-skill-dir>/references/secret-config.md
-<current-skill-dir>/references/prompt-template-policy.md
-<current-skill-dir>/references/fallback-policy.md
-```
-
-如果当前 Skill 安装在 Claude Code 项目目录中，则 `<current-skill-dir>` 通常是：
-
-```text
-<repo-root>/.claude/skills/llm-provider-contract
-```
-
-## 4. 适用场景
-
-当进行以下工作时，启用本 Skill：
-
-- 新增 LLM Provider。
-- 修改 Provider Adapter。
-- 修改模型注册表。
-- 修改模型能力声明。
-- 修改流式输出归一化。
-- 修改结构化输出能力。
-- 修改 prompt 模板规则。
-- 修改 API key / secret 配置。
-- 修改 retry / rate limit / timeout。
-- 修改 Provider fallback。
-- 修改 token usage / cost 统计。
-- 修改 LLM error normalization。
-- 修改 code-agent、planner 或任意 Agent 的 LLM 调用方式。
-
-## 5. 长期契约基线
-
-长期架构中，AgentHub 必须通过统一 Provider Adapter 调用模型。
-
-业务代码不得直接散落调用 Provider SDK。
-
-长期 contract 必须定义：
-
-- Provider Registry。
-- Model Registry。
-- 模型能力声明。
-- 统一 `LLMRequest`。
-- 统一 `LLMResponse`。
-- 统一 `LLMStreamEvent`。
-- streaming normalization。
-- structured output 策略。
-- tool use 适配边界。
-- token usage 统计。
-- retry / backoff。
-- rate limit。
-- timeout。
-- fallback。
-- secret 配置。
-- prompt 模板安全策略。
-- provider error normalization。
-- request trace 规则。
-
-长期支持的 Provider 类型：
-
-```text
-openai
-anthropic
-gemini
-openai_compatible
-local
-```
-
-模型能力声明至少包括：
-
-```text
-supportsStreaming
-supportsStructuredOutput
-supportsJsonSchema
-supportsToolUse
-supportsVision
-maxInputTokens
-maxOutputTokens
-costClass
-defaultTimeoutMs
-```
-
-## 6. MVP 约束
-
-MVP 阶段只要求：
-
-```text
-code-agent 能调用一个 LLM Provider
-```
-
-MVP 默认可以只接入：
-
-```text
-anthropic
-```
-
-或项目负责人指定的单一 Provider。
-
-MVP 阶段最小能力：
-
-- 支持 streaming text。
-- 支持 context cancellation。
-- API key 从环境变量读取。
-- Provider 原始 stream chunk 归一化后再交给 ADK Runtime。
-- Provider 原始错误转换为用户安全错误。
-- 不要求多 Provider registry UI。
-- 不要求 Provider fallback。
-- 不要求复杂成本统计。
-- 不要求 prompt 模板版本系统。
-- 不要求 tool use。
-- 不要求 vision。
-- 不要求完整 structured output。
-
-## 7. 阶段演进规则
-
-### MVP 阶段
-
-只实现：
-
-```text
-single provider
-streaming text
-safe error normalization
-env-based secret
-```
-
-不得把单 Provider 直连写成长期唯一实现。
-
-### P1 / 正式开发阶段
-
-逐步启用：
-
-- Provider Registry。
-- Model Registry。
-- 多模型能力声明。
-- structured output。
-- tool use 适配。
-- token usage 统计。
-- cost estimate。
-- retry / backoff。
-- rate limit。
-- fallback provider。
-- fallback model。
-- prompt template versioning。
-- provider health check。
-- request tracing。
-
-启用前必须先更新：
-
-```text
-<repo-root>/docs/contracts/llm-provider.md
-<repo-root>/docs/contracts/llm-provider.schema.json
-```
-
-并同步检查当前 Skill 的 references 文件。
-
-## 8. 本 Skill 负责
-
-本 Skill 负责：
-
-- LLM Provider 抽象。
-- Provider Adapter 规则。
-- Model Registry 规则。
-- Provider / model 能力声明。
-- LLMRequest / LLMResponse / LLMStreamEvent 规则。
-- Streaming normalization。
-- Structured output 规则。
-- Tool use 适配边界。
-- Prompt 模板安全策略。
-- API key / secret 配置规则。
-- Retry / timeout / rate limit 策略。
-- Provider fallback 策略。
-- Token usage / cost metadata 规则。
-- Provider error normalization。
-- MVP 单 Provider 接入规则。
-- P1 多 Provider 扩展规则。
-
-## 9. 本 Skill 不负责
+本 Skill 不依赖其他 Skill 才能理解，也不复制其他 Skill 的详细规则。
 
 本 Skill 不负责：
 
-- Orchestrator 如何选择 Agent。
-- ExecutionPlan schema。
-- A2A Task 协议。
-- AG-UI 事件结构。
-- Frontend Runtime Skill。
-- React Component。
-- Artifact schema。
-- Artifact 持久化策略。
-- ADK Runtime Context API。
-- 子 Agent handler 的业务逻辑。
-- 数据库完整 DDL。
-- Docker Compose 交付规则。
-- 通用 Go / TypeScript 代码风格。
+- Gateway 和 Orchestrator 的服务间 API
+- Orchestrator 如何选择 Agent
+- 子 Agent 如何处理任务
+- 前端实时事件协议
+- 前端 Runtime Capability 参数
+- Artifact 完整 schema
+- 数据库存储结构
+- Docker Compose 服务拓扑
+- 具体业务 Prompt 内容
 
-## 10. Contract first 规则
+如果其他模块需要调用 LLM，只需要遵守本文定义的 Provider Adapter 契约。
 
-任何新增或修改 LLM Provider 行为前，必须先更新：
+---
 
-```text
-<repo-root>/docs/contracts/llm-provider.md
-<repo-root>/docs/contracts/llm-provider.schema.json
-```
+## 3. 当前阶段识别
 
-未更新 contract 的实现变更不得接受。
-
-如果修改 structured output，还必须检查：
+当前项目设定：
 
 ```text
-<repo-root>/docs/contracts/execution-plan.schema.json
+profile = v1-generic-llm-provider
+mvpStatus = completed
+processBoundary = gateway-and-orchestrator-are-separate-services
+agentModel = 2-plus-child-agents
 ```
 
-如果修改 Agent Runtime 使用 LLM 的方式，还必须检查：
+### 3.1 MVP v0.1 Historical Profile
+
+MVP v0.1 已完成，仅作为历史兼容和回归测试基线。
+
+历史基线包括：
+
+- 单 Provider
+- 单模型配置
+- 流式文本输出
+- API key 来自环境变量
+- 基础错误脱敏
+- context cancellation
+- 不强制 Provider Registry
+- 不强制 Model Registry
+- 不强制 fallback
+- 不强制 structured output
+
+这些历史规则不得继续作为当前开发禁令。
+
+### 3.2 v1 Generic LLM Provider Profile
+
+当前契约必须支持：
+
+- 多 Provider 抽象
+- 多模型能力声明
+- Provider Registry
+- Model Registry
+- LLMRequest / LLMResponse
+- LLMStreamEvent
+- 流式输出归一化
+- 结构化输出与本地 JSON Schema 校验
+- timeout / retry / rate limit
+- Provider fallback / model fallback
+- token usage / cost metadata
+- request tracing
+- secret 脱敏
+- Provider error normalization
+
+注意：本契约支持多个 Provider，并不要求当前仓库一次性实现所有 Provider。当前可以只启用一个 Provider，但架构不得写死单 Provider。
+
+---
+
+## 4. 通用性原则
+
+本 Skill 不绑定任何具体 Agent 名称。
+
+不得出现以下设计：
 
 ```text
-<repo-root>/docs/contracts/adk-runtime.md
+code-agent 固定使用某 Provider
+web-agent 固定使用某 Provider
+doc-agent 固定使用某 Provider
 ```
 
-如果修改安全边界，还必须检查：
+正确设计是：
 
 ```text
-<repo-root>/docs/contracts/security-boundaries.md
+调用方声明 useCase、modelPolicy、requiredCapabilities。
+Provider Adapter 根据 Provider Registry、Model Registry、能力声明和运行配置选择可用模型。
 ```
 
-## 11. 核心规则
+调用方可以是：
 
-### Provider Adapter
+- Orchestrator Service
+- Planner
+- 任意 Child Agent
+- 系统后台任务
+- 后续新增的授权后端运行单元
 
-业务代码必须通过统一 Provider Adapter 调用 LLM。
+但所有调用都必须走统一 Provider Adapter。
 
-推荐接口：
+---
+
+## 5. Gateway / Orchestrator 分进程约束
+
+当前设定中，Gateway 与 Orchestrator 必须分进程。
+
+LLM 调用规则：
+
+- Gateway Service 不得直接调用 LLM Provider。
+- Gateway Service 不得直接 import Provider SDK。
+- Gateway Service 不得保存 Provider API key。
+- Gateway Service 不得构造完整模型 prompt。
+- Orchestrator Service、Planner 或 Child Agent 如需调用 LLM，必须通过统一 Provider Adapter。
+- 只有被授权的后端运行单元可以调用 Provider Adapter。
+
+Gateway 只负责对外入口、鉴权、请求装配、流式转发和持久化边界；LLM 选择、结构化输出、fallback、错误归一化等能力属于模型调用层和被授权的后端执行单元。
+
+---
+
+## 6. Provider Adapter 核心原则
+
+Provider Adapter 必须隐藏 Provider 差异。
+
+业务层不得依赖：
+
+- OpenAI 原始 response shape
+- Anthropic 原始 response shape
+- Gemini 原始 response shape
+- openai-compatible 私有扩展字段
+- Provider 专有 stream event 名称
+- Provider 专有 tool call chunk 结构
+
+Provider Adapter 必须输出 AgentHub 统一对象：
+
+- `LLMResponse`
+- `LLMStreamEvent`
+- `SafeLLMError`
+- `TokenUsage`
+
+Provider Adapter 不得：
+
+- 直接调用业务工具
+- 直接修改数据库
+- 直接生成前端事件
+- 直接选择 Agent
+- 直接落库原始 Provider 响应
+- 直接把 Provider 原始错误返回给用户
+
+---
+
+## 7. Provider Registry
+
+Provider Registry 是 Provider 配置和能力的事实源。
+
+推荐结构：
+
+```ts
+type ProviderDefinition = {
+  providerName: string
+  providerType:
+    | 'openai'
+    | 'anthropic'
+    | 'gemini'
+    | 'openai_compatible'
+    | 'local'
+  status: 'enabled' | 'disabled' | 'experimental' | 'deprecated'
+  baseURL?: string
+  apiKeyEnv?: string
+  defaultModel?: string
+  timeoutMs: number
+  retryPolicyRef?: string
+  rateLimitPolicyRef?: string
+  supportsStreaming: boolean
+  supportsStructuredOutput: boolean
+  supportsToolUse: boolean
+}
+```
+
+规则：
+
+- `providerName` 必须唯一。
+- Provider 配置只能保存 env var 名称，不保存真实 key。
+- `disabled` Provider 不得被请求选择。
+- `disabled` Provider 不得被 fallback 选择。
+- `experimental` Provider 不得作为默认生产路径，除非明确指定。
+- `deprecated` Provider 只允许兼容旧请求，不推荐新请求使用。
+- `openai_compatible` 不等于 OpenAI 官方完整能力。
+- `local` Provider 也必须走同一 Adapter 接口。
+
+---
+
+## 8. Model Registry
+
+Model Registry 是模型能力声明的事实源。
+
+推荐结构：
+
+```ts
+type ModelDefinition = {
+  modelId: string
+  providerName: string
+  displayName?: string
+  status: 'enabled' | 'disabled' | 'deprecated'
+  capabilities: {
+    streaming: boolean
+    structuredOutput: boolean
+    jsonSchema: boolean
+    toolUse: boolean
+    vision: boolean
+    reasoning: boolean
+  }
+  limits: {
+    maxInputTokens?: number
+    maxOutputTokens?: number
+    defaultTimeoutMs?: number
+  }
+  costClass: 'free' | 'low' | 'medium' | 'high' | 'unknown'
+  useCases?: string[]
+}
+```
+
+规则：
+
+- `modelId` 在同一 Provider 内必须唯一。
+- 业务代码不得直接写死模型名。
+- 模型能力必须来自 Model Registry。
+- Provider 支持某能力，不代表该 Provider 下所有模型都支持该能力。
+- Model `disabled` 后不得被新请求选择。
+- fallback 必须选择能力兼容的 model。
+- 如果 structured output 请求 fallback 到不支持 schema 的模型，必须显式拒绝或降级为安全失败。
+
+---
+
+## 9. Model Capability 声明
+
+每个模型至少应声明：
 
 ```text
-Generate(ctx, request) -> LLMResponse
-Stream(ctx, request) -> Iterator<LLMStreamEvent>
-CountTokens(ctx, request) -> TokenUsage
+streaming
+structuredOutput
+jsonSchema
+toolUse
+vision
+reasoning
+maxInputTokens
+maxOutputTokens
+defaultTimeoutMs
 ```
 
-### Streaming Normalization
+能力声明用于：
 
-Provider 原始 stream event 不得直接进入 ADK Runtime、A2A 或 AG-UI。
+- 选择模型
+- 校验请求
+- 判断是否允许 fallback
+- 判断是否允许 structured output
+- 判断是否允许 tool use
+- 判断是否允许 vision 输入
+- 判断是否需要更严格 timeout
 
-必须先转换为 AgentHub 内部事件：
+禁止：
+
+- 根据 providerName 猜测模型能力。
+- 根据 modelId 字符串前缀猜测能力。
+- 因为某 Provider 支持结构化输出，就假定所有模型都支持。
+
+---
+
+## 10. LLMRequest
+
+所有模型请求必须归一为 `LLMRequest`。
+
+推荐结构：
+
+```json
+{
+  "requestId": "req_001",
+  "traceId": "trace_001",
+  "runId": "run_001",
+  "caller": {
+    "type": "orchestrator",
+    "name": "planner"
+  },
+  "useCase": "planning",
+  "modelPolicy": {
+    "preferredProvider": "anthropic",
+    "preferredModel": "model-name",
+    "requiredCapabilities": ["structured_output"],
+    "allowFallback": true
+  },
+  "messages": [],
+  "systemPromptRef": "planner-v1",
+  "temperature": 0.2,
+  "maxOutputTokens": 1024,
+  "stream": false,
+  "structuredOutput": {
+    "enabled": true,
+    "schemaName": "orchestration-plan",
+    "schema": {}
+  },
+  "metadata": {}
+}
+```
+
+规则：
+
+- `requestId` 必须存在。
+- `traceId` 应贯穿调用链。
+- `caller` 只用于审计，不用于绕过权限。
+- `useCase` 用于选择模型策略。
+- `messages` 必须是结构化消息数组。
+- `systemPromptRef` 优先于直接内嵌长 prompt。
+- `metadata` 不得包含 secret。
+- `metadata` 不得包含完整 Authorization header。
+- `structuredOutput.enabled = true` 时必须提供 schema 或 schema 引用。
+
+---
+
+## 11. LLMResponse
+
+统一非流式响应结构：
+
+```ts
+type LLMResponse = {
+  requestId: string
+  traceId?: string
+  providerName: string
+  modelId: string
+  content: string
+  structured?: unknown
+  usage?: TokenUsage
+  finishReason?: string
+  error?: SafeLLMError
+}
+```
+
+规则：
+
+- 不得把 Provider 原始 response 直接返回给业务层。
+- `providerName` 和 `modelId` 必须记录实际使用值。
+- fallback 后必须记录 fallback 后的实际 provider/model。
+- structured output 通过本地 schema validation 后才可进入 `structured`。
+- `content` 不得包含 Provider secret。
+- `error` 必须是脱敏后的 `SafeLLMError`。
+
+---
+
+## 12. LLMStreamEvent
+
+统一流式事件类型：
 
 ```text
 message_start
@@ -332,76 +400,441 @@ message_end
 error
 ```
 
-MVP 阶段只强制：
+推荐结构：
+
+```ts
+type LLMStreamEvent = {
+  type: string
+  requestId: string
+  providerName?: string
+  modelId?: string
+  delta?: string
+  toolCallId?: string
+  toolName?: string
+  toolArgsDelta?: string
+  usage?: Partial<TokenUsage>
+  finishReason?: string
+  error?: SafeLLMError
+}
+```
+
+规则：
+
+- Provider 原始 stream event 不得直接暴露给业务层。
+- Provider 原始 stream event 必须先归一化。
+- 业务层不得依赖 Provider 专有事件字段。
+- error event 必须脱敏。
+- context cancelled 后不得继续输出 delta。
+- stream end 后不得继续输出普通事件。
+
+---
+
+## 13. Streaming Normalization
+
+流式归一化必须解决：
+
+- 不同 Provider 的 token delta 格式差异
+- 不同 Provider 的 message start/end 差异
+- 不同 Provider 的 tool call delta 差异
+- usage 信息出现时机不同
+- finish reason 命名不同
+- 中途错误格式不同
+
+规则：
+
+- Adapter 层负责归一化。
+- 调用方只消费 `LLMStreamEvent`。
+- 流式聚合结果必须可复现为非流式 `LLMResponse`。
+- 流中错误必须结束当前请求。
+- 取消后必须尽快停止 Provider 请求。
+
+---
+
+## 14. Structured Output Policy
+
+结构化输出不能等同于“相信 LLM”。
+
+结构化输出必须经过三层：
 
 ```text
-delta_text
-message_end
-error
+Provider 原生 structured output 能力
+→ 本地 JSON parse
+→ 本地 JSON Schema validation
 ```
+
+规则：
+
+- 如果 Provider 支持官方 structured output，应优先使用。
+- JSON mode 不等于 schema validation。
+- Provider 声称 schema adherence，也必须本地 schema validation。
+- schema validation 失败不得执行下游动作。
+- LLM 原始输出不得直接作为计划、工具参数、配置或元数据使用。
+- schema 必须版本化。
+- schema 变更必须记录兼容性影响。
+
+---
+
+## 15. Tool Use Adapter Boundary
+
+Provider 可以支持 tool use / function calling，但 Provider Adapter 不直接执行业务工具。
+
+规则：
+
+- Provider tool call 必须归一化为内部 tool intent。
+- Provider Adapter 不直接调用外部工具。
+- Provider Adapter 不直接修改数据库。
+- Provider Adapter 不直接生成前端事件。
+- Tool call 参数必须 schema validation。
+- tool use 支持情况必须由 model capabilities 声明。
+- 不支持 tool use 的模型不得处理 tool-use 请求。
+
+---
+
+## 16. Timeout / Retry / Rate Limit
+
+每个 LLM 请求必须有 timeout。
+
+推荐结构：
+
+```ts
+type RetryPolicy = {
+  maxAttempts: number
+  initialBackoffMs: number
+  maxBackoffMs: number
+  jitter: boolean
+  retryableErrorCodes: string[]
+}
+
+type RateLimitPolicy = {
+  requestsPerMinute?: number
+  tokensPerMinute?: number
+  concurrency?: number
+  queueTimeoutMs?: number
+}
+```
+
+规则：
+
+- timeout 必须小于调用方整体 deadline。
+- retry 必须有最大次数。
+- retry 必须区分 retryable / non-retryable error。
+- context cancelled 后不得 retry。
+- 用户取消后不得 fallback。
+- rate limit 必须尊重 Provider 官方错误。
+- retry / fallback 必须记录 trace。
+
+---
+
+## 17. Fallback Policy
+
+Fallback 是 Provider / Model 选择层的降级能力，不等于 retry。
+
+推荐结构：
+
+```ts
+type FallbackPolicy = {
+  enabled: boolean
+  mode:
+    | 'same_provider_different_model'
+    | 'different_provider_same_capability'
+    | 'lower_cost_model'
+    | 'fail_fast'
+  maxFallbacks: number
+  requiredCapabilities: string[]
+}
+```
+
+规则：
+
+- fallback 只能选择 enabled Provider / Model。
+- fallback 必须满足 requiredCapabilities。
+- fallback 不得跨越用户或系统禁止的 Provider。
+- structured output 请求不得 fallback 到不支持 schema 的模型，除非显式降级并重新校验。
+- fallback 后必须记录实际 providerName / modelId。
+- fallback 不能无限循环。
+
+---
+
+## 18. Secret / Config Policy
+
+API key 和敏感配置必须安全处理。
+
+规则：
+
+- API key 只能来自环境变量、secret manager 或等价机制。
+- 配置文件只能保存 env var 名称。
+- 不得把真实 API key 写进 YAML、JSON、AgentCard、Prompt、Artifact、日志、数据库普通字段。
+- 不得把用户 token 当 Provider API key。
+- 不得在错误信息中暴露 Authorization header。
+- 不得在 trace metadata 中保存 secret。
+- 不得在测试 fixture 中提交真实 Provider 响应中含有的 secret。
+
+---
+
+## 19. Prompt Template Policy
+
+本 Skill 不定义具体业务 Prompt，但定义 Prompt 模板的安全边界。
+
+推荐结构：
+
+```ts
+type PromptTemplate = {
+  templateId: string
+  version: string
+  useCase: string
+  requiredVariables: string[]
+  owner?: string
+  status: 'draft' | 'active' | 'deprecated'
+}
+```
+
+规则：
+
+- Prompt 模板必须版本化。
+- Prompt 变量必须显式声明。
+- 用户输入不得无边界拼接到 system prompt。
+- Prompt 中不得包含 API key、内部 token、数据库连接串。
+- Prompt 变更影响 structured output 时必须同步 schema。
+- 生产路径不得依赖临时 prompt 草稿。
+- Prompt 日志只能保存脱敏摘要或版本引用。
+
+---
+
+## 20. Usage / Cost Metadata
+
+所有 Provider 调用应尽可能记录使用量。
+
+```ts
+type TokenUsage = {
+  inputTokens?: number
+  outputTokens?: number
+  totalTokens?: number
+  cachedInputTokens?: number
+  reasoningTokens?: number
+  costClass?: 'free' | 'low' | 'medium' | 'high' | 'unknown'
+}
+```
+
+规则：
+
+- usage 不得伪造。
+- Provider 不返回 usage 时，应标记 unknown，而不是填 0。
+- fallback 后应记录每次 attempt 的 usage 摘要。
+- 成本信息用于观测和调优，不得作为唯一安全控制。
+
+---
+
+## 21. Error Normalization
+
+Provider 错误必须归一化为 `SafeLLMError`。
+
+```ts
+type SafeLLMError = {
+  code: string
+  message: string
+  retryable: boolean
+  providerName?: string
+  modelId?: string
+  statusCode?: number
+}
+```
+
+推荐错误码：
+
+```text
+LLM_BAD_REQUEST
+LLM_UNAUTHORIZED
+LLM_RATE_LIMITED
+LLM_TIMEOUT
+LLM_CONTEXT_CANCELLED
+LLM_PROVIDER_UNAVAILABLE
+LLM_STRUCTURED_OUTPUT_INVALID
+LLM_STREAM_INTERRUPTED
+LLM_INTERNAL
+```
+
+规则：
+
+- 用户可见 message 必须脱敏。
+- 内部日志可记录 provider error code，但不得记录 secret。
+- Provider 原始错误不得直接返回给用户。
+- 401 / 403 通常不可 retry。
+- 429 / 5xx 可按策略 retry。
+- schema validation 失败是本地错误，不应伪装成 Provider 成功。
+
+---
+
+## 22. Trace / Logging
+
+LLM 调用必须可追踪。
+
+建议字段：
+
+```text
+requestId
+traceId
+runId
+caller.type
+caller.name
+providerName
+modelId
+useCase
+timeoutMs
+attempt
+fallbackAttempt
+errorCode
+usage
+latencyMs
+```
+
+禁止日志：
+
+```text
+API key
+Authorization header
+完整 system prompt
+完整用户敏感输入
+数据库连接串
+Provider 原始响应中的敏感字段
+```
+
+---
+
+## 23. Contract-first 规则
+
+修改 LLM Provider 行为前，必须先更新契约。
+
+需要先更新契约的情况：
+
+- 新增 Provider
+- 新增 Model
+- 新增 model capability
+- 修改 LLMRequest / LLMResponse
+- 修改流式事件类型
+- 启用 structured output
+- 启用 tool use
+- 启用 fallback
+- 修改 retry / timeout / rate limit
+- 修改 secret 来源
+- 修改错误码
+
+---
+
+## 24. Contract Test 规则
+
+至少应测试：
+
+- Provider Registry 加载
+- Model Registry 加载
+- disabled Provider 不可用
+- disabled Model 不可用
+- missing API key 报安全错误
+- timeout 生效
+- context cancellation 生效
+- streaming event 归一化
+- structured output 本地 schema validation
+- invalid structured output 不执行下游动作
+- retry 上限
+- fallback 能力兼容检查
+- error normalization 脱敏
+- usage unknown 不伪造 0
+
+---
+
+## 25. Review Checklist
+
+### 通用性
+
+- 是否没有绑定具体 Agent 名称？
+- 是否没有让业务代码直接调用 Provider SDK？
+- 是否所有 LLM 调用都经过 Provider Adapter？
+- Gateway 是否没有直接调用 LLM Provider？
+
+### Provider Registry
+
+- `providerName` 是否唯一？
+- Provider 状态是否明确？
+- API key 是否只保存 env var 名称？
+- `openai_compatible` 是否没有假装等同 OpenAI 官方完整能力？
+
+### Model Registry
+
+- `modelId` 是否唯一？
+- model 能力是否声明？
+- structuredOutput / streaming / toolUse 是否按 model 声明？
+- fallback 是否选择能力兼容模型？
+
+### Request / Response
+
+- LLMRequest 是否有 requestId / traceId？
+- messages 是否结构化？
+- metadata 是否无 secret？
+- LLMResponse 是否不暴露 Provider 原始对象？
+
+### Streaming
+
+- Provider 原始 stream 是否已归一化？
+- 是否不把 Provider 原始事件传给业务层？
+- context cancelled 后是否停止输出？
 
 ### Structured Output
 
-如果 Provider 支持官方 structured output，应优先使用。
+- 是否使用 schema？
+- 是否本地 JSON Schema validation？
+- JSON mode 是否没有被当成 schema validation？
+- validation 失败是否不执行下游动作？
 
-无论 Provider 是否声称支持 structured output，AgentHub 必须执行本地 schema validation。
+### 安全
 
-JSON mode 不等于 schema adherence。
+- API key 是否未进入日志 / Prompt / Artifact / 数据库普通字段？
+- 错误是否脱敏？
+- Prompt 模板是否不含 secret？
 
-### Secret
+### 可靠性
 
-API key 只能从环境变量、secret manager 或等价安全机制读取。
+- 是否有 timeout？
+- retry 是否有上限？
+- rate limit 是否处理？
+- fallback 是否有授权和能力校验？
 
-配置中只能出现 env var 名称：
+---
 
-```text
-ANTHROPIC_API_KEY
-OPENAI_API_KEY
-GEMINI_API_KEY
-```
+## 26. 完成定义
 
-不得出现真实 key。
+本 Skill 视为完成，当且仅当：
 
-### Retry / Rate Limit / Timeout
+- `SKILL.md` 使用中文并独立可读。
+- MVP v0.1 被降级为 Historical Profile。
+- Skill 不绑定具体 Agent 名称。
+- 定义了 Provider Registry。
+- 定义了 Model Registry。
+- 定义了 LLMRequest / LLMResponse / LLMStreamEvent。
+- 定义了 streaming normalization。
+- 定义了 structured output 本地校验规则。
+- 定义了 tool use 适配边界。
+- 定义了 timeout / retry / rate limit。
+- 定义了 fallback policy。
+- 定义了 secret / config policy。
+- 定义了 prompt template policy。
+- 定义了 usage / cost metadata。
+- 定义了 SafeLLMError。
+- 定义了 Review Checklist。
 
-每个 Provider 请求必须有 timeout。
+---
 
-Retry 必须有上限。
+## References
 
-不得无限 retry。
-
-不得在 context cancelled 后继续请求或 retry。
-
-Provider Adapter 必须尊重 Provider 官方 rate limit。
-
-## 12. 禁止事项
-
-Coding Agent 不得：
-
-- 在业务 handler 中直接到处调用 Provider SDK。
-- 把 Provider 原始 streaming event 直接传给 ADK Runtime、A2A 或 AG-UI。
-- 把 Provider 原始错误直接返回给用户。
-- 把 API key 写入配置、AgentCard、Artifact、Prompt、日志或数据库普通字段。
-- 让 LLM Provider 直接生成 AG-UI 事件。
-- 让 LLM Provider 直接生成 AgentHub Artifact。
-- 把 JSON mode 当成 schema validation。
-- 跳过本地 schema validation。
-- 在 Provider 不支持 structured output 时假装支持。
-- 无限 retry。
-- 忽略 context cancellation。
-- fallback 到未授权 Provider。
-- 在没有 contract 的情况下新增 Provider。
-- 把 MVP 单 Provider 直连写成长期唯一架构。
-
-## 13. 相关契约
-
-本 Skill 只引用以下契约，不重新定义它们：
-
-- `adk-runtime-contract`：负责子 Agent Runtime、Task handler、`ctx.StreamText`、`ctx.AddArtifact`。
-- `intent-orchestration-contract`：负责 ExecutionPlan、Agent 路由、planner validation。
-- `artifact-contract`：负责 Artifact schema、类型、生命周期和存储策略。
-- `a2a-agent-contract`：负责 A2A Task、AgentCard、Streaming 和错误语义。
-- `agui-event-contract`：负责 AG-UI 事件名称和事件结构。
-- `security-boundary-contract`：负责 secret、sandbox、工具权限和敏感信息保护。
-- `observability-debugging-contract`：负责 traceId、runId、日志、指标和调试。
-- `data-persistence-contract`：负责数据库、Redis、对象存储和迁移策略。
+- `references/provider-registry.md`
+- `references/model-registry.md`
+- `references/provider-adapter.md`
+- `references/llm-request-response.md`
+- `references/streaming-normalization.md`
+- `references/structured-output-policy.md`
+- `references/tool-use-adapter-policy.md`
+- `references/retry-rate-limit-timeout-policy.md`
+- `references/fallback-policy.md`
+- `references/secret-config-policy.md`
+- `references/prompt-template-policy.md`
+- `references/usage-cost-policy.md`
+- `references/error-normalization-policy.md`
+- `references/llm-provider-review-checklist.md`

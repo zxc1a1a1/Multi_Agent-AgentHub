@@ -1,49 +1,45 @@
 # Smoke Test 策略
 
-## 1. 目的
+## 目标
 
-本文定义 AgentHub 本地 Demo smoke test。
+Smoke test 用于验证本地交付是否可用，而不是验证所有业务细节。
 
-## 2. MVP smoke test
+## 分层
 
-必须验证：
+### Level 0: Compose config
 
 ```text
 docker compose config
-docker compose up -d --build
-mysql healthy
-gateway /health
-code-agent /health
-frontend reachable
-minimal API path
-no obvious 500
 ```
 
-## 3. 推荐步骤
+### Level 1: Service health
 
-```text
-1. 检查 docker compose config。
-2. 启动服务。
-3. 等待 mysql healthy。
-4. 访问 gateway /health。
-5. 访问 code-agent /health。
-6. 访问 frontend /。
-7. 发送最小 API 请求或 mock run。
-8. 检查日志中没有明显 panic / fatal / 500。
-```
+- mysql healthy
+- gateway `/health`
+- frontend reachable
+- enabled child agents `/health`
 
-## 4. LLM 规则
+### Level 2: Registry / API
 
-CI / smoke test 默认使用 mock LLM 或固定响应。
+- Gateway 能列出启用 Agent。
+- v1.0 Demo profile 至少 2 个 healthy Agent，除非当前 profile 明确是单 Agent 回归。
 
-手动 Demo 可以使用真实 API key，但不得提交 key。
+### Level 3: Minimal run
 
-## 5. 禁止事项
+- 创建会话。
+- 发送最小消息。
+- 收到流式响应或 mock 响应。
 
-不得：
+### Level 4: Demo path
 
-- smoke test 只检查容器启动，不检查服务可用。
-- smoke test 依赖真实 LLM 随机输出。
-- smoke test 使用真实生产 API key。
-- smoke test 失败仍返回 0。
-- 用固定 sleep 代替健康检查。
+- 单 Agent 对话。
+- 多 Agent / 群聊路径。
+- 产物预览元数据存在。
+
+## 规则
+
+- 不依赖真实 LLM 随机输出。
+- 不输出 secret。
+- 失败必须返回非零退出码。
+- 失败必须显示失败项。
+- 本机和 CI 都应可运行。

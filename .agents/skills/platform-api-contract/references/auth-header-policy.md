@@ -1,19 +1,9 @@
-# Auth Header Policy
+# 鉴权 Header 策略
 
-来源：`docs/contracts/openapi.yaml`、`docs/contracts/auth-policy.md`、`docs/contracts/security-boundaries.md`。
+公开 Platform API 使用：
 
-## 1. 规则
+```text
+Authorization: Bearer <user-token>
+```
 
-- 使用 `Authorization: Bearer <token>`。
-- Token 不得放入 query string。
-- 未授权返回 401，权限不足返回 403。
-
-## 2. MVP 说明
-
-- MVP 可使用固定 Token 或环境变量 Token。
-- 该简化不改变 Bearer Header 规范。
-
-## 3. 边界
-
-- Frontend 只向 Gateway 发送 token。
-- 不向 Child Agent 透传用户 token。
+规则：token 不得放入 query string；所有用户资源必须做对象级授权；用户 token 不得复用为 Gateway ↔ Orchestrator 的 service token。

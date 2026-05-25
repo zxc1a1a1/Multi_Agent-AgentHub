@@ -1,259 +1,249 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agenthub.local/contracts/observability-debugging.schema.json",
-  "title": "AgentHub Observability Debugging Contract",
+  "$id": "https://agenthub.local/schemas/observability-debugging.schema.json",
+  "title": "AgentHub Observability Debugging Schema",
+  "description": "用于校验 AgentHub 结构化日志事件、错误对象、指标定义和 debug dump 的最小契约。",
   "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "version",
-    "requiredIds",
-    "logEvent",
-    "errorCodes",
-    "redaction"
-  ],
-  "properties": {
-    "version": {
-      "type": "string"
-    },
-    "requiredIds": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/idName"
-      },
-      "uniqueItems": true
-    },
-    "logEvent": {
-      "$ref": "#/$defs/logEventSchema"
-    },
-    "errorCodes": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/errorCode"
-      },
-      "uniqueItems": true
-    },
-    "metricNames": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "pattern": "^agenthub_[a-z0-9_]+$"
-      },
-      "uniqueItems": true
-    },
-    "spanNames": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "pattern": "^agenthub\\.[a-z0-9_.]+$"
-      },
-      "uniqueItems": true
-    },
-    "redaction": {
-      "$ref": "#/$defs/redactionPolicy"
-    }
-  },
-  "$defs": {
-    "idName": {
-      "enum": [
-        "traceId",
-        "requestId",
-        "conversationId",
-        "messageId",
-        "runId",
-        "executionPlanId",
-        "stepId",
-        "a2aTaskId",
-        "agentName",
-        "agentSkill",
-        "artifactId",
-        "toolCallId",
-        "llmRequestId"
-      ]
-    },
-    "logLevel": {
-      "enum": [
-        "debug",
-        "info",
-        "warn",
-        "error"
-      ]
-    },
-    "logEventSchema": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "requiredFields"
-      ],
-      "properties": {
-        "requiredFields": {
-          "type": "array",
-          "items": {
-            "enum": [
-              "timestamp",
-              "level",
-              "service",
-              "environment",
-              "event",
-              "traceId",
-              "requestId",
-              "runId",
-              "conversationId",
-              "messageId",
-              "errorCode",
-              "safeMessage"
-            ]
-          },
-          "uniqueItems": true
-        },
-        "levels": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/logLevel"
-          },
-          "uniqueItems": true
-        }
-      }
-    },
-    "errorCode": {
-      "enum": [
-        "UNKNOWN_ERROR",
-        "VALIDATION_FAILED",
-        "AUTH_FAILED",
-        "PERMISSION_DENIED",
-        "TIMEOUT",
-        "CANCELLED",
-        "INTERNAL_ERROR",
-        "PLAN_VALIDATION_FAILED",
-        "AGENT_NOT_FOUND",
-        "SKILL_NOT_FOUND",
-        "STRATEGY_NOT_SUPPORTED",
-        "FALLBACK_FAILED",
-        "SEQUENTIAL_DEPENDENCY_FAILED",
-        "PARALLEL_PARTIAL_FAILED",
-        "A2A_AGENT_UNAVAILABLE",
-        "A2A_SEND_FAILED",
-        "A2A_STREAM_FAILED",
-        "A2A_TASK_CANCELLED",
-        "A2A_TASK_TIMEOUT",
-        "A2A_AGENT_CARD_INVALID",
-        "ARTIFACT_SCHEMA_INVALID",
-        "ARTIFACT_PERSIST_FAILED",
-        "ARTIFACT_CONTENT_REF_INVALID",
-        "ARTIFACT_PREVIEW_MAPPING_FAILED",
-        "ARTIFACT_NOT_FOUND",
-        "LLM_PROVIDER_FAILED",
-        "LLM_RATE_LIMITED",
-        "LLM_TIMEOUT",
-        "LLM_CONTEXT_CANCELLED",
-        "LLM_STRUCTURED_OUTPUT_INVALID",
-        "LLM_FALLBACK_FAILED",
-        "AGUI_STREAM_FAILED",
-        "AGUI_EVENT_INVALID",
-        "TOOL_CALL_ARGS_INVALID",
-        "TOOL_CALL_UNKNOWN",
-        "FRONTEND_SKILL_NOT_IMPLEMENTED",
-        "DB_WRITE_FAILED"
-      ]
-    },
-    "redactionPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "forbiddenFields",
-        "allowStackTraceToUser"
-      ],
-      "properties": {
-        "forbiddenFields": {
-          "type": "array",
-          "items": {
-            "enum": [
-              "apiKey",
-              "accessToken",
-              "refreshToken",
-              "systemPrompt",
-              "rawLLMRequest",
-              "rawLLMResponse",
-              "databaseConnectionString",
-              "objectStorageSignedUrl",
-              "internalAbsolutePath",
-              "cookie",
-              "sessionSecret"
-            ]
-          },
-          "uniqueItems": true
-        },
-        "allowStackTraceToUser": {
-          "const": false
-        },
-        "allowProviderRawErrorToUser": {
-          "const": false
-        }
-      }
-    }
-  },
-  "examples": [
+  "oneOf": [
     {
-      "version": "v0.1-p1",
-      "requiredIds": [
+      "$ref": "#/$defs/logEvent"
+    },
+    {
+      "$ref": "#/$defs/safeError"
+    },
+    {
+      "$ref": "#/$defs/metricDefinition"
+    },
+    {
+      "$ref": "#/$defs/debugDump"
+    }
+  ],
+  "$defs": {
+    "logEvent": {
+      "type": "object",
+      "required": [
+        "timestamp",
+        "level",
+        "service",
+        "event",
+        "traceId"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "日志时间"
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "description": "日志级别"
+        },
+        "service": {
+          "type": "string",
+          "minLength": 1,
+          "description": "服务名称"
+        },
+        "environment": {
+          "type": "string",
+          "description": "运行环境"
+        },
+        "event": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$",
+          "description": "dot.case 事件名"
+        },
+        "traceId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "追踪 ID"
+        },
+        "spanId": {
+          "type": "string",
+          "description": "span ID"
+        },
+        "requestId": {
+          "type": "string",
+          "description": "请求 ID"
+        },
+        "runId": {
+          "type": "string",
+          "description": "run ID"
+        },
+        "conversationId": {
+          "type": "string",
+          "description": "会话 ID"
+        },
+        "messageId": {
+          "type": "string",
+          "description": "消息 ID"
+        },
+        "planId": {
+          "type": "string",
+          "description": "计划 ID"
+        },
+        "stepId": {
+          "type": "string",
+          "description": "步骤 ID"
+        },
+        "agentTaskId": {
+          "type": "string",
+          "description": "Agent 子任务 ID"
+        },
+        "agentName": {
+          "type": "string",
+          "description": "Agent 名称"
+        },
+        "capabilityId": {
+          "type": "string",
+          "description": "能力 ID"
+        },
+        "artifactId": {
+          "type": "string",
+          "description": "产物 ID"
+        },
+        "toolCallId": {
+          "type": "string",
+          "description": "Tool Call ID"
+        },
+        "llmRequestId": {
+          "type": "string",
+          "description": "LLM 请求 ID"
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "稳定错误码"
+        },
+        "safeMessage": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "脱敏错误信息"
+        },
+        "durationMs": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "耗时毫秒"
+        }
+      }
+    },
+    "safeError": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]+$",
+          "description": "稳定错误码"
+        },
+        "message": {
+          "type": "string",
+          "description": "用户安全错误文案"
+        },
+        "retryable": {
+          "type": "boolean",
+          "description": "是否可重试"
+        },
+        "detailsRef": {
+          "type": "string",
+          "description": "内部排障引用，不含敏感信息"
+        }
+      }
+    },
+    "metricDefinition": {
+      "type": "object",
+      "required": [
+        "name",
+        "type",
+        "description"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "指标名"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "counter",
+            "gauge",
+            "histogram"
+          ],
+          "description": "指标类型"
+        },
+        "description": {
+          "type": "string",
+          "description": "指标说明"
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "低基数标签"
+        }
+      }
+    },
+    "debugDump": {
+      "type": "object",
+      "required": [
         "traceId",
-        "requestId",
-        "conversationId",
-        "messageId",
         "runId",
-        "a2aTaskId",
-        "toolCallId"
+        "createdAt",
+        "redacted"
       ],
-      "logEvent": {
-        "requiredFields": [
-          "timestamp",
-          "level",
-          "service",
-          "environment",
-          "event",
-          "traceId",
-          "requestId",
-          "runId",
-          "conversationId",
-          "messageId"
-        ],
-        "levels": [
-          "debug",
-          "info",
-          "warn",
-          "error"
-        ]
-      },
-      "errorCodes": [
-        "UNKNOWN_ERROR",
-        "A2A_STREAM_FAILED",
-        "ARTIFACT_PERSIST_FAILED",
-        "LLM_PROVIDER_FAILED",
-        "AGUI_STREAM_FAILED"
-      ],
-      "metricNames": [
-        "agenthub_run_started_total",
-        "agenthub_run_failed_total",
-        "agenthub_llm_latency_ms"
-      ],
-      "spanNames": [
-        "agenthub.gateway.run",
-        "agenthub.orchestrator.plan",
-        "agenthub.a2a.stream",
-        "agenthub.llm.stream"
-      ],
-      "redaction": {
-        "forbiddenFields": [
-          "apiKey",
-          "accessToken",
-          "refreshToken",
-          "systemPrompt",
-          "rawLLMRequest",
-          "databaseConnectionString",
-          "objectStorageSignedUrl"
-        ],
-        "allowStackTraceToUser": false,
-        "allowProviderRawErrorToUser": false
+      "additionalProperties": true,
+      "properties": {
+        "traceId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "planId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "redacted": {
+          "type": "boolean",
+          "const": true,
+          "description": "debug dump 必须已脱敏"
+        },
+        "timeline": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
       }
     }
-  ]
+  }
 }

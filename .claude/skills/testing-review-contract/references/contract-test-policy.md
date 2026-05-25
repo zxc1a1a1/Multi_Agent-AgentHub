@@ -1,51 +1,20 @@
-# Contract Test 策略
+# Contract Test Policy
 
-## 1. 目的
+所有跨边界通信必须有契约测试或 schema validation 测试。
 
-本文定义项目 contract 和 JSON Schema 的测试规则。
+## 必测边界
 
-## 2. 必须测试的 schema
+- Frontend ↔ Gateway。
+- Gateway ↔ Orchestrator。
+- Orchestrator ↔ Child Agent。
+- Orchestrator ↔ LLM Provider Adapter。
+- Artifact / Runtime Capability。
+- Observability / Safe Error。
 
-至少覆盖：
+## 规则
 
-```text
-frontend-runtime-skills.schema.json
-artifact.schema.json
-execution-plan.schema.json
-llm-provider.schema.json
-observability-debugging.schema.json
-testing-review.schema.json
-```
-
-## 3. 测试要求
-
-每个 schema 必须包含：
-
-- 合法样例。
-- 非法样例。
-- MVP implemented=true 样例。
-- reserved / implemented=false 样例。
-- 缺少必填字段样例。
-- 字段类型错误样例。
-- additionalProperties 错误样例。
-
-## 4. Golden fixtures
-
-协议转换和 schema 样例建议使用 golden fixtures。
-
-示例：
-
-```text
-testdata/contracts/valid/
-testdata/contracts/invalid/
-testdata/protocol/
-```
-
-## 5. 禁止事项
-
-不得：
-
-- 改 schema 不改测试。
-- 只测合法样例。
-- schema validation 失败仍继续执行。
-- 在 fixture 中放真实 secret。
+- 每个 contract 至少有 valid fixture 和 invalid fixture。
+- Producer 与 Consumer 视角都要能被验证。
+- 删除字段必须 Review。
+- 新增字段默认 optional。
+- mock 数据不得超出 contract。

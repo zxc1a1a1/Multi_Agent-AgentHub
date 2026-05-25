@@ -1,56 +1,37 @@
-# 脱敏规则
+# Redaction Policy
 
-## 1. 目的
+## 目的
 
-本文定义日志、错误、debug dump、metrics 中的敏感信息脱敏规则。
+定义日志、trace、metrics、debug dump 中的脱敏规则。
 
-## 2. 禁止出现内容
+## 禁止记录
 
-以下内容不得出现在日志、用户错误、debug dump、metrics label 中：
+- API key
+- access token / refresh token
+- Authorization header
+- service-to-service token
+- 数据库连接串
+- 对象存储签名 URL
+- 完整 system prompt
+- 完整 LLM raw request / response
+- 完整用户隐私输入
+- 本地绝对路径
+- 内网拓扑
+- cookie
+- session id
 
-```text
-API key
-access token
-refresh token
-system prompt
-完整 LLM raw request
-完整 LLM raw response
-完整用户隐私输入
-数据库连接串
-对象存储签名 URL
-内部绝对路径
-workspace 绝对路径
-private network URL
-cookie
-session secret
-```
+## 允许记录
 
-## 3. 允许记录方式
+- hash 后的 userId
+- 截断后的摘要
+- errorCode
+- provider error category
+- prompt template id
+- model id
+- token usage 数字
 
-可以记录：
+## 规则
 
-```text
-present / missing
-length
-hash
-redacted preview
-errorCode
-safeMessage
-traceId
-```
-
-## 4. stack trace
-
-stack trace 只能进入内部 debug 日志，并且必须受环境和权限控制。
-
-用户响应不得包含 stack trace。
-
-## 5. 禁止事项
-
-不得：
-
-- 在日志中记录真实 secret。
-- 在 debug dump 中包含完整 prompt。
-- 在错误信息中返回 provider raw error。
-- 在前端展示内部路径。
-- 在 metrics label 中写敏感字段。
+- 新增日志字段前必须判断是否敏感。
+- debug dump 必须脱敏。
+- 用户可见错误不得包含内部堆栈、token、密钥或连接串。

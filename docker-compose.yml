@@ -8,6 +8,7 @@ services:
       - gateway
     environment:
       - VITE_API_URL=http://gateway:8080
+      - VITE_AGENTHUB_API_TOKEN=${AGENTHUB_API_TOKEN}
 
   gateway:
     build: ./server

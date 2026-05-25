@@ -1,0 +1,323 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.local/schemas/gateway-orchestrator.schema.json",
+  "title": "Gateway-Orchestrator Contract Schema",
+  "type": "object",
+  "$defs": {
+    "SafeError": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "details": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "Sender": {
+      "type": "object",
+      "required": [
+        "type",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent",
+            "system"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "OrchestratorRequest": {
+      "type": "object",
+      "required": [
+        "runId",
+        "conversationId",
+        "userId",
+        "conversationType",
+        "messages",
+        "traceId",
+        "requestId"
+      ],
+      "properties": {
+        "runId": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "conversationType": {
+          "type": "string",
+          "enum": [
+            "single",
+            "group"
+          ]
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "availableAgents": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "selectedAgentNames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runtimeCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "planningMode": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "mention",
+            "auto",
+            "manual"
+          ]
+        },
+        "traceId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "deadlineMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "TaskPlan": {
+      "type": "object",
+      "required": [
+        "taskId",
+        "agentName",
+        "taskContent"
+      ],
+      "properties": {
+        "taskId": {
+          "type": "string"
+        },
+        "agentName": {
+          "type": "string"
+        },
+        "capabilityIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "taskContent": {
+          "type": "string"
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expectedOutputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "OrchestrationPlan": {
+      "type": "object",
+      "required": [
+        "planId",
+        "strategy",
+        "tasks"
+      ],
+      "properties": {
+        "planId": {
+          "type": "string"
+        },
+        "intentSummary": {
+          "type": "string"
+        },
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "single",
+            "ordered_parallel",
+            "sequential"
+          ]
+        },
+        "createdBy": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "mention",
+            "auto",
+            "manual",
+            "rule",
+            "llm"
+          ]
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaskPlan"
+          }
+        },
+        "fallback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "same_capability_alternative",
+                "lower_risk_plan",
+                "single_agent_fallback",
+                "fail_fast"
+              ]
+            },
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "OrchestratorStreamEvent": {
+      "type": "object",
+      "required": [
+        "type",
+        "runId"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "run_started",
+            "state_update",
+            "message_start",
+            "message_delta",
+            "message_end",
+            "tool_call_start",
+            "tool_call_args",
+            "tool_call_end",
+            "run_finished",
+            "run_error"
+          ]
+        },
+        "runId": {
+          "type": "string"
+        },
+        "messageId": {
+          "type": "string"
+        },
+        "sender": {
+          "$ref": "#/$defs/Sender"
+        },
+        "delta": {
+          "type": "string"
+        },
+        "state": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "toolCall": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SafeError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "orchestratorRequest": {
+      "$ref": "#/$defs/OrchestratorRequest"
+    },
+    "orchestrationPlan": {
+      "$ref": "#/$defs/OrchestrationPlan"
+    },
+    "orchestratorStreamEvent": {
+      "$ref": "#/$defs/OrchestratorStreamEvent"
+    }
+  },
+  "additionalProperties": false
+}

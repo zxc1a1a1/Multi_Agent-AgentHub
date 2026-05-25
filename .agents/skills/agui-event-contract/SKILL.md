@@ -1,137 +1,109 @@
 ---
 name: agui-event-contract
-description: "用于定义 AgentHub 前后端之间的 AG-UI 事件协议契约，包括 SSE 流式传输、Run 生命周期、文本消息事件、工具调用事件、code_preview 映射以及错误信息脱敏规则。"
+description: "用于定义 AgentHub Frontend 与 Gateway 之间的 AG-UI/SSE 实时事件流契约，包括 Run 生命周期、文本消息、工具调用、状态更新、多 Agent 消息归属、错误脱敏、事件顺序和前端聚合规则。"
 ---
 
 # agui-event-contract
 
 ## 1. Skill 目的
 
-本 Skill 用于定义 AgentHub 项目的 AG-UI 事件契约。
-
-`agui-event-contract` 的核心职责是固定 Frontend 与 Gateway 之间的实时交互事件格式，包括：
-
-- AG-UI Run 的 SSE 事件流。
-- 用户发送消息后，Agent 流式回复的事件序列。
-- A2A text stream 到 AG-UI text event 的转换规则。
-- A2A Artifact 到 AG-UI Tool Call 的转换规则。
-- Frontend Runtime Skills 的触发事件格式。
-- Tool Call 参数拼接、结束、执行结果回传规则。
-- Run 生命周期事件。
-- Message 生命周期事件。
-- Error / Cancel / State Update 事件边界。
-- MVP v0.1 必须实现的最小事件集。
-- Post-MVP 扩展事件集。
-
-一句话：
-
-**凡是 Frontend 与 Gateway 之间通过 AG-UI / SSE 传输的实时事件，都必须由本 Skill 约束。**
-
----
-
-## 2. 适用场景
-
-当任务涉及以下内容时，必须使用本 Skill：
-
-- 设计或修改 AG-UI event schema。
-- 编写或修改 `docs/contracts/agui-events.md`。
-- 编写或修改 `docs/contracts/agui-events.schema.json`。
-- 设计 `POST /api/agui/run` 的 SSE event stream。
-- 设计 Frontend AG-UI Client 的事件处理逻辑。
-- 设计 Gateway AG-UI Server 的 SSE 输出逻辑。
-- 设计 Orchestrator 到 Gateway 的 AG-UI event channel。
-- 设计 A2A event 到 AG-UI event 的协议转换。
-- 设计 Artifact 到 Frontend Skill Tool Call 的转换。
-- 设计 `code_preview` 的 Tool Call 事件链路。
-- 处理 `TEXT_MESSAGE_CONTENT` 流式文本事件。
-- 处理 `TOOL_CALL_START / TOOL_CALL_ARGS / TOOL_CALL_END`。
-- 判断某个字段应该属于 AG-UI event、REST API、A2A Task、Artifact Contract，还是 Frontend Runtime Skills Contract。
-
----
-
-## 3. Contract 所属边界
-
-本 Skill 只约束：
+本 Skill 用于定义 AgentHub 项目中：
 
 ```text
 Frontend ↔ Gateway
-AG-UI realtime event stream
 ```
 
-本 Skill 不约束：
+之间的 AG-UI/SSE 实时事件流契约。
 
-```text
-Frontend ↔ Gateway 的普通 REST API response schema
-Gateway ↔ Orchestrator 的内部 Run Contract
-Orchestrator ↔ Child Agent 的 A2A Task / A2A StreamEvent
-Child Agent 的 AgentCard
-Artifact 的持久化完整 schema
-Frontend Runtime Skills 的完整参数 schema
-```
+本 Skill 的核心职责是固定：
 
-对应关系如下：
+- Gateway 通过 SSE 向 Frontend 输出哪些事件。
+- 每个事件有哪些字段。
+- 事件之间必须遵守什么顺序。
+- 前端如何按 `runId`、`messageId`、`toolCallId` 聚合流式数据。
+- 多 Agent / 群聊场景下，消息归属如何表达。
+- 运行状态、编排状态、降级重试如何表达。
+- 错误信息如何稳定、可展示、可脱敏。
+- SSE wire format 如何避免粘包、拆包、半包导致的解析错误。
 
-| 内容 | 负责 Skill / Contract |
-|---|---|
-| REST API request / response | `platform-api-contract` |
-| AG-UI SSE event | `agui-event-contract` |
-| Gateway ↔ Orchestrator 内部接口 | `gateway-orchestrator-contract` |
-| A2A Task / A2A AgentCard | `a2a-agent-contract` |
-| Artifact 完整格式 | `artifact-contract` |
-| Frontend Skill 注册和参数 | `frontend-runtime-skills-contract` |
-| 意图编排 ExecutionPlan | `intent-orchestration-contract` |
+一句话：
+
+**凡是 Frontend 通过 Gateway SSE 收到的实时事件，都必须符合本 Skill。**
 
 ---
 
-## 4. 核心文件
+## 2. 独立性原则
 
-本 Skill 需要维护的核心 Contract 文件：
+本 Skill 必须独立可读。
+
+阅读本 Skill 不应要求先理解其他 Skill。
+
+本 Skill 只定义最终发给前端的 AG-UI event，不定义后端内部事件来源。
+
+本 Skill 不定义：
 
 ```text
-docs/contracts/agui-events.md
-docs/contracts/agui-events.schema.json
+普通 REST API response
+子 Agent 内部通信协议
+Agent Runtime 内部实现
+产物持久化格式
+前端组件内部实现
+Planner 决策算法
+LLM Provider 调用方式
+数据库 Schema
 ```
 
-建议后续补充的辅助文件：
+如果某个后端内部事件最终要显示给前端，必须先转换为本文定义的 AG-UI event。
+
+AG-UI Event 使用 `UPPER_SNAKE_CASE` 命名（如 `TEXT_MESSAGE_CONTENT`）。内部 `OrchestratorStreamEvent` 使用 `snake_case` 命名（如 `message_delta`）。两者的映射由 Gateway / ProtocolConverter 负责。
+
+禁止将 `OrchestratorStreamEvent` 事件名直接作为 AG-UI Event 名称输出，禁止将 Child Agent A2A event 直接透传给 Frontend。
+
+---
+
+## 3. 当前阶段
+
+当前项目阶段：
 
 ```text
-docs/contracts/agui-run-request.md
-docs/contracts/agui-tool-result.md
-docs/contracts/agui-event-review-checklist.md
+profile = v1.0-sprint
+mvpStatus = completed
 ```
 
-但第一阶段最重要的是：
+MVP v0.1 已完成，仅作为历史回归基线。
+
+v1.0 Sprint 当前要求 AG-UI 事件流支持：
+
+- 2+ Agent 的消息展示。
+- 单聊与群聊。
+- LLM 意图编排状态展示。
+- `single` 与 `ordered_parallel` 执行策略。
+- 多条 assistant message。
+- 多 Agent 消息归属。
+- `STATE_UPDATE`。
+- `code_preview` / `web_preview` / `markdown_render` 等工具调用传输。
+- 降级与重试提示。
+- SSE 解析稳定性。
+
+因此，以下内容不再作为 Post-MVP 禁止项：
 
 ```text
-docs/contracts/agui-events.md
-docs/contracts/agui-events.schema.json
+STATE_UPDATE
+多 Agent 消息
+群聊消息归属
+web_preview Tool Call
+markdown_render Tool Call
+ordered_parallel 状态展示
+fallback / retrying 状态
 ```
 
 ---
 
-## 5. 与 PDR / MVP / UML 的关系
+## 4. Version Profiles
 
-本 Skill 同时约束两个层次：
+### 4.1 MVP v0.1 Historical Profile
 
-1. **完整目标层**：以 PDR 为准，AG-UI 支持单聊、群聊、多 Agent 协作、状态更新、Tool Call、交互式 Skill 和产物预览。
-2. **MVP v0.1 实施层**：以 MVP 文档为准，优先跑通 `code-agent + code_preview` 的最小 AG-UI 事件闭环。
-
-UML 文档中的时序图是 AG-UI 事件顺序、协议转换和前端渲染逻辑的重要参考。
-
-MVP 可以裁剪事件范围，但不能破坏以下方向：
-
-- Frontend 仍然只通过 Gateway 接收 AG-UI 事件。
-- Gateway 仍然负责向 Frontend 输出 SSE event stream。
-- Orchestrator 仍然负责把 A2A 事件转换成 AG-UI 事件。
-- Artifact 仍然不能直接塞进普通文本流。
-- Artifact 必须通过 AG-UI Tool Call 触发 Frontend Skill。
-- `code` Artifact 必须映射到 `code_preview`。
-
----
-
-## 6. MVP v0.1 必须实现的事件集
-
-MVP v0.1 只强制实现最小事件链路：
+MVP v0.1 的历史事件集：
 
 ```text
 RUN_STARTED
@@ -145,31 +117,58 @@ RUN_FINISHED
 RUN_ERROR
 ```
 
-这些事件必须支持以下 Demo 闭环：
+MVP 历史基线仍必须回归可用。
+
+### 4.2 v1.0 Sprint Profile
+
+v1.0 Sprint 当前必需事件集：
 
 ```text
-用户发送消息
-→ Gateway 返回 AG-UI SSE
-→ RUN_STARTED
-→ TEXT_MESSAGE_START
-→ 多个 TEXT_MESSAGE_CONTENT
-→ TEXT_MESSAGE_END
-→ TOOL_CALL_START(code_preview)
-→ TOOL_CALL_ARGS({code, language, filename})
-→ TOOL_CALL_END
-→ RUN_FINISHED
+RUN_STARTED
+RUN_FINISHED
+RUN_ERROR
+
+TEXT_MESSAGE_START
+TEXT_MESSAGE_CONTENT
+TEXT_MESSAGE_END
+
+TOOL_CALL_START
+TOOL_CALL_ARGS
+TOOL_CALL_END
+
+STATE_UPDATE
 ```
 
-MVP v0.1 中，`STATE_UPDATE`、`RUN_CANCELLED`、复杂 ToolResult、交互式 Skill 可以作为 Post-MVP 规划，不作为当前必做项。
-
----
-
-## 7. Post-MVP 规划事件集
-
-Post-MVP 可以扩展以下事件：
+v1.0 允许：
 
 ```text
-STATE_UPDATE
+一个 Run 产生一条 assistant message
+一个 Run 产生多条 assistant message
+一个 Run 中出现多个 sender
+一个 message 绑定多个 Tool Call
+一个 Tool Call 的 args 分多段传输
+STATE_UPDATE 在任意普通业务事件之间穿插
+```
+
+v1.0 不强制：
+
+```text
+RUN_CANCELLED
+TOOL_CALL_RESULT
+TOOL_CALL_ERROR
+USER_INPUT_REQUIRED
+FRONTEND_SKILL_RESULT
+STATE_SNAPSHOT
+STATE_DELTA
+CUSTOM_EVENT
+真正并发交错输出多个 Agent 的 token
+```
+
+### 4.3 Post-v1.0 Profile
+
+Post-v1.0 可以扩展：
+
+```text
 RUN_CANCELLED
 RUN_WARNING
 RUN_PROGRESS
@@ -177,254 +176,304 @@ TOOL_CALL_RESULT
 TOOL_CALL_ERROR
 USER_INPUT_REQUIRED
 FRONTEND_SKILL_RESULT
-AGENT_SWITCHED
-EXECUTION_PLAN_CREATED
-SUBTASK_STARTED
-SUBTASK_FINISHED
+STATE_SNAPSHOT
+STATE_DELTA
+CUSTOM_EVENT
 ```
 
-这些事件用于：
-
-- 群聊多 Agent 协作。
-- 多 Agent 并行 / 串行执行。
-- 显示当前活跃 Agent。
-- 展示 ExecutionPlan。
-- 展示编排阶段状态。
-- 交互式 Skill，例如 `confirm_action`、`form_input`、`file_upload`。
-- 复杂错误恢复与降级。
-
-Post-MVP 事件必须向后兼容 MVP v0.1 的事件集。
+这些事件必须向后兼容 v1.0 事件模型。
 
 ---
 
-## 8. AG-UI SSE Wire Format
+## 5. Contract 文件
 
-Gateway 向 Frontend 输出 AG-UI 事件时，MVP v0.1 统一使用 SSE。
-
-SSE 基础格式：
+使用本 Skill 时，必须维护：
 
 ```text
-event: message
-data: {JSON}
-
+docs/contracts/agui-events.md
+docs/contracts/agui-events.schema.json
+docs/contracts/agui-event-review-checklist.md
 ```
 
-示例：
+根据需要维护：
 
 ```text
-event: message
-data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-1","content":"package main"}
-
+frontend/src/agui/client.ts
+frontend/src/agui/events.ts
+frontend/src/stores/messageStore.ts
+server/internal/model/agui.go
+server/internal/handler/agui.go
+server/internal/orchestrator/converter.go
+server/internal/orchestrator/orchestrator.go
 ```
 
-要求：
+注意：
 
-- 每个事件必须是一条合法 JSON。
-- 每个事件必须包含 `type` 字段。
-- `event` 名称 MVP 阶段统一使用 `message`。
-- `data` 中不得包含非 JSON 字符串。
-- 每次写入 SSE event 后必须 flush。
-- Gateway 不得把多个事件合并成一个 JSON array 输出。
-- Frontend AG-UI Client 必须支持 SSE 粘包 / 拆包处理。
-- `TOOL_CALL_ARGS.content` 允许分块，但 MVP 可以一次性输出完整 JSON 字符串。
+- 本 Skill 不要求在同一任务中修改所有代码文件。
+- 但任何事件字段变更，都必须先更新 `docs/contracts/agui-events.md` 和 `docs/contracts/agui-events.schema.json`。
 
 ---
 
-## 9. 通用事件字段
+## 6. SSE Wire Format
 
-所有 AG-UI event 都应遵守以下通用字段约定。
+Gateway 向 Frontend 输出 AG-UI 事件时，统一使用 SSE。
+
+推荐 wire format：
+
+```text
+event: message
+data: {"type":"TEXT_MESSAGE_CONTENT","runId":"run-1","messageId":"msg-1","delta":"hello"}
+
+```
+
+硬性规则：
+
+1. 一个 SSE event block 只包含一个 AG-UI JSON event。
+2. SSE event block 必须以空行结束。
+3. Frontend 必须按 `\n\n` 拆分 event block。
+4. Frontend 不得假设一次 `reader.read()` 就是一条完整事件。
+5. Frontend 必须处理粘包、拆包、半包。
+6. Frontend 必须保留最后一个 incomplete buffer。
+7. Frontend 必须安全跳过 malformed JSON。
+8. Gateway 不得把多个业务事件合并成 JSON array。
+9. Gateway 每写出一个 SSE event 后必须 flush。
+10. `data:` 中必须是合法 JSON 字符串。
+11. 不得在 SSE 注释行中承载业务状态。
+12. 默认 `event` 名称使用 `message`。
+
+兼容规则：
+
+```text
+v1.0 事件 JSON 字段优先使用 delta/state。
+旧实现中的 content 仍可兼容读取。
+前端聚合时应使用 event.delta ?? event.content。
+```
+
+---
+
+## 7. 通用事件字段
+
+所有 AG-UI event 都应遵守以下字段约定。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---:|---|
-| type | string | 是 | 事件类型 |
-| runId | string | 视事件而定 | 当前 Run ID |
-| threadId | string | 视事件而定 | 当前对话 / thread ID |
-| messageId | string | 视事件而定 | 当前消息 ID |
-| toolCallId | string | 视事件而定 | Tool Call ID |
-| timestamp | string | 建议 | RFC3339 时间 |
-| traceId | string | 建议 | 链路追踪 ID |
+| `type` | string | 是 | 事件类型，大写下划线 |
+| `runId` | string | 视事件而定 | 当前运行 ID |
+| `threadId` | string | 视事件而定 | `conversationId` 的 AG-UI 协议别名 |
+| `messageId` | string | 视事件而定 | 当前消息 ID |
+| `toolCallId` | string | 视事件而定 | 当前 Tool Call ID |
+| `timestamp` | string | 建议 | RFC3339 时间 |
+| `traceId` | string | 建议 | 链路追踪 ID |
+| `sender` | object | 视事件而定 | 消息发送者 |
+| `delta` | string | 视事件而定 | 流式增量文本或参数片段 |
+| `state` | object | 视事件而定 | 状态更新对象 |
+| `error` | object | 视事件而定 | 稳定错误对象 |
 
 命名规则：
 
 - JSON 字段统一使用 camelCase。
-- 事件 `type` 使用大写下划线格式，例如 `TEXT_MESSAGE_CONTENT`。
+- `type` 使用大写下划线，例如 `TEXT_MESSAGE_CONTENT`。
 - ID 字段使用字符串。
 - 时间字段使用 RFC3339 / ISO 8601。
 - 不允许在 AG-UI event 中混用 snake_case。
 
 ---
 
-## 10. Run 生命周期事件
+## 8. Run 生命周期事件
 
-### 10.1 RUN_STARTED
+### 8.1 RUN_STARTED
 
-表示 Gateway 已接受本次 Run，并开始处理。
+表示 Gateway 已接受本次 Run，并开始通过 SSE 输出事件。
 
-最小字段：
+最小事件：
 
 ```json
 {
   "type": "RUN_STARTED",
-  "runId": "run-uuid",
-  "threadId": "conversation-uuid"
+  "runId": "run-001",
+  "threadId": "conv-001"
 }
 ```
 
 规则：
 
-- 每个 Run 必须最多发送一次 `RUN_STARTED`。
-- `RUN_STARTED` 必须在任何文本消息事件之前发送。
-- 如果鉴权失败或请求格式错误，不应进入 SSE 流，而应由 REST / HTTP 错误返回处理。
-- 如果 Run 已启动后发生业务错误，应通过 `RUN_ERROR` 返回。
+- 每个 Run 最多发送一次 `RUN_STARTED`。
+- `RUN_STARTED` 必须早于任何 `TEXT_MESSAGE_*`、`TOOL_CALL_*`、`STATE_UPDATE`。
+- 如果鉴权失败或请求格式错误，不应进入 SSE 流，而应返回 HTTP 错误。
+- 如果 SSE 已建立后发生业务错误，应发送 `RUN_ERROR`。
 
----
-
-### 10.2 RUN_FINISHED
+### 8.2 RUN_FINISHED
 
 表示本次 Run 正常结束。
 
-最小字段：
+最小事件：
 
 ```json
 {
   "type": "RUN_FINISHED",
-  "runId": "run-uuid"
+  "runId": "run-001"
 }
 ```
 
 规则：
 
 - 每个正常完成的 Run 必须发送一次 `RUN_FINISHED`。
-- `RUN_FINISHED` 必须在所有 `TEXT_MESSAGE_*` 和 `TOOL_CALL_*` 事件之后发送。
-- Frontend 收到 `RUN_FINISHED` 后可以关闭 SSE 读取状态。
-- Gateway 在发送 `RUN_FINISHED` 后不应再发送新的业务事件。
+- `RUN_FINISHED` 必须晚于本 Run 的所有 `TEXT_MESSAGE_*` 和 `TOOL_CALL_*`。
+- Gateway 发送 `RUN_FINISHED` 后不得再发送新的业务事件。
+- Frontend 收到后必须关闭当前 Run 的 streaming/loading 状态。
 
----
+### 8.3 RUN_ERROR
 
-### 10.3 RUN_ERROR
+表示 Run 已经开始，但中途发生不可恢复错误。
 
-表示 Run 已经开始，但中途发生错误。
-
-最小字段：
+最小事件：
 
 ```json
 {
   "type": "RUN_ERROR",
-  "runId": "run-uuid",
+  "runId": "run-001",
   "error": {
     "code": "AGUI_RUN_FAILED",
-    "message": "Code-Agent 调用失败"
+    "message": "运行失败，请稍后重试",
+    "retryable": true
   }
 }
 ```
 
 规则：
 
-- `RUN_ERROR` 用于 SSE 已建立后的运行时错误。
-- 错误结构必须稳定。
-- 不允许在 `message` 中泄漏 API Key、数据库连接串、内部堆栈、LLM 原始密钥。
-- Frontend 收到后应停止 loading，并将当前 streaming message 标记为 failed。
+- `RUN_ERROR` 只用于 SSE 已建立后的运行时错误。
+- `RUN_ERROR` 后不应继续发送普通业务事件。
+- Frontend 收到后必须停止 loading。
+- Frontend 应将当前 streaming message 标记为 failed。
+- `error.message` 必须可直接展示给用户。
+- `error.code` 必须稳定，便于测试和排障。
+- 错误信息必须脱敏。
 
 ---
 
-## 11. Text Message 生命周期事件
+## 9. Text Message 事件
 
-### 11.1 TEXT_MESSAGE_START
+Text Message 事件用于创建和流式更新 assistant 消息。
 
-表示开始创建一条 Agent 回复消息。
+### 9.1 TEXT_MESSAGE_START
 
-最小字段：
+表示开始创建一条 assistant 消息。
+
+最小事件：
 
 ```json
 {
   "type": "TEXT_MESSAGE_START",
-  "messageId": "msg-uuid",
-  "runId": "run-uuid",
-  "threadId": "conversation-uuid",
+  "runId": "run-001",
+  "threadId": "conv-001",
+  "messageId": "msg-001",
+  "role": "assistant",
   "sender": {
     "type": "agent",
-    "name": "code-agent"
+    "name": "agent-name",
+    "displayName": "Agent Display Name"
   }
 }
 ```
 
 规则：
 
-- 每条 Agent 文本回复必须先有 `TEXT_MESSAGE_START`。
-- `messageId` 必须在该消息的后续 `TEXT_MESSAGE_CONTENT` 和 `TEXT_MESSAGE_END` 中保持一致。
-- MVP v0.1 中，通常一个 Run 只有一条 Agent 回复消息。
-- Post-MVP 群聊中，一个 Run 可以产生多条 Agent 消息，每条消息必须有独立 `messageId`。
+- 每条 assistant 消息必须先有 `TEXT_MESSAGE_START`。
+- `messageId` 必须在后续 `TEXT_MESSAGE_CONTENT` 和 `TEXT_MESSAGE_END` 中保持一致。
+- 单 Agent 对话中，一个 Run 通常只有一条 assistant message。
+- 多 Agent / 群聊中，一个 Run 可以产生多条 assistant message。
+- 不同 assistant message 不得复用 `messageId`。
+- `sender.name` 不得写死为某个具体 Agent 名称。
+- `sender.displayName` 可以省略，前端应回退到 `sender.name`。
 
----
+### 9.2 TEXT_MESSAGE_CONTENT
 
-### 11.2 TEXT_MESSAGE_CONTENT
+表示一条 assistant 消息的流式文本片段。
 
-表示 Agent 回复文本的一个流式片段。
-
-最小字段：
+推荐事件：
 
 ```json
 {
   "type": "TEXT_MESSAGE_CONTENT",
-  "messageId": "msg-uuid",
-  "content": "package main"
+  "runId": "run-001",
+  "messageId": "msg-001",
+  "delta": "这是一个流式文本片段"
+}
+```
+
+兼容事件：
+
+```json
+{
+  "type": "TEXT_MESSAGE_CONTENT",
+  "runId": "run-001",
+  "messageId": "msg-001",
+  "content": "这是旧字段兼容文本片段"
 }
 ```
 
 规则：
 
-- `content` 只能承载文本片段。
-- `content` 可以是任意长度的 token chunk，但不应过大。
-- 大型代码文件、网页、图片、二进制、压缩包不得塞进 `TEXT_MESSAGE_CONTENT`。
-- 如果 Agent 生成代码块，可以先以文本流方式显示说明，但最终代码产物必须通过 Artifact → Tool Call 触发 `code_preview`。
-- Frontend 在 streaming 阶段可以先按纯文本渲染，结束后再做 Markdown 解析。
+- 新实现优先使用 `delta`。
+- 前端必须兼容 `event.delta ?? event.content`。
+- `delta` / `content` 只能承载文本片段。
+- 不得把大型代码文件、网页、图片、二进制、压缩包塞入 `TEXT_MESSAGE_CONTENT`。
+- Markdown 文本可以通过 `TEXT_MESSAGE_CONTENT` 流式输出。
+- 前端 streaming 阶段可以按纯文本或轻量 Markdown 渲染，结束后再做完整渲染。
 
----
+### 9.3 TEXT_MESSAGE_END
 
-### 11.3 TEXT_MESSAGE_END
+表示一条 assistant 消息结束。
 
-表示一条 Agent 文本回复结束。
-
-最小字段：
+最小事件：
 
 ```json
 {
   "type": "TEXT_MESSAGE_END",
-  "messageId": "msg-uuid"
+  "runId": "run-001",
+  "messageId": "msg-001"
 }
 ```
 
 规则：
 
 - 每条 `TEXT_MESSAGE_START` 必须对应一个 `TEXT_MESSAGE_END`，除非 Run 中途 `RUN_ERROR`。
-- `TEXT_MESSAGE_END` 必须在该消息所有 `TEXT_MESSAGE_CONTENT` 后发送。
-- Artifact 转换出的 Tool Call 应在 `TEXT_MESSAGE_END` 之后发送。
-- Frontend 收到后应把 streaming message 转入正式消息列表，并标记为 sent。
+- `TEXT_MESSAGE_END` 必须晚于该消息所有 `TEXT_MESSAGE_CONTENT`。
+- 与该消息相关的 Tool Call 通常应在 `TEXT_MESSAGE_END` 后发送。
+- Frontend 收到后应将消息状态从 streaming 转为 sent。
 
 ---
 
-## 12. Tool Call 生命周期事件
+## 10. Tool Call 事件
 
-AG-UI Tool Call 用于触发 Frontend Runtime Skills。
+Tool Call 用于让 Gateway 通知前端渲染某类产物或交互控件。
 
-MVP v0.1 中，最重要的 Tool Call 是：
+本 Skill 只定义 Tool Call 的传输事件，不定义每个 `toolName` 的完整参数 Schema。
+
+v1.0 常见 `toolName` 示例：
 
 ```text
 code_preview
+web_preview
+markdown_render
 ```
 
-### 12.1 TOOL_CALL_START
+这些只是示例，不是本协议唯一允许的工具名。
 
-表示开始一次前端 Skill 调用。
+### 10.1 TOOL_CALL_START
 
-最小字段：
+表示开始一次前端工具调用。
+
+最小事件：
 
 ```json
 {
   "type": "TOOL_CALL_START",
-  "runId": "run-uuid",
-  "toolCallId": "tc-uuid",
-  "toolName": "code_preview"
+  "runId": "run-001",
+  "messageId": "msg-001",
+  "toolCallId": "tc-001",
+  "toolName": "web_preview"
 }
 ```
 
@@ -432,301 +481,476 @@ code_preview
 
 - 每次 Tool Call 必须先发送 `TOOL_CALL_START`。
 - `toolCallId` 必须在后续 `TOOL_CALL_ARGS` 和 `TOOL_CALL_END` 中保持一致。
-- `toolName` 必须是 Frontend 已注册的 Skill 名称。
-- MVP v0.1 必须支持 `code_preview`。
-- 如果前端没有注册该 Skill，Orchestrator / Converter 不应发送该 Tool Call，或者必须发送可处理的错误事件。
+- `messageId` 用于把 Tool Call 归属到某条 assistant message。
+- `toolName` 必须是字符串。
+- 未知 `toolName` 不得导致前端崩溃。
+- Gateway 不应发送明显未被前端支持的 Tool Call；若发送，前端必须安全降级。
 
----
-
-### 12.2 TOOL_CALL_ARGS
+### 10.2 TOOL_CALL_ARGS
 
 表示 Tool Call 的参数片段。
 
-最小字段：
+推荐事件：
 
 ```json
 {
   "type": "TOOL_CALL_ARGS",
-  "toolCallId": "tc-uuid",
-  "content": "{\"code\":\"package main\",\"language\":\"go\",\"filename\":\"main.go\"}"
+  "runId": "run-001",
+  "toolCallId": "tc-001",
+  "delta": "{\"html\":\"<html>...</html>\"}"
+}
+```
+
+兼容事件：
+
+```json
+{
+  "type": "TOOL_CALL_ARGS",
+  "runId": "run-001",
+  "toolCallId": "tc-001",
+  "content": "{\"html\":\"<html>...</html>\"}"
 }
 ```
 
 规则：
 
-- `content` 是字符串，内容应为 JSON 片段或完整 JSON 字符串。
-- Frontend 必须按 `toolCallId` 累积所有 `TOOL_CALL_ARGS.content`。
-- MVP v0.1 可以一次性发送完整 JSON 字符串。
-- Post-MVP 可以分块发送大参数，但最终拼接后必须是合法 JSON。
-- `TOOL_CALL_ARGS` 不应携带无法解析的随意文本。
-- 大文件不应直接放入 args，应使用 `fileUrl` 或 Artifact 引用。
+- 新实现优先使用 `delta`。
+- 前端必须兼容 `event.delta ?? event.content`。
+- `delta` / `content` 是字符串。
+- 前端必须按 `toolCallId` 顺序拼接所有参数片段。
+- `TOOL_CALL_ARGS` 可以一次性发送完整 JSON 字符串。
+- `TOOL_CALL_ARGS` 也可以分块发送 JSON 字符串片段。
+- 拼接完成后的字符串必须是合法 JSON。
+- 大文件不应直接放入 args；应使用可控引用或后续文件机制。
+- `TOOL_CALL_ARGS` 不得携带无法解析的随意文本。
 
----
+### 10.3 TOOL_CALL_END
 
-### 12.3 TOOL_CALL_END
+表示 Tool Call 参数发送完成，前端可以解析并执行。
 
-表示 Tool Call 参数发送完成，可以执行对应 Frontend Skill。
-
-最小字段：
+最小事件：
 
 ```json
 {
   "type": "TOOL_CALL_END",
-  "toolCallId": "tc-uuid"
+  "runId": "run-001",
+  "toolCallId": "tc-001"
 }
 ```
 
 规则：
 
-- Frontend 收到 `TOOL_CALL_END` 后，才能解析累计 args 并执行 Skill。
-- 如果 args JSON 解析失败，Frontend 应记录错误并显示 fallback，而不是崩溃。
-- MVP v0.1 中，`TOOL_CALL_END` 后前端应渲染 `<CodePreview />`。
+- Frontend 收到 `TOOL_CALL_END` 后，才能解析累计 args。
+- 如果 args JSON 解析失败，Frontend 应显示 fallback 或记录 warning，不得崩溃。
+- `TOOL_CALL_END` 后，同一 `toolCallId` 不应再收到 `TOOL_CALL_ARGS`。
+- 如果 Tool Call 归属于某条消息，前端应把渲染结果挂到该消息下。
 
 ---
 
-## 13. `code_preview` Tool Call 参数
+## 11. STATE_UPDATE 事件
 
-MVP v0.1 的 `code_preview` 参数必须至少包含：
+`STATE_UPDATE` 用于向前端展示运行过程状态。
+
+它可以用于：
+
+- 已接受请求。
+- 正在编排。
+- 已分派给一个或多个 Agent。
+- 当前活跃 Agent。
+- 当前策略。
+- 正在重试。
+- 正在切换 fallback。
+- 编排完成。
+- 子任务状态展示。
+
+最小事件：
 
 ```json
 {
-  "code": "package main\n...",
-  "language": "go",
-  "filename": "main.go"
+  "type": "STATE_UPDATE",
+  "runId": "run-001",
+  "threadId": "conv-001",
+  "state": {
+    "phase": "planning",
+    "message": "正在分析任务并选择合适的 Agent"
+  }
 }
 ```
 
-字段说明：
-
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---:|---|
-| code | string | 是 | 代码内容 |
-| language | string | 是 | 代码语言，例如 `go`、`tsx`、`python` |
-| filename | string | 建议 | 文件名，例如 `main.go` |
-
-规则：
-
-- `code_preview` 参数 schema 的完整定义后续由 `frontend-runtime-skills-contract` 维护。
-- 本 Skill 只规定 AG-UI Tool Call 如何传输参数。
-- `code` 可以来源于 A2A Artifact 的 `content`。
-- `language` 可以来源于 A2A Artifact 的 `metadata.language`。
-- `filename` 可以来源于 A2A Artifact 的 `title`。
-
----
-
-## 14. A2A → AG-UI 事件映射规则
-
-Orchestrator / ProtocolConverter 必须按照稳定规则把 A2A stream event 转成 AG-UI event。
-
-MVP v0.1 映射表：
-
-| A2A 输入事件 | AG-UI 输出事件 |
-|---|---|
-| `status: working` | `TEXT_MESSAGE_START` |
-| `text: content` | `TEXT_MESSAGE_CONTENT` |
-| `artifact: {...}` | 缓存，不立即输出 |
-| `status: completed` | `TEXT_MESSAGE_END` + `TOOL_CALL_*` + `RUN_FINISHED` |
-| `status: failed` | `RUN_ERROR` |
-
-规则：
-
-- `artifact` 事件必须先缓存。
-- Artifact 不应在文本流中直接输出为大 JSON。
-- 当收到 `status: completed` 后，先发送 `TEXT_MESSAGE_END`。
-- 然后把缓存的 Artifact 转成一个或多个 Tool Call。
-- 最后发送 `RUN_FINISHED`。
-- 如果 A2A stream 失败，应发送 `RUN_ERROR`。
-
----
-
-## 15. Artifact → Tool Call 映射规则
-
-Artifact 到 Frontend Skill 的映射由 Orchestrator / ProtocolConverter 执行。
-
-完整规划映射：
-
-| Artifact type | Frontend Skill |
-|---|---|
-| code | code_preview |
-| webpage | web_preview |
-| diff | diff_preview |
-| file | file_download |
-| image | image_preview |
-| deploy | deploy_status |
-| document | markdown_render |
-| terminal | terminal_output |
-| chart | chart_render |
-
-MVP v0.1 只强制实现：
-
-```text
-code → code_preview
-```
-
-规则：
-
-- 如果 Frontend 未声明或未注册某个 Skill，Converter 不应盲目发送该 Tool Call。
-- MVP v0.1 的 `tools` 中应包含 `code_preview`。
-- 未注册的 Artifact type 可以暂时跳过，但必须记录日志。
-- Post-MVP 需要统一补充 fallback 事件或错误事件。
-
----
-
-## 16. AG-UI RunRequest 边界
-
-`POST /api/agui/run` 的 HTTP endpoint 基础形态由 `platform-api-contract` 登记。
-
-本 Skill 只规定它进入 SSE 后的事件语义。
-
-MVP v0.1 的 RunRequest 至少应包含：
+兼容事件：
 
 ```json
 {
-  "threadId": "conversation-uuid",
-  "runId": "run-uuid",
-  "agentName": "code-agent",
-  "messages": [],
-  "tools": [
-    {
-      "name": "code_preview"
-    }
-  ]
+  "type": "STATE_UPDATE",
+  "runId": "run-001",
+  "content": "{\"phase\":\"planning\",\"message\":\"正在分析任务\"}"
 }
 ```
 
 规则：
 
-- `threadId` 用于关联 conversation。
-- `runId` 用于关联本次运行。
-- `agentName` 在 MVP 中用于直接路由到 `code-agent`。
-- `messages` 是本次上下文消息。
-- `tools` 是前端可执行 Skill 列表。
-- Frontend 不应声明未实现的 Skill。
-- Gateway 不应把 RunRequest 当普通 REST response 处理，它应建立 SSE 流。
+- 新实现优先使用 `state` object。
+- 兼容期前端可以读取 `event.state`，也可以尝试 `JSON.parse(event.content)`。
+- `STATE_UPDATE` 只能表示过程状态。
+- `STATE_UPDATE` 不得替代 `TEXT_MESSAGE_*`。
+- `STATE_UPDATE` 不得替代 `TOOL_CALL_*`。
+- `STATE_UPDATE` 不得作为最终消息内容持久化。
+- 前端可以把 `STATE_UPDATE` 渲染为状态条、系统提示或编排可视化。
 
----
+### 11.1 phase 与 Run.status 的区别
 
-## 17. Tool Result 边界
+`STATE_UPDATE.state.phase` 是前端可见的阶段提示，用于 UI 展示当前进度。**它不等同于持久化 Run.status**。
 
-PDR 完整目标中，Frontend Skill 执行后可以通过 ToolResult 回传结果。
+| 概念 | 用途 | 示例值 |
+|---|---|---|
+| `Run.status` | 粗粒度生命周期状态，持久化到 DB | `accepted` / `running` / `completed` / `failed` / `cancelled` |
+| `STATE_UPDATE.state.phase` | 前端可见的阶段提示，不持久化 | `planning` / `dispatching` / `agent_streaming` / `retrying` |
+| `Run.phase` | 可选细粒度当前阶段（内部字段） | `context_loaded` / `plan_ready` / `aggregating` |
+| `run_steps.step_type` | 持久化详细步骤类型 | `planning` / `dispatch` / `agent_call` / `retry` / `aggregate` |
 
-例如：
+规则：
+
+- `state.phase` 不得用于替代 Run.status 做持久化判断。
+- 需要展示运行细节时使用 `state.phase`，不应扩展 Run.status 枚举。
+- 内部阶段（如 `context_loaded`、`plan_ready`）可出现在 Run.phase 或 run_steps.step_type 中，不得出现在 Run.status 中。
+
+### 11.2 phase 枚举
+
+v1.0 推荐 `phase`：
 
 ```text
-POST /api/agui/run/{runId}/tool-result
+accepted
+planning
+dispatching
+agent_streaming
+tool_calling
+retrying
+finished
+failed
 ```
 
-MVP v0.1 中：
+### 11.3 dispatching 示例
 
-- `code_preview` 可以不阻塞后端流程。
-- 前端可以本地渲染完成，不强制回传 ToolResult。
-- ToolResult endpoint 可以保留在 OpenAPI planned 中，不作为 MVP 必须实现。
-
-Post-MVP 中：
-
-- `confirm_action`、`form_input`、`file_upload` 等交互式 Skill 必须定义 ToolResult。
-- ToolResult schema 由 `frontend-runtime-skills-contract` 和 `agui-event-contract` 协作约束。
-
----
-
-## 18. STATE_UPDATE 边界
-
-`STATE_UPDATE` 用于展示编排阶段、当前活跃 Agent、ExecutionPlan、进度等状态。
-
-PDR 完整目标中，`STATE_UPDATE` 很重要，例如：
-
-- `phase: orchestrating`
-- `activeAgent: web-agent`
-- `activeAgent: code-agent`
-- `plan: 已拆解为 2 个子任务`
-- `summary: 已完成 2 个子任务`
-
-MVP v0.1 中：
-
-- `STATE_UPDATE` 可以暂不强制实现。
-- 如果实现，只能作为展示状态，不得替代 `TEXT_MESSAGE_*` 和 `TOOL_CALL_*` 主链路。
-- Frontend 不能依赖 `STATE_UPDATE` 才能完成文本渲染。
-
----
-
-## 19. 事件顺序规则
-
-MVP v0.1 的正常事件顺序必须符合：
-
-```text
-RUN_STARTED
-TEXT_MESSAGE_START
-TEXT_MESSAGE_CONTENT...
-TEXT_MESSAGE_END
-TOOL_CALL_START
-TOOL_CALL_ARGS...
-TOOL_CALL_END
-RUN_FINISHED
+```json
+{
+  "type": "STATE_UPDATE",
+  "runId": "run-001",
+  "state": {
+    "phase": "dispatching",
+    "strategy": "ordered_parallel",
+    "assignedAgents": ["agent-a", "agent-b"],
+    "activeAgent": "agent-a",
+    "message": "已分派给 2 个 Agent"
+  }
+}
 ```
 
-如果没有 Artifact，可以没有 Tool Call：
+### 11.4 retrying 示例
 
-```text
-RUN_STARTED
-TEXT_MESSAGE_START
-TEXT_MESSAGE_CONTENT...
-TEXT_MESSAGE_END
-RUN_FINISHED
-```
-
-如果运行失败：
-
-```text
-RUN_STARTED
-TEXT_MESSAGE_START?
-TEXT_MESSAGE_CONTENT?...
-RUN_ERROR
+```json
+{
+  "type": "STATE_UPDATE",
+  "runId": "run-001",
+  "state": {
+    "phase": "retrying",
+    "failedAgent": "agent-a",
+    "fallbackAgent": "agent-b",
+    "message": "Agent 执行失败，正在切换备用 Agent"
+  }
+}
 ```
 
 规则：
 
-- `TEXT_MESSAGE_CONTENT` 不得早于 `TEXT_MESSAGE_START`。
-- `TEXT_MESSAGE_END` 不得早于所有该消息的 `TEXT_MESSAGE_CONTENT`。
-- `TOOL_CALL_ARGS` 不得早于对应 `TOOL_CALL_START`。
-- `TOOL_CALL_END` 不得早于对应 `TOOL_CALL_ARGS` 完成。
-- `RUN_FINISHED` 不得早于所有消息和 Tool Call 结束。
+- `assignedAgents`、`activeAgent`、`failedAgent`、`fallbackAgent` 是普通字符串，不限定具体 Agent 名称。
+- 前端不得依赖某些硬编码 Agent 名称才能渲染。
+- `message` 必须适合展示给用户。
+- 内部错误详情不得放入 `state.message`。
+
+---
+
+## 12. Multi-Agent / Group Conversation 事件规则
+
+v1.0 支持一个 Run 中出现多个 Agent 消息。
+
+规则：
+
+1. 一个 Run 可以产生多条 assistant message。
+2. 每条 assistant message 必须有独立 `messageId`。
+3. 每条 assistant message 可以有独立 `sender`。
+4. `sender.type` 推荐为 `agent`。
+5. `sender.name` 是 Agent 名称，但协议不固定任何具体名称。
+6. Tool Call 必须通过 `messageId` 归属到某条 message。
+7. `STATE_UPDATE.activeAgent` 可以提示下一条消息来自哪个 Agent。
+8. `STATE_UPDATE` 不能替代 `TEXT_MESSAGE_START.sender`。
+9. 前端应以 `messageId` 为聚合主键，而不是以 Agent 名称为主键。
+
+多 Agent 正常顺序示例：
+
+```text
+RUN_STARTED
+STATE_UPDATE(planning)
+STATE_UPDATE(dispatching, strategy=ordered_parallel, assignedAgents=[...])
+
+TEXT_MESSAGE_START(messageId=msg-a, sender=agent-a)
+TEXT_MESSAGE_CONTENT(messageId=msg-a, delta=...)
+TEXT_MESSAGE_END(messageId=msg-a)
+TOOL_CALL_START(messageId=msg-a, toolCallId=tc-a)
+TOOL_CALL_ARGS(toolCallId=tc-a, delta=...)
+TOOL_CALL_END(toolCallId=tc-a)
+
+STATE_UPDATE(activeAgent=agent-b)
+
+TEXT_MESSAGE_START(messageId=msg-b, sender=agent-b)
+TEXT_MESSAGE_CONTENT(messageId=msg-b, delta=...)
+TEXT_MESSAGE_END(messageId=msg-b)
+
+RUN_FINISHED
+```
+
+---
+
+## 13. ordered_parallel 事件规则
+
+v1.0 正式枚举值为 `ordered_parallel`。
+
+含义：
+
+```text
+执行策略规范值为 ordered_parallel。
+legacy parallel / ordered-parallel 仅作为兼容输入别名；
+进入 Gateway、数据库、AG-UI state、Run DTO 前必须归一化为 ordered_parallel。
+UI 可以展示多个 Agent 参与，但展示文案"并行"不等于协议字段 parallel。
+Gateway 输出事件时仍按 message 粒度顺序发送。
+不要求多个 Agent 的 token 交错输出。
+```
+
+硬性规则：
+
+- 不同 message 的 `TEXT_MESSAGE_CONTENT` 可以不交错。
+- 如果实现交错输出，必须保证每个 content 都带正确 `messageId`。
+- v1.0 推荐先使用顺序输出，降低前端聚合复杂度。
+- `strategy = ordered_parallel` 不等于 SSE token 必须并发交错。
+
+---
+
+## 14. Error 事件规则
+
+错误对象必须稳定。
+
+推荐结构：
+
+```json
+{
+  "code": "AGUI_AGENT_FAILED",
+  "message": "Agent 执行失败，请稍后重试",
+  "retryable": true,
+  "details": {
+    "phase": "agent_streaming"
+  }
+}
+```
+
+推荐错误码：
+
+```text
+AGUI_BAD_REQUEST
+AGUI_UNAUTHORIZED
+AGUI_STREAM_INTERRUPTED
+AGUI_PLANNING_FAILED
+AGUI_AGENT_UNAVAILABLE
+AGUI_AGENT_FAILED
+AGUI_TOOL_ARGS_INVALID
+AGUI_TOOL_UNSUPPORTED
+AGUI_INTERNAL
+```
+
+脱敏规则：
+
+`RUN_ERROR.error.message` 和 `RUN_ERROR.error.details` 不得包含：
+
+```text
+API key
+Authorization token
+数据库连接串
+内部堆栈
+完整 system prompt
+LLM provider 原始敏感错误
+内网服务拓扑
+用户不可理解的 panic 信息
+```
+
+降级规则：
+
+- 如果可以 fallback，应优先发送 `STATE_UPDATE(phase=retrying)`。
+- 只有不可恢复时才发送 `RUN_ERROR`。
+- `RUN_ERROR` 代表本 Run 失败。
 - `RUN_ERROR` 后不应继续发送普通业务事件。
 
 ---
 
-## 20. Frontend 事件处理要求
+## 15. Frontend 聚合规则
 
-Frontend AG-UI Client 必须遵守：
+Frontend AG-UI Client 必须：
 
-- 支持 SSE streaming。
-- 支持跨 chunk 的 JSON 行解析。
-- 支持按 `messageId` 聚合文本消息。
-- 支持按 `toolCallId` 聚合 Tool Call 参数。
-- streaming 阶段优先按纯文本渲染，结束后再 Markdown 解析。
-- `TOOL_CALL_END` 后再执行对应 Frontend Skill。
-- 未知事件类型不能导致前端崩溃，应记录 warning。
-- 未知 toolName 不能导致前端崩溃，应显示 fallback 或忽略。
-- `RUN_ERROR` 必须停止 loading。
-- `RUN_FINISHED` 必须清理当前 Run 状态。
-
----
-
-## 21. Gateway / Orchestrator 事件输出要求
-
-Gateway / Orchestrator 必须遵守：
-
-- Gateway 负责 SSE HTTP response。
-- Orchestrator 或 Converter 负责生成 AG-UI event。
-- Gateway Handler 不应直接硬编码复杂 A2A → AG-UI 映射。
-- Converter 应集中处理 A2A event 到 AG-UI event 的转换。
-- 每个 SSE event 写出后必须 flush。
-- 事件输出必须可观测，至少包含 runId / traceId 日志。
-- 错误时发送 `RUN_ERROR`，不要让 SSE 静默断开。
-- 发送给前端的 event 不得包含敏感配置、LLM API Key、数据库连接信息。
+1. 按 SSE event block 解析事件。
+2. 对 malformed JSON 安全跳过或记录 warning。
+3. 按 `runId` 管理运行状态。
+4. 按 `messageId` 聚合文本消息。
+5. 按 `toolCallId` 聚合 Tool Call 参数。
+6. 对 `TEXT_MESSAGE_CONTENT` 使用 `event.delta ?? event.content`。
+7. 对 `TOOL_CALL_ARGS` 使用 `event.delta ?? event.content`。
+8. 在 `TOOL_CALL_END` 后解析累计 args。
+9. 未知事件类型不得导致崩溃。
+10. 未知 `toolName` 不得导致崩溃。
+11. 收到 `RUN_FINISHED` 后停止 loading。
+12. 收到 `RUN_ERROR` 后停止 loading，并标记失败。
+13. 支持 per-conversation streaming 状态。
+14. 支持多 Agent 消息独立渲染。
+15. 支持 `STATE_UPDATE` 作为非消息状态显示。
 
 ---
 
-## 22. 安全规则
+## 16. Gateway 输出规则
+
+### 16.1 事件来源与映射
+
+AG-UI Event 来源于 `OrchestratorStreamEvent`，由 Gateway / ProtocolConverter 负责映射。
+
+| OrchestratorStreamEvent（内部，snake_case） | AG-UI Event（SSE 前端，UPPER_SNAKE_CASE） |
+|---|---|
+| `run_started` | `RUN_STARTED` |
+| `state_update` | `STATE_UPDATE` |
+| `message_start` | `TEXT_MESSAGE_START` |
+| `message_delta` | `TEXT_MESSAGE_CONTENT` |
+| `message_end` | `TEXT_MESSAGE_END` |
+| `tool_call_start` | `TOOL_CALL_START` |
+| `tool_call_args` | `TOOL_CALL_ARGS` |
+| `tool_call_end` | `TOOL_CALL_END` |
+| `run_finished` | `RUN_FINISHED` |
+| `run_error` | `RUN_ERROR` |
+
+### 16.2 映射责任
+
+- **Orchestrator** 只输出 `OrchestratorStreamEvent`（snake_case），不得直接输出 AG-UI Event 名称（UPPER_SNAKE_CASE），不得直接写 SSE。
+- **Gateway / ProtocolConverter** 负责将 `OrchestratorStreamEvent` 映射为 AG-UI Event，输出到 SSE。
+- **Frontend** 只消费 AG-UI Event，不得直接接收 `OrchestratorStreamEvent` 或 Child Agent A2A event。
+- Child Agent 原始 A2A event 必须由 Orchestrator 接收后转换为 `OrchestratorStreamEvent`，再由 Gateway 映射为 AG-UI Event。不得绕过此链路直接透传。
+
+### 16.3 输出规则
+
+Gateway 必须：
+
+1. 使用 SSE 输出实时事件。
+2. 每个 AG-UI event 输出一个 SSE block。
+3. 每个 SSE block 输出合法 JSON。
+4. 每次写出后 flush。
+5. 保证事件字段符合 `docs/contracts/agui-events.schema.json`。
+6. 保证每个 Run 有明确结束：`RUN_FINISHED` 或 `RUN_ERROR`。
+7. 不在错误中泄漏敏感信息。
+8. 不把大型产物塞进 `TEXT_MESSAGE_CONTENT`。
+9. 不输出前端无法区分归属的多 Agent 消息。
+10. 多 Agent 消息必须带独立 `messageId`。
+11. 需要展示过程状态时，使用 `STATE_UPDATE`。
+12. 不依赖具体 Agent 名称生成事件结构。
+
+---
+
+## 17. 事件顺序规则
+
+### 17.1 无 Tool Call 的正常流程
+
+```text
+RUN_STARTED
+STATE_UPDATE*
+TEXT_MESSAGE_START
+TEXT_MESSAGE_CONTENT*
+TEXT_MESSAGE_END
+STATE_UPDATE*
+RUN_FINISHED
+```
+
+### 17.2 有 Tool Call 的正常流程
+
+```text
+RUN_STARTED
+STATE_UPDATE*
+TEXT_MESSAGE_START
+TEXT_MESSAGE_CONTENT*
+TEXT_MESSAGE_END
+TOOL_CALL_START
+TOOL_CALL_ARGS*
+TOOL_CALL_END
+RUN_FINISHED
+```
+
+### 17.3 多消息流程
+
+```text
+RUN_STARTED
+STATE_UPDATE*
+
+TEXT_MESSAGE_START(msg-1)
+TEXT_MESSAGE_CONTENT*(msg-1)
+TEXT_MESSAGE_END(msg-1)
+TOOL_CALL_*(msg-1)?
+
+STATE_UPDATE*
+
+TEXT_MESSAGE_START(msg-2)
+TEXT_MESSAGE_CONTENT*(msg-2)
+TEXT_MESSAGE_END(msg-2)
+TOOL_CALL_*(msg-2)?
+
+RUN_FINISHED
+```
+
+### 17.4 失败流程
+
+```text
+RUN_STARTED
+STATE_UPDATE*
+TEXT_MESSAGE_START?
+TEXT_MESSAGE_CONTENT*
+STATE_UPDATE(phase=retrying)?
+RUN_ERROR
+```
+
+硬性规则：
+
+- `TEXT_MESSAGE_CONTENT` 不得早于对应 `TEXT_MESSAGE_START`。
+- `TEXT_MESSAGE_END` 不得早于对应所有 `TEXT_MESSAGE_CONTENT`。
+- `TOOL_CALL_ARGS` 不得早于对应 `TOOL_CALL_START`。
+- `TOOL_CALL_END` 不得早于对应 `TOOL_CALL_ARGS` 完成。
+- `RUN_FINISHED` 不得早于所有消息和 Tool Call 结束。
+- `RUN_ERROR` 后不应继续发送普通业务事件。
+- `STATE_UPDATE` 可以穿插，但不得破坏主事件顺序。
+
+---
+
+## 18. 兼容规则
+
+为了从 MVP 平滑升级到 v1.0：
+
+```text
+TEXT_MESSAGE_CONTENT.content 兼容读取，但新实现优先 delta。
+TOOL_CALL_ARGS.content 兼容读取，但新实现优先 delta。
+STATE_UPDATE.content 兼容读取，但新实现优先 state object。
+单 Agent 单消息流程必须继续可用。
+code_preview Tool Call 必须继续可用。
+```
+
+前端兼容建议：
+
+```ts
+const textDelta = event.delta ?? event.content ?? ''
+const argsDelta = event.delta ?? event.content ?? ''
+const state = event.state ?? safeParseJSON(event.content)
+```
+
+---
+
+## 19. 安全规则
 
 AG-UI event 必须遵守：
 
@@ -734,236 +958,159 @@ AG-UI event 必须遵守：
 - 不在 event 中输出 Authorization token。
 - 不在 event 中输出数据库连接字符串。
 - 不在 event 中输出完整内部堆栈。
-- Tool Call 参数必须防止 XSS。
-- `web_preview` 等 Post-MVP HTML 类 Skill 必须经过安全沙箱策略。
+- 不在 event 中输出完整 system prompt。
+- 不在 event 中输出 provider 原始敏感错误。
+- Tool Call 参数必须是可解析 JSON。
+- HTML 类 Tool Call 的渲染必须由前端沙箱保护。
+- 未知事件和未知工具必须安全降级。
+- `TEXT_MESSAGE_CONTENT` 默认只渲染为文本或 Markdown，不执行代码。
 - `code_preview` 默认只展示代码，不执行代码。
-- `TOOL_CALL_ARGS` 中的 fileUrl 必须做权限控制。
-- Frontend 对未知事件和未知工具必须安全降级。
 
 ---
 
-## 23. 与其他 Skills 的协作
+## 20. Contract Test 规则
 
-### 23.1 与 `project-architecture`
+至少应测试：
 
-`project-architecture` 定义服务边界。  
-本 Skill 在该边界内定义 Frontend ↔ Gateway 的实时事件。
+### 20.1 SSE 解析
 
-即使 MVP 中 Orchestrator 嵌入 Gateway 进程，也不得把 AG-UI 事件逻辑散落在 handler 中。
+- 能按 `\n\n` 拆分 event block。
+- 能处理一个 chunk 内多个 event。
+- 能处理一个 event 被拆成多个 chunk。
+- 能保留 incomplete buffer。
+- 能跳过 malformed JSON。
 
----
+### 20.2 Run 生命周期
 
-### 23.2 与 `platform-api-contract`
+- 正常流程有 `RUN_STARTED` 和 `RUN_FINISHED`。
+- 错误流程有 `RUN_ERROR`。
+- `RUN_ERROR` 后 loading 停止。
+- `RUN_FINISHED` 后 loading 停止。
 
-`platform-api-contract` 只登记 `POST /api/agui/run` 的 HTTP 形态。  
-本 Skill 定义该 endpoint 建立 SSE 后输出哪些事件、事件字段是什么、事件顺序是什么。
+### 20.3 Text Message
 
-不得在 REST response schema 中展开 AG-UI event stream。
+- `TEXT_MESSAGE_START / CONTENT / END` 成对。
+- `messageId` 一致。
+- 多 Agent 消息 `messageId` 独立。
+- `sender.name` 可展示但不写死。
 
----
+### 20.4 Tool Call
 
-### 23.3 与 `gateway-orchestrator-contract`
+- `TOOL_CALL_START / ARGS / END` 成对。
+- `toolCallId` 一致。
+- args 可以分片聚合。
+- args 结束后可解析 JSON。
+- 未知 `toolName` 不崩溃。
 
-Gateway ↔ Orchestrator 的内部调用结构由 `gateway-orchestrator-contract` 定义。
+### 20.5 State
 
-本 Skill 可以规定 Orchestrator 最终输出 AG-UI event，但不定义内部 Process 函数签名或内部 HTTP contract。
+- `STATE_UPDATE` 支持 `state` object。
+- 兼容 `content` JSON 字符串。
+- `phase` 合法。
+- `retrying` 可展示。
+- `activeAgent` 不要求固定名称。
 
----
+### 20.6 安全
 
-### 23.4 与 `a2a-agent-contract`
-
-A2A event 原始格式由 `a2a-agent-contract` 定义。
-
-本 Skill 只规定 A2A event 如何转换为 AG-UI event。
-
----
-
-### 23.5 与 `frontend-runtime-skills-contract`
-
-Frontend Runtime Skills 的注册表、参数 schema、组件映射和执行结果由 `frontend-runtime-skills-contract` 定义。
-
-本 Skill 只规定 Tool Call 事件如何传输和触发这些 Skill。
-
----
-
-### 23.6 与 `artifact-contract`
-
-Artifact 的完整结构、持久化、预览、下载由 `artifact-contract` 定义。
-
-本 Skill 只规定 Artifact 如何通过 AG-UI Tool Call 到达前端。
-
----
-
-## 24. 必须维护的文件
-
-使用本 Skill 时，必须维护：
-
-```text
-docs/contracts/agui-events.md
-docs/contracts/agui-events.schema.json
-```
-
-根据需要维护：
-
-```text
-docs/contracts/agui-event-review-checklist.md
-frontend/src/agui/client.ts
-frontend/src/agui/events.ts
-frontend/src/agui/skills.ts
-frontend/src/stores/messageStore.ts
-server/internal/handler/agui.go
-server/internal/orchestrator/converter.go
-server/internal/orchestrator/orchestrator.go
-```
-
-MVP v0.1 阶段，重点落地：
-
-```text
-frontend/src/agui/client.ts
-frontend/src/agui/events.ts
-frontend/src/agui/skills.ts
-server/internal/handler/agui.go
-server/internal/orchestrator/converter.go
-```
+- 错误脱敏。
+- Tool args malformed 不崩溃。
+- 未知事件不崩溃。
+- HTML 参数不直接注入父页面 DOM。
 
 ---
 
-## 25. 硬性规则
+## 21. Review Checklist
+
+接受任何 AG-UI 事件变更前，必须检查：
+
+- 是否更新 `docs/contracts/agui-events.md`？
+- 是否更新 `docs/contracts/agui-events.schema.json`？
+- 是否更新 `docs/contracts/agui-event-review-checklist.md`？
+- 是否保持 `SKILL.md` 独立可读？
+- 是否没有把其他内部协议细节写进本 Skill？
+- 是否定义了事件字段？
+- 是否定义了事件顺序？
+- 是否定义了错误脱敏？
+- 是否定义了前端聚合规则？
+- 是否兼容 MVP 历史事件字段？
+- 是否支持 `STATE_UPDATE`？
+- 是否支持多 Agent 消息归属？
+- 是否没有写死具体 Agent 名称？
+- 是否没有把大型产物塞进 `TEXT_MESSAGE_CONTENT`？
+- 是否没有要求真正并发交错 token？
+- 是否有 SSE 粘包 / 拆包测试？
+- AG-UI Event 是否来源于 OrchestratorStreamEvent 经 Gateway / ProtocolConverter 映射？
+- SSE 中是否只出现 AG-UI Event 名称（UPPER_SNAKE_CASE），未出现 OrchestratorStreamEvent 名称（snake_case）？
+- Child Agent A2A event 是否未直接透传给 Frontend？
+- Gateway 是否未绕过 ProtocolConverter 直接透传内部事件？
+
+---
+
+## 22. 硬性规则
 
 Coding Agent 在处理 AG-UI 事件时必须遵守：
 
 1. AG-UI event schema 必须由 `docs/contracts/agui-events.md` 和 `docs/contracts/agui-events.schema.json` 固定。
-2. `POST /api/agui/run` 的 REST HTTP 形态由 OpenAPI 登记，但 SSE 事件语义由本 Skill 定义。
-3. MVP v0.1 必须实现 `RUN_STARTED / TEXT_MESSAGE_START / TEXT_MESSAGE_CONTENT / TEXT_MESSAGE_END / TOOL_CALL_START / TOOL_CALL_ARGS / TOOL_CALL_END / RUN_FINISHED / RUN_ERROR`。
-4. `TEXT_MESSAGE_CONTENT` 只能传文本片段，不能塞大产物。
-5. Artifact 必须通过 Tool Call 触发 Frontend Skill。
-6. `code` Artifact 必须映射为 `code_preview`。
-7. `TOOL_CALL_ARGS.content` 必须最终拼接为合法 JSON。
-8. `TOOL_CALL_END` 后前端才能执行 Skill。
-9. `RUN_FINISHED` 必须在所有文本和 Tool Call 事件之后发送。
-10. `RUN_ERROR` 后不得继续发送普通业务事件。
-11. Gateway Handler 不得直接堆叠复杂协议转换逻辑。
-12. A2A → AG-UI 转换必须集中在 Orchestrator / ProtocolConverter。
-13. 前端必须能处理 SSE 粘包 / 拆包。
-14. 前端必须能处理未知事件和未知 toolName。
-15. 事件字段统一使用 camelCase。
-16. 事件类型统一使用大写下划线格式。
-17. 不得把 A2A Task schema 当成 AG-UI event schema。
-18. 不得把 REST API response schema 当成 AG-UI event schema。
-19. 不得在 AG-UI event 中泄漏 token、API Key、数据库连接串、内部堆栈。
-20. 必须遵守 `Contract first / Mock first / Real integration later / Review always`。
+2. 本 Skill 只定义 Frontend ↔ Gateway 的 SSE 实时事件流。
+3. 本 Skill 不得依赖其他 Skill 才能读懂。
+4. v1.0 必须支持 `STATE_UPDATE`。
+5. v1.0 必须支持多 Agent 消息归属。
+6. v1.0 必须支持一个 Run 多条 assistant message。
+7. v1.0 必须支持 `code_preview`、`web_preview`、`markdown_render` 等 Tool Call 名称的传输。
+8. 本 Skill 不定义具体工具参数 Schema，只定义 Tool Call 传输机制。
+9. `TEXT_MESSAGE_CONTENT` 新实现优先使用 `delta`。
+10. `TOOL_CALL_ARGS` 新实现优先使用 `delta`。
+11. `STATE_UPDATE` 新实现优先使用 `state` object。
+12. 前端必须兼容旧字段 `content`。
+13. SSE 必须按 event block 解析，不得按单行 JSON 解析。
+14. `RUN_ERROR` 必须脱敏。
+15. 未知事件不得导致前端崩溃。
+16. 未知工具不得导致前端崩溃。
+17. 多 Agent 场景不得复用 `messageId`。
+18. Tool Call 必须通过 `messageId` 归属到消息。
+19. `RUN_FINISHED` 或 `RUN_ERROR` 必须结束当前 Run。
+20. 不得硬编码具体 Agent 名称作为事件协议规则。
+21. 不得将 Child Agent A2A event 直接透传给 Frontend。A2A event 必须先经 Orchestrator 转为 `OrchestratorStreamEvent`，再由 Gateway 映射为 AG-UI Event。
+22. 不得将 `OrchestratorStreamEvent` 事件名（如 `message_delta`）直接作为 AG-UI Event 名称（如应使用 `TEXT_MESSAGE_CONTENT`）输出到 SSE。
 
 ---
 
-## 26. 输出要求
+## 23. 完成定义
 
-当用户要求生成或修改 AG-UI 相关内容时，Coding Agent 必须输出：
+本 Skill 视为完成，当且仅当：
 
-1. 该事件属于 MVP 必须事件还是 Post-MVP 规划事件。
-2. 事件名称。
-3. 事件触发时机。
-4. 事件字段 schema。
-5. 事件顺序约束。
-6. Frontend 如何处理。
-7. Gateway / Orchestrator 如何产生。
-8. 是否涉及 A2A → AG-UI 转换。
-9. 是否涉及 Artifact → Tool Call。
-10. 是否影响 Frontend Runtime Skills。
-11. 是否需要更新 `docs/contracts/agui-events.md`。
-12. 是否需要更新 `docs/contracts/agui-events.schema.json`。
-13. 是否和 REST / A2A / Artifact / Frontend Runtime Skills 边界冲突。
+```text
+.claude/skills/agui-event-contract/SKILL.md
+docs/contracts/agui-events.md
+docs/contracts/agui-events.schema.json
+docs/contracts/agui-event-review-checklist.md
+```
 
-除非用户明确要求，否则不要直接生成业务实现代码。
+已经明确：
+
+- Skill 独立可读。
+- Frontend ↔ Gateway SSE 边界清晰。
+- v1.0 事件集完整。
+- `STATE_UPDATE` 是当前必需事件。
+- 多 Agent / 群聊消息归属规则明确。
+- `ordered_parallel` 事件顺序明确。
+- Tool Call 传输规则明确。
+- `delta` 与 `content` 兼容规则明确。
+- SSE wire format 明确。
+- 前端聚合规则明确。
+- 错误脱敏规则明确。
+- Review Checklist 明确。
 
 ---
-
-## 27. Review Checklist
-
-在接受任何 AG-UI 事件设计或实现前，必须检查：
-
-### Contract 检查
-
-- 是否更新了 `docs/contracts/agui-events.md`？
-- 是否更新了 `docs/contracts/agui-events.schema.json`？
-- 是否明确事件属于 MVP required 还是 Post-MVP planned？
-- 是否有事件字段 schema？
-- 是否有事件顺序说明？
-- 是否有错误处理说明？
-
-### 事件顺序检查
-
-- 是否先 `RUN_STARTED`？
-- 是否先 `TEXT_MESSAGE_START` 再 `TEXT_MESSAGE_CONTENT`？
-- 是否 `TEXT_MESSAGE_END` 后再 Tool Call？
-- 是否 `TOOL_CALL_START → TOOL_CALL_ARGS → TOOL_CALL_END` 顺序正确？
-- 是否最后 `RUN_FINISHED`？
-- 失败时是否 `RUN_ERROR`？
-
-### MVP 检查
-
-- 是否优先支持 `code-agent + code_preview`？
-- 是否没有强制实现 Post-MVP 事件？
-- 是否没有提前要求 `web_preview`、`form_input`、`confirm_action`？
-- 是否没有把群聊状态事件作为 MVP 必需项？
-
-### Frontend 检查
-
-- 是否支持 SSE 粘包 / 拆包？
-- 是否按 `messageId` 聚合文本？
-- 是否按 `toolCallId` 聚合 Tool Call args？
-- 是否 `TOOL_CALL_END` 后才执行 Skill？
-- 未知事件是否不会导致崩溃？
-- 未知 toolName 是否不会导致崩溃？
-
-### Gateway / Orchestrator 检查
-
-- Gateway 是否只负责 SSE 输出？
-- ProtocolConverter 是否负责 A2A → AG-UI 转换？
-- Artifact 是否先缓存再 Tool Call？
-- 是否没有把大产物塞入 `TEXT_MESSAGE_CONTENT`？
-- 是否有 runId / traceId 日志？
-
-### 边界检查
-
-- 是否没有把 REST response schema 写进 AG-UI event？
-- 是否没有把 A2A endpoint 暴露给 Frontend？
-- 是否没有把 Artifact 完整 schema 重复定义在本 Contract？
-- 是否没有把 Frontend Skill 参数完整定义抢先写死？
-
-### 安全检查
-
-- 是否没有输出 token / API Key？
-- 是否没有输出数据库连接串？
-- 是否没有输出内部堆栈？
-- Tool Call 参数是否有 XSS 风险说明？
-- `code_preview` 是否只展示代码、不执行代码？
-
-
-## 28. v1.1 对齐补充
-
-### 28.1 v1.1 通用映射与 MVP 映射兼容
-
-- v1.1 通用运行级映射中，`A2A Task.status.started` 可以映射为 `RUN_STARTED`。
-- MVP v0.1 消息级流式链路中，`A2A status:working` 可以映射为 `TEXT_MESSAGE_START`。
-- 二者属于不同粒度，可以共存，不能互相替代。
-
-### 28.2 RUN_ERROR 脱敏规则
-
-`RUN_ERROR` 不得泄漏 stack trace、token、API key、内部服务地址、数据库连接串、完整 system prompt；详细错误只允许进入脱敏日志。
-
-### 28.3 Artifact / Tool Call 边界
-
-- 大 Artifact 不得塞进 `TEXT_MESSAGE_CONTENT`。
-- Artifact 结构由后续 `artifact-contract` 细化。
-- Tool Call 参数与 ToolResult 由后续 `frontend-runtime-skills-contract` 细化。
-
-
 
 ## References
 
-- `references/sse-streaming-policy.md`
+- `references/sse-wire-format.md`
 - `references/event-lifecycle.md`
 - `references/text-message-events.md`
 - `references/tool-call-events.md`
-- `references/error-redaction.md`
+- `references/state-update-events.md`
+- `references/multi-agent-events.md`
+- `references/error-events.md`
+- `references/frontend-aggregation.md`
 - `references/agui-review-checklist.md`
