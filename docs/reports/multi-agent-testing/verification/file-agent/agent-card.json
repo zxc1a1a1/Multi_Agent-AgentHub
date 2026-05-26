@@ -1,0 +1,38 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text",
+    "file_ref",
+    "extracted_text"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "file_summary"
+  ],
+  "description": "用于分析调用方提供的文件文本、Markdown、JSON 或代码片段，提取摘要、需求、关键结构和风险点；第一版只分析已提供内容，不读取本地文件。",
+  "name": "file-agent",
+  "skills": [
+    {
+      "description": "file_summary",
+      "id": "file_summary",
+      "name": "file_summary",
+      "tags": null
+    },
+    {
+      "description": "requirement_extraction",
+      "id": "requirement_extraction",
+      "name": "requirement_extraction",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8101"
+    }
+  ],
+  "version": "0.1.0"
+}

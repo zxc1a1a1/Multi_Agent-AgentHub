@@ -1,0 +1,42 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "diff"
+  ],
+  "description": "用于生成、解释和规整 unified diff 补丁内容，输出可审查的 diff 产物和风险摘要；第一版只生成或分析补丁，不实际应用 patch。",
+  "name": "diff-agent",
+  "skills": [
+    {
+      "description": "diff_generation",
+      "id": "diff_generation",
+      "name": "diff_generation",
+      "tags": null
+    },
+    {
+      "description": "diff_explanation",
+      "id": "diff_explanation",
+      "name": "diff_explanation",
+      "tags": null
+    },
+    {
+      "description": "patch_risk_summary",
+      "id": "patch_risk_summary",
+      "name": "patch_risk_summary",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8093"
+    }
+  ],
+  "version": "0.1.0"
+}

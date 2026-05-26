@@ -1,0 +1,45 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text",
+    "vision_analysis",
+    "file_summary",
+    "diff"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "security_report"
+  ],
+  "description": "用于对调用方提供的文本、diff、命令和 Agent 输出进行安全风险审查，识别密钥泄漏、危险命令和权限边界问题；第一版不读取本地文件系统。",
+  "name": "security-agent",
+  "skills": [
+    {
+      "description": "secret_scan",
+      "id": "secret_scan",
+      "name": "secret_scan",
+      "tags": null
+    },
+    {
+      "description": "command_risk_review",
+      "id": "command_risk_review",
+      "name": "command_risk_review",
+      "tags": null
+    },
+    {
+      "description": "permission_review",
+      "id": "permission_review",
+      "name": "permission_review",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8097"
+    }
+  ],
+  "version": "0.1.0"
+}

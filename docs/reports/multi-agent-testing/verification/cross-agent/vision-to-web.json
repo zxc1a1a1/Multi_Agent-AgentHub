@@ -1,0 +1,39 @@
+{
+  "chain": "vision-agent → web-agent",
+  "description": "视觉分析结果 → 网页生成",
+  "tests": [
+    {
+      "name": "TestCrossAgent_VisionToWeb_ConsumesVisionOutput",
+      "status": "PASS",
+      "input": {
+        "upstream_artifact_type": "vision_analysis",
+        "upstream_output_format": "json:vision-analysis.json fenced block",
+        "upstream_content_keys": ["summary", "imageType", "uiElements", "layout", "suggestedNextAgents"]
+      },
+      "assertions": [
+        "web-agent extractTextFromParts 可提取 vision-agent 输出中的文本",
+        "提取文本包含 'login page' (vision 摘要关键词)",
+        "extractWebpageArtifacts 在混合上下文中正确识别 html:index.html 块",
+        "artifact type == 'webpage'",
+        "artifact title == 'index.html'"
+      ]
+    },
+    {
+      "name": "TestCrossAgent_VisionToWeb_ArtifactMetadataPassThrough",
+      "status": "PASS",
+      "input": {
+        "upstream_artifact": {
+          "type": "vision_analysis",
+          "title": "vision-analysis.json",
+          "content": {"summary": "A dashboard with charts and navigation sidebar"},
+          "metadata": {"format": "json", "language": "json", "createdBy": "vision-agent", "version": "v0.1"}
+        }
+      },
+      "assertions": [
+        "vision_analysis artifact.content 非空，可作为下游消费",
+        "extractWebpageArtifacts 从含上游 context 的输入中正确产出 webpage artifact"
+      ]
+    }
+  ],
+  "verified_at": "2026-05-26"
+}

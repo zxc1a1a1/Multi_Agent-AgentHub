@@ -1,0 +1,49 @@
+{
+  "chain": "file-agent → document-agent",
+  "description": "文件分析摘要 → 文档生成",
+  "tests": [
+    {
+      "name": "TestCrossAgent_FileToDocument_ConsumesFileSummary",
+      "status": "PASS",
+      "input": {
+        "upstream_artifact_type": "file_summary",
+        "upstream_output_format": "json:file-summary.json fenced block",
+        "sample_file_analysis": {
+          "fileName": "architecture.md",
+          "fileType": "markdown",
+          "summary": "A document describing the microservice architecture with 3 services",
+          "lineCount": 120,
+          "topics": ["microservices", "API design", "deployment"]
+        }
+      },
+      "assertions": [
+        "document-agent extractTextFromParts 可提取 file-agent 输出中的文本",
+        "提取文本包含 'architecture' (file summary 关键词)",
+        "extractDocumentArtifacts 正确忽略 json:file-summary.json 块（仅匹配 markdown/md）",
+        "在混合上下文中正确识别 markdown:architecture-doc.md 块",
+        "artifact type == 'document'",
+        "artifact title == 'architecture-doc.md'",
+        "artifact metadata format == 'markdown'"
+      ],
+      "note": "extractDocumentArtifacts 仅匹配 markdown/md fence，json fence 被自动忽略，无需特殊处理"
+    },
+    {
+      "name": "TestCrossAgent_FileToDocument_PreservesContext",
+      "status": "PASS",
+      "input": {
+        "upstream_artifact": {
+          "type": "file_summary",
+          "title": "file-summary.json",
+          "content": {"fileName": "readme.md", "summary": "Project overview and setup instructions"},
+          "metadata": {"format": "json", "language": "json"}
+        }
+      },
+      "assertions": [
+        "file_summary artifact.content 非空，可作为 document-agent 输入上下文",
+        "extractDocumentArtifacts 从上文中生成 markdown:summary.md document artifact",
+        "artifact type == 'document'"
+      ]
+    }
+  ],
+  "verified_at": "2026-05-26"
+}

@@ -1,0 +1,56 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text",
+    "image_ref",
+    "extracted_text"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "vision_analysis"
+  ],
+  "description": "用于将调用方提供的图片引用、截图说明、图片元数据和可选 OCR 文本整理为结构化 vision_analysis 产物，作为网页生成、代码生成、测试分析、安全审查和 PPT 草稿生成等下游 Agent 的视觉上下文入口；v0.1 不直接读取图片、不访问 contentRef、不执行 OCR。",
+  "name": "vision-agent",
+  "skills": [
+    {
+      "description": "image_ref_analysis",
+      "id": "image_ref_analysis",
+      "name": "image_ref_analysis",
+      "tags": null
+    },
+    {
+      "description": "screenshot_understanding",
+      "id": "screenshot_understanding",
+      "name": "screenshot_understanding",
+      "tags": null
+    },
+    {
+      "description": "ui_image_analysis",
+      "id": "ui_image_analysis",
+      "name": "ui_image_analysis",
+      "tags": null
+    },
+    {
+      "description": "error_screenshot_analysis",
+      "id": "error_screenshot_analysis",
+      "name": "error_screenshot_analysis",
+      "tags": null
+    },
+    {
+      "description": "visual_context_summary",
+      "id": "visual_context_summary",
+      "name": "visual_context_summary",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8092"
+    }
+  ],
+  "version": "0.1.0"
+}

@@ -55,7 +55,9 @@ func buildAgentSkills(skills []string) []a2a.AgentSkill {
 	return mapped
 }
 
-func buildAgentCard(config *AgentConfig) *a2a.AgentCard {
+// BuildAgentCard creates an A2A AgentCard from config.
+// Per a2a-agent-contract: AgentCard must not expose secrets.
+func BuildAgentCard(config *AgentConfig) *a2a.AgentCard {
 	card := &a2a.AgentCard{
 		Name:               config.Name,
 		Description:        config.Description,
@@ -88,7 +90,7 @@ func NewA2AServer(config *AgentConfig, handler TaskHandler) *A2AServer {
 
 	// Build AgentCard per a2a-agent-contract
 	// Per adk-runtime-contract section 13: AgentCard must not expose secrets
-	card := buildAgentCard(config)
+	card := BuildAgentCard(config)
 
 	mux := http.NewServeMux()
 
@@ -120,4 +122,10 @@ func NewA2AServer(config *AgentConfig, handler TaskHandler) *A2AServer {
 func (s *A2AServer) Run(addr string) error {
 	log.Printf("A2A server [%s] starting on %s", s.config.Name, addr)
 	return http.ListenAndServe(addr, s.mux)
+}
+
+// Handler returns the http.Handler for testing.
+// Use with httptest.NewServer to test endpoints without binding a real port.
+func (s *A2AServer) Handler() http.Handler {
+	return s.mux
 }

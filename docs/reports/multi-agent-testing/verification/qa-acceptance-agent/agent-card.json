@@ -1,0 +1,36 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "acceptance_report"
+  ],
+  "description": "用于根据原始需求、产物、测试结果和审查结论判断任务是否满足验收标准，输出通过项、失败项、风险项和需人工确认项。",
+  "name": "qa-acceptance-agent",
+  "skills": [
+    {
+      "description": "acceptance_check",
+      "id": "acceptance_check",
+      "name": "acceptance_check",
+      "tags": null
+    },
+    {
+      "description": "demo_checklist",
+      "id": "demo_checklist",
+      "name": "demo_checklist",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8103"
+    }
+  ],
+  "version": "0.1.0"
+}

@@ -1,0 +1,43 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text",
+    "vision_analysis"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "test_report"
+  ],
+  "description": "用于分析调用方提供的测试日志、构建日志和失败信息，生成测试结论、失败原因、修复建议和后续测试计划；第一版只分析日志，不实际执行测试命令。",
+  "name": "test-agent",
+  "skills": [
+    {
+      "description": "test_log_analysis",
+      "id": "test_log_analysis",
+      "name": "test_log_analysis",
+      "tags": null
+    },
+    {
+      "description": "build_failure_analysis",
+      "id": "build_failure_analysis",
+      "name": "build_failure_analysis",
+      "tags": null
+    },
+    {
+      "description": "test_plan_generation",
+      "id": "test_plan_generation",
+      "name": "test_plan_generation",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8095"
+    }
+  ],
+  "version": "0.1.0"
+}

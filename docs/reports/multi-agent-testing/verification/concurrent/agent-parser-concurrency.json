@@ -1,0 +1,62 @@
+{
+  "test_layer": "Agent Parser Concurrency Safety",
+  "description": "Agent parser/extract 函数并发安全性验证 — 多 goroutine 同时解析不同输入",
+  "tests": [
+    {
+      "name": "TestConcurrent_ParseCodeBlocksParallel",
+      "agent": "code-agent",
+      "function": "parseCodeBlocks",
+      "status": "PASS",
+      "concurrency": "4 inputs × 10 goroutines = 40 concurrent parse calls",
+      "inputs": ["go:main.go", "python:app.py", "tsx:Form.tsx", "go:handler.go"],
+      "assertions": [
+        "每个 input 返回 1 个 code block",
+        "language 匹配预期 (go/python/tsx/go)",
+        "无跨 goroutine 数据混淆"
+      ]
+    },
+    {
+      "name": "TestConcurrent_ExtractWebpageArtifactsParallel",
+      "agent": "web-agent",
+      "function": "extractWebpageArtifacts",
+      "status": "PASS",
+      "concurrency": "4 inputs × 10 goroutines = 40 concurrent extract calls",
+      "inputs": ["html:index.html", "html:dashboard.html", "html:login.html", "html:profile.html"],
+      "assertions": [
+        "每个 input 返回 1 个 artifact",
+        "type == 'webpage'",
+        "title 匹配预期文件名"
+      ]
+    },
+    {
+      "name": "TestConcurrent_ExtractDocumentArtifactsParallel",
+      "agent": "document-agent",
+      "function": "extractDocumentArtifacts",
+      "status": "PASS",
+      "concurrency": "4 inputs × 10 goroutines = 40 concurrent extract calls",
+      "inputs": ["markdown:report.md", "md:README.md", "markdown:spec.md", "md:handoff.md"],
+      "assertions": [
+        "每个 input 返回 1 个 artifact",
+        "type == 'document'",
+        "title 匹配预期文件名"
+      ]
+    },
+    {
+      "name": "TestConcurrent_ExtractReviewArtifactsParallel",
+      "agent": "review-agent",
+      "function": "extractReviewArtifacts",
+      "status": "PASS",
+      "concurrency": "4 inputs × 10 goroutines = 40 concurrent extract calls",
+      "inputs": ["verdict:ok/score:95", "verdict:needs_work/score:45", "verdict:approved/score:88", "verdict:rejected/score:10"],
+      "assertions": [
+        "每个 input 返回 1 个 artifact",
+        "type == 'review_report'",
+        "content 包含预期 verdict"
+      ]
+    }
+  ],
+  "total_agent_tests": 4,
+  "total_concurrent_calls": 160,
+  "race_detection": "clean (go test -race: zero data races)",
+  "verified_at": "2026-05-26"
+}
