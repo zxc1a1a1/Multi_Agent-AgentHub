@@ -1,0 +1,36 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "context_bundle"
+  ],
+  "description": "用于整理多轮对话、需求说明和已有产物，生成紧凑的上下文包，帮助后续 Agent 获取必要背景并减少无关信息干扰。",
+  "name": "context-agent",
+  "skills": [
+    {
+      "description": "context_compression",
+      "id": "context_compression",
+      "name": "context_compression",
+      "tags": null
+    },
+    {
+      "description": "context_selection",
+      "id": "context_selection",
+      "name": "context_selection",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8091"
+    }
+  ],
+  "version": "0.1.0"
+}

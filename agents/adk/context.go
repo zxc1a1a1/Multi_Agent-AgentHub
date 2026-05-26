@@ -88,6 +88,12 @@ func (c *Context) Cancel() {
 // Per task-handler-contract section 2: recommended signature is HandleTask(ctx, task) error.
 type TaskHandler func(ctx *Context, messages []a2a.Message) error
 
+// NoopHandler is a TaskHandler that does nothing.
+// Useful for testing A2A server endpoints without real LLM or business logic.
+func NoopHandler(ctx *Context, messages []a2a.Message) error {
+	return nil
+}
+
 // ExecuteHandler runs a TaskHandler and converts its outputs to A2A events.
 // This bridges the ADK runtime abstraction to the a2a-go AgentExecutor interface.
 //

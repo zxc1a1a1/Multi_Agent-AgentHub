@@ -1,0 +1,44 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text",
+    "vision_analysis",
+    "file_summary"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "slide_deck"
+  ],
+  "description": "用于根据项目资料、需求说明和演示目标生成演示文稿大纲、页面结构和讲解备注；第一版只输出 slide deck 草稿，不生成真实 pptx 文件。",
+  "name": "ppt-agent",
+  "skills": [
+    {
+      "description": "slide_deck_outline",
+      "id": "slide_deck_outline",
+      "name": "slide_deck_outline",
+      "tags": null
+    },
+    {
+      "description": "presentation_script",
+      "id": "presentation_script",
+      "name": "presentation_script",
+      "tags": null
+    },
+    {
+      "description": "demo_storyboard",
+      "id": "demo_storyboard",
+      "name": "demo_storyboard",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8105"
+    }
+  ],
+  "version": "0.1.0"
+}

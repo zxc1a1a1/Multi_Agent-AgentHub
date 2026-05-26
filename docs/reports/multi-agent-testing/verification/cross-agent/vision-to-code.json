@@ -1,0 +1,36 @@
+{
+  "chain": "vision-agent → code-agent",
+  "description": "视觉分析结果 → 代码生成",
+  "tests": [
+    {
+      "name": "TestCrossAgent_VisionToCode_ConsumesVisionOutput",
+      "status": "PASS",
+      "input": {
+        "upstream_artifact_type": "vision_analysis",
+        "upstream_output_format": "json:vision-analysis.json fenced block",
+        "upstream_content_keys": ["summary", "uiElements", "layout", "suggestedNextAgents"],
+        "sample_summary": "A React component with a form containing name and email fields, plus a submit button"
+      },
+      "assertions": [
+        "code-agent extractTextFromParts 可提取 vision-agent 输出中的文本",
+        "parseCodeBlocks 在混合上下文（含 json:vision-analysis.json + tsx:Form.tsx）中正确识别 tsx 块",
+        "tsx block filename == 'Form.tsx'",
+        "tsx block 包含完整 React 组件代码 (export default Form)"
+      ],
+      "note": "parseCodeBlocks 匹配所有有效语言块（含 json），测试需搜索特定语言块而非假设唯一块"
+    },
+    {
+      "name": "TestCrossAgent_VisionToCode_MetadataChain",
+      "status": "PASS",
+      "input": {
+        "upstream_content": {"summary": "A Go HTTP server with /health and /api endpoints"}
+      },
+      "assertions": [
+        "上游 vision content 作为 code-agent 输入上下文",
+        "parseCodeBlocks 正确解析 Go 代码块",
+        "code block language == 'go'"
+      ]
+    }
+  ],
+  "verified_at": "2026-05-26"
+}

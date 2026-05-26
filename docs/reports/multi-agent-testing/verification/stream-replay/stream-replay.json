@@ -1,0 +1,174 @@
+{
+  "test_layer": "Stream Replay Tests",
+  "description": "A2A 事件流顺序稳定性、中断恢复、错误安全性及多 Agent taskID 隔离验证",
+  "tests": [
+    {
+      "name": "TestStream_EventOrderStability",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "完整事件序列: Submitted → Working → text chunks → code artifact → Completed",
+      "assertions": [
+        "event[0] 为 *a2a.Task (State=Submitted)",
+        "event[1] 为 TaskStatusUpdateEvent (State=Working)",
+        "中间事件包含 text artifact (Name=response) 和 code artifact (Name=main.go)",
+        "最后一个事件为 TaskStatusUpdateEvent (State=Completed)",
+        "Completed 不在 Working 之前出现",
+        "所有状态事件 TaskID 一致 (task-001)"
+      ]
+    },
+    {
+      "name": "TestStream_ErrorProducesFailedStatus",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "handler 返回 error 时最后事件为 Failed，错误消息不含敏感信息",
+      "assertions": [
+        "最后事件 State=Failed (非 Completed)",
+        "错误消息不含: goroutine, panic, .go:, stack trace",
+        "错误消息不含: API_KEY, token, secret, password",
+        "错误消息不含: /internal/, /admin/"
+      ]
+    },
+    {
+      "name": "TestStream_CancelSignalsContext",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "Cancel() 后 ctx.Done() channel 关闭，handler 可检测取消信号",
+      "assertions": [
+        "ctx.Cancel() 后 ctx.Done() channel 已关闭",
+        "select { case <-ctx.Done(): } 立即返回"
+      ]
+    },
+    {
+      "name": "TestStream_CancelCooperativePattern",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "协作式取消模式: handler 检查 ctx.Done() 后提前返回，阻止后续输出",
+      "assertions": [
+        "handler 在 Cancel() 后检查 Done channel 并返回",
+        "cancel 后的 StreamText('should-not-appear-after-cancel') 不出现在事件流中"
+      ]
+    },
+    {
+      "name": "TestStream_EmptyHandlerProducesMinimalSequence",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "空 handler (立即返回 nil) 生成最小有效序列",
+      "assertions": [
+        "至少 3 个事件: Submitted, Working, Completed",
+        "event[0] 为 *a2a.Task (Submitted)",
+        "event[1] 为 Working",
+        "最后事件为 Completed"
+      ]
+    },
+    {
+      "name": "TestStream_MultiAgentTaskIDIsolation",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "双 Agent 并发流 taskID 不交叉污染",
+      "concurrency": "2 agents × 1 goroutine each",
+      "assertions": [
+        "task-agent-a 所有事件 TaskID 为 task-agent-a",
+        "task-agent-b 所有事件 TaskID 为 task-agent-b",
+        "2 个唯一 taskID",
+        "每条流至少 3 个事件"
+      ]
+    },
+    {
+      "name": "TestStream_MalformedArtifactsDontCrash",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "边缘 artifact (空 title/content、nil metadata) 安全处理",
+      "assertions": [
+        "空 title + 空 content + nil metadata → 不崩溃",
+        "nil metadata → 不崩溃",
+        "正常 artifact → 正常产出",
+        "3 个 code artifact 全部生成",
+        "最终状态为 Completed"
+      ]
+    },
+    {
+      "name": "TestStream_LargeTextStreamPreservesOrder",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "20 个文本 chunk 保序验证",
+      "assertions": [
+        "20 个 chunk 全部产生",
+        "每个 chunk 内容与顺序预期一致 (A, B, C, ...)",
+        "最后事件为 Completed"
+      ]
+    },
+    {
+      "name": "TestStream_CancelDoesNotEmitCompleted",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "executor.Cancel() 返回单个 Canceled 事件，永不返回 Completed",
+      "assertions": [
+        "Cancel() 返回恰好 1 个事件",
+        "事件为 TaskStatusUpdateEvent",
+        "State=Canceled (非 Completed)"
+      ]
+    },
+    {
+      "name": "TestStream_ConcurrentEventStreamsDontCrossContaminate",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "三 Agent 并发流无文本交叉污染",
+      "concurrency": "3 agents × 1 goroutine each",
+      "assertions": [
+        "agent-x 流只含 output-x",
+        "agent-y 流只含 output-y",
+        "agent-z 流只含 output-z",
+        "无跨 Agent 文本交叉"
+      ]
+    },
+    {
+      "name": "TestStream_NoopHandlerProducesValidSequence",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "NoopHandler 生成稳定 3-event 序列",
+      "assertions": [
+        "恰好 3 个事件",
+        "Submitted → Working → Completed 顺序固定"
+      ]
+    },
+    {
+      "name": "TestStream_EventMetadataHasTaskID",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "所有事件携带正确的 TaskID 和 ContextID",
+      "assertions": [
+        "TaskStatusUpdateEvent.TaskID = task-010-meta",
+        "TaskStatusUpdateEvent.ContextID = ctx-010-meta",
+        "TaskArtifactUpdateEvent.TaskID = task-010-meta",
+        "TaskArtifactUpdateEvent.ContextID = ctx-010-meta"
+      ]
+    },
+    {
+      "name": "TestStream_InvalidContentIsSafe",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "畸形 JSON 内容和嵌套 fence 不中断流",
+      "assertions": [
+        "畸形 JSON (broken key:value) 不崩溃",
+        "嵌套 fence (```go 在 content 中) 不崩溃",
+        "流正常完成 (Completed)"
+      ]
+    },
+    {
+      "name": "TestStream_TerminalStatesAreDistinct",
+      "agent": "adk",
+      "status": "PASS",
+      "description": "终端状态互斥验证",
+      "assertions": [
+        "正常完成 → Completed",
+        "Cancel() → Canceled",
+        "Completed ≠ Canceled (枚举值不相等)",
+        "Completed ≠ Failed (枚举值不相等)"
+      ]
+    }
+  ],
+  "total_stream_replay_tests": 14,
+  "total_concurrent_stream_goroutines": 8,
+  "race_detection": "clean (go test -race: zero data races)",
+  "verified_at": "2026-05-26"
+}

@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/agents/adk"
 )
 
 func TestExtractVisionAnalysisArtifacts_JSONWithFilename(t *testing.T) {
@@ -130,4 +132,162 @@ func TestNoForbiddenCallsInHandler(t *testing.T) {
 			t.Fatalf("handler.go contains forbidden token: %q", token)
 		}
 	}
+}
+
+func TestConfigLoadable(t *testing.T) {
+	cfg, err := adk.LoadConfig("config.yaml")
+	if err != nil {
+		t.Fatalf("failed to load config.yaml: %v", err)
+	}
+	errs := adk.ValidateConfig(cfg)
+	if len(errs) != 0 {
+		for _, e := range errs {
+			t.Errorf("config validation error: %v", e)
+		}
+	}
+}
+func TestAgentCardSecure(t *testing.T) {
+	cfg, err := adk.LoadConfig("config.yaml")
+	if err != nil {
+		t.Fatalf("failed to load config.yaml: %v", err)
+	}
+	card := adk.BuildAgentCard(cfg)
+	errs := adk.ValidateAgentCard(card)
+	if len(errs) != 0 {
+		for _, e := range errs {
+			t.Errorf("agentcard security violation: %v", e)
+		}
+	}
+}
+
+func TestConfigValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  adk.AgentConfig
+	}{
+		{
+			name: "missing name",
+			cfg: adk.AgentConfig{
+				Description: "test description",
+				Version:     "0.1.0",
+				URL:         "http://localhost:8081",
+				Skills:      []string{"s"},
+				InputModes:  []string{"text"},
+				OutputModes: []string{"text"},
+			},
+		},
+		{
+			name: "missing description",
+			cfg: adk.AgentConfig{
+				Name:        "test-agent",
+				Version:     "0.1.0",
+				URL:         "http://localhost:8081",
+				Skills:      []string{"s"},
+				InputModes:  []string{"text"},
+				OutputModes: []string{"text"},
+			},
+		},
+		{
+			name: "missing version",
+			cfg: adk.AgentConfig{
+				Name:        "test-agent",
+				Description: "test description",
+				URL:         "http://localhost:8081",
+				Skills:      []string{"s"},
+				InputModes:  []string{"text"},
+				OutputModes: []string{"text"},
+			},
+		},
+		{
+			name: "missing url",
+			cfg: adk.AgentConfig{
+				Name:        "test-agent",
+				Description: "test description",
+				Version:     "0.1.0",
+				Skills:      []string{"s"},
+				InputModes:  []string{"text"},
+				OutputModes: []string{"text"},
+			},
+		},
+		{
+			name: "empty skills (nil)",
+			cfg: adk.AgentConfig{
+				Name:        "test-agent",
+				Description: "test description",
+				Version:     "0.1.0",
+				URL:         "http://localhost:8081",
+				Skills:      nil,
+				InputModes:  []string{"text"},
+				OutputModes: []string{"text"},
+			},
+		},
+		{
+			name: "empty inputModes (nil)",
+			cfg: adk.AgentConfig{
+				Name:        "test-agent",
+				Description: "test description",
+				Version:     "0.1.0",
+				URL:         "http://localhost:8081",
+				Skills:      []string{"s"},
+				InputModes:  nil,
+				OutputModes: []string{"text"},
+			},
+		},
+		{
+			name: "empty outputModes (nil)",
+			cfg: adk.AgentConfig{
+				Name:        "test-agent",
+				Description: "test description",
+				Version:     "0.1.0",
+				URL:         "http://localhost:8081",
+				Skills:      []string{"s"},
+				InputModes:  []string{"text"},
+				OutputModes: nil,
+			},
+		},
+		{
+			name: "all fields empty",
+			cfg:  adk.AgentConfig{},
+		},
+		{
+			name: "secret in description",
+			cfg: adk.AgentConfig{
+				Name:        "test-agent",
+				Description: "Uses API_KEY=sk-abc123 for auth",
+				Version:     "0.1.0",
+				URL:         "http://localhost:8081",
+				Skills:      []string{"s"},
+				InputModes:  []string{"text"},
+				OutputModes: []string{"text"},
+			},
+		},
+		{
+			name: "token in url",
+			cfg: adk.AgentConfig{
+				Name:        "test-agent",
+				Description: "test description",
+				Version:     "0.1.0",
+				URL:         "http://localhost:8081?token=secret123",
+				Skills:      []string{"s"},
+				InputModes:  []string{"text"},
+				OutputModes: []string{"text"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := adk.ValidateConfig(&tt.cfg)
+			if len(errs) == 0 {
+				t.Fatal("expected validation errors, got none")
+			}
+		})
+	}
+}
+
+func TestA2AProtocol(t *testing.T) {
+	cfg, err := adk.LoadConfig("config.yaml")
+	if err != nil {
+		t.Fatalf("failed to load config.yaml: %v", err)
+	}
+	adk.TestA2AEndpoints(t, cfg)
 }

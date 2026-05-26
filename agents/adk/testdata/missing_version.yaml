@@ -1,0 +1,10 @@
+name: test-agent
+description: A config missing the version field
+url: "http://localhost:8081"
+skills:
+  - test_skill
+inputModes:
+  - text
+outputModes:
+  - text
+streaming: true

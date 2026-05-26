@@ -1,0 +1,10 @@
+name: test-agent
+description: A config missing the url field
+version: "0.1.0"
+skills:
+  - test_skill
+inputModes:
+  - text
+outputModes:
+  - text
+streaming: true

@@ -1,0 +1,11 @@
+name: test-agent
+description: A config with token in url
+version: "0.1.0"
+url: "http://localhost:8081?token=secret123"
+skills:
+  - test_skill
+inputModes:
+  - text
+outputModes:
+  - text
+streaming: true

@@ -1,0 +1,10 @@
+name: test-agent
+version: "0.1.0"
+url: "http://localhost:8081"
+skills:
+  - test_skill
+inputModes:
+  - text
+outputModes:
+  - text
+streaming: true

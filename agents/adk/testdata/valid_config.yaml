@@ -1,0 +1,12 @@
+name: test-agent
+description: A test agent for config validation testing
+version: "0.1.0"
+url: "http://localhost:8081"
+skills:
+  - test_skill
+inputModes:
+  - text
+outputModes:
+  - text
+  - code
+streaming: true
