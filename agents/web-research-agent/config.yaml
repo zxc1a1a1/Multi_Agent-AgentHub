@@ -1,0 +1,13 @@
+name: web-research-agent
+description: 用于分析调用方提供的 URL、网页标题和正文摘录，生成网页资料摘要、引用线索和结论整理；第一版不主动联网抓取网页。
+version: "0.1.0"
+url: "http://localhost:8102"
+skills:
+  - web_summary
+  - citation_summary
+inputModes:
+  - text
+outputModes:
+  - text
+  - web_research
+streaming: true

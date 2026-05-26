@@ -43,6 +43,38 @@ func (e *codeAgentExecutor) Cancel(ctx context.Context, execCtx *a2asrv.Executor
 	}
 }
 
+func buildAgentSkills(skills []string) []a2a.AgentSkill {
+	mapped := make([]a2a.AgentSkill, 0, len(skills))
+	for _, skill := range skills {
+		mapped = append(mapped, a2a.AgentSkill{
+			ID:          skill,
+			Name:        skill,
+			Description: skill,
+		})
+	}
+	return mapped
+}
+
+func buildAgentCard(config *AgentConfig) *a2a.AgentCard {
+	card := &a2a.AgentCard{
+		Name:               config.Name,
+		Description:        config.Description,
+		Version:            config.Version,
+		Capabilities:       a2a.AgentCapabilities{Streaming: config.Streaming},
+		DefaultInputModes:  append([]string(nil), config.InputModes...),
+		DefaultOutputModes: append([]string(nil), config.OutputModes...),
+		Skills:             buildAgentSkills(config.Skills),
+	}
+
+	if config.URL != "" {
+		card.SupportedInterfaces = []*a2a.AgentInterface{
+			a2a.NewAgentInterface(config.URL, a2a.TransportProtocolJSONRPC),
+		}
+	}
+
+	return card
+}
+
 // NewA2AServer creates a new A2A server using the official a2a-go/v2 library.
 //
 // Per adk-runtime-contract section 13 (AgentCard):
@@ -56,23 +88,7 @@ func NewA2AServer(config *AgentConfig, handler TaskHandler) *A2AServer {
 
 	// Build AgentCard per a2a-agent-contract
 	// Per adk-runtime-contract section 13: AgentCard must not expose secrets
-	card := &a2a.AgentCard{
-		Name:        config.Name,
-		Description: config.Description,
-		Version:     config.Version,
-		Capabilities: a2a.AgentCapabilities{
-			Streaming: true,
-		},
-		DefaultInputModes:  []string{"text/plain"},
-		DefaultOutputModes: []string{"text/plain"},
-		Skills: []a2a.AgentSkill{
-			{
-				ID:          "code_generation",
-				Name:        "Code Generation",
-				Description: "Generate, refactor, and review code",
-			},
-		},
-	}
+	card := buildAgentCard(config)
 
 	mux := http.NewServeMux()
 

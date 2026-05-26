@@ -1,5 +1,5 @@
 name: code-agent
-description: Generates, refactors, and reviews code.
+description: 用于根据用户需求生成、解释和改进代码，支持输出代码片段与代码产物，适合作为软件开发任务中的基础代码生成 Agent。
 version: "0.1.0"
 url: "http://localhost:8081"
 skills:
@@ -8,6 +8,7 @@ skills:
   - code_refactoring
 inputModes:
   - text
+  - vision_analysis
 outputModes:
   - text
   - code

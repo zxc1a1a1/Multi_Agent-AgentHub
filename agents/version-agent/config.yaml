@@ -1,0 +1,14 @@
+name: version-agent
+description: 用于根据改动摘要、diff、测试结果和产物关系生成版本快照、版本说明和回滚建议；第一版只生成版本信息，不执行 Git 写操作。
+version: "0.1.0"
+url: "http://localhost:8099"
+skills:
+  - version_summary
+  - rollback_plan
+  - patch_version_linking
+inputModes:
+  - text
+outputModes:
+  - text
+  - version_snapshot
+streaming: true

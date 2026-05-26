@@ -1,0 +1,17 @@
+name: document-agent
+description: 用于撰写 Markdown 文档、README、产品需求文档、技术方案和交接报告，支持输出结构化文档产物，适合作为项目文档生成 Agent。
+version: "0.1.0"
+url: "http://localhost:8083"
+skills:
+  - markdown_document
+  - technical_report
+  - prd_writer
+  - handoff_report
+inputModes:
+  - text
+  - vision_analysis
+  - file_summary
+outputModes:
+  - text
+  - document
+streaming: true

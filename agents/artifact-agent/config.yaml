@@ -1,0 +1,13 @@
+name: artifact-agent
+description: 用于将多个 Agent 的原始输出规整为统一的产物清单，识别产物类型、标题、格式和用途，方便平台后续进行预览、归档和版本管理。
+version: "0.1.0"
+url: "http://localhost:8096"
+skills:
+  - artifact_manifest
+  - artifact_classification
+inputModes:
+  - text
+outputModes:
+  - text
+  - artifact_manifest
+streaming: true

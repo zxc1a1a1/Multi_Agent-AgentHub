@@ -1,0 +1,16 @@
+name: web-agent
+description: 用于根据需求生成自包含的 HTML/CSS/JavaScript 页面草稿，支持输出可预览的网页类产物，适合作为前端页面和 UI 原型生成 Agent。
+version: "0.1.0"
+url: "http://localhost:8082"
+skills:
+  - web_generation
+  - ui_design
+  - responsive_layout
+inputModes:
+  - text
+  - vision_analysis
+outputModes:
+  - text
+  - webpage
+  - code
+streaming: true

@@ -1,0 +1,13 @@
+name: qa-acceptance-agent
+description: 用于根据原始需求、产物、测试结果和审查结论判断任务是否满足验收标准，输出通过项、失败项、风险项和需人工确认项。
+version: "0.1.0"
+url: "http://localhost:8103"
+skills:
+  - acceptance_check
+  - demo_checklist
+inputModes:
+  - text
+outputModes:
+  - text
+  - acceptance_report
+streaming: true
