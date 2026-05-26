@@ -1,0 +1,13 @@
+name: context-agent
+description: 用于整理多轮对话、需求说明和已有产物，生成紧凑的上下文包，帮助后续 Agent 获取必要背景并减少无关信息干扰。
+version: "0.1.0"
+url: "http://localhost:8091"
+skills:
+  - context_compression
+  - context_selection
+inputModes:
+  - text
+outputModes:
+  - text
+  - context_bundle
+streaming: true

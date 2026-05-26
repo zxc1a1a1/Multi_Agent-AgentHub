@@ -1,0 +1,13 @@
+name: custom-agent
+description: 用于承载用户自定义 Agent 的受限任务执行模板，根据调用方提供的角色和任务描述生成安全的文本或文档产物，不允许绕过平台安全边界。
+version: "0.1.0"
+url: "http://localhost:8084"
+skills:
+  - custom_agent_execution
+  - restricted_profile_task
+inputModes:
+  - text
+outputModes:
+  - text
+  - document
+streaming: true

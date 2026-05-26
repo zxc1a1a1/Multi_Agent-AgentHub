@@ -1,0 +1,18 @@
+﻿name: vision-agent
+description: 用于将调用方提供的图片引用、截图说明、图片元数据和可选 OCR 文本整理为结构化 vision_analysis 产物，作为网页生成、代码生成、测试分析、安全审查和 PPT 草稿生成等下游 Agent 的视觉上下文入口；v0.1 不直接读取图片、不访问 contentRef、不执行 OCR。
+version: "0.1.0"
+url: "http://localhost:8092"
+skills:
+  - image_ref_analysis
+  - screenshot_understanding
+  - ui_image_analysis
+  - error_screenshot_analysis
+  - visual_context_summary
+inputModes:
+  - text
+  - image_ref
+  - extracted_text
+outputModes:
+  - text
+  - vision_analysis
+streaming: true

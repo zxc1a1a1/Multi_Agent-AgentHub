@@ -1,0 +1,15 @@
+name: file-agent
+description: 用于分析调用方提供的文件文本、Markdown、JSON 或代码片段，提取摘要、需求、关键结构和风险点；第一版只分析已提供内容，不读取本地文件。
+version: "0.1.0"
+url: "http://localhost:8101"
+skills:
+  - file_summary
+  - requirement_extraction
+inputModes:
+  - text
+  - file_ref
+  - extracted_text
+outputModes:
+  - text
+  - file_summary
+streaming: true
