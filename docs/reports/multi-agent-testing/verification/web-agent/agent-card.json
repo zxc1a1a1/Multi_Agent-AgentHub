@@ -1,0 +1,44 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text",
+    "vision_analysis"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "webpage",
+    "code"
+  ],
+  "description": "用于根据需求生成自包含的 HTML/CSS/JavaScript 页面草稿，支持输出可预览的网页类产物，适合作为前端页面和 UI 原型生成 Agent。",
+  "name": "web-agent",
+  "skills": [
+    {
+      "description": "web_generation",
+      "id": "web_generation",
+      "name": "web_generation",
+      "tags": null
+    },
+    {
+      "description": "ui_design",
+      "id": "ui_design",
+      "name": "ui_design",
+      "tags": null
+    },
+    {
+      "description": "responsive_layout",
+      "id": "responsive_layout",
+      "name": "responsive_layout",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8082"
+    }
+  ],
+  "version": "0.1.0"
+}

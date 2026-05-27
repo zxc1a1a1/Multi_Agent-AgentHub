@@ -1,0 +1,52 @@
+{
+  "chain": "security-agent → review-agent",
+  "description": "安全扫描报告 → 代码审查报告",
+  "tests": [
+    {
+      "name": "TestCrossAgent_SecurityToReview_ConsumesSecurityReport",
+      "status": "PASS",
+      "input": {
+        "upstream_artifact_type": "security_report",
+        "upstream_output_format": "json:security-report.json fenced block",
+        "sample_security_findings": {
+          "risk": "high",
+          "findings": [
+            {"type": "hardcoded_secret", "severity": "critical", "location": "config.go:15"},
+            {"type": "dangerous_command", "severity": "high", "location": "deploy.sh:3"}
+          ]
+        }
+      },
+      "assertions": [
+        "review-agent extractTextFromParts 可提取 security-agent 输出中的文本",
+        "extractReviewArtifacts 在混合上下文（含 security-report.json + review-report.json）中正确识别 review_report",
+        "review_report 包含 overallRating, issues, approved, reviewer 字段",
+        "通过 artifact type 过滤找到 review_report（parseJSONBlocks 匹配所有 JSON 块）"
+      ],
+      "note": "extractReviewArtifacts 使用 parseJSONBlocks 匹配所有 JSON 块，测试需按 artifact type 过滤出 review_report"
+    },
+    {
+      "name": "TestCrossAgent_SecurityToReview_ArtifactTypeChain",
+      "status": "PASS",
+      "input": {
+        "security_artifact": {
+          "type": "security_report",
+          "title": "security-report.json",
+          "content": {"findings": [{"severity": "high", "type": "secret_leak"}]},
+          "metadata": {"format": "json", "language": "json"}
+        },
+        "review_artifact": {
+          "type": "review_report",
+          "title": "review-report.json",
+          "content": {"approved": false, "issues": [{"severity": "high"}]},
+          "metadata": {"format": "json", "language": "json"}
+        }
+      },
+      "assertions": [
+        "security_report 与 review_report 使用不同的 artifact type",
+        "两个 artifact type 不会混淆",
+        "两个 artifact content 均非空，链路可消费"
+      ]
+    }
+  ],
+  "verified_at": "2026-05-26"
+}

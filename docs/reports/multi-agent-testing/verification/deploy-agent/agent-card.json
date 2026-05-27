@@ -1,0 +1,42 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "deployment_plan"
+  ],
+  "description": "用于根据调用方提供的项目状态、环境说明和部署约束生成部署计划、环境检查清单和回滚说明；第一版只生成计划，不执行部署命令。",
+  "name": "deploy-agent",
+  "skills": [
+    {
+      "description": "deployment_plan",
+      "id": "deployment_plan",
+      "name": "deployment_plan",
+      "tags": null
+    },
+    {
+      "description": "environment_checklist",
+      "id": "environment_checklist",
+      "name": "environment_checklist",
+      "tags": null
+    },
+    {
+      "description": "rollback_notes",
+      "id": "rollback_notes",
+      "name": "rollback_notes",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8104"
+    }
+  ],
+  "version": "0.1.0"
+}

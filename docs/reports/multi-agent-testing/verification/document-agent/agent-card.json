@@ -1,0 +1,50 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text",
+    "vision_analysis",
+    "file_summary"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "document"
+  ],
+  "description": "用于撰写 Markdown 文档、README、产品需求文档、技术方案和交接报告，支持输出结构化文档产物，适合作为项目文档生成 Agent。",
+  "name": "document-agent",
+  "skills": [
+    {
+      "description": "markdown_document",
+      "id": "markdown_document",
+      "name": "markdown_document",
+      "tags": null
+    },
+    {
+      "description": "technical_report",
+      "id": "technical_report",
+      "name": "technical_report",
+      "tags": null
+    },
+    {
+      "description": "prd_writer",
+      "id": "prd_writer",
+      "name": "prd_writer",
+      "tags": null
+    },
+    {
+      "description": "handoff_report",
+      "id": "handoff_report",
+      "name": "handoff_report",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8083"
+    }
+  ],
+  "version": "0.1.0"
+}

@@ -1,0 +1,43 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text",
+    "vision_analysis"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "code"
+  ],
+  "description": "用于根据用户需求生成、解释和改进代码，支持输出代码片段与代码产物，适合作为软件开发任务中的基础代码生成 Agent。",
+  "name": "code-agent",
+  "skills": [
+    {
+      "description": "code_generation",
+      "id": "code_generation",
+      "name": "code_generation",
+      "tags": null
+    },
+    {
+      "description": "code_review",
+      "id": "code_review",
+      "name": "code_review",
+      "tags": null
+    },
+    {
+      "description": "code_refactoring",
+      "id": "code_refactoring",
+      "name": "code_refactoring",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8081"
+    }
+  ],
+  "version": "0.1.0"
+}

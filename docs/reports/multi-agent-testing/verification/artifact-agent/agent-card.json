@@ -1,0 +1,36 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "artifact_manifest"
+  ],
+  "description": "用于将多个 Agent 的原始输出规整为统一的产物清单，识别产物类型、标题、格式和用途，方便平台后续进行预览、归档和版本管理。",
+  "name": "artifact-agent",
+  "skills": [
+    {
+      "description": "artifact_manifest",
+      "id": "artifact_manifest",
+      "name": "artifact_manifest",
+      "tags": null
+    },
+    {
+      "description": "artifact_classification",
+      "id": "artifact_classification",
+      "name": "artifact_classification",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8096"
+    }
+  ],
+  "version": "0.1.0"
+}

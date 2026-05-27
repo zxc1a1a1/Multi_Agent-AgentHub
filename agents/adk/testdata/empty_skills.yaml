@@ -1,0 +1,10 @@
+name: test-agent
+description: A config with empty skills list
+version: "0.1.0"
+url: "http://localhost:8081"
+skills: []
+inputModes:
+  - text
+outputModes:
+  - text
+streaming: true

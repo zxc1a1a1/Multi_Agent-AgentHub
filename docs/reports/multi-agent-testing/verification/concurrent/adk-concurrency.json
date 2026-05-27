@@ -1,0 +1,93 @@
+{
+  "test_layer": "ADK Server Concurrency",
+  "description": "多 Agent 服务器并发隔离性、单服务器高并发处理、共享函数并发安全",
+  "tests": [
+    {
+      "name": "TestConcurrent_MultipleServersIsolated",
+      "status": "PASS",
+      "concurrency": "5 servers × 1 goroutine/server",
+      "assertions": [
+        "5 个 Agent 服务器并发启动，/health 各返回自身身份",
+        "无跨 Agent 身份污染 (identity cross-contamination)",
+        "所有 status=ok"
+      ]
+    },
+    {
+      "name": "TestConcurrent_MultipleServersAgentCardIsolated",
+      "status": "PASS",
+      "concurrency": "3 servers × 1 goroutine/server",
+      "assertions": [
+        "3 个服务器并发 AgentCard 请求，各返回自身 card.name",
+        "无卡名污染 (card.name cross-contamination)",
+        "版本号一致 (0.1.0)"
+      ]
+    },
+    {
+      "name": "TestConcurrent_SingleServerParallelRequests",
+      "status": "PASS",
+      "concurrency": "1 server × 40 goroutines (20 health + 20 agentcard)",
+      "assertions": [
+        "40 并发请求全部成功 (0 errors)",
+        "身份一致性 (agent=example-agent-concurrent)"
+      ]
+    },
+    {
+      "name": "TestConcurrent_BuildAgentCardParallel",
+      "status": "PASS",
+      "concurrency": "4 configs × 10 goroutines = 40 goroutines",
+      "assertions": [
+        "每个 card.Name 匹配输入 config.Name",
+        "无指针混叠 (pointer aliasing)",
+        "无跨 goroutine 污染"
+      ]
+    },
+    {
+      "name": "TestConcurrent_NoopHandlerReentrant",
+      "status": "PASS",
+      "concurrency": "1 server × 50 goroutines",
+      "assertions": [
+        "50 并发 health check 全部返回 200",
+        "NoopHandler 可重入安全"
+      ]
+    },
+    {
+      "name": "TestConcurrent_MixedEndpointsParallel",
+      "status": "PASS",
+      "concurrency": "1 server × 20 goroutines (10 health + 10 agentcard mixed)",
+      "assertions": [
+        "混合端点在并发下均返回正确身份",
+        "10 health + 10 agentcard 全部正确"
+      ]
+    },
+    {
+      "name": "TestConcurrent_MultiAgentTaskIsolation",
+      "status": "PASS",
+      "concurrency": "3 servers × 30 goroutines (10 per server)",
+      "assertions": [
+        "3 Agent 并发 30 请求，无跨 Agent 身份污染",
+        "每个 agent 的 reported name 正确"
+      ]
+    },
+    {
+      "name": "TestConcurrent_ValidateConfigParallel",
+      "status": "PASS",
+      "concurrency": "20 goroutines (valid + invalid configs)",
+      "assertions": [
+        "ValidateConfig 在并发下正确区分 valid (0 errors) 和 invalid (>0 errors)",
+        "无数据竞争"
+      ]
+    },
+    {
+      "name": "TestConcurrent_ServerStartupShutdown",
+      "status": "PASS",
+      "concurrency": "10 servers, start→request→close concurrently",
+      "assertions": [
+        "10 个服务器并发启动/请求/关闭，互不干扰",
+        "所有服务器均返回 200"
+      ]
+    }
+  ],
+  "total_adk_tests": 9,
+  "race_detection": "clean (go test -race: zero data races)",
+  "verified_at": "2026-05-26"
+}

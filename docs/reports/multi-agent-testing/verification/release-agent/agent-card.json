@@ -1,0 +1,42 @@
+{
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": [
+    "text"
+  ],
+  "defaultOutputModes": [
+    "text",
+    "release_report"
+  ],
+  "description": "用于根据改动摘要、测试结果、审查结果和版本信息生成发布报告、变更日志、风险说明和回滚建议；第一版只生成报告，不执行发布命令。",
+  "name": "release-agent",
+  "skills": [
+    {
+      "description": "release_report",
+      "id": "release_report",
+      "name": "release_report",
+      "tags": null
+    },
+    {
+      "description": "changelog_generation",
+      "id": "changelog_generation",
+      "name": "changelog_generation",
+      "tags": null
+    },
+    {
+      "description": "release_risk_summary",
+      "id": "release_risk_summary",
+      "name": "release_risk_summary",
+      "tags": null
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://localhost:8106"
+    }
+  ],
+  "version": "0.1.0"
+}
