@@ -1,0 +1,30 @@
+package adk
+
+import "time"
+
+// Event is the core runtime event type emitted by an agent execution flow.
+type Event struct {
+	ID        string
+	Author    string
+	Content   *Content
+	Actions   *EventActions
+	Partial   bool
+	Final     bool
+	Timestamp time.Time
+}
+
+// EventActions carries optional state or routing deltas for an Event.
+type EventActions struct {
+	StateDelta    map[string]any
+	TransferAgent string
+	ArtifactDelta []Artifact
+}
+
+// Artifact is a generic ADK-layer artifact payload.
+// Artifact type semantics are interpreted by upper Runtime/Agent protocol layers.
+type Artifact struct {
+	Type     string
+	Title    string
+	Content  string
+	Metadata map[string]string
+}
