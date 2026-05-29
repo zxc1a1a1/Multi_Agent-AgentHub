@@ -11,6 +11,7 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/sse"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
 )
@@ -172,6 +173,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ConversationID string `json:"conversationId"`
 		Message        string `json:"message"`
+		AgentName      string `json:"agentName,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid request body")
@@ -180,6 +182,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	req.ConversationID = strings.TrimSpace(req.ConversationID)
 	req.Message = strings.TrimSpace(req.Message)
+	req.AgentName = strings.TrimSpace(req.AgentName)
 	if req.ConversationID == "" {
 		writeJSONError(w, http.StatusBadRequest, "conversationId is required")
 		return
@@ -211,6 +214,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	sse.SetHeaders(w)
 	writer := sse.NewWriter(w)
 	ctx := r.Context()
+	if req.AgentName != "" {
+		ctx = runservice.WithAgentName(ctx, req.AgentName)
+	}
 	assistantText := strings.Builder{}
 
 	seq := s.runner.Run(ctx, req.ConversationID, &adk.Content{

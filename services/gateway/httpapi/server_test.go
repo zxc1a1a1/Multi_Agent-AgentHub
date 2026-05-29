@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
 )
 
@@ -325,5 +328,265 @@ func TestTranslatorRedaction(t *testing.T) {
 	}
 	if !strings.Contains(respBody, "[redacted]") {
 		t.Fatalf("expected redacted marker in body, got %q", respBody)
+	}
+}
+
+func TestChat_DefaultAgentNameBackwardCompatible(t *testing.T) {
+	var codeCalls int32
+	var webCalls int32
+
+	codeServer := newA2AMockServerForHTTPAPITest(t, "code-agent", "reply from code", &codeCalls, false)
+	defer codeServer.Close()
+	webServer := newA2AMockServerForHTTPAPITest(t, "web-agent", "reply from web", &webCalls, false)
+	defer webServer.Close()
+
+	runner := newRoutingRunnerForHTTPAPITest(t, codeServer.URL, webServer.URL)
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(`{"conversationId":"`+conv.ID+`","message":"hello"}`))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"author":"code-agent"`) {
+		t.Fatalf("expected default route to code-agent, got %q", body)
+	}
+	if atomic.LoadInt32(&codeCalls) != 1 || atomic.LoadInt32(&webCalls) != 0 {
+		t.Fatalf("unexpected route counts code=%d web=%d", atomic.LoadInt32(&codeCalls), atomic.LoadInt32(&webCalls))
+	}
+}
+
+func TestChat_RoutesCodeAgentByAgentName(t *testing.T) {
+	var codeCalls int32
+	var webCalls int32
+
+	codeServer := newA2AMockServerForHTTPAPITest(t, "code-agent", "code branch", &codeCalls, false)
+	defer codeServer.Close()
+	webServer := newA2AMockServerForHTTPAPITest(t, "web-agent", "web branch", &webCalls, false)
+	defer webServer.Close()
+
+	runner := newRoutingRunnerForHTTPAPITest(t, codeServer.URL, webServer.URL)
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(`{"conversationId":"`+conv.ID+`","message":"hello","agentName":"code-agent"}`))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"author":"code-agent"`) || !strings.Contains(body, "code branch") {
+		t.Fatalf("expected code-agent response, got %q", body)
+	}
+	if atomic.LoadInt32(&codeCalls) != 1 || atomic.LoadInt32(&webCalls) != 0 {
+		t.Fatalf("unexpected route counts code=%d web=%d", atomic.LoadInt32(&codeCalls), atomic.LoadInt32(&webCalls))
+	}
+}
+
+func TestChat_RoutesWebAgentByAgentName(t *testing.T) {
+	var codeCalls int32
+	var webCalls int32
+
+	codeServer := newA2AMockServerForHTTPAPITest(t, "code-agent", "code branch", &codeCalls, false)
+	defer codeServer.Close()
+	webServer := newA2AMockServerForHTTPAPITest(t, "web-agent", "web branch", &webCalls, false)
+	defer webServer.Close()
+
+	runner := newRoutingRunnerForHTTPAPITest(t, codeServer.URL, webServer.URL)
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(`{"conversationId":"`+conv.ID+`","message":"hello","agentName":"web-agent"}`))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"author":"web-agent"`) || !strings.Contains(body, "web branch") {
+		t.Fatalf("expected web-agent response, got %q", body)
+	}
+	if atomic.LoadInt32(&codeCalls) != 0 || atomic.LoadInt32(&webCalls) != 1 {
+		t.Fatalf("unexpected route counts code=%d web=%d", atomic.LoadInt32(&codeCalls), atomic.LoadInt32(&webCalls))
+	}
+}
+
+func TestChat_UnknownAgentNameReturnsErrorSSE(t *testing.T) {
+	var codeCalls int32
+	var webCalls int32
+
+	codeServer := newA2AMockServerForHTTPAPITest(t, "code-agent", "code branch", &codeCalls, false)
+	defer codeServer.Close()
+	webServer := newA2AMockServerForHTTPAPITest(t, "web-agent", "web branch", &webCalls, false)
+	defer webServer.Close()
+
+	runner := newRoutingRunnerForHTTPAPITest(t, codeServer.URL, webServer.URL)
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(`{"conversationId":"`+conv.ID+`","message":"hello","agentName":"unknown-agent"}`))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for SSE error stream, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: error\n") {
+		t.Fatalf("expected error SSE event, got %q", body)
+	}
+	if strings.Contains(body, codeServer.URL) || strings.Contains(body, webServer.URL) || strings.Contains(strings.ToLower(body), "panic") {
+		t.Fatalf("expected safe error output, got %q", body)
+	}
+	if atomic.LoadInt32(&codeCalls) != 0 || atomic.LoadInt32(&webCalls) != 0 {
+		t.Fatalf("unknown agent should not hit remote servers, code=%d web=%d", atomic.LoadInt32(&codeCalls), atomic.LoadInt32(&webCalls))
+	}
+}
+
+func TestChat_AgentNameDoesNotBreakPersistence(t *testing.T) {
+	var codeCalls int32
+	var webCalls int32
+
+	codeServer := newA2AMockServerForHTTPAPITest(t, "code-agent", "code branch", &codeCalls, false)
+	defer codeServer.Close()
+	webServer := newA2AMockServerForHTTPAPITest(t, "web-agent", "persist web response", &webCalls, false)
+	defer webServer.Close()
+
+	runner := newRoutingRunnerForHTTPAPITest(t, codeServer.URL, webServer.URL)
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(`{"conversationId":"`+conv.ID+`","message":"hello","agentName":"web-agent"}`))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+
+	msgs, err := st.ListMessages(context.Background(), conv.ID)
+	if err != nil {
+		t.Fatalf("list messages failed: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+	if msgs[0].Role != "user" || msgs[0].Text != "hello" {
+		t.Fatalf("unexpected user message: %+v", msgs[0])
+	}
+	if msgs[1].Role != "assistant" || msgs[1].Text != "persist web response" {
+		t.Fatalf("unexpected assistant message: %+v", msgs[1])
+	}
+	if atomic.LoadInt32(&codeCalls) != 0 || atomic.LoadInt32(&webCalls) != 1 {
+		t.Fatalf("unexpected route counts code=%d web=%d", atomic.LoadInt32(&codeCalls), atomic.LoadInt32(&webCalls))
+	}
+}
+
+func newRoutingRunnerForHTTPAPITest(t *testing.T, codeURL, webURL string) RunService {
+	t.Helper()
+
+	registry, err := runservice.NewStaticAgentRegistry([]runservice.AgentEndpoint{
+		{Name: "code-agent", URL: codeURL},
+		{Name: "web-agent", URL: webURL},
+	})
+	if err != nil {
+		t.Fatalf("new static registry failed: %v", err)
+	}
+	runner, err := runservice.NewRoutingRunService(registry, "code-agent")
+	if err != nil {
+		t.Fatalf("new routing run service failed: %v", err)
+	}
+	return runner
+}
+
+func newA2AMockServerForHTTPAPITest(t *testing.T, author, text string, callCount *int32, forceError bool) *httptest.Server {
+	t.Helper()
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(callCount, 1)
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+
+		if forceError {
+			writeJSONForHTTPAPITest(t, w, http.StatusInternalServerError, a2a.RunResponse{
+				Error: &a2a.ResponseError{
+					Code:    "internal_error",
+					Message: "panic stack with sk-demo-token",
+				},
+			})
+			return
+		}
+
+		writeJSONForHTTPAPITest(t, w, http.StatusOK, a2a.RunResponse{
+			TaskID: "task-" + author,
+			Status: "completed",
+			Events: []a2a.EventDTO{
+				{
+					Author: author,
+					Role:   "assistant",
+					Final:  true,
+					Parts: []a2a.PartDTO{
+						{Type: "text", Text: text},
+					},
+				},
+			},
+		})
+	}))
+}
+
+func writeJSONForHTTPAPITest(t *testing.T, w http.ResponseWriter, status int, payload any) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		t.Fatalf("encode json failed: %v", err)
 	}
 }

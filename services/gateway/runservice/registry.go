@@ -1,0 +1,106 @@
+package runservice
+
+import (
+	"errors"
+	"sort"
+	"strings"
+)
+
+// AgentEndpoint defines one static agent registration item.
+type AgentEndpoint struct {
+	Name        string
+	URL         string
+	Description string
+	OutputModes []string
+}
+
+// StaticAgentRegistry is a minimal in-memory static registry.
+type StaticAgentRegistry struct {
+	agents map[string]AgentEndpoint
+}
+
+// NewStaticAgentRegistry validates and builds a static registry.
+func NewStaticAgentRegistry(endpoints []AgentEndpoint) (*StaticAgentRegistry, error) {
+	registry := &StaticAgentRegistry{
+		agents: make(map[string]AgentEndpoint, len(endpoints)),
+	}
+
+	for _, endpoint := range endpoints {
+		name := strings.TrimSpace(endpoint.Name)
+		if name == "" {
+			return nil, errors.New("agent name is required")
+		}
+
+		url := strings.TrimSpace(endpoint.URL)
+		if url == "" {
+			return nil, errors.New("agent url is required")
+		}
+
+		if _, exists := registry.agents[name]; exists {
+			return nil, errors.New("duplicate agent name: " + name)
+		}
+
+		registry.agents[name] = AgentEndpoint{
+			Name:        name,
+			URL:         url,
+			Description: strings.TrimSpace(endpoint.Description),
+			OutputModes: cloneOutputModes(endpoint.OutputModes),
+		}
+	}
+
+	return registry, nil
+}
+
+// Get returns one endpoint by exact agent name match.
+func (r *StaticAgentRegistry) Get(name string) (AgentEndpoint, bool) {
+	if r == nil {
+		return AgentEndpoint{}, false
+	}
+
+	key := strings.TrimSpace(name)
+	if key == "" {
+		return AgentEndpoint{}, false
+	}
+
+	endpoint, ok := r.agents[key]
+	if !ok {
+		return AgentEndpoint{}, false
+	}
+	return cloneAgentEndpoint(endpoint), true
+}
+
+// List returns all endpoints sorted by Name.
+func (r *StaticAgentRegistry) List() []AgentEndpoint {
+	if r == nil || len(r.agents) == 0 {
+		return nil
+	}
+
+	out := make([]AgentEndpoint, 0, len(r.agents))
+	for _, endpoint := range r.agents {
+		out = append(out, cloneAgentEndpoint(endpoint))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+
+	return out
+}
+
+func cloneAgentEndpoint(in AgentEndpoint) AgentEndpoint {
+	return AgentEndpoint{
+		Name:        in.Name,
+		URL:         in.URL,
+		Description: in.Description,
+		OutputModes: cloneOutputModes(in.OutputModes),
+	}
+}
+
+func cloneOutputModes(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
+}
