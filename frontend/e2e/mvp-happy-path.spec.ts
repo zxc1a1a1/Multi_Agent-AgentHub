@@ -57,6 +57,22 @@ test.describe('MVP E2E Happy Path', () => {
     await expect(page.getByText('Here is your Go hello world program:')).toBeVisible()
   })
 
+  test('switch agent — web-agent response keeps safe web preview', async ({ page }) => {
+    await page.goto('/')
+    await page.click('[title="New conversation"]')
+
+    await page.selectOption('#agent-select', 'web-agent')
+    const input = page.getByPlaceholder('Type a message...')
+    await input.fill('Build a simple landing page')
+    await page.click('[title="Send message"]')
+
+    await expect(page.getByText('Web Agent')).toBeVisible()
+    await expect(page.getByText('Web Preview (Safe Mode)')).toBeVisible()
+    await expect(
+      page.getByText('<section><h1>Demo Page</h1><p>safe html preview</p></section>'),
+    ).toBeVisible()
+  })
+
   // ── 5. CodePreview renders ─────────────────────────────
 
   test('code preview — CodePreview shows filename, language, code, and line count', async ({ page }) => {
@@ -109,8 +125,8 @@ test.describe('MVP E2E Happy Path', () => {
   // ── 8. Error path — graceful UI on error ───────────────
 
   test('error handling — RUN_ERROR shows failure indicator without crash', async ({ page }) => {
-    // Override the agui/run mock for this single test
-    await page.route('**/api/agui/run', async (route) => {
+    // Override the /api/chat mock for this single test
+    await page.route('**/api/chat', async (route) => {
       await route.fulfill({
         status: 200,
         headers: { 'Content-Type': 'text/event-stream' },

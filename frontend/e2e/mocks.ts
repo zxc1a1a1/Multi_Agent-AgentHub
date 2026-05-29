@@ -7,14 +7,14 @@ interface AGUIEvent {
   content?: string
   toolCallId?: string
   toolName?: string
+  senderName?: string
+  agentName?: string
   error?: string
 }
 
 function buildSSEBody(events: AGUIEvent[]): string {
-  return events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('')
+  return events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
 }
-
-// ── Mock data ──────────────────────────────────────────────
 
 const CONVERSATION = {
   id: 'conv-1',
@@ -39,7 +39,7 @@ const HISTORY_MESSAGES = [
     id: 'msg-2',
     conversationId: 'conv-1',
     senderType: 'agent',
-    senderName: 'code-agent',
+    senderName: 'Code Agent',
     content: 'Here is your Go hello world program:',
     artifacts: JSON.stringify([
       {
@@ -54,92 +54,148 @@ const HISTORY_MESSAGES = [
   },
 ]
 
-const AGENTS = [{ name: 'code-agent', description: 'Generates and explains code' }]
-
-// ── SSE stream builders ────────────────────────────────────
+const AGENTS = [
+  { name: 'code-agent', description: 'Generates and explains code' },
+  { name: 'web-agent', description: 'Generates webpages and HTML previews' },
+]
 
 export function buildCodePreviewSSE(): string {
-  const msgId = 'msg-agent-1'
-  const tcId = 'tc-1'
+  const msgId = 'msg-agent-code-1'
+  const toolCallId = 'tc-code-1'
 
   return buildSSEBody([
-    { type: 'RUN_STARTED', runId: 'run-1' },
-    { type: 'TEXT_MESSAGE_START', messageId: msgId },
+    { type: 'RUN_STARTED', runId: 'run-code-1' },
+    {
+      type: 'TEXT_MESSAGE_START',
+      messageId: msgId,
+      senderName: 'Code Agent',
+      agentName: 'code-agent',
+    },
     { type: 'TEXT_MESSAGE_CONTENT', messageId: msgId, content: 'Here is your ' },
     { type: 'TEXT_MESSAGE_CONTENT', messageId: msgId, content: 'Go hello world program:' },
     { type: 'TEXT_MESSAGE_END', messageId: msgId },
     {
       type: 'TOOL_CALL_START',
-      toolCallId: tcId,
+      toolCallId,
       toolName: 'code_preview',
       messageId: msgId,
     },
     {
       type: 'TOOL_CALL_ARGS',
-      toolCallId: tcId,
+      toolCallId,
       content: JSON.stringify({
         code: 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("hello world")\n}',
         language: 'go',
         filename: 'main.go',
       }),
     },
-    { type: 'TOOL_CALL_END', toolCallId: tcId },
+    { type: 'TOOL_CALL_END', toolCallId, toolName: 'code_preview' },
     { type: 'RUN_FINISHED' },
   ])
 }
 
-export function buildTextOnlySSE(): string {
-  const msgId = 'msg-agent-1'
+export function buildWebPreviewSSE(): string {
+  const msgId = 'msg-agent-web-1'
+  const toolCallId = 'tc-web-1'
+
   return buildSSEBody([
-    { type: 'RUN_STARTED', runId: 'run-2' },
-    { type: 'TEXT_MESSAGE_START', messageId: msgId },
-    { type: 'TEXT_MESSAGE_CONTENT', messageId: msgId, content: 'Hello! How can I help?' },
+    { type: 'RUN_STARTED', runId: 'run-web-1' },
+    {
+      type: 'TEXT_MESSAGE_START',
+      messageId: msgId,
+      senderName: 'Web Agent',
+      agentName: 'web-agent',
+    },
+    {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: msgId,
+      content: '<section><h1>Demo Page</h1><p>safe html preview</p></section>',
+    },
     { type: 'TEXT_MESSAGE_END', messageId: msgId },
+    {
+      type: 'TOOL_CALL_START',
+      toolCallId,
+      toolName: 'web_preview',
+      messageId: msgId,
+    },
+    {
+      type: 'TOOL_CALL_ARGS',
+      toolCallId,
+      content: JSON.stringify({
+        title: 'demo.html',
+        html: '<section><h1>Demo Page</h1><p>safe html preview</p></section>',
+      }),
+    },
+    { type: 'TOOL_CALL_END', toolCallId, toolName: 'web_preview' },
     { type: 'RUN_FINISHED' },
   ])
 }
 
 export function buildErrorSSE(): string {
   return buildSSEBody([
-    { type: 'RUN_STARTED', runId: 'run-3' },
-    { type: 'RUN_ERROR', error: 'Agent task failed' },
+    { type: 'RUN_STARTED', runId: 'run-error-1' },
+    { type: 'RUN_ERROR', error: 'assistant run failed' },
   ])
 }
 
-// ── Route setup ────────────────────────────────────────────
+function buildUnknownAgentErrorSSE(): string {
+  return buildSSEBody([
+    { type: 'RUN_STARTED', runId: 'run-error-unknown' },
+    { type: 'RUN_ERROR', error: 'unknown agent' },
+  ])
+}
+
+function buildChatSSE(agentName: string | undefined): string {
+  if (!agentName || agentName === 'code-agent') {
+    return buildCodePreviewSSE()
+  }
+  if (agentName === 'web-agent') {
+    return buildWebPreviewSSE()
+  }
+  return buildUnknownAgentErrorSSE()
+}
 
 /**
  * Install API mocks on the page so E2E tests run without a real backend.
  * All routes use `page.route()` to intercept and respond with fixture data.
  */
 export async function setupMocks(page: Page) {
-  // Conversations list + create
   await page.route('**/api/conversations', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({ json: [CONVERSATION] })
-    } else if (route.request().method() === 'POST') {
-      await route.fulfill({ json: CONVERSATION })
-    } else {
-      await route.continue()
+      return
     }
+
+    if (route.request().method() === 'POST') {
+      const data = route.request().postDataJSON() as { agentName?: string; title?: string }
+      const agentName = data.agentName === 'web-agent' ? 'web-agent' : 'code-agent'
+      await route.fulfill({
+        json: {
+          ...CONVERSATION,
+          title: data.title || 'New Conversation',
+          agentName,
+        },
+      })
+      return
+    }
+
+    await route.continue()
   })
 
-  // Messages for a conversation
   await page.route('**/api/conversations/*/messages', async (route) => {
     await route.fulfill({ json: HISTORY_MESSAGES })
   })
 
-  // Agents list
   await page.route('**/api/agents', async (route) => {
     await route.fulfill({ json: AGENTS })
   })
 
-  // AG-UI SSE stream — default to code_preview response
-  await page.route('**/api/agui/run', async (route) => {
+  await page.route('**/api/chat', async (route) => {
+    const data = route.request().postDataJSON() as { agentName?: string }
     await route.fulfill({
       status: 200,
       headers: { 'Content-Type': 'text/event-stream' },
-      body: buildCodePreviewSSE(),
+      body: buildChatSSE(data.agentName),
     })
   })
 }

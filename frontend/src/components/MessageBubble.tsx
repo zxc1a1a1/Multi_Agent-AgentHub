@@ -2,7 +2,9 @@ import type { Message } from '../types'
 import AgentAvatar from './AgentAvatar'
 import StreamingText from './StreamingText'
 import CodePreview from './CodePreview'
+import WebPreview from './WebPreview'
 import { User } from 'lucide-react'
+import { getAgentDisplayName } from '../lib/agents'
 
 interface Props {
   message: Message
@@ -11,6 +13,9 @@ interface Props {
 export default function MessageBubble({ message }: Props) {
   const isUser = message.senderType === 'user'
   const isStreaming = message.status === 'streaming'
+  const senderLabel = isUser
+    ? 'You'
+    : message.senderName || getAgentDisplayName(message.agentName)
 
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -25,6 +30,7 @@ export default function MessageBubble({ message }: Props) {
 
       {/* Content */}
       <div className={`max-w-[80%] min-w-0 ${isUser ? 'items-end' : 'items-start'} flex flex-col`}>
+        {!isUser && <p className="text-xs text-gray-500 mb-1 px-1">{senderLabel}</p>}
         <div
           className={`inline-block px-4 py-2.5 rounded-2xl ${
             isUser
@@ -44,6 +50,14 @@ export default function MessageBubble({ message }: Props) {
           <div className="w-full mt-1">
             {message.codeBlocks.map((block, i) => (
               <CodePreview key={`${message.id}-code-${i}`} block={block} />
+            ))}
+          </div>
+        )}
+
+        {message.webPreviews && message.webPreviews.length > 0 && (
+          <div className="w-full mt-1">
+            {message.webPreviews.map((block, i) => (
+              <WebPreview key={`${message.id}-web-${i}`} block={block} />
             ))}
           </div>
         )}

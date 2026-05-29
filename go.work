@@ -6,4 +6,6 @@ use (
 	./pkg/adk
 	./pkg/runtime
 	./services/gateway
+	./services/agents/code-agent
+	./services/agents/web-agent
 )

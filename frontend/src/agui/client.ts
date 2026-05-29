@@ -1,10 +1,10 @@
 import type { AGUIEvent } from '../types'
+import type { AgentName } from '../lib/agents'
 
-export interface AGUIRunRequest {
-  threadId: string
-  runId: string
-  messages: { role: string; content: string }[]
-  tools: { name: string }[]
+export interface AGUIChatRequest {
+  conversationId: string
+  message: string
+  agentName?: AgentName
 }
 
 function authHeaders(): Record<string, string> {
@@ -15,18 +15,18 @@ function authHeaders(): Record<string, string> {
 }
 
 /**
- * Sends a run request to the AG-UI endpoint and streams SSE events back.
+ * Sends a chat request to Gateway /api/chat and streams SSE events back.
  * Uses fetch + ReadableStream for POST-based SSE (EventSource only supports GET).
  */
 export function runAgent(
-  request: AGUIRunRequest,
+  request: AGUIChatRequest,
   onEvent: (event: AGUIEvent) => void,
   onError?: (err: Error) => void,
   onComplete?: () => void,
 ): AbortController {
   const controller = new AbortController()
 
-  fetch('/api/agui/run', {
+  fetch('/api/chat', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify(request),
@@ -57,10 +57,13 @@ export function runAgent(
         buffer = parsed.rest
 
         for (const block of parsed.blocks) {
-          const data = extractSSEData(block)
-          if (!data) continue
+          const parsedBlock = parseSSEBlock(block)
+          if (!parsedBlock.data) continue
           try {
-            const event: AGUIEvent = JSON.parse(data)
+            const event: AGUIEvent = JSON.parse(parsedBlock.data)
+            if (!event.type && parsedBlock.eventName) {
+              event.type = parsedBlock.eventName
+            }
             onEvent(event)
           } catch {
             // skip malformed JSON and continue streaming
@@ -98,18 +101,29 @@ function splitSSEBlocks(input: string): { blocks: string[]; rest: string } {
   }
 }
 
-function extractSSEData(block: string): string | null {
+function parseSSEBlock(block: string): { eventName: string; data: string | null } {
+  let eventName = ''
   const dataLines: string[] = []
 
   for (const line of block.split('\n')) {
-    if (!line.startsWith('data:')) continue
-    const raw = line.slice(5)
-    const value = raw.startsWith(' ') ? raw.slice(1) : raw
-    dataLines.push(value)
+    if (line.startsWith('event:')) {
+      const rawEvent = line.slice(6)
+      eventName = rawEvent.startsWith(' ') ? rawEvent.slice(1).trim() : rawEvent.trim()
+      continue
+    }
+    if (line.startsWith('data:')) {
+      const rawData = line.slice(5)
+      const value = rawData.startsWith(' ') ? rawData.slice(1) : rawData
+      dataLines.push(value)
+    }
   }
 
-  if (dataLines.length === 0) return null
+  if (dataLines.length === 0) {
+    return { eventName, data: null }
+  }
   const joined = dataLines.join('\n')
-  if (joined.trim() === '') return null
-  return joined
+  if (joined.trim() === '') {
+    return { eventName, data: null }
+  }
+  return { eventName, data: joined }
 }

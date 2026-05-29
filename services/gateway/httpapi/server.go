@@ -11,6 +11,7 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/sse"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
 )
@@ -21,6 +22,14 @@ type Store = store.Store
 // RunService is the injected runtime execution contract.
 type RunService interface {
 	Run(ctx context.Context, conversationID string, userContent *adk.Content) iter.Seq2[adk.Event, error]
+}
+
+// AgentSummary is the frontend-facing agent list projection.
+type AgentSummary struct {
+	Name        string   `json:"name"`
+	DisplayName string   `json:"displayName,omitempty"`
+	Description string   `json:"description,omitempty"`
+	OutputModes []string `json:"outputModes,omitempty"`
 }
 
 type Option func(*Server)
@@ -35,10 +44,21 @@ func WithTranslator(t *agui.Translator) Option {
 	}
 }
 
+// WithAgents overrides frontend-facing agent summaries for /api/agents.
+func WithAgents(agents []AgentSummary) Option {
+	return func(s *Server) {
+		if s == nil {
+			return
+		}
+		s.agents = sanitizeAgentSummaries(agents)
+	}
+}
+
 type Server struct {
 	store      Store
 	runner     RunService
 	translator *agui.Translator
+	agents     []AgentSummary
 	mux        *http.ServeMux
 }
 
@@ -65,6 +85,9 @@ func NewServer(st Store, runner RunService, opts ...Option) (*Server, error) {
 	if s.translator == nil {
 		s.translator = agui.NewTranslator()
 	}
+	if len(s.agents) == 0 {
+		s.agents = defaultAgentSummaries()
+	}
 
 	s.registerRoutes()
 	return s, nil
@@ -81,6 +104,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/api/conversations", s.handleConversations)
 	s.mux.HandleFunc("/api/conversations/", s.handleConversationMessages)
+	s.mux.HandleFunc("/api/agents", s.handleListAgents)
 	s.mux.HandleFunc("/api/chat", s.handleChat)
 }
 
@@ -140,6 +164,16 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, conversations)
 }
 
+func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w, http.MethodGet)
+		return
+	}
+	agents := make([]AgentSummary, len(s.agents))
+	copy(agents, s.agents)
+	writeJSON(w, http.StatusOK, agents)
+}
+
 func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeMethodNotAllowed(w, http.MethodGet)
@@ -172,6 +206,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ConversationID string `json:"conversationId"`
 		Message        string `json:"message"`
+		AgentName      string `json:"agentName,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid request body")
@@ -180,6 +215,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	req.ConversationID = strings.TrimSpace(req.ConversationID)
 	req.Message = strings.TrimSpace(req.Message)
+	req.AgentName = strings.TrimSpace(req.AgentName)
 	if req.ConversationID == "" {
 		writeJSONError(w, http.StatusBadRequest, "conversationId is required")
 		return
@@ -211,6 +247,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	sse.SetHeaders(w)
 	writer := sse.NewWriter(w)
 	ctx := r.Context()
+	if req.AgentName != "" {
+		ctx = runservice.WithAgentName(ctx, req.AgentName)
+	}
 	assistantText := strings.Builder{}
 
 	seq := s.runner.Run(ctx, req.ConversationID, &adk.Content{
@@ -307,4 +346,50 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+func defaultAgentSummaries() []AgentSummary {
+	return []AgentSummary{
+		{
+			Name:        "code-agent",
+			DisplayName: "Code Agent",
+			Description: "Generates and explains code",
+			OutputModes: []string{"text", "code", "artifact_ref"},
+		},
+		{
+			Name:        "web-agent",
+			DisplayName: "Web Agent",
+			Description: "Generates webpages and HTML previews",
+			OutputModes: []string{"text", "webpage", "html", "artifact_ref"},
+		},
+	}
+}
+
+func sanitizeAgentSummaries(agents []AgentSummary) []AgentSummary {
+	if len(agents) == 0 {
+		return nil
+	}
+	out := make([]AgentSummary, 0, len(agents))
+	seen := make(map[string]struct{}, len(agents))
+	for _, agent := range agents {
+		name := strings.TrimSpace(agent.Name)
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		item := AgentSummary{
+			Name:        name,
+			DisplayName: strings.TrimSpace(agent.DisplayName),
+			Description: strings.TrimSpace(agent.Description),
+			OutputModes: append([]string(nil), agent.OutputModes...),
+		}
+		out = append(out, item)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
