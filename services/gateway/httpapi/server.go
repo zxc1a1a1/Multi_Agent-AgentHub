@@ -24,6 +24,14 @@ type RunService interface {
 	Run(ctx context.Context, conversationID string, userContent *adk.Content) iter.Seq2[adk.Event, error]
 }
 
+// AgentSummary is the frontend-facing agent list projection.
+type AgentSummary struct {
+	Name        string   `json:"name"`
+	DisplayName string   `json:"displayName,omitempty"`
+	Description string   `json:"description,omitempty"`
+	OutputModes []string `json:"outputModes,omitempty"`
+}
+
 type Option func(*Server)
 
 // WithTranslator overrides the default AG-UI translator.
@@ -36,10 +44,21 @@ func WithTranslator(t *agui.Translator) Option {
 	}
 }
 
+// WithAgents overrides frontend-facing agent summaries for /api/agents.
+func WithAgents(agents []AgentSummary) Option {
+	return func(s *Server) {
+		if s == nil {
+			return
+		}
+		s.agents = sanitizeAgentSummaries(agents)
+	}
+}
+
 type Server struct {
 	store      Store
 	runner     RunService
 	translator *agui.Translator
+	agents     []AgentSummary
 	mux        *http.ServeMux
 }
 
@@ -66,6 +85,9 @@ func NewServer(st Store, runner RunService, opts ...Option) (*Server, error) {
 	if s.translator == nil {
 		s.translator = agui.NewTranslator()
 	}
+	if len(s.agents) == 0 {
+		s.agents = defaultAgentSummaries()
+	}
 
 	s.registerRoutes()
 	return s, nil
@@ -82,6 +104,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/api/conversations", s.handleConversations)
 	s.mux.HandleFunc("/api/conversations/", s.handleConversationMessages)
+	s.mux.HandleFunc("/api/agents", s.handleListAgents)
 	s.mux.HandleFunc("/api/chat", s.handleChat)
 }
 
@@ -139,6 +162,16 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, conversations)
+}
+
+func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w, http.MethodGet)
+		return
+	}
+	agents := make([]AgentSummary, len(s.agents))
+	copy(agents, s.agents)
+	writeJSON(w, http.StatusOK, agents)
 }
 
 func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Request) {
@@ -313,4 +346,50 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+func defaultAgentSummaries() []AgentSummary {
+	return []AgentSummary{
+		{
+			Name:        "code-agent",
+			DisplayName: "Code Agent",
+			Description: "Generates and explains code",
+			OutputModes: []string{"text", "code", "artifact_ref"},
+		},
+		{
+			Name:        "web-agent",
+			DisplayName: "Web Agent",
+			Description: "Generates webpages and HTML previews",
+			OutputModes: []string{"text", "webpage", "html", "artifact_ref"},
+		},
+	}
+}
+
+func sanitizeAgentSummaries(agents []AgentSummary) []AgentSummary {
+	if len(agents) == 0 {
+		return nil
+	}
+	out := make([]AgentSummary, 0, len(agents))
+	seen := make(map[string]struct{}, len(agents))
+	for _, agent := range agents {
+		name := strings.TrimSpace(agent.Name)
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		item := AgentSummary{
+			Name:        name,
+			DisplayName: strings.TrimSpace(agent.DisplayName),
+			Description: strings.TrimSpace(agent.Description),
+			OutputModes: append([]string(nil), agent.OutputModes...),
+		}
+		out = append(out, item)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

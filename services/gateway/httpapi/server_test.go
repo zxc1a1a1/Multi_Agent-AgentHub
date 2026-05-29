@@ -132,6 +132,68 @@ func TestConversationsEndpoints(t *testing.T) {
 	}
 }
 
+func TestListAgentsDefault(t *testing.T) {
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{})
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+
+	var agents []AgentSummary
+	if err := json.Unmarshal(rec.Body.Bytes(), &agents); err != nil {
+		t.Fatalf("invalid agents response: %v", err)
+	}
+	if len(agents) < 2 {
+		t.Fatalf("expected at least 2 agents, got %d", len(agents))
+	}
+	if agents[0].Name != "code-agent" || agents[1].Name != "web-agent" {
+		t.Fatalf("unexpected default agents: %+v", agents)
+	}
+}
+
+func TestListAgentsWithOverride(t *testing.T) {
+	srv, err := NewServer(
+		store.NewMemoryStore(),
+		&mockRunService{},
+		WithAgents([]AgentSummary{
+			{Name: "doc-agent", DisplayName: "Doc Agent", Description: "Generates docs", OutputModes: []string{"text", "markdown"}},
+			{Name: "doc-agent", DisplayName: "Duplicated"},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+
+	var agents []AgentSummary
+	if err := json.Unmarshal(rec.Body.Bytes(), &agents); err != nil {
+		t.Fatalf("invalid agents response: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent after dedupe, got %d", len(agents))
+	}
+	if agents[0].Name != "doc-agent" || agents[0].DisplayName != "Doc Agent" {
+		t.Fatalf("unexpected agent payload: %+v", agents[0])
+	}
+	if len(agents[0].OutputModes) != 2 {
+		t.Fatalf("unexpected output modes: %+v", agents[0].OutputModes)
+	}
+}
+
 func TestChatSSEAndPersistence(t *testing.T) {
 	st := store.NewMemoryStore()
 	conv, err := st.CreateConversation(context.Background(), "user-1", "code-agent")
@@ -273,6 +335,7 @@ func TestMethodNotAllowed(t *testing.T) {
 		{method: http.MethodPut, path: "/health", allow: "GET"},
 		{method: http.MethodGet, path: "/api/chat", allow: "POST"},
 		{method: http.MethodDelete, path: "/api/conversations", allow: "GET, POST"},
+		{method: http.MethodPatch, path: "/api/agents", allow: "GET"},
 	}
 
 	for _, tc := range tests {

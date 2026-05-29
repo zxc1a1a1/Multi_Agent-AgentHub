@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runAgent, type AGUIRunRequest } from './client'
+import { runAgent, type AGUIChatRequest } from './client'
 import type { AGUIEvent } from '../types'
 
 function createStream(chunks: string[]): ReadableStream<Uint8Array> {
@@ -21,11 +21,9 @@ function createResponseFromChunks(chunks: string[]): Response {
   })
 }
 
-const request: AGUIRunRequest = {
-  threadId: 'thread-1',
-  runId: 'run-1',
-  messages: [{ role: 'user', content: 'hello' }],
-  tools: [],
+const request: AGUIChatRequest = {
+  conversationId: 'conv-1',
+  message: 'hello',
 }
 
 async function runAndCollect(chunks: string[]): Promise<{
@@ -90,6 +88,18 @@ describe('runAgent SSE parsing', () => {
     ])
     expect(errors).toHaveLength(0)
     expect(completed).toBe(true)
+  })
+
+  it('falls back to SSE event name when payload has no type', async () => {
+    const { events } = await runAndCollect([
+      'event: message.delta\ndata: {"text":"A"}\n\n',
+    ])
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      type: 'message.delta',
+      text: 'A',
+    })
   })
 
   it('supports data line split across chunks with tail buffer', async () => {

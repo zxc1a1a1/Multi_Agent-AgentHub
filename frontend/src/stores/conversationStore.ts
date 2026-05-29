@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Conversation } from '../types'
 import * as api from '../services/api'
+import type { AgentName } from '../lib/agents'
 
 interface ConversationState {
   conversations: Conversation[]
@@ -8,7 +9,7 @@ interface ConversationState {
   loading: boolean
 
   load: () => Promise<void>
-  create: (agentName: string) => Promise<Conversation>
+  create: (agentName: AgentName) => Promise<Conversation>
   setActive: (id: string) => void
 }
 
@@ -27,7 +28,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
     }
   },
 
-  create: async (agentName: string) => {
+  create: async (agentName: AgentName) => {
     const conv = await api.createConversation(agentName)
     set((s) => ({
       conversations: [conv, ...s.conversations],

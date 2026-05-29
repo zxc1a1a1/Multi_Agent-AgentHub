@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useConversationStore } from '../stores/conversationStore'
+import { useAgentStore } from '../stores/agentStore'
 import { MessageSquarePlus, MessageSquare } from 'lucide-react'
 
 export default function ConversationList() {
@@ -8,13 +9,17 @@ export default function ConversationList() {
   const load = useConversationStore((s) => s.load)
   const create = useConversationStore((s) => s.create)
   const setActive = useConversationStore((s) => s.setActive)
+  const loadAgents = useAgentStore((s) => s.load)
+  const defaultAgentName = useAgentStore((s) => s.defaultAgentName)
+  const getAgentDisplayName = useAgentStore((s) => s.getDisplayName)
 
   useEffect(() => {
     load()
-  }, [load])
+    loadAgents()
+  }, [load, loadAgents])
 
   const handleNew = () => {
-    create('code-agent')
+    create(defaultAgentName())
   }
 
   return (
@@ -49,10 +54,11 @@ export default function ConversationList() {
           >
             <div className="flex items-center gap-2">
               <MessageSquare className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="text-sm text-gray-700 truncate">{conv.title}</span>
+              <span className="text-sm text-gray-700 truncate">{conv.title || 'New Conversation'}</span>
             </div>
             <p className="text-xs text-gray-400 mt-0.5 ml-6">
-              {conv.agentName} &middot; {new Date(conv.updatedAt).toLocaleDateString()}
+              {getAgentDisplayName(conv.agentName)} &middot;{' '}
+              {new Date(conv.updatedAt).toLocaleDateString()}
             </p>
           </button>
         ))}
