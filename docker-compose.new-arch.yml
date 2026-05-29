@@ -1,0 +1,70 @@
+services:
+  code-agent-new:
+    build:
+      context: .
+      dockerfile: services/agents/code-agent/Dockerfile
+    environment:
+      CODE_AGENT_ADDR: ":8080"
+      CODE_AGENT_PUBLIC_URL: "http://code-agent-new:8080"
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web-agent-new:
+    build:
+      context: .
+      dockerfile: services/agents/web-agent/Dockerfile
+    environment:
+      WEB_AGENT_ADDR: ":8080"
+      WEB_AGENT_PUBLIC_URL: "http://web-agent-new:8080"
+    ports:
+      - "8082:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  gateway-new:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    environment:
+      GATEWAY_ADDR: ":8080"
+      AGENT_CODE_URL: "http://code-agent-new:8080"
+      AGENT_WEB_URL: "http://web-agent-new:8080"
+      CODE_AGENT_URL: "http://code-agent-new:8080"
+      WEB_AGENT_URL: "http://web-agent-new:8080"
+      GATEWAY_ENABLE_AUTH: "false"
+      GATEWAY_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+    ports:
+      - "8080:8080"
+    depends_on:
+      code-agent-new:
+        condition: service_healthy
+      web-agent-new:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  frontend-new:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      gateway-new:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:3000/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
