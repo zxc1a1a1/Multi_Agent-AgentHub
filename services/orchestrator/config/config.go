@@ -7,7 +7,8 @@ import (
 
 // Config defines minimal Orchestrator runtime configuration.
 type Config struct {
-	Addr string
+	Addr          string
+	InternalToken string
 }
 
 // DefaultConfig returns safe defaults without reading environment variables.

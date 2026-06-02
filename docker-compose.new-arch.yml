@@ -35,6 +35,7 @@ services:
       dockerfile: services/orchestrator/Dockerfile
     environment:
       ORCHESTRATOR_ADDR: ":8080"
+      INTERNAL_SERVICE_TOKEN: "dev-internal-token"
     ports:
       - "8090:8080"
     healthcheck:
@@ -49,6 +50,8 @@ services:
       dockerfile: services/gateway/Dockerfile
     environment:
       GATEWAY_ADDR: ":8080"
+      ORCHESTRATOR_URL: "http://orchestrator-new:8080"
+      ORCHESTRATOR_INTERNAL_TOKEN: "dev-internal-token"
       AGENT_CODE_URL: "http://code-agent-new:8080"
       AGENT_WEB_URL: "http://web-agent-new:8080"
       CODE_AGENT_URL: "http://code-agent-new:8080"
@@ -58,6 +61,8 @@ services:
     ports:
       - "8080:8080"
     depends_on:
+      orchestrator-new:
+        condition: service_healthy
       code-agent-new:
         condition: service_healthy
       web-agent-new:

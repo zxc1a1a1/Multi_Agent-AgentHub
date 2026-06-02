@@ -32,14 +32,18 @@ func run() error {
 		addr = defaultAddr
 	}
 
+	internalToken := strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
+
 	cfg := config.Config{Addr: addr}
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
 
 	server := &http.Server{
-		Addr:    cfg.Addr,
-		Handler: httpapi.NewServer().Handler(),
+		Addr: cfg.Addr,
+		Handler: httpapi.NewServer(
+			httpapi.WithInternalToken(internalToken),
+		).Handler(),
 	}
 
 	go func() {
