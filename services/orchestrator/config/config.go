@@ -9,6 +9,8 @@ import (
 type Config struct {
 	Addr          string
 	InternalToken string
+	CodeAgentURL  string
+	WebAgentURL   string
 }
 
 // DefaultConfig returns safe defaults without reading environment variables.

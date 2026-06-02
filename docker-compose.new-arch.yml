@@ -36,8 +36,15 @@ services:
     environment:
       ORCHESTRATOR_ADDR: ":8080"
       INTERNAL_SERVICE_TOKEN: "dev-internal-token"
+      CODE_AGENT_URL: "http://code-agent-new:8080"
+      WEB_AGENT_URL: "http://web-agent-new:8080"
     ports:
       - "8090:8080"
+    depends_on:
+      code-agent-new:
+        condition: service_healthy
+      web-agent-new:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
       interval: 5s
@@ -52,20 +59,12 @@ services:
       GATEWAY_ADDR: ":8080"
       ORCHESTRATOR_URL: "http://orchestrator-new:8080"
       ORCHESTRATOR_INTERNAL_TOKEN: "dev-internal-token"
-      AGENT_CODE_URL: "http://code-agent-new:8080"
-      AGENT_WEB_URL: "http://web-agent-new:8080"
-      CODE_AGENT_URL: "http://code-agent-new:8080"
-      WEB_AGENT_URL: "http://web-agent-new:8080"
       GATEWAY_ENABLE_AUTH: "false"
       GATEWAY_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
     ports:
       - "8080:8080"
     depends_on:
       orchestrator-new:
-        condition: service_healthy
-      code-agent-new:
-        condition: service_healthy
-      web-agent-new:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 )
 
 // OrchestratorRunService implements gateway.RunService by calling the remote
@@ -80,6 +81,8 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 			return
 		}
 
+		agentName := runservice.AgentNameFromContext(ctx)
+
 		reqBody := map[string]any{
 			"conversationId":   conversationID,
 			"conversationType": "single",
@@ -87,6 +90,7 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 				{"role": "user", "text": userText},
 			},
 			"planningMode": "auto",
+			"agentName":     agentName,
 		}
 
 		bodyBytes, err := json.Marshal(reqBody)

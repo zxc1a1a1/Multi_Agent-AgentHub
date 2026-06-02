@@ -4,6 +4,7 @@ WORKDIR /src
 
 COPY go.work go.work.sum ./
 COPY services/orchestrator ./services/orchestrator
+COPY pkg/adk ./pkg/adk
 
 WORKDIR /src/services/orchestrator
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/orchestrator ./cmd/orchestrator

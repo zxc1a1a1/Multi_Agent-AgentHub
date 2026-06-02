@@ -2,15 +2,20 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 )
 
 // Server is the minimal Orchestrator HTTP server.
 type Server struct {
-	mux   *http.ServeMux
-	token string
+	mux        *http.ServeMux
+	token      string
+	registry   *registry.StaticAgentRegistry
+	dispatcher *dispatcher.A2ADispatcher
 }
 
 // Option customizes Server behavior.
@@ -23,6 +28,26 @@ func WithInternalToken(token string) Option {
 			return
 		}
 		s.token = token
+	}
+}
+
+// WithRegistry injects a static agent registry.
+func WithRegistry(r *registry.StaticAgentRegistry) Option {
+	return func(s *Server) {
+		if s == nil || r == nil {
+			return
+		}
+		s.registry = r
+	}
+}
+
+// WithDispatcher injects an A2A dispatcher.
+func WithDispatcher(d *dispatcher.A2ADispatcher) Option {
+	return func(s *Server) {
+		if s == nil || d == nil {
+			return
+		}
+		s.dispatcher = d
 	}
 }
 
@@ -66,6 +91,20 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":  "ok",
 		"service": "orchestrator",
 	})
+}
+
+// validateReady checks that all required dependencies are wired.
+func (s *Server) validateReady() error {
+	if s == nil {
+		return errors.New("server is nil")
+	}
+	if s.registry == nil {
+		return errors.New("registry is not wired")
+	}
+	if s.dispatcher == nil {
+		return errors.New("dispatcher is not wired")
+	}
+	return nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
