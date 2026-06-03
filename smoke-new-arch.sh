@@ -69,6 +69,36 @@ contains_all() {
   return 0
 }
 
+dump_raw_sse() {
+  local raw="$1" label="$2"
+  if [ -z "$raw" ]; then
+    return 0
+  fi
+  echo ""
+  yellow "--- raw SSE response (${label}) first 120 lines ---"
+  printf '%s' "$raw" | head -n 120
+  echo ""
+  yellow "--- end raw SSE response (${label}) ---"
+}
+
+# detect_agent checks multiple fields for agent attribution in Gateway SSE output.
+# The Gateway writes SSE events with JSON data containing "author" and optionally
+# "sender":{"type":"agent","name":"..."} fields. This function matches any of them.
+detect_agent() {
+  local body="$1" agent_name="$2"
+  contains_any "$body" \
+    "\"author\":\"${agent_name}\"" \
+    "\"name\":\"${agent_name}\"" \
+    "\"sender\":{\"type\":\"agent\",\"name\":\"${agent_name}\"" \
+    "\"sender\":{\"name\":\"${agent_name}\",\"type\":\"agent\""
+}
+
+# has_sse_events checks for SSE event framing (the "event:" line prefix).
+has_sse_events() {
+  local body="$1"
+  contains_any "$body" "event: message" "event: message.delta" "event: run_started" "event: state.delta"
+}
+
 # ── preflight ───────────────────────────────────────────────────────────────
 
 docker_preflight() {
@@ -203,24 +233,69 @@ send_chat_no_agent() {
 
 check_single_code_agent() {
   local conv_id body
-  conv_id="$(create_conversation "code-agent")" || return 1
-  body="$(send_chat "$conv_id" "code-agent" "请写一个go http server接口")" || return 1
+  conv_id="$(create_conversation "code-agent")" || {
+    fail "single code-agent: failed to create conversation"
+    return 1
+  }
+  body="$(send_chat "$conv_id" "code-agent" "用 Go 写一个 HTTP API 接口")" || {
+    fail "single code-agent: /api/chat request failed"
+    dump_raw_sse "$body" "single-code-agent"
+    return 1
+  }
 
-  # Must contain SSE events and code-agent authorship.
-  contains_any "$body" "event: message" "event: message.delta" "event: run_started" &&
-    contains_any "$body" '"author":"code-agent"' "code-agent" &&
-    ! contains_any "$body" "event: error"
+  # Must contain SSE events and code-agent authorship across multiple fields.
+  if ! has_sse_events "$body"; then
+    fail "single code-agent: no SSE events found in stream"
+    dump_raw_sse "$body" "single-code-agent"
+    return 1
+  fi
+
+  if ! detect_agent "$body" "code-agent"; then
+    fail "single code-agent: code-agent attribution not found (checked author, sender.name, sender fields)"
+    dump_raw_sse "$body" "single-code-agent"
+    return 1
+  fi
+
+  if contains_any "$body" "event: error" "run_error"; then
+    fail "single code-agent: error event or run_error found in SSE stream"
+    dump_raw_sse "$body" "single-code-agent"
+    return 1
+  fi
+
+  return 0
 }
 
 check_single_web_agent() {
   local conv_id body
-  conv_id="$(create_conversation "web-agent")" || return 1
-  body="$(send_chat "$conv_id" "web-agent" "请写一个登录页面html")" || return 1
+  conv_id="$(create_conversation "web-agent")" || {
+    fail "single web-agent: failed to create conversation"
+    return 1
+  }
+  body="$(send_chat "$conv_id" "web-agent" "写一个 HTML 登录页面")" || {
+    fail "single web-agent: /api/chat request failed"
+    dump_raw_sse "$body" "single-web-agent"
+    return 1
+  }
 
-  # Must contain SSE events and web-agent authorship.
-  contains_any "$body" "event: message" "event: message.delta" "event: run_started" &&
-    contains_any "$body" '"author":"web-agent"' "web-agent" &&
-    ! contains_any "$body" "event: error"
+  if ! has_sse_events "$body"; then
+    fail "single web-agent: no SSE events found in stream"
+    dump_raw_sse "$body" "single-web-agent"
+    return 1
+  fi
+
+  if ! detect_agent "$body" "web-agent"; then
+    fail "single web-agent: web-agent attribution not found (checked author, sender.name, sender fields)"
+    dump_raw_sse "$body" "single-web-agent"
+    return 1
+  fi
+
+  if contains_any "$body" "event: error" "run_error"; then
+    fail "single web-agent: error event or run_error found in SSE stream"
+    dump_raw_sse "$body" "single-web-agent"
+    return 1
+  fi
+
+  return 0
 }
 
 check_mixed_ordered_parallel() {
@@ -228,58 +303,74 @@ check_mixed_ordered_parallel() {
   # The RulePlanner should generate an ordered_parallel plan.
   # Do NOT pass an explicit agentName so the planner uses keyword detection.
   local conv_id body
-  conv_id="$(create_conversation "code-agent")" || return 1
-  body="$(send_chat_no_agent "$conv_id" "帮我做一个登录页面html和go api接口")" || return 1
+  conv_id="$(create_conversation "code-agent")" || {
+    fail "mixed ordered_parallel: failed to create conversation"
+    return 1
+  }
+  body="$(send_chat_no_agent "$conv_id" "写一个 HTML 登录页面，并实现 Go API 接口")" || {
+    fail "mixed ordered_parallel: /api/chat request failed"
+    dump_raw_sse "$body" "mixed-ordered-parallel"
+    return 1
+  }
 
   local ok=0
 
-  # Check that the response contains SSE stream events.
-  if ! contains_any "$body" "event: message" "event: message.delta" "event: run_started"; then
+  # Check SSE stream events exist.
+  if ! has_sse_events "$body"; then
     fail "mixed ordered_parallel: no SSE events found"
+    dump_raw_sse "$body" "mixed-ordered-parallel"
     return 1
   fi
 
-  # Check that web-agent output is present (priority 1, runs first).
-  if contains_any "$body" '"author":"web-agent"' "web-agent"; then
+  # REQUIRED: web-agent output must be present.
+  if detect_agent "$body" "web-agent"; then
     pass "mixed: web-agent output detected"
   else
-    fail "mixed: web-agent output NOT found in SSE stream"
+    fail "mixed: web-agent output NOT found in SSE stream (checked author, sender.name, sender fields)"
     ok=1
   fi
 
-  # Check that code-agent output is present (priority 2, runs second).
-  if contains_any "$body" '"author":"code-agent"' "code-agent"; then
+  # REQUIRED: code-agent output must be present.
+  if detect_agent "$body" "code-agent"; then
     pass "mixed: code-agent output detected"
   else
-    fail "mixed: code-agent output NOT found in SSE stream"
+    fail "mixed: code-agent output NOT found in SSE stream (checked author, sender.name, sender fields)"
     ok=1
   fi
 
-  # Check that orchestrator summary is present (runs after both agents).
-  if contains_any "$body" '"author":"orchestrator"'; then
+  # REQUIRED: orchestrator summary must be present.
+  if detect_agent "$body" "orchestrator"; then
     pass "mixed: orchestrator summary detected"
   else
-    fail "mixed: orchestrator summary NOT found in SSE stream"
+    fail "mixed: orchestrator summary NOT found in SSE stream (checked author, sender.name, sender fields)"
     ok=1
   fi
 
-  # Check that web-agent runs BEFORE code-agent in the event stream.
+  # REQUIRED: web-agent output must appear BEFORE code-agent output (ordered_parallel).
   local web_pos code_pos
   web_pos="$(printf '%s' "$body" | grep -b -o '"author":"web-agent"' | head -1 | cut -d: -f1 || echo "")"
   code_pos="$(printf '%s' "$body" | grep -b -o '"author":"code-agent"' | head -1 | cut -d: -f1 || echo "")"
   if [ -n "$web_pos" ] && [ -n "$code_pos" ] && [ "$web_pos" -lt "$code_pos" ]; then
     pass "mixed: web-agent output precedes code-agent output (ordered_parallel)"
   elif [ -n "$web_pos" ] && [ -n "$code_pos" ]; then
-    warn "mixed: web-agent/code-agent ordering unexpected (web_pos=$web_pos, code_pos=$code_pos)"
+    fail "mixed: web-agent/code-agent ordering violated (web_pos=$web_pos, code_pos=$code_pos)"
+    ok=1
+  else
+    warn "mixed: could not determine ordering (web_pos=$web_pos, code_pos=$code_pos)"
   fi
 
-  # No run_error in the stream.
+  # REQUIRED: no run_error in the stream.
   if contains_any "$body" "run_error" "ORCHESTRATOR_PLANNER_FAILED" "ORCHESTRATOR_PLAN_INVALID"; then
     fail "mixed: run_error or plan error found in SSE stream"
     ok=1
   fi
 
-  return "$ok"
+  if [ "$ok" -ne 0 ]; then
+    dump_raw_sse "$body" "mixed-ordered-parallel"
+    return 1
+  fi
+
+  return 0
 }
 
 # ── log safety check ────────────────────────────────────────────────────────

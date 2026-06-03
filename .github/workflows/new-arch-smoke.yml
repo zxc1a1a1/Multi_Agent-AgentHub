@@ -62,11 +62,32 @@ jobs:
           curl -i http://localhost:8080/health || true
 
           echo
+          echo "## create smoke conversations"
+
+          CODE_CONV_ID=$(curl -sS -X POST http://localhost:8080/api/conversations \
+            -H 'Content-Type: application/json' \
+            -d '{"userId":"smoke-user","agentName":"code-agent"}' \
+            | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+          echo "code conv id=$CODE_CONV_ID"
+
+          WEB_CONV_ID=$(curl -sS -X POST http://localhost:8080/api/conversations \
+            -H 'Content-Type: application/json' \
+            -d '{"userId":"smoke-user","agentName":"web-agent"}' \
+            | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+          echo "web conv id=$WEB_CONV_ID"
+
+          MIXED_CONV_ID=$(curl -sS -X POST http://localhost:8080/api/conversations \
+            -H 'Content-Type: application/json' \
+            -d '{"userId":"smoke-user","agentName":"code-agent"}' \
+            | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+          echo "mixed conv id=$MIXED_CONV_ID"
+
+          echo
           echo "## single code raw response"
           curl -i -N \
             -H "Content-Type: application/json" \
             -X POST http://localhost:8080/api/chat \
-            -d '{"runId":"smoke_code","conversationId":"smoke_conv_code","messages":[{"role":"user","text":"用 Go 写一个 HTTP API 接口"}]}' \
+            -d "{\"conversationId\":\"$CODE_CONV_ID\",\"message\":\"用 Go 写一个 HTTP API 接口\",\"agentName\":\"code-agent\"}" \
             | tee /tmp/smoke-code.out
 
           echo
@@ -74,7 +95,7 @@ jobs:
           curl -i -N \
             -H "Content-Type: application/json" \
             -X POST http://localhost:8080/api/chat \
-            -d '{"runId":"smoke_web","conversationId":"smoke_conv_web","messages":[{"role":"user","text":"写一个 HTML 登录页面"}]}' \
+            -d "{\"conversationId\":\"$WEB_CONV_ID\",\"message\":\"写一个 HTML 登录页面\",\"agentName\":\"web-agent\"}" \
             | tee /tmp/smoke-web.out
 
           echo
@@ -82,7 +103,7 @@ jobs:
           curl -i -N \
             -H "Content-Type: application/json" \
             -X POST http://localhost:8080/api/chat \
-            -d '{"runId":"smoke_mixed","conversationId":"smoke_conv_mixed","messages":[{"role":"user","text":"写一个 HTML 登录页面，并实现 Go API 接口"}]}' \
+            -d "{\"conversationId\":\"$MIXED_CONV_ID\",\"message\":\"写一个 HTML 登录页面，并实现 Go API 接口\"}" \
             | tee /tmp/smoke-mixed.out
 
           echo
