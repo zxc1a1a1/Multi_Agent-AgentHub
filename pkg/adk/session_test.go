@@ -45,6 +45,32 @@ func (m *mockSessionService) Create(ctx context.Context, userID string, initialS
 	return session, nil
 }
 
+func (m *mockSessionService) GetOrCreate(ctx context.Context, id string) (*Session, error) {
+	session, err := m.Get(ctx, id)
+	if err == nil {
+		return session, nil
+	}
+	if !errors.Is(err, errSessionNotFound) {
+		return nil, err
+	}
+
+	now := time.Now()
+	session = &Session{
+		ID:        id,
+		UserID:    id,
+		Events:    make([]Event, 0),
+		State:     NewSessionState(nil),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	m.mu.Lock()
+	m.sessions[id] = session
+	m.mu.Unlock()
+
+	return session, nil
+}
+
 func (m *mockSessionService) Get(ctx context.Context, id string) (*Session, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

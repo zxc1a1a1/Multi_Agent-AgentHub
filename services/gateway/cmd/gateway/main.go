@@ -15,6 +15,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/httpapi"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/orchestratorclient"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
 )
@@ -29,9 +30,11 @@ const (
 )
 
 type runtimeConfig struct {
-	Gateway          config.Config
-	DefaultAgentName string
-	AgentEndpoints   []runservice.AgentEndpoint
+	Gateway           config.Config
+	DefaultAgentName  string
+	AgentEndpoints    []runservice.AgentEndpoint
+	OrchestratorURL   string
+	OrchestratorToken string
 }
 
 func main() {
@@ -46,17 +49,33 @@ func run() error {
 		return err
 	}
 
-	registry, err := runservice.NewStaticAgentRegistry(cfg.AgentEndpoints)
-	if err != nil {
-		return err
+	var runner gateway.RunService
+	var agents []httpapi.AgentSummary
+
+	if cfg.OrchestratorURL != "" {
+		log.Printf("using orchestrator at %s", cfg.OrchestratorURL)
+		runner, err = orchestratorclient.NewOrchestratorRunService(
+			cfg.OrchestratorURL,
+			cfg.OrchestratorToken,
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		log.Printf("orchestrator URL not set, falling back to static routing")
+		registry, err := runservice.NewStaticAgentRegistry(cfg.AgentEndpoints)
+		if err != nil {
+			return err
+		}
+
+		runner, err = runservice.NewRoutingRunService(registry, cfg.DefaultAgentName)
+		if err != nil {
+			return err
+		}
+
+		agents = toAgentSummaries(registry.List())
 	}
 
-	runner, err := runservice.NewRoutingRunService(registry, cfg.DefaultAgentName)
-	if err != nil {
-		return err
-	}
-
-	agents := toAgentSummaries(registry.List())
 	gw, err := gateway.New(
 		cfg.Gateway,
 		store.NewMemoryStore(),
@@ -144,6 +163,9 @@ func loadRuntimeConfigFromEnv() (runtimeConfig, error) {
 		},
 	}
 
+	orchestratorURL := strings.TrimSpace(os.Getenv("ORCHESTRATOR_URL"))
+	orchestratorToken := strings.TrimSpace(os.Getenv("ORCHESTRATOR_INTERNAL_TOKEN"))
+
 	cfg := runtimeConfig{
 		Gateway: config.Config{
 			Addr:           addr,
@@ -151,8 +173,10 @@ func loadRuntimeConfigFromEnv() (runtimeConfig, error) {
 			AuthToken:      token,
 			EnableAuth:     enableAuth,
 		},
-		DefaultAgentName: defaultName,
-		AgentEndpoints:   endpoints,
+		DefaultAgentName:  defaultName,
+		AgentEndpoints:    endpoints,
+		OrchestratorURL:   orchestratorURL,
+		OrchestratorToken: orchestratorToken,
 	}
 	if err := cfg.Gateway.Validate(); err != nil {
 		return runtimeConfig{}, err

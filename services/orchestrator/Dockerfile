@@ -12,15 +12,14 @@ COPY services/orchestrator ./services/orchestrator
 COPY services/agents/code-agent ./services/agents/code-agent
 COPY services/agents/web-agent ./services/agents/web-agent
 
-WORKDIR /src/services/agents/code-agent
-RUN CGO_ENABLED=0 GOOS=linux go build -o /out/code-agent ./cmd/code-agent
+WORKDIR /src/services/orchestrator
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/orchestrator ./cmd/orchestrator
 
 FROM alpine:3.20
 
 RUN addgroup -S app && adduser -S -G app app
-COPY --from=builder /out/code-agent /usr/local/bin/code-agent
+COPY --from=builder /out/orchestrator /usr/local/bin/orchestrator
 
 USER app
 EXPOSE 8080
-CMD ["code-agent"]
-
+CMD ["orchestrator"]

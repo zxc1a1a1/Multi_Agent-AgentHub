@@ -8,4 +8,5 @@ use (
 	./services/gateway
 	./services/agents/code-agent
 	./services/agents/web-agent
+	./services/orchestrator
 )

@@ -352,7 +352,10 @@ func sanitizeError(err error) string {
 	if strings.Contains(lower, "panic") || strings.Contains(lower, "stack") {
 		return "internal error"
 	}
-	return "internal error"
+	if len(raw) > 180 {
+		return "internal error"
+	}
+	return raw
 }
 
 func buildTaskID(sessionID string) string {
