@@ -94,11 +94,21 @@ data: {"type":"run_finished","runId":"run_001","state":{"status":"completed"}}
 		t.Fatal("expected non-empty events")
 	}
 
-	// Verify we got delta events with correct author
+	// Verify we got delta events with correct author and metadata
 	foundDelta := false
+	foundMeta := false
+	foundRunID := false
 	for _, e := range events {
 		if e.Author == "test-agent" {
 			foundDelta = true
+		}
+		if e.Metadata != nil {
+			if et, ok := e.Metadata["eventType"].(string); ok && et != "" {
+				foundMeta = true
+			}
+			if rid, ok := e.Metadata["runId"].(string); ok && rid == "run_001" {
+				foundRunID = true
+			}
 		}
 		if e.Content != nil {
 			for _, p := range e.Content.Parts {
@@ -111,6 +121,12 @@ data: {"type":"run_finished","runId":"run_001","state":{"status":"completed"}}
 	if !foundDelta {
 		t.Error("expected delta events with agent author")
 	}
+	if !foundMeta {
+		t.Error("expected metadata with eventType on events")
+	}
+	if !foundRunID {
+		t.Error("expected metadata with runId=run_001 on events")
+	}
 
 	// Verify we got a final event
 	foundFinal := false
@@ -121,6 +137,19 @@ data: {"type":"run_finished","runId":"run_001","state":{"status":"completed"}}
 	}
 	if !foundFinal {
 		t.Error("expected at least one final event")
+	}
+
+	// Verify message_delta events carry messageId in metadata
+	foundMsgID := false
+	for _, e := range events {
+		if e.Metadata != nil {
+			if mid, ok := e.Metadata["messageId"].(string); ok && mid == "msg_001" {
+				foundMsgID = true
+			}
+		}
+	}
+	if !foundMsgID {
+		t.Error("expected messageId=msg_001 in metadata of delta events")
 	}
 }
 
@@ -157,20 +186,51 @@ data: {"type":"run_error","runId":"run_err","error":{"code":"ORCHESTRATOR_INTERN
 		},
 	})
 
+	var events []adk.Event
 	var gotErr error
 	seq(func(event adk.Event, err error) bool {
 		if err != nil {
 			gotErr = err
 			return false
 		}
+		events = append(events, event)
 		return true
 	})
 
-	if gotErr == nil {
-		t.Fatal("expected error from run_error event")
+	// run_error is now delivered as an adk.Event (not an error yield) so the
+	// Gateway/Translator can produce a RUN_ERROR AG-UI event.
+	if gotErr != nil {
+		t.Fatalf("unexpected error: run_error should be an event, not an error: %v", gotErr)
 	}
-	if !strings.Contains(gotErr.Error(), "something went wrong") {
-		t.Errorf("expected error message to contain 'something went wrong', got %q", gotErr.Error())
+
+	// Should have received at least the run_started and run_error events
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 events (run_started + run_error), got %d", len(events))
+	}
+
+	// The last event should be run_error with metadata and error info in Actions
+	lastEvent := events[len(events)-1]
+	if !lastEvent.Final {
+		t.Error("run_error event should be marked Final=true")
+	}
+	evtType, _ := lastEvent.Metadata["eventType"].(string)
+	if evtType != "run_error" {
+		t.Errorf("expected metadata eventType=run_error, got %q", evtType)
+	}
+	runID, _ := lastEvent.Metadata["runId"].(string)
+	if runID != "run_err" {
+		t.Errorf("expected metadata runId=run_err, got %q", runID)
+	}
+	if lastEvent.Actions == nil || lastEvent.Actions.StateDelta == nil {
+		t.Fatal("run_error event should carry error info in Actions.StateDelta")
+	}
+	code, _ := lastEvent.Actions.StateDelta["code"].(string)
+	msg, _ := lastEvent.Actions.StateDelta["message"].(string)
+	if code != "ORCHESTRATOR_INTERNAL" {
+		t.Errorf("expected error code ORCHESTRATOR_INTERNAL, got %q", code)
+	}
+	if !strings.Contains(msg, "something went wrong") {
+		t.Errorf("expected error message to contain 'something went wrong', got %q", msg)
 	}
 }
 

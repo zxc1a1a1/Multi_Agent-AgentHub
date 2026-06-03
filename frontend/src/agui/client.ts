@@ -61,8 +61,14 @@ export function runAgent(
           if (!parsedBlock.data) continue
           try {
             const event: AGUIEvent = JSON.parse(parsedBlock.data)
+            // If JSON has no type, fall back to SSE event name.
             if (!event.type && parsedBlock.eventName) {
               event.type = parsedBlock.eventName
+            }
+            // Normalize legacy SSE event names to AG-UI types for backward compat.
+            if (!event.type) {
+              // empty event — skip
+              continue
             }
             onEvent(event)
           } catch {
