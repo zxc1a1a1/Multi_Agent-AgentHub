@@ -110,6 +110,59 @@ jobs:
           echo "## useful markers"
           grep -E "HTTP/|data:|event:|run_error|error|code-agent|web-agent|orchestrator|sender|author|AGENT|DISPATCH|PLAN|TOKEN|unauthorized|forbidden" /tmp/smoke-*.out || true
 
+      - name: Debug raw orchestrator SSE
+        run: |
+          echo "## orchestrator health"
+          curl -i http://localhost:8090/health || true
+
+          echo
+          echo "## orchestrator single code direct"
+          curl -i -N \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer dev-internal-token" \
+            -X POST http://localhost:8090/internal/orchestrator/runs/stream \
+            -d '{"runId":"debug_code","conversationId":"debug_conv_code","agentName":"code-agent","messages":[{"role":"user","text":"用 Go 写一个 HTTP API 接口"}]}' \
+            | tee /tmp/orch-code.out
+
+          echo
+          echo "## orchestrator single web direct"
+          curl -i -N \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer dev-internal-token" \
+            -X POST http://localhost:8090/internal/orchestrator/runs/stream \
+            -d '{"runId":"debug_web","conversationId":"debug_conv_web","agentName":"web-agent","messages":[{"role":"user","text":"写一个 HTML 登录页面"}]}' \
+            | tee /tmp/orch-web.out
+
+          echo
+          echo "## orchestrator mixed direct"
+          curl -i -N \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer dev-internal-token" \
+            -X POST http://localhost:8090/internal/orchestrator/runs/stream \
+            -d '{"runId":"debug_mixed","conversationId":"debug_conv_mixed","messages":[{"role":"user","text":"写一个 HTML 登录页面，并实现 Go API 接口"}]}' \
+            | tee /tmp/orch-mixed.out
+
+          echo
+          echo "## orchestrator useful markers"
+          grep -E "HTTP/|data:|event:|run_error|error|code-agent|web-agent|orchestrator|sender|author|AGENT|DISPATCH|PLAN|VALID|TOKEN|unauthorized|forbidden" /tmp/orch-*.out || true
+
+      - name: Debug service logs before smoke
+        run: |
+          echo "## gateway logs"
+          docker compose -f docker-compose.new-arch.yml logs --no-color gateway-new || true
+
+          echo
+          echo "## orchestrator logs"
+          docker compose -f docker-compose.new-arch.yml logs --no-color orchestrator-new || true
+
+          echo
+          echo "## code-agent logs"
+          docker compose -f docker-compose.new-arch.yml logs --no-color code-agent-new || true
+
+          echo
+          echo "## web-agent logs"
+          docker compose -f docker-compose.new-arch.yml logs --no-color web-agent-new || true
+
       - name: Run smoke test
         run: |
           chmod +x ./smoke-new-arch.sh
