@@ -14,8 +14,10 @@ import (
 
 func newTestServer() *Server {
 	reg, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{
-		{Name: "code-agent", URL: "http://127.0.0.1:19999", Description: "code"},
-		{Name: "web-agent", URL: "http://127.0.0.1:19998", Description: "web"},
+		{Name: "code-agent", URL: "http://127.0.0.1:19999", Description: "code",
+			CapabilityIDs: []string{"code_generation"}, OutputTypes: []string{"code", "text"}},
+		{Name: "web-agent", URL: "http://127.0.0.1:19998", Description: "web",
+			CapabilityIDs: []string{"web_generation"}, OutputTypes: []string{"webpage", "html", "text", "markdown"}},
 	})
 	if err != nil {
 		panic(err)
@@ -229,7 +231,8 @@ func TestRunStreamWithMockAgent(t *testing.T) {
 	defer mockAgent.Close()
 
 	reg, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{
-		{Name: "code-agent", URL: mockAgent.URL, Description: "code"},
+		{Name: "code-agent", URL: mockAgent.URL, Description: "code",
+				CapabilityIDs: []string{"code_generation"}, OutputTypes: []string{"code", "text"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -387,7 +390,8 @@ func TestRunStreamAgentNameFromSelectedAgentNames(t *testing.T) {
 	defer mockAgent.Close()
 
 	reg, _ := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{
-		{Name: "web-agent", URL: mockAgent.URL, Description: "web"},
+		{Name: "web-agent", URL: mockAgent.URL, Description: "web",
+			CapabilityIDs: []string{"web_generation"}, OutputTypes: []string{"webpage", "html", "text", "markdown"}},
 	})
 	srv := NewServer(
 		WithRegistry(reg),

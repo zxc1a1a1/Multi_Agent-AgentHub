@@ -9,10 +9,12 @@ import (
 
 // AgentEndpoint defines one static agent registration item.
 type AgentEndpoint struct {
-	Name        string
-	URL         string
-	Description string
-	OutputModes []string
+	Name          string
+	URL           string
+	Description   string
+	OutputModes   []string
+	CapabilityIDs []string
+	OutputTypes   []string
 }
 
 // StaticAgentRegistry is a minimal in-memory static registry.
@@ -39,10 +41,12 @@ func NewStaticAgentRegistry(endpoints []AgentEndpoint) (*StaticAgentRegistry, er
 			return nil, errors.New("duplicate agent name: " + name)
 		}
 		r.agents[name] = AgentEndpoint{
-			Name:        name,
-			URL:         url,
-			Description: strings.TrimSpace(ep.Description),
-			OutputModes: cloneOutputModes(ep.OutputModes),
+			Name:          name,
+			URL:           url,
+			Description:   strings.TrimSpace(ep.Description),
+			OutputModes:   cloneStringSlice(ep.OutputModes),
+			CapabilityIDs: cloneStringSlice(ep.CapabilityIDs),
+			OutputTypes:   cloneStringSlice(ep.OutputTypes),
 		}
 	}
 
@@ -95,14 +99,16 @@ func (r *StaticAgentRegistry) List() []AgentEndpoint {
 
 func cloneAgentEndpoint(in AgentEndpoint) AgentEndpoint {
 	return AgentEndpoint{
-		Name:        in.Name,
-		URL:         in.URL,
-		Description: in.Description,
-		OutputModes: cloneOutputModes(in.OutputModes),
+		Name:          in.Name,
+		URL:           in.URL,
+		Description:   in.Description,
+		OutputModes:   cloneStringSlice(in.OutputModes),
+		CapabilityIDs: cloneStringSlice(in.CapabilityIDs),
+		OutputTypes:   cloneStringSlice(in.OutputTypes),
 	}
 }
 
-func cloneOutputModes(in []string) []string {
+func cloneStringSlice(in []string) []string {
 	if len(in) == 0 {
 		return nil
 	}

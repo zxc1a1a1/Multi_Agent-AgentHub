@@ -10,6 +10,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/validator"
 )
 
 // OrchestratorRequest is the Gateway→Orchestrator run request.
@@ -49,10 +50,11 @@ type EventSender struct {
 	Name string `json:"name"`
 }
 
-// SafeError is a sanitized error.
+// SafeError is a sanitized error returned in SSE events.
 type SafeError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Details any    `json:"details,omitempty"`
 }
 
 func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
@@ -125,6 +127,20 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Phase 5: validate the plan before execution.
+	planValidator := validator.New(s.registry)
+	validationResult := planValidator.Validate(orchPlan)
+	if !validationResult.Valid {
+		details := make([]map[string]string, 0, len(validationResult.Errors))
+		for _, e := range validationResult.Errors {
+			details = append(details, map[string]string{"field": e.Field, "message": e.Message})
+		}
+		s.writeSSEErrorWithDetail(w, runID, "ORCHESTRATOR_PLAN_INVALID", "Orchestration plan validation failed", details)
+		return
+	}
+	// Only the validator sets validated=true. The Planner never sets it.
+	orchPlan.Validation.Validated = true
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		s.writeSSEError(w, runID, "ORCHESTRATOR_INTERNAL", "streaming unsupported")
@@ -138,10 +154,11 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	msgID := fmt.Sprintf("msg_%d", time.Now().UnixMilli())
 
-	// Emit run_started with plan metadata.
+	// Emit run_started with plan metadata and validation status.
 	planState := map[string]any{
-		"phase":  "dispatching",
-		"planId": orchPlan.PlanID,
+		"phase":     "dispatching",
+		"planId":    orchPlan.PlanID,
+		"validated": orchPlan.Validation.Validated,
 	}
 	s.emitEvent(w, flusher, OrchestratorStreamEvent{
 		Type:  "run_started",
@@ -279,6 +296,19 @@ func (s *Server) writeSSEError(w http.ResponseWriter, runID, code, message strin
 		Type:  "run_error",
 		RunID: runID,
 		Error: &SafeError{Code: code, Message: message},
+	})
+	fmt.Fprintf(w, "event: run_error\ndata: %s\n\n", payload)
+}
+
+// writeSSEErrorWithDetail writes a run_error SSE event with validation details.
+func (s *Server) writeSSEErrorWithDetail(w http.ResponseWriter, runID, code, message string, details any) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	payload, _ := json.Marshal(OrchestratorStreamEvent{
+		Type:  "run_error",
+		RunID: runID,
+		Error: &SafeError{Code: code, Message: message, Details: details},
 	})
 	fmt.Fprintf(w, "event: run_error\ndata: %s\n\n", payload)
 }
