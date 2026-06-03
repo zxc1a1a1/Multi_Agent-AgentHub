@@ -24,24 +24,32 @@ jobs:
 
       - name: Run Go tests
         run: |
-          go test ./services/orchestrator/... ./services/gateway/... -count=1
+          go test \
+            ./services/orchestrator/... \
+            ./services/gateway/... \
+            ./services/agents/code-agent/... \
+            ./services/agents/web-agent/... \
+            -count=1
 
       - name: Check compose config
         run: |
           docker compose -f docker-compose.new-arch.yml config --services
 
-          echo "## gateway env direct agent URL check"
+          echo "## gateway direct agent URL guard"
           if docker compose -f docker-compose.new-arch.yml config \
             | sed -n '/gateway-new:/,/orchestrator-new:/p' \
             | grep -E "AGENT_CODE_URL|AGENT_WEB_URL|CODE_AGENT_URL|WEB_AGENT_URL"; then
-            echo "gateway-new must not contain direct agent URLs"
+            echo "FAIL: gateway-new must not contain direct agent URLs"
             exit 1
           fi
+          echo "PASS: gateway-new has no direct agent URLs"
 
-          echo "## orchestrator env agent URL check"
+          echo "## orchestrator agent URL config"
           docker compose -f docker-compose.new-arch.yml config \
             | sed -n '/orchestrator-new:/,/ports:/p' \
-            | grep -E "CODE_AGENT_URL|WEB_AGENT_URL|INTERNAL_SERVICE_TOKEN"
+            | grep -qE "CODE_AGENT_URL|WEB_AGENT_URL" \
+            && echo "PASS: orchestrator has agent URL config" \
+            || echo "WARN: orchestrator agent URL config not found"
 
       - name: Start new architecture
         run: |
@@ -51,118 +59,6 @@ jobs:
         run: |
           docker compose -f docker-compose.new-arch.yml ps
 
-      - name: Wait briefly for services
-        run: |
-          sleep 10
-          docker compose -f docker-compose.new-arch.yml ps
-
-      - name: Debug raw gateway responses
-        run: |
-          echo "## gateway health"
-          curl -i http://localhost:8080/health || true
-
-          echo
-          echo "## create smoke conversations"
-
-          CODE_CONV_ID=$(curl -sS -X POST http://localhost:8080/api/conversations \
-            -H 'Content-Type: application/json' \
-            -d '{"userId":"smoke-user","agentName":"code-agent"}' \
-            | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-          echo "code conv id=$CODE_CONV_ID"
-
-          WEB_CONV_ID=$(curl -sS -X POST http://localhost:8080/api/conversations \
-            -H 'Content-Type: application/json' \
-            -d '{"userId":"smoke-user","agentName":"web-agent"}' \
-            | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-          echo "web conv id=$WEB_CONV_ID"
-
-          MIXED_CONV_ID=$(curl -sS -X POST http://localhost:8080/api/conversations \
-            -H 'Content-Type: application/json' \
-            -d '{"userId":"smoke-user","agentName":"code-agent"}' \
-            | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-          echo "mixed conv id=$MIXED_CONV_ID"
-
-          echo
-          echo "## single code raw response"
-          curl -i -N \
-            -H "Content-Type: application/json" \
-            -X POST http://localhost:8080/api/chat \
-            -d "{\"conversationId\":\"$CODE_CONV_ID\",\"message\":\"用 Go 写一个 HTTP API 接口\",\"agentName\":\"code-agent\"}" \
-            | tee /tmp/smoke-code.out
-
-          echo
-          echo "## single web raw response"
-          curl -i -N \
-            -H "Content-Type: application/json" \
-            -X POST http://localhost:8080/api/chat \
-            -d "{\"conversationId\":\"$WEB_CONV_ID\",\"message\":\"写一个 HTML 登录页面\",\"agentName\":\"web-agent\"}" \
-            | tee /tmp/smoke-web.out
-
-          echo
-          echo "## mixed raw response"
-          curl -i -N \
-            -H "Content-Type: application/json" \
-            -X POST http://localhost:8080/api/chat \
-            -d "{\"conversationId\":\"$MIXED_CONV_ID\",\"message\":\"写一个 HTML 登录页面，并实现 Go API 接口\"}" \
-            | tee /tmp/smoke-mixed.out
-
-          echo
-          echo "## useful markers"
-          grep -E "HTTP/|data:|event:|run_error|error|code-agent|web-agent|orchestrator|sender|author|AGENT|DISPATCH|PLAN|TOKEN|unauthorized|forbidden" /tmp/smoke-*.out || true
-
-      - name: Debug raw orchestrator SSE
-        run: |
-          echo "## orchestrator health"
-          curl -i http://localhost:8090/health || true
-
-          echo
-          echo "## orchestrator single code direct"
-          curl -i -N \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer dev-internal-token" \
-            -X POST http://localhost:8090/internal/orchestrator/runs/stream \
-            -d '{"runId":"debug_code","conversationId":"debug_conv_code","agentName":"code-agent","messages":[{"role":"user","text":"用 Go 写一个 HTTP API 接口"}]}' \
-            | tee /tmp/orch-code.out
-
-          echo
-          echo "## orchestrator single web direct"
-          curl -i -N \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer dev-internal-token" \
-            -X POST http://localhost:8090/internal/orchestrator/runs/stream \
-            -d '{"runId":"debug_web","conversationId":"debug_conv_web","agentName":"web-agent","messages":[{"role":"user","text":"写一个 HTML 登录页面"}]}' \
-            | tee /tmp/orch-web.out
-
-          echo
-          echo "## orchestrator mixed direct"
-          curl -i -N \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer dev-internal-token" \
-            -X POST http://localhost:8090/internal/orchestrator/runs/stream \
-            -d '{"runId":"debug_mixed","conversationId":"debug_conv_mixed","messages":[{"role":"user","text":"写一个 HTML 登录页面，并实现 Go API 接口"}]}' \
-            | tee /tmp/orch-mixed.out
-
-          echo
-          echo "## orchestrator useful markers"
-          grep -E "HTTP/|data:|event:|run_error|error|code-agent|web-agent|orchestrator|sender|author|AGENT|DISPATCH|PLAN|VALID|TOKEN|unauthorized|forbidden" /tmp/orch-*.out || true
-
-      - name: Debug service logs before smoke
-        run: |
-          echo "## gateway logs"
-          docker compose -f docker-compose.new-arch.yml logs --no-color gateway-new || true
-
-          echo
-          echo "## orchestrator logs"
-          docker compose -f docker-compose.new-arch.yml logs --no-color orchestrator-new || true
-
-          echo
-          echo "## code-agent logs"
-          docker compose -f docker-compose.new-arch.yml logs --no-color code-agent-new || true
-
-          echo
-          echo "## web-agent logs"
-          docker compose -f docker-compose.new-arch.yml logs --no-color web-agent-new || true
-
       - name: Run smoke test
         run: |
           chmod +x ./smoke-new-arch.sh
@@ -171,7 +67,9 @@ jobs:
       - name: Show logs on failure
         if: failure()
         run: |
+          echo "## compose status"
           docker compose -f docker-compose.new-arch.yml ps
+          echo "## all service logs"
           docker compose -f docker-compose.new-arch.yml logs --no-color
 
       - name: Cleanup

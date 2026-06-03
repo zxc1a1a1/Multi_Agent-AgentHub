@@ -291,6 +291,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const resolveEventAgentName = (event: AGUIEvent): string => {
       const eventAgentName = pickText(
         event.agentName,
+        event.sender?.name,
         event.author,
         typeof event.metadata?.agentName === 'string' ? event.metadata.agentName : undefined,
         typeof event.stateDelta?.agentName === 'string' ? event.stateDelta.agentName : undefined,
@@ -302,7 +303,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
 
     const resolveEventSenderName = (event: AGUIEvent, eventAgentName: string): string => {
-      const explicitSender = pickText(event.senderName)
+      const explicitSender = pickText(
+        event.senderName,
+        event.sender?.displayName,
+        event.sender?.name,
+      )
       if (explicitSender) {
         return explicitSender
       }
@@ -327,6 +332,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
 
     const ensureAgentMessage = (event: AGUIEvent) => {
+      // If messageId changes (new agent message), create a fresh bubble.
       if (agentMsgId && event.messageId && event.messageId !== agentMsgId) {
         agentMsgId = event.messageId
         agentContent = ''
@@ -390,10 +396,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
 
     const appendWebPreviewFromMessageContent = () => {
-      if (webPreviews.length > 0 || !isSupportedAgentName(currentAgentName)) {
-        return
-      }
-      if (currentAgentName !== 'web-agent') {
+      if (webPreviews.length > 0) {
         return
       }
       const htmlSnippet = maybeExtractHTMLSnippet(agentContent)
@@ -403,7 +406,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       webPreviews.push({
         html: htmlSnippet,
         title: 'web-preview.html',
-        agentName: 'web-agent',
+        agentName: currentAgentName,
       })
       syncPreviewBlocks()
     }
@@ -538,8 +541,47 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             finishStreamingMessage()
             break
 
+          case 'RUN_STARTED':
+            // Initialize run state — store runId for debugging.
+            // The streaming state is already set by sendMessage.
+            break
+
+          case 'STATE_UPDATE':
+          case 'state.delta': {
+            // Persist state updates for orchestration progress display.
+            // The state object may carry phase, planId, activeAgent, message, etc.
+            const state = event.state ?? event.stateDelta
+            if (state && typeof state === 'object') {
+              const phaseInfo = pickText(
+                typeof state.phase === 'string' ? state.phase : undefined,
+                typeof state.status === 'string' ? state.status : undefined,
+              )
+              // If a messageId is present in the state, track it for multi-agent separation.
+              if (typeof state.messageId === 'string' && state.messageId) {
+                if (!agentMsgId) {
+                  agentMsgId = state.messageId
+                  ensureAgentMessage(event)
+                }
+              }
+              // Log phase transitions for debugging (not persisted to message content).
+              if (phaseInfo) {
+                // eslint-disable-next-line no-console
+                console.debug(`[orchestrator] phase: ${phaseInfo}`, state)
+              }
+            }
+            break
+          }
+
           case 'TOOL_CALL_START':
-            if (event.toolCallId) {
+            if (event.id) {
+              toolCallArgs[event.id] = ''
+              if (event.toolCall?.name) {
+                toolCallNames[event.id] = event.toolCall.name
+              }
+              if (event.toolName) {
+                toolCallNames[event.id] = event.toolName
+              }
+            } else if (event.toolCallId) {
               toolCallArgs[event.toolCallId] = ''
               if (event.toolName) {
                 toolCallNames[event.toolCallId] = event.toolName
@@ -548,14 +590,20 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             break
 
           case 'TOOL_CALL_ARGS':
-            if (event.toolCallId) {
+            if (event.id) {
+              toolCallArgs[event.id] =
+                (toolCallArgs[event.id] || '') + resolveContentChunk(event)
+            } else if (event.toolCallId) {
               toolCallArgs[event.toolCallId] =
                 (toolCallArgs[event.toolCallId] || '') + resolveContentChunk(event)
             }
             break
 
           case 'TOOL_CALL_END':
-            if (event.toolCallId) {
+            if (event.id) {
+              const toolName = event.toolCall?.name || toolCallNames[event.id] || ''
+              handleToolPayload(toolName, toolCallArgs[event.id] || '')
+            } else if (event.toolCallId) {
               const toolName = event.toolName || toolCallNames[event.toolCallId] || ''
               handleToolPayload(toolName, toolCallArgs[event.toolCallId] || '')
             }

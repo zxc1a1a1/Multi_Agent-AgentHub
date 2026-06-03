@@ -260,6 +260,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	})
 
 	var streamErr error
+	var runFailed bool
 	seq(func(event adk.Event, eventErr error) bool {
 		if eventErr != nil {
 			streamErr = eventErr
@@ -267,11 +268,30 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 		mapped := s.translator.Translate(event)
 		for _, item := range mapped {
-			if item.Role == string(adk.RoleAssistant) && (item.Type == "message" || item.Type == "message.delta") && item.Text != "" {
-				assistantText.WriteString(item.Text)
+			// Collect assistant text for persistence.
+			// v1.0 uses TEXT_MESSAGE_CONTENT with delta; legacy uses message/message.delta with text.
+			if item.Role == string(adk.RoleAssistant) {
+				switch item.Type {
+				case "TEXT_MESSAGE_CONTENT", "message", "message.delta":
+					delta := item.Delta
+					if delta == "" {
+						delta = item.Text
+					}
+					if delta != "" {
+						assistantText.WriteString(delta)
+					}
+				}
+			}
+			// Check for run error to stop processing after writing the error event.
+			if item.Type == "RUN_ERROR" {
+				runFailed = true
 			}
 			if err := writer.WriteEvent(ctx, item); err != nil {
 				streamErr = err
+				return false
+			}
+			// Stop processing after RUN_ERROR — no further events should be sent.
+			if item.Type == "RUN_ERROR" {
 				return false
 			}
 		}
@@ -280,6 +300,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	if streamErr != nil {
 		_ = writer.WriteError(ctx, "runner_error", "assistant run failed")
+		return
+	}
+
+	// Do not persist assistant message if the run failed.
+	if runFailed {
 		return
 	}
 

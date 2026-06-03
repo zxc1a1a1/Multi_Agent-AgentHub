@@ -8,6 +8,10 @@ type Event struct {
 	Author    string
 	Content   *Content
 	Actions   *EventActions
+	// Metadata carries optional key-value pairs used by upper layers
+	// (e.g., Gateway/Translator) to propagate event-type, runId, messageId,
+	// taskId, and sender without changing the core Event contract.
+	Metadata  map[string]any
 	Partial   bool
 	Final     bool
 	Timestamp time.Time

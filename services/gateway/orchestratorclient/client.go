@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 )
 
@@ -67,7 +68,8 @@ func NewOrchestratorRunService(baseURL, internalToken string, opts ...Option) (*
 
 // Run executes a run by posting an OrchestratorRequest to the remote
 // Orchestrator stream endpoint and converting each SSE OrchestratorStreamEvent
-// to an adk.Event.
+// to an adk.Event with metadata carrying runId, messageId, taskId, sender,
+// and event type for the AG-UI translator.
 func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string, userContent *adk.Content) iter.Seq2[adk.Event, error] {
 	return func(yield func(adk.Event, error) bool) {
 		if s == nil {
@@ -136,6 +138,7 @@ type orchestratorStreamEvent struct {
 	Type      string         `json:"type"`
 	RunID     string         `json:"runId"`
 	MessageID string         `json:"messageId,omitempty"`
+	TaskID    string         `json:"taskId,omitempty"`
 	Sender    *eventSender   `json:"sender,omitempty"`
 	Delta     string         `json:"delta,omitempty"`
 	State     map[string]any `json:"state,omitempty"`
@@ -152,16 +155,16 @@ type safeError struct {
 	Message string `json:"message"`
 }
 
+// parseSSEStream reads the SSE stream from the Orchestrator and yields adk.Event
+// values with Metadata carrying event type, runId, messageId, taskId, and sender.
 func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 	scanner := bufio.NewScanner(body)
-	currentAuthor := "orchestrator"
-	var currentType string
 
 	for scanner.Scan() {
 		line := scanner.Text()
 
 		if strings.HasPrefix(line, "event: ") {
-			currentType = strings.TrimPrefix(line, "event: ")
+			// event line — type is carried in data JSON payload, skip
 			continue
 		}
 
@@ -170,60 +173,102 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 		}
 
 		data := strings.TrimPrefix(line, "data: ")
-		var event orchestratorStreamEvent
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
+		var ose orchestratorStreamEvent
+		if err := json.Unmarshal([]byte(data), &ose); err != nil {
 			return fmt.Errorf("parse orchestrator event: %w", err)
 		}
 
-		// Error events become yield errors
-		if event.Type == "run_error" {
-			errMsg := "orchestrator run error"
-			if event.Error != nil {
-				errMsg = event.Error.Message
-			}
-			_ = yield(adk.Event{}, errors.New(errMsg))
-			return nil
+		// Build metadata for AG-UI translator
+		meta := map[string]any{
+			agui.MetaEventType: ose.Type,
+			agui.MetaRunID:     ose.RunID,
+		}
+		if ose.MessageID != "" {
+			meta[agui.MetaMessageID] = ose.MessageID
+		}
+		if ose.TaskID != "" {
+			meta[agui.MetaTaskID] = ose.TaskID
+		}
+		if ose.Sender != nil {
+			meta[agui.MetaSenderType] = ose.Sender.Type
+			meta[agui.MetaSenderName] = ose.Sender.Name
 		}
 
-		if event.Sender != nil && event.Sender.Name != "" {
-			currentAuthor = event.Sender.Name
+		// Derive Author for backward compatibility
+		author := "orchestrator"
+		if ose.Sender != nil && ose.Sender.Name != "" {
+			author = ose.Sender.Name
 		}
 
-		switch event.Type {
-		case "run_started", "state_update":
+		switch ose.Type {
+		case "run_started":
 			adkEvent := adk.Event{
-				Author: currentAuthor,
+				Author:   author,
+				Metadata: meta,
 			}
-			if event.State != nil {
+			if ose.State != nil {
 				adkEvent.Actions = &adk.EventActions{
-					StateDelta: event.State,
+					StateDelta: ose.State,
 				}
 			}
 			if !yield(adkEvent, nil) {
 				return nil
 			}
 
-		case "message_start":
-			// Emit a state event for message start
-			if !yield(adk.Event{
-				Author: currentAuthor,
-				Actions: &adk.EventActions{
+		case "run_finished":
+			adkEvent := adk.Event{
+				Author:   author,
+				Metadata: meta,
+				Final:    true,
+			}
+			if ose.State != nil {
+				adkEvent.Actions = &adk.EventActions{
+					StateDelta: ose.State,
+				}
+			}
+			if !yield(adkEvent, nil) {
+				return nil
+			}
+
+		case "run_error":
+			// run_error becomes an adk.Event with metadata so the translator
+			// can produce a proper RUN_ERROR AG-UI event. The Gateway handler
+			// stops processing after this event by checking for RUN_ERROR type.
+			adkEvent := adk.Event{
+				Author:   author,
+				Metadata: meta,
+				Final:    true,
+			}
+			if ose.Error != nil {
+				adkEvent.Actions = &adk.EventActions{
 					StateDelta: map[string]any{
-						"messageId": event.MessageID,
-						"status":    "message_started",
+						"code":    ose.Error.Code,
+						"message": ose.Error.Message,
 					},
-				},
+				}
+			}
+			if !yield(adkEvent, nil) {
+				return nil
+			}
+			// Don't continue processing after run_error
+			return nil
+
+		case "message_start":
+			if !yield(adk.Event{
+				Author:   author,
+				Metadata: meta,
 			}, nil) {
 				return nil
 			}
 
 		case "message_delta":
 			if !yield(adk.Event{
-				Author: currentAuthor,
+				Author:   author,
+				Metadata: meta,
 				Content: &adk.Content{
 					Role: adk.RoleAssistant,
 					Parts: []adk.Part{
-						adk.TextPart{Text: event.Delta},
+						adk.TextPart{Text: ose.Delta},
 					},
 				},
 				Partial: true,
@@ -233,7 +278,8 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 
 		case "message_end":
 			if !yield(adk.Event{
-				Author: currentAuthor,
+				Author:   author,
+				Metadata: meta,
 				Content: &adk.Content{
 					Role: adk.RoleAssistant,
 					Parts: []adk.Part{
@@ -245,20 +291,29 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "run_finished":
-			state := event.State
-			if state == nil {
-				state = map[string]any{"status": "completed"}
+		case "state_update":
+			adkEvent := adk.Event{
+				Author:   author,
+				Metadata: meta,
 			}
+			if ose.State != nil {
+				adkEvent.Actions = &adk.EventActions{
+					StateDelta: ose.State,
+				}
+			}
+			if !yield(adkEvent, nil) {
+				return nil
+			}
+
+		default:
+			// Unknown event types: pass through with metadata for legacy handling
 			if !yield(adk.Event{
-				Author:  currentAuthor,
-				Actions: &adk.EventActions{StateDelta: state},
-				Final:   true,
+				Author:   author,
+				Metadata: meta,
 			}, nil) {
 				return nil
 			}
 		}
-		_ = currentType // suppress unused
 	}
 
 	if err := scanner.Err(); err != nil {
