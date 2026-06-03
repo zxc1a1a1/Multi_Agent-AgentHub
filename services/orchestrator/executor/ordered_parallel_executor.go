@@ -191,7 +191,7 @@ func (e *OrderedParallelExecutor) executeOneTask(ctx context.Context, p *plan.Or
 			TaskID: task.TaskID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_AGENT_FAILED",
-				Message: "Agent execution failed for " + agentName,
+				Message: "Agent dispatch failed for " + agentName + ": " + sanitizeAgentError(err.Error()),
 			},
 		})
 		return events, nil, err

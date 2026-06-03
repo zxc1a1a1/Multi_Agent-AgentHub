@@ -105,7 +105,7 @@ func (e *SingleExecutor) Execute(ctx context.Context, p *plan.OrchestrationPlan,
 			RunID: p.RunID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_AGENT_FAILED",
-				Message: "Agent execution failed",
+				Message: "Agent dispatch failed: " + sanitizeAgentError(err.Error()),
 			},
 		})
 		return events, nil

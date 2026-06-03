@@ -99,7 +99,7 @@ func (r *Runner) Run(ctx context.Context, sessionID string, userContent *Content
 			return
 		}
 
-		sess, err := r.session.Get(ctx, sessionID)
+		sess, err := r.session.GetOrCreate(ctx, sessionID)
 		if err != nil {
 			yield(Event{}, err)
 			return

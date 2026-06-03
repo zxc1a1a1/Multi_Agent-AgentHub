@@ -139,6 +139,32 @@ func TestCodeAgentA2AServer_MissingSessionID(t *testing.T) {
 	}
 }
 
+func TestCodeAgentA2AServer_SessionAutoCreate(t *testing.T) {
+	// Verify that a JSON-RPC request with a brand-new session ID succeeds
+	// without pre-creating the session (GetOrCreate auto-creates).
+	handler, _, err := NewHandler(ServerConfig{URL: "http://code-agent.test"})
+	if err != nil {
+		t.Fatalf("new handler failed: %v", err)
+	}
+
+	body := `{"jsonrpc":"2.0","id":"req-1","method":"tasks/sendSubscribe","params":{"sessionId":"new-session-code-001","message":{"role":"user","content":"hello"}}}`
+	rec := doJSONRequest(t, handler, http.MethodPost, "/a2a/tasks/sendSubscribe", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected session auto-create to succeed, got=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response a2a.RunResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode run response failed: %v", err)
+	}
+	if response.Status != "completed" {
+		t.Fatalf("expected completed status after session auto-create, got=%q", response.Status)
+	}
+	if !hasPartType(response.Events, "text") {
+		t.Fatalf("expected text part in response: %+v", response.Events)
+	}
+}
+
 func TestCodeAgentA2AServer_DoesNotExposeThinking(t *testing.T) {
 	handler, session, err := NewHandler(ServerConfig{URL: "http://code-agent.test"})
 	if err != nil {

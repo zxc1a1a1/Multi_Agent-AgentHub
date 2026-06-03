@@ -67,6 +67,7 @@ func (s *SessionState) All() map[string]any {
 type SessionService interface {
 	Create(ctx context.Context, userID string, initialState map[string]any) (*Session, error)
 	Get(ctx context.Context, id string) (*Session, error)
+	GetOrCreate(ctx context.Context, id string) (*Session, error)
 	AppendEvent(ctx context.Context, sessionID string, event Event) error
 	UpdateState(ctx context.Context, sessionID string, delta map[string]any) error
 	List(ctx context.Context, userID string) ([]*Session, error)

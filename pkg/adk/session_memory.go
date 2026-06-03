@@ -29,6 +29,32 @@ func NewMemorySessionService() SessionService {
 	}
 }
 
+func (s *MemorySessionService) GetOrCreate(ctx context.Context, id string) (*Session, error) {
+	session, err := s.Get(ctx, id)
+	if err == nil {
+		return session, nil
+	}
+	if !errors.Is(err, errMemorySessionNotFound) {
+		return nil, err
+	}
+
+	now := time.Now()
+	session = &Session{
+		ID:        id,
+		UserID:    id,
+		Events:    make([]Event, 0),
+		State:     NewSessionState(nil),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	s.mu.Lock()
+	s.sessions[id] = session
+	s.mu.Unlock()
+
+	return cloneSession(session), nil
+}
+
 func (s *MemorySessionService) Create(ctx context.Context, userID string, initialState map[string]any) (*Session, error) {
 	now := time.Now()
 	session := &Session{

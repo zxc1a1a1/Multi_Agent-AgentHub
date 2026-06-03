@@ -179,15 +179,19 @@ func TestIntegration_ErrorRoundTrip(t *testing.T) {
 	defer httpServer.Close()
 
 	client := NewClient()
-	_, err := client.Send(context.Background(), httpServer.URL, RunRequest{
+	// Session auto-create: unknown session ID should succeed, not error.
+	resp, err := client.Send(context.Background(), httpServer.URL, RunRequest{
 		SessionID: "missing-session-id",
 		Message: Message{
 			Role:    "user",
 			Content: "hello",
 		},
 	})
-	if err == nil {
-		t.Fatal("expected error when session does not exist")
+	if err != nil {
+		t.Fatalf("expected session auto-create to succeed, got: %v", err)
+	}
+	if resp == nil || resp.Status == "" {
+		t.Fatal("expected non-empty response after session auto-create")
 	}
 
 	_, err = client.Send(context.Background(), httpServer.URL, RunRequest{

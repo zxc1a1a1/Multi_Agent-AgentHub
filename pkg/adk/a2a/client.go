@@ -255,9 +255,6 @@ func sanitizeRemoteErrorMessage(message string) string {
 	if strings.Contains(lower, "panic") || strings.Contains(lower, "stack") || strings.Contains(lower, "traceback") {
 		return "internal error"
 	}
-	if strings.Contains(raw, "\\") || strings.Contains(raw, "/") {
-		return "internal error"
-	}
 
 	if len(raw) > 180 {
 		return "internal error"

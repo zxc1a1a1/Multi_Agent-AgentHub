@@ -5,6 +5,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
@@ -46,4 +47,15 @@ type ExecutionEvent struct {
 type ExecutionError struct {
 	Code    string
 	Message string
+}
+
+// sanitizeAgentError applies a final length cap to dispatch error messages
+// before they are included in user-facing execution events. The A2A client
+// already sanitizes sensitive content; this is a defence-in-depth cap.
+func sanitizeAgentError(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 200 {
+		s = s[:197] + "..."
+	}
+	return s
 }
