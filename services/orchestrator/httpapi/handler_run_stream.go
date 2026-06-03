@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/executor"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/validator"
@@ -39,6 +39,7 @@ type OrchestratorStreamEvent struct {
 	Type      string         `json:"type"`
 	RunID     string         `json:"runId"`
 	MessageID string         `json:"messageId,omitempty"`
+	TaskID    string         `json:"taskId,omitempty"`
 	Sender    *EventSender   `json:"sender,omitempty"`
 	Delta     string         `json:"delta,omitempty"`
 	State     map[string]any `json:"state,omitempty"`
@@ -156,7 +157,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	// Emit run_started with plan metadata and validation status.
 	planState := map[string]any{
-		"phase":     "dispatching",
+		"phase":     "executing",
 		"planId":    orchPlan.PlanID,
 		"validated": orchPlan.Validation.Validated,
 	}
@@ -168,7 +169,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	switch orchPlan.Strategy {
 	case plan.StrategySingle:
-		s.executeSingleAgent(w, flusher, r, runID, msgID, convID, userText, orchPlan)
+		s.executeViaExecutor(w, flusher, r, orchPlan, msgID)
 	case plan.StrategyOrderedParallel:
 		s.emitEvent(w, flusher, OrchestratorStreamEvent{
 			Type:  "run_error",
@@ -190,80 +191,44 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// executeSingleAgent dispatches the single-task plan to the target agent and
-// streams the response as SSE events.
-func (s *Server) executeSingleAgent(w http.ResponseWriter, flusher http.Flusher, r *http.Request, runID, msgID, convID, userText string, orchPlan *plan.OrchestrationPlan) {
-	targetName := orchPlan.Tasks[0].AgentName
+// executeViaExecutor creates a SingleExecutor and delegates execution to it,
+// then converts executor events into SSE events.
+func (s *Server) executeViaExecutor(w http.ResponseWriter, flusher http.Flusher, r *http.Request, orchPlan *plan.OrchestrationPlan, msgID string) {
+	exec := executor.NewSingleExecutor(s.registry, s.dispatcher)
 
-	// Resolve agent URL from registry.
-	endpoint, ok := s.registry.Get(targetName)
-	if !ok {
-		s.emitEvent(w, flusher, OrchestratorStreamEvent{
-			Type:  "run_error",
-			RunID: runID,
-			Error: &SafeError{
-				Code:    "ORCHESTRATOR_AGENT_UNAVAILABLE",
-				Message: "Requested agent is not available: " + sanitizeForError(targetName),
-			},
-		})
-		return
-	}
-
-	// Emit message_start.
-	s.emitEvent(w, flusher, OrchestratorStreamEvent{
-		Type:      "message_start",
-		RunID:     runID,
-		MessageID: msgID,
-		Sender:    &EventSender{Type: "agent", Name: targetName},
-	})
-
-	// Dispatch to the remote agent via A2A.
-	input := dispatcher.DispatchInput{
-		AgentURL:       endpoint.URL,
-		AgentName:      targetName,
-		ConversationID: convID,
-		RunID:          runID,
-		Message:        userText,
-	}
-
-	result, err := s.dispatcher.Dispatch(r.Context(), input)
+	execEvents, err := exec.Execute(r.Context(), orchPlan, msgID)
 	if err != nil {
 		s.emitEvent(w, flusher, OrchestratorStreamEvent{
 			Type:  "run_error",
-			RunID: runID,
+			RunID: orchPlan.RunID,
 			Error: &SafeError{
-				Code:    "ORCHESTRATOR_AGENT_FAILED",
-				Message: "Agent execution failed",
+				Code:    "ORCHESTRATOR_EXECUTOR_FAILED",
+				Message: "Executor failed: " + sanitizeForError(err.Error()),
 			},
 		})
 		return
 	}
 
-	// Emit message_delta with the response text.
-	if result != nil && result.Text != "" {
-		s.emitEvent(w, flusher, OrchestratorStreamEvent{
-			Type:      "message_delta",
-			RunID:     runID,
-			MessageID: msgID,
-			Sender:    &EventSender{Type: "agent", Name: targetName},
-			Delta:     result.Text,
-		})
+	for _, evt := range execEvents {
+		sse := OrchestratorStreamEvent{
+			Type:      evt.Type,
+			RunID:     evt.RunID,
+			MessageID: evt.MessageID,
+			TaskID:    evt.TaskID,
+			Delta:     evt.Delta,
+			State:     evt.State,
+		}
+		if evt.AgentName != "" {
+			sse.Sender = &EventSender{Type: "agent", Name: evt.AgentName}
+		}
+		if evt.Error != nil {
+			sse.Error = &SafeError{
+				Code:    evt.Error.Code,
+				Message: evt.Error.Message,
+			}
+		}
+		s.emitEvent(w, flusher, sse)
 	}
-
-	// Emit message_end.
-	s.emitEvent(w, flusher, OrchestratorStreamEvent{
-		Type:      "message_end",
-		RunID:     runID,
-		MessageID: msgID,
-		Sender:    &EventSender{Type: "agent", Name: targetName},
-	})
-
-	// Emit run_finished.
-	s.emitEvent(w, flusher, OrchestratorStreamEvent{
-		Type:  "run_finished",
-		RunID: runID,
-		State: map[string]any{"status": "completed"},
-	})
 }
 
 func (s *Server) checkServiceAuth(r *http.Request) bool {

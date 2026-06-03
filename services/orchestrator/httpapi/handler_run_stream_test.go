@@ -302,7 +302,7 @@ func TestRunStreamWithMockAgent(t *testing.T) {
 	if events[0].State == nil {
 		t.Error("expected state in run_started")
 	} else {
-		if events[0].State["phase"] != "dispatching" {
+		if events[0].State["phase"] != "executing" {
 			t.Errorf("expected phase=dispatching, got %v", events[0].State["phase"])
 		}
 		if events[0].State["planId"] == nil || events[0].State["planId"] == "" {
