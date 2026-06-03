@@ -62,16 +62,20 @@ func run() error {
 	// Build static agent registry from env-configured agent URLs.
 	agentRegistry, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{
 		{
-			Name:        "code-agent",
-			URL:         codeAgentURL,
-			Description: "Generates and explains code",
-			OutputModes: []string{"text", "code", "artifact_ref"},
+			Name:          "code-agent",
+			URL:           codeAgentURL,
+			Description:   "Generates and explains code",
+			OutputModes:   []string{"text", "code", "artifact_ref"},
+			CapabilityIDs: []string{"code_generation"},
+			OutputTypes:   []string{"code", "text"},
 		},
 		{
-			Name:        "web-agent",
-			URL:         webAgentURL,
-			Description: "Generates webpages and HTML previews",
-			OutputModes: []string{"text", "webpage", "html", "artifact_ref"},
+			Name:          "web-agent",
+			URL:           webAgentURL,
+			Description:   "Generates webpages and HTML previews",
+			OutputModes:   []string{"text", "webpage", "html", "artifact_ref"},
+			CapabilityIDs: []string{"web_generation"},
+			OutputTypes:   []string{"webpage", "html", "text", "markdown"},
 		},
 	})
 	if err != nil {

@@ -1,9 +1,11 @@
 package validator
 
 import (
+	"context"
 	"testing"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 )
 
@@ -422,5 +424,121 @@ func TestValidateWebAgentOutputTypes(t *testing.T) {
 		for _, e := range result.Errors {
 			t.Logf("  unexpected error: %s: %s", e.Field, e.Message)
 		}
+	}
+}
+
+// productionRegistry mirrors the metadata that orchestrator main.go initializes
+// at startup for code-agent and web-agent.
+func productionRegistry() *stubRegistry {
+	return &stubRegistry{
+		agents: map[string]registry.AgentEndpoint{
+			"code-agent": {
+				Name:          "code-agent",
+				URL:           "http://127.0.0.1:8081",
+				CapabilityIDs: []string{"code_generation"},
+				OutputTypes:   []string{"code", "text"},
+			},
+			"web-agent": {
+				Name:          "web-agent",
+				URL:           "http://127.0.0.1:8082",
+				CapabilityIDs: []string{"web_generation"},
+				OutputTypes:   []string{"webpage", "html", "text", "markdown"},
+			},
+		},
+	}
+}
+
+func TestValidateProductionMetadataSingleCode(t *testing.T) {
+	reg := productionRegistry()
+	v := New(reg)
+
+	rp := planner.NewRulePlanner(reg.Names())
+	orchPlan, err := rp.Plan(context.Background(), planner.PlannerInput{
+		RunID:          "run_prod_code",
+		ConversationID: "conv_prod_code",
+		AgentName:      "code-agent",
+		UserMessage:    "用 Go 写一个 HTTP API 接口",
+		AvailableAgents: reg.Names(),
+	})
+	if err != nil {
+		t.Fatalf("RulePlanner failed: %v", err)
+	}
+
+	result := v.Validate(orchPlan)
+	if !result.Valid {
+		t.Error("expected production metadata to validate single code plan")
+		for _, e := range result.Errors {
+			t.Logf("  unexpected error: %s: %s", e.Field, e.Message)
+		}
+	}
+}
+
+func TestValidateProductionMetadataSingleWeb(t *testing.T) {
+	reg := productionRegistry()
+	v := New(reg)
+
+	rp := planner.NewRulePlanner(reg.Names())
+	orchPlan, err := rp.Plan(context.Background(), planner.PlannerInput{
+		RunID:          "run_prod_web",
+		ConversationID: "conv_prod_web",
+		AgentName:      "web-agent",
+		UserMessage:    "写一个 HTML 登录页面",
+		AvailableAgents: reg.Names(),
+	})
+	if err != nil {
+		t.Fatalf("RulePlanner failed: %v", err)
+	}
+
+	result := v.Validate(orchPlan)
+	if !result.Valid {
+		t.Error("expected production metadata to validate single web plan")
+		for _, e := range result.Errors {
+			t.Logf("  unexpected error: %s: %s", e.Field, e.Message)
+		}
+	}
+}
+
+func TestValidateProductionMetadataMixedOrderedParallel(t *testing.T) {
+	reg := productionRegistry()
+	v := New(reg)
+
+	rp := planner.NewRulePlanner(reg.Names())
+	orchPlan, err := rp.Plan(context.Background(), planner.PlannerInput{
+		RunID:          "run_prod_mixed",
+		ConversationID: "conv_prod_mixed",
+		UserMessage:    "写一个 HTML 登录页面，并实现 Go API 接口",
+		AvailableAgents: reg.Names(),
+	})
+	if err != nil {
+		t.Fatalf("RulePlanner failed: %v", err)
+	}
+
+	result := v.Validate(orchPlan)
+	if !result.Valid {
+		t.Error("expected production metadata to validate mixed ordered_parallel plan")
+		for _, e := range result.Errors {
+			t.Logf("  unexpected error: %s: %s", e.Field, e.Message)
+		}
+	}
+
+	// Cross-check: the plan must be ordered_parallel with both agents.
+	if orchPlan.Strategy != plan.StrategyOrderedParallel {
+		t.Errorf("expected StrategyOrderedParallel, got %q", orchPlan.Strategy)
+	}
+	if len(orchPlan.Tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(orchPlan.Tasks))
+	}
+	hasWeb := false
+	hasCode := false
+	for _, task := range orchPlan.Tasks {
+		if task.AgentName == "web-agent" {
+			hasWeb = true
+		}
+		if task.AgentName == "code-agent" {
+			hasCode = true
+		}
+	}
+	if !hasWeb || !hasCode {
+		t.Errorf("expected both web-agent and code-agent tasks, got %+v", orchPlan.Tasks)
 	}
 }
