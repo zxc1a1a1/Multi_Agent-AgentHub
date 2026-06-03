@@ -324,10 +324,53 @@ func TestRunStreamWithMockAgent(t *testing.T) {
 	}
 }
 
-func TestRunStreamOrderedParallelNotImplemented(t *testing.T) {
-	// Mixed keywords should produce an ordered_parallel plan.
-	// Phase 4 handler must return a safe NOT_IMPLEMENTED event and not dispatch.
-	srv := newTestServer()
+func TestRunStreamOrderedParallelWithMockAgents(t *testing.T) {
+	// Phase 7: mixed keywords produce ordered_parallel plan that executes
+	// web-agent and code-agent serially, then emits orchestrator summary.
+	mockWeb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "completed",
+			"events": []map[string]any{
+				{
+					"author": "web-agent",
+					"role":   "assistant",
+					"parts":  []map[string]any{{"type": "text", "text": "<html>login page</html>"}},
+				},
+			},
+		})
+	}))
+	defer mockWeb.Close()
+
+	mockCode := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "completed",
+			"events": []map[string]any{
+				{
+					"author": "code-agent",
+					"role":   "assistant",
+					"parts":  []map[string]any{{"type": "text", "text": "package main\nfunc main() {}"}},
+				},
+			},
+		})
+	}))
+	defer mockCode.Close()
+
+	reg, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{
+		{Name: "code-agent", URL: mockCode.URL, Description: "code",
+			CapabilityIDs: []string{"code_generation"}, OutputTypes: []string{"code", "text"}},
+		{Name: "web-agent", URL: mockWeb.URL, Description: "web",
+			CapabilityIDs: []string{"web_generation"}, OutputTypes: []string{"webpage", "html", "text", "markdown"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := NewServer(
+		WithRegistry(reg),
+		WithDispatcher(dispatcher.NewA2ADispatcher()),
+	)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -356,20 +399,112 @@ func TestRunStreamOrderedParallelNotImplemented(t *testing.T) {
 		}
 	}
 
-	if len(events) < 2 {
-		t.Fatalf("expected at least 2 events (run_started + run_error), got %d", len(events))
+	if len(events) < 10 {
+		t.Fatalf("expected at least 10 events, got %d", len(events))
 	}
+
+	// 1. run_started
 	if events[0].Type != "run_started" {
-		t.Errorf("expected run_started, got %q", events[0].Type)
+		t.Errorf("event[0]: expected run_started, got %q", events[0].Type)
 	}
 	if events[0].State == nil || events[0].State["planId"] == nil || events[0].State["planId"] == "" {
 		t.Error("expected planId in run_started state")
 	}
-	if events[1].Type != "run_error" {
-		t.Errorf("expected run_error, got %q", events[1].Type)
+	if events[0].RunID != "run_op_001" {
+		t.Errorf("expected runId=run_op_001, got %q", events[0].RunID)
 	}
-	if events[1].Error == nil || events[1].Error.Code != "ORCHESTRATOR_NOT_IMPLEMENTED" {
-		t.Errorf("expected ORCHESTRATOR_NOT_IMPLEMENTED, got %+v", events[1].Error)
+
+	// 2-4: web-agent task (priority 1)
+	if events[1].Type != "message_start" {
+		t.Errorf("event[1]: expected message_start, got %q", events[1].Type)
+	}
+	if events[1].Sender == nil || events[1].Sender.Name != "web-agent" {
+		t.Errorf("event[1]: expected sender=web-agent, got %+v", events[1].Sender)
+	}
+	if events[1].TaskID == "" {
+		t.Error("event[1]: expected taskId")
+	}
+
+	if events[2].Type != "message_delta" {
+		t.Errorf("event[2]: expected message_delta, got %q", events[2].Type)
+	}
+	if events[2].Sender == nil || events[2].Sender.Name != "web-agent" {
+		t.Errorf("event[2]: expected sender=web-agent, got %+v", events[2].Sender)
+	}
+	if events[2].Delta == "" {
+		t.Error("event[2]: expected non-empty delta")
+	}
+
+	if events[3].Type != "message_end" {
+		t.Errorf("event[3]: expected message_end, got %q", events[3].Type)
+	}
+	if events[3].Sender == nil || events[3].Sender.Name != "web-agent" {
+		t.Errorf("event[3]: expected sender=web-agent, got %+v", events[3].Sender)
+	}
+
+	// 5-7: code-agent task (priority 2)
+	if events[4].Type != "message_start" {
+		t.Errorf("event[4]: expected message_start, got %q", events[4].Type)
+	}
+	if events[4].Sender == nil || events[4].Sender.Name != "code-agent" {
+		t.Errorf("event[4]: expected sender=code-agent, got %+v", events[4].Sender)
+	}
+
+	if events[5].Type != "message_delta" {
+		t.Errorf("event[5]: expected message_delta, got %q", events[5].Type)
+	}
+	if events[5].Sender == nil || events[5].Sender.Name != "code-agent" {
+		t.Errorf("event[5]: expected sender=code-agent, got %+v", events[5].Sender)
+	}
+
+	if events[6].Type != "message_end" {
+		t.Errorf("event[6]: expected message_end, got %q", events[6].Type)
+	}
+	if events[6].Sender == nil || events[6].Sender.Name != "code-agent" {
+		t.Errorf("event[6]: expected sender=code-agent, got %+v", events[6].Sender)
+	}
+
+	// 8-10: orchestrator summary
+	if events[7].Type != "message_start" {
+		t.Errorf("event[7]: expected message_start, got %q", events[7].Type)
+	}
+	if events[7].Sender == nil || events[7].Sender.Name != "orchestrator" {
+		t.Errorf("event[7]: expected sender=orchestrator, got %+v", events[7].Sender)
+	}
+
+	if events[8].Type != "message_delta" {
+		t.Errorf("event[8]: expected message_delta, got %q", events[8].Type)
+	}
+	if events[8].Sender == nil || events[8].Sender.Name != "orchestrator" {
+		t.Errorf("event[8]: expected sender=orchestrator, got %+v", events[8].Sender)
+	}
+	if events[8].Delta == "" {
+		t.Error("event[8]: expected non-empty summary delta")
+	}
+
+	if events[9].Type != "message_end" {
+		t.Errorf("event[9]: expected message_end, got %q", events[9].Type)
+	}
+	if events[9].Sender == nil || events[9].Sender.Name != "orchestrator" {
+		t.Errorf("event[9]: expected sender=orchestrator, got %+v", events[9].Sender)
+	}
+
+	// run_finished
+	if events[10].Type != "run_finished" {
+		t.Errorf("event[10]: expected run_finished, got %q", events[10].Type)
+	}
+	if events[10].State == nil || events[10].State["status"] != "completed" {
+		t.Errorf("expected status=completed, got %v", events[10].State)
+	}
+
+	// Verify web-agent and code-agent have different senders (not merged).
+	if events[1].Sender.Name == events[4].Sender.Name {
+		t.Error("web-agent and code-agent must have different sender names")
+	}
+
+	// Verify taskIds differ.
+	if events[1].TaskID == events[4].TaskID {
+		t.Error("expected different taskIds for web-agent and code-agent")
 	}
 }
 

@@ -169,16 +169,9 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	switch orchPlan.Strategy {
 	case plan.StrategySingle:
-		s.executeViaExecutor(w, flusher, r, orchPlan, msgID)
+		s.executeViaExecutor(w, flusher, r, orchPlan, msgID, executor.NewSingleExecutor(s.registry, s.dispatcher))
 	case plan.StrategyOrderedParallel:
-		s.emitEvent(w, flusher, OrchestratorStreamEvent{
-			Type:  "run_error",
-			RunID: runID,
-			Error: &SafeError{
-				Code:    "ORCHESTRATOR_NOT_IMPLEMENTED",
-				Message: "ordered_parallel execution is not implemented until Phase 7",
-			},
-		})
+		s.executeViaExecutor(w, flusher, r, orchPlan, msgID, executor.NewOrderedParallelExecutor(s.registry, s.dispatcher))
 	default:
 		s.emitEvent(w, flusher, OrchestratorStreamEvent{
 			Type:  "run_error",
@@ -191,11 +184,9 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// executeViaExecutor creates a SingleExecutor and delegates execution to it,
-// then converts executor events into SSE events.
-func (s *Server) executeViaExecutor(w http.ResponseWriter, flusher http.Flusher, r *http.Request, orchPlan *plan.OrchestrationPlan, msgID string) {
-	exec := executor.NewSingleExecutor(s.registry, s.dispatcher)
-
+// executeViaExecutor delegates execution to the given Executor and converts
+// executor events into SSE events.
+func (s *Server) executeViaExecutor(w http.ResponseWriter, flusher http.Flusher, r *http.Request, orchPlan *plan.OrchestrationPlan, msgID string, exec executor.Executor) {
 	execEvents, err := exec.Execute(r.Context(), orchPlan, msgID)
 	if err != nil {
 		s.emitEvent(w, flusher, OrchestratorStreamEvent{
