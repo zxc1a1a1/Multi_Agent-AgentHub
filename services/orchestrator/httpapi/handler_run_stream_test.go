@@ -101,7 +101,10 @@ func TestRunStreamBadRequest(t *testing.T) {
 	}
 }
 
-func TestRunStreamUnknownAgent(t *testing.T) {
+func TestRunStreamUnknownAgentFallsBackToDefault(t *testing.T) {
+	// When an unknown agentName is sent, the RulePlanner ignores it and falls
+	// back to the default (code-agent). Since no real agent is listening the
+	// dispatch fails with ORCHESTRATOR_AGENT_FAILED.
 	srv := newTestServer()
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -138,18 +141,23 @@ func TestRunStreamUnknownAgent(t *testing.T) {
 		t.Errorf("expected run_started, got %q", events[0].Type)
 	}
 
-	// Should error out with agent unavailable.
+	// run_started must carry the planId.
+	if events[0].State == nil || events[0].State["planId"] == nil || events[0].State["planId"] == "" {
+		t.Error("expected planId in run_started state")
+	}
+
+	// Should fail because no real agent at the registry URL.
 	hasError := false
 	for _, e := range events {
 		if e.Type == "run_error" {
 			hasError = true
-			if e.Error == nil || e.Error.Code != "ORCHESTRATOR_AGENT_UNAVAILABLE" {
-				t.Errorf("expected ORCHESTRATOR_AGENT_UNAVAILABLE error, got %+v", e.Error)
+			if e.Error == nil || e.Error.Code != "ORCHESTRATOR_AGENT_FAILED" {
+				t.Errorf("expected ORCHESTRATOR_AGENT_FAILED, got %+v", e.Error)
 			}
 		}
 	}
 	if !hasError {
-		t.Error("expected run_error event for unknown agent")
+		t.Error("expected run_error event because dispatch fails")
 	}
 }
 
@@ -290,8 +298,13 @@ func TestRunStreamWithMockAgent(t *testing.T) {
 	}
 	if events[0].State == nil {
 		t.Error("expected state in run_started")
-	} else if events[0].State["phase"] != "dispatching" {
-		t.Errorf("expected phase=dispatching, got %v", events[0].State["phase"])
+	} else {
+		if events[0].State["phase"] != "dispatching" {
+			t.Errorf("expected phase=dispatching, got %v", events[0].State["phase"])
+		}
+		if events[0].State["planId"] == nil || events[0].State["planId"] == "" {
+			t.Error("expected planId in run_started state")
+		}
 	}
 
 	if events[2].Delta == "" {
@@ -305,6 +318,55 @@ func TestRunStreamWithMockAgent(t *testing.T) {
 		t.Error("expected sender in message events")
 	} else if events[2].Sender.Name != "code-agent" {
 		t.Errorf("expected sender name code-agent, got %q", events[2].Sender.Name)
+	}
+}
+
+func TestRunStreamOrderedParallelNotImplemented(t *testing.T) {
+	// Mixed keywords should produce an ordered_parallel plan.
+	// Phase 4 handler must return a safe NOT_IMPLEMENTED event and not dispatch.
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := strings.NewReader(`{"runId":"run_op_001","messages":[{"role":"user","text":"帮我做一个登录页面和 Go 登录接口"}]}`)
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/runs/stream", "application/json", body)
+	if err != nil {
+		t.Fatalf("POST run/stream failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	var events []OrchestratorStreamEvent
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+			var event OrchestratorStreamEvent
+			if err := json.Unmarshal([]byte(data), &event); err != nil {
+				t.Fatalf("unmarshal event: %v", err)
+			}
+			events = append(events, event)
+		}
+	}
+
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 events (run_started + run_error), got %d", len(events))
+	}
+	if events[0].Type != "run_started" {
+		t.Errorf("expected run_started, got %q", events[0].Type)
+	}
+	if events[0].State == nil || events[0].State["planId"] == nil || events[0].State["planId"] == "" {
+		t.Error("expected planId in run_started state")
+	}
+	if events[1].Type != "run_error" {
+		t.Errorf("expected run_error, got %q", events[1].Type)
+	}
+	if events[1].Error == nil || events[1].Error.Code != "ORCHESTRATOR_NOT_IMPLEMENTED" {
+		t.Errorf("expected ORCHESTRATOR_NOT_IMPLEMENTED, got %+v", events[1].Error)
 	}
 }
 

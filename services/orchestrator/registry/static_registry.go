@@ -65,6 +65,19 @@ func (r *StaticAgentRegistry) Get(name string) (AgentEndpoint, bool) {
 	return cloneAgentEndpoint(ep), true
 }
 
+// Names returns all registered agent names sorted alphabetically.
+func (r *StaticAgentRegistry) Names() []string {
+	if r == nil || len(r.agents) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(r.agents))
+	for name := range r.agents {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // List returns all endpoints sorted by Name.
 func (r *StaticAgentRegistry) List() []AgentEndpoint {
 	if r == nil || len(r.agents) == 0 {

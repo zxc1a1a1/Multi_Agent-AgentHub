@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 )
 
 // OrchestratorRequest is the Gateway→Orchestrator run request.
@@ -86,18 +88,46 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		convID = fmt.Sprintf("conv_%d", time.Now().UnixMilli())
 	}
 
-	// Select target agent: use agentName from request, default to code-agent.
-	targetName := strings.TrimSpace(req.AgentName)
-	if targetName == "" && len(req.SelectedAgentNames) > 0 {
-		targetName = strings.TrimSpace(req.SelectedAgentNames[0])
+	// Extract user text early — needed for planning.
+	userText := extractUserText(req.Messages)
+	if userText == "" {
+		s.writeSSEError(w, runID, "ORCHESTRATOR_BAD_REQUEST", "Message content is required")
+		return
 	}
-	if targetName == "" {
-		targetName = "code-agent"
+
+	// Build PlannerInput and generate an OrchestrationPlan via RulePlanner.
+	availableAgentNames := s.registry.Names()
+	plannerInput := planner.PlannerInput{
+		RunID:              runID,
+		ConversationID:     convID,
+		ConversationType:   req.ConversationType,
+		UserMessage:        userText,
+		AgentName:          req.AgentName,
+		SelectedAgentNames: req.SelectedAgentNames,
+		Mentions:           req.Mentions,
+		PlanningMode:       req.PlanningMode,
+		TraceID:            req.TraceID,
+		AvailableAgents:    availableAgentNames,
+	}
+
+	rulePlanner := planner.NewRulePlanner(availableAgentNames)
+	orchPlan, err := rulePlanner.Plan(r.Context(), plannerInput)
+	if err != nil {
+		s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED", "Failed to generate orchestration plan")
+		return
+	}
+	if orchPlan == nil {
+		s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED", "Orchestration plan is nil")
+		return
+	}
+	if orchPlan.Strategy == plan.StrategySingle && len(orchPlan.Tasks) == 0 {
+		s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED", "Orchestration plan has no tasks")
+		return
 	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErrorEvent(w, runID, "ORCHESTRATOR_INTERNAL", "streaming unsupported")
+		s.writeSSEError(w, runID, "ORCHESTRATOR_INTERNAL", "streaming unsupported")
 		return
 	}
 
@@ -108,12 +138,45 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	msgID := fmt.Sprintf("msg_%d", time.Now().UnixMilli())
 
-	// Emit run_started.
+	// Emit run_started with plan metadata.
+	planState := map[string]any{
+		"phase":  "dispatching",
+		"planId": orchPlan.PlanID,
+	}
 	s.emitEvent(w, flusher, OrchestratorStreamEvent{
 		Type:  "run_started",
 		RunID: runID,
-		State: map[string]any{"phase": "dispatching"},
+		State: planState,
 	})
+
+	switch orchPlan.Strategy {
+	case plan.StrategySingle:
+		s.executeSingleAgent(w, flusher, r, runID, msgID, convID, userText, orchPlan)
+	case plan.StrategyOrderedParallel:
+		s.emitEvent(w, flusher, OrchestratorStreamEvent{
+			Type:  "run_error",
+			RunID: runID,
+			Error: &SafeError{
+				Code:    "ORCHESTRATOR_NOT_IMPLEMENTED",
+				Message: "ordered_parallel execution is not implemented until Phase 7",
+			},
+		})
+	default:
+		s.emitEvent(w, flusher, OrchestratorStreamEvent{
+			Type:  "run_error",
+			RunID: runID,
+			Error: &SafeError{
+				Code:    "ORCHESTRATOR_NOT_IMPLEMENTED",
+				Message: "unknown strategy: " + sanitizeForError(orchPlan.Strategy),
+			},
+		})
+	}
+}
+
+// executeSingleAgent dispatches the single-task plan to the target agent and
+// streams the response as SSE events.
+func (s *Server) executeSingleAgent(w http.ResponseWriter, flusher http.Flusher, r *http.Request, runID, msgID, convID, userText string, orchPlan *plan.OrchestrationPlan) {
+	targetName := orchPlan.Tasks[0].AgentName
 
 	// Resolve agent URL from registry.
 	endpoint, ok := s.registry.Get(targetName)
@@ -124,20 +187,6 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 			Error: &SafeError{
 				Code:    "ORCHESTRATOR_AGENT_UNAVAILABLE",
 				Message: "Requested agent is not available: " + sanitizeForError(targetName),
-			},
-		})
-		return
-	}
-
-	// Extract user text from messages.
-	userText := extractUserText(req.Messages)
-	if userText == "" {
-		s.emitEvent(w, flusher, OrchestratorStreamEvent{
-			Type:  "run_error",
-			RunID: runID,
-			Error: &SafeError{
-				Code:    "ORCHESTRATOR_BAD_REQUEST",
-				Message: "Message content is required",
 			},
 		})
 		return
@@ -219,6 +268,19 @@ func (s *Server) emitEvent(w http.ResponseWriter, flusher http.Flusher, event Or
 	fmt.Fprintf(w, "event: %s\n", event.Type)
 	fmt.Fprintf(w, "data: %s\n\n", payload)
 	flusher.Flush()
+}
+
+// writeSSEError writes a run_error SSE event without requiring a flusher.
+func (s *Server) writeSSEError(w http.ResponseWriter, runID, code, message string) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	payload, _ := json.Marshal(OrchestratorStreamEvent{
+		Type:  "run_error",
+		RunID: runID,
+		Error: &SafeError{Code: code, Message: message},
+	})
+	fmt.Fprintf(w, "event: run_error\ndata: %s\n\n", payload)
 }
 
 func extractUserText(messages []MessageInput) string {
