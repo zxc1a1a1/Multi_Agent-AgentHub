@@ -56,6 +56,39 @@ jobs:
           sleep 10
           docker compose -f docker-compose.new-arch.yml ps
 
+      - name: Debug raw gateway responses
+        run: |
+          echo "## gateway health"
+          curl -i http://localhost:8080/health || true
+
+          echo
+          echo "## single code raw response"
+          curl -i -N \
+            -H "Content-Type: application/json" \
+            -X POST http://localhost:8080/api/chat \
+            -d '{"runId":"smoke_code","conversationId":"smoke_conv_code","messages":[{"role":"user","text":"用 Go 写一个 HTTP API 接口"}]}' \
+            | tee /tmp/smoke-code.out
+
+          echo
+          echo "## single web raw response"
+          curl -i -N \
+            -H "Content-Type: application/json" \
+            -X POST http://localhost:8080/api/chat \
+            -d '{"runId":"smoke_web","conversationId":"smoke_conv_web","messages":[{"role":"user","text":"写一个 HTML 登录页面"}]}' \
+            | tee /tmp/smoke-web.out
+
+          echo
+          echo "## mixed raw response"
+          curl -i -N \
+            -H "Content-Type: application/json" \
+            -X POST http://localhost:8080/api/chat \
+            -d '{"runId":"smoke_mixed","conversationId":"smoke_conv_mixed","messages":[{"role":"user","text":"写一个 HTML 登录页面，并实现 Go API 接口"}]}' \
+            | tee /tmp/smoke-mixed.out
+
+          echo
+          echo "## useful markers"
+          grep -E "HTTP/|data:|event:|run_error|error|code-agent|web-agent|orchestrator|sender|author|AGENT|DISPATCH|PLAN|TOKEN|unauthorized|forbidden" /tmp/smoke-*.out || true
+
       - name: Run smoke test
         run: |
           chmod +x ./smoke-new-arch.sh
