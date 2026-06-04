@@ -312,4 +312,171 @@ describe('multi-agent mixed ordered_parallel', () => {
     expect(lastAgentMsg.content).not.toContain('stack')
     expect(lastAgentMsg.content).not.toContain('token')
   })
+
+  it('propagates sender object fields to agent message', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-sender', 'test sender')
+
+    emit('conv-sender', {
+      type: 'TEXT_MESSAGE_START',
+      messageId: 'msg-sender',
+      sender: { type: 'agent', name: 'web-agent', displayName: 'Web Agent' },
+    })
+    emit('conv-sender', {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: 'msg-sender',
+      delta: 'agent content',
+      sender: { type: 'agent', name: 'web-agent' },
+    })
+    emit('conv-sender', { type: 'TEXT_MESSAGE_END', messageId: 'msg-sender' })
+
+    const messages = useMessageStore.getState().messages['conv-sender'] || []
+    const agentMsg = messages.find((msg) => msg.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    expect(agentMsg?.senderName).toBe('Web Agent')
+    expect(agentMsg?.agentName).toBe('web-agent')
+  })
+
+  it('propagates orchestrator sender type for summary messages', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-orch', 'test orchestrator')
+
+    emit('conv-orch', {
+      type: 'TEXT_MESSAGE_START',
+      messageId: 'msg-orch',
+      sender: { type: 'orchestrator', name: 'orchestrator', displayName: 'Orchestrator' },
+    })
+    emit('conv-orch', {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: 'msg-orch',
+      delta: 'All tasks completed.',
+      sender: { type: 'orchestrator', name: 'orchestrator' },
+    })
+    emit('conv-orch', { type: 'TEXT_MESSAGE_END', messageId: 'msg-orch' })
+
+    const messages = useMessageStore.getState().messages['conv-orch'] || []
+    const orchMsg = messages.find((msg) => msg.senderType === 'agent' && msg.senderName === 'Orchestrator')
+    expect(orchMsg).toBeDefined()
+    expect(orchMsg?.content).toContain('All tasks completed')
+  })
+
+  it('strips sensitive secrets from error message text', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-secret', 'trigger error')
+
+    const fakeOpenAIKey = 'sk-' + 'abc123def45678901234567890'
+    emit('conv-secret', {
+      type: 'RUN_ERROR',
+      runId: 'run-secret',
+      error: { code: 'INTERNAL', message: 'OPENAI_API_KEY=' + fakeOpenAIKey },
+    })
+
+    const messages = useMessageStore.getState().messages['conv-secret'] || []
+    const failedMsg = messages.find((msg) => msg.status === 'failed')
+    expect(failedMsg).toBeDefined()
+    expect(failedMsg?.content).not.toContain('sk-abc')
+    expect(failedMsg?.content).not.toContain('OPENAI_API_KEY')
+  })
+
+  it('strips file paths from error message text', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-path', 'trigger error')
+
+    emit('conv-path', {
+      type: 'RUN_ERROR',
+      runId: 'run-path',
+      error: { code: 'INTERNAL', message: 'panic at C:\\Users\\service\\main.go:42' },
+    })
+
+    const messages = useMessageStore.getState().messages['conv-path'] || []
+    const failedMsg = messages.find((msg) => msg.status === 'failed')
+    expect(failedMsg).toBeDefined()
+    expect(failedMsg?.content).not.toContain('C:\\Users')
+  })
+
+  it('replaces panic/stack trace with generic error message', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-panic', 'trigger error')
+
+    emit('conv-panic', {
+      type: 'RUN_ERROR',
+      runId: 'run-panic',
+      error: { code: 'INTERNAL', message: 'panic: runtime error: invalid memory address\nstack trace:\ngoroutine 1...' },
+    })
+
+    const messages = useMessageStore.getState().messages['conv-panic'] || []
+    const failedMsg = messages.find((msg) => msg.status === 'failed')
+    expect(failedMsg).toBeDefined()
+    expect(failedMsg?.content).not.toContain('panic')
+    expect(failedMsg?.content).not.toContain('stack trace')
+  })
+
+  it('strips sk-prefixed token from error message', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-sktoken', 'trigger error')
+
+    const fakeProjectToken = 'sk-' + 'proj-' + 'abcdefghijklmnopqrstuvwxyz123456'
+    emit('conv-sktoken', {
+      type: 'RUN_ERROR',
+      runId: 'run-sktoken',
+      error: { code: 'INTERNAL', message: 'auth failed with token ' + fakeProjectToken },
+    })
+
+    const messages = useMessageStore.getState().messages['conv-sktoken'] || []
+    const failedMsg = messages.find((msg) => msg.status === 'failed')
+    expect(failedMsg).toBeDefined()
+    expect(failedMsg?.content).not.toContain('sk-proj')
+  })
+
+  it('creates code preview based on toolName, not agentName', () => {
+    const { sendMessage } = useMessageStore.getState()
+    // Send as web-agent, but emit code_preview tool call
+    sendMessage('conv-toolname', 'write code', { agentName: 'web-agent' })
+
+    emit('conv-toolname', { type: 'TEXT_MESSAGE_START', messageId: 'msg-tool' })
+    emit('conv-toolname', {
+      type: 'tool.call',
+      messageId: 'msg-tool',
+      toolCall: {
+        id: 'tc-1',
+        name: 'code_preview',
+        arguments: { code: 'package main', language: 'go', filename: 'main.go' },
+      },
+      agentName: 'web-agent',
+    })
+    emit('conv-toolname', { type: 'TEXT_MESSAGE_END', messageId: 'msg-tool' })
+
+    const messages = useMessageStore.getState().messages['conv-toolname'] || []
+    const agentMsg = messages.find((msg) => msg.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    // Code preview should be created even though agentName is web-agent
+    expect(agentMsg?.codeBlocks).toHaveLength(1)
+    expect(agentMsg?.codeBlocks?.[0].filename).toBe('main.go')
+  })
+
+  it('creates web preview based on toolName, not agentName', () => {
+    const { sendMessage } = useMessageStore.getState()
+    // Send as code-agent, but emit web_preview tool call
+    sendMessage('conv-toolname-web', 'build page', { agentName: 'code-agent' })
+
+    emit('conv-toolname-web', { type: 'TEXT_MESSAGE_START', messageId: 'msg-tool-web' })
+    emit('conv-toolname-web', {
+      type: 'tool.call',
+      messageId: 'msg-tool-web',
+      toolCall: {
+        id: 'tc-2',
+        name: 'web_preview',
+        arguments: { title: 'page.html', html: '<h1>Page</h1>' },
+      },
+      agentName: 'code-agent',
+    })
+    emit('conv-toolname-web', { type: 'TEXT_MESSAGE_END', messageId: 'msg-tool-web' })
+
+    const messages = useMessageStore.getState().messages['conv-toolname-web'] || []
+    const agentMsg = messages.find((msg) => msg.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    // Web preview should be created even though agentName is code-agent
+    expect(agentMsg?.webPreviews).toHaveLength(1)
+    expect(agentMsg?.webPreviews?.[0].title).toBe('page.html')
+  })
 })

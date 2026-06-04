@@ -5,11 +5,18 @@ interface AGUIEvent {
   messageId?: string
   runId?: string
   content?: string
+  delta?: string
+  text?: string
   toolCallId?: string
   toolName?: string
   senderName?: string
   agentName?: string
-  error?: string
+  sender?: {
+    type?: string
+    name?: string
+    displayName?: string
+  }
+  error?: string | { code?: string; message?: string }
 }
 
 function buildSSEBody(events: AGUIEvent[]): string {
@@ -68,11 +75,10 @@ export function buildCodePreviewSSE(): string {
     {
       type: 'TEXT_MESSAGE_START',
       messageId: msgId,
-      senderName: 'Code Agent',
-      agentName: 'code-agent',
+      sender: { type: 'agent', name: 'code-agent', displayName: 'Code Agent' },
     },
-    { type: 'TEXT_MESSAGE_CONTENT', messageId: msgId, content: 'Here is your ' },
-    { type: 'TEXT_MESSAGE_CONTENT', messageId: msgId, content: 'Go hello world program:' },
+    { type: 'TEXT_MESSAGE_CONTENT', messageId: msgId, delta: 'Here is your ' },
+    { type: 'TEXT_MESSAGE_CONTENT', messageId: msgId, delta: 'Go hello world program:' },
     { type: 'TEXT_MESSAGE_END', messageId: msgId },
     {
       type: 'TOOL_CALL_START',
@@ -103,13 +109,12 @@ export function buildWebPreviewSSE(): string {
     {
       type: 'TEXT_MESSAGE_START',
       messageId: msgId,
-      senderName: 'Web Agent',
-      agentName: 'web-agent',
+      sender: { type: 'agent', name: 'web-agent', displayName: 'Web Agent' },
     },
     {
       type: 'TEXT_MESSAGE_CONTENT',
       messageId: msgId,
-      content: '<section><h1>Demo Page</h1><p>safe html preview</p></section>',
+      delta: '<section><h1>Demo Page</h1><p>safe html preview</p></section>',
     },
     { type: 'TEXT_MESSAGE_END', messageId: msgId },
     {
@@ -131,17 +136,71 @@ export function buildWebPreviewSSE(): string {
   ])
 }
 
+export function buildMixedOrderedParallelSSE(): string {
+  const webMsgId = 'msg-mixed-web'
+  const codeMsgId = 'msg-mixed-code'
+  const summaryMsgId = 'msg-mixed-summary'
+
+  return buildSSEBody([
+    { type: 'RUN_STARTED', runId: 'run-mixed-1' },
+
+    // Task 1: Web Agent
+    {
+      type: 'TEXT_MESSAGE_START',
+      messageId: webMsgId,
+      runId: 'run-mixed-1',
+      sender: { type: 'agent', name: 'web-agent', displayName: 'Web Agent' },
+    },
+    {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: webMsgId,
+      delta: '<section><h1>Login Page</h1><form><input placeholder="email"/></form></section>',
+    },
+    { type: 'TEXT_MESSAGE_END', messageId: webMsgId },
+
+    // Task 2: Code Agent — different messageId!
+    {
+      type: 'TEXT_MESSAGE_START',
+      messageId: codeMsgId,
+      runId: 'run-mixed-1',
+      sender: { type: 'agent', name: 'code-agent', displayName: 'Code Agent' },
+    },
+    {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: codeMsgId,
+      delta: 'package main\n\nimport (\n\t"net/http"\n\t"log"\n)\n\nfunc main() {\n\thttp.HandleFunc("/login", loginHandler)\n\tlog.Fatal(http.ListenAndServe(":8080", nil))\n}',
+    },
+    { type: 'TEXT_MESSAGE_END', messageId: codeMsgId },
+
+    // Task 3: Orchestrator summary — different messageId!
+    {
+      type: 'TEXT_MESSAGE_START',
+      messageId: summaryMsgId,
+      runId: 'run-mixed-1',
+      sender: { type: 'orchestrator', name: 'orchestrator', displayName: 'Orchestrator' },
+    },
+    {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: summaryMsgId,
+      delta: 'All 2 task(s) completed successfully. Web Agent built the login page. Code Agent created the Go API server.',
+    },
+    { type: 'TEXT_MESSAGE_END', messageId: summaryMsgId },
+
+    { type: 'RUN_FINISHED', runId: 'run-mixed-1' },
+  ])
+}
+
 export function buildErrorSSE(): string {
   return buildSSEBody([
     { type: 'RUN_STARTED', runId: 'run-error-1' },
-    { type: 'RUN_ERROR', error: 'assistant run failed' },
+    { type: 'RUN_ERROR', runId: 'run-error-1', error: { code: 'AGUI_INTERNAL', message: 'assistant run failed' } },
   ])
 }
 
 function buildUnknownAgentErrorSSE(): string {
   return buildSSEBody([
     { type: 'RUN_STARTED', runId: 'run-error-unknown' },
-    { type: 'RUN_ERROR', error: 'unknown agent' },
+    { type: 'RUN_ERROR', runId: 'run-error-unknown', error: { code: 'UNKNOWN_AGENT', message: 'unknown agent' } },
   ])
 }
 

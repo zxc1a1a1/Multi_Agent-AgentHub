@@ -86,17 +86,48 @@ function resolveErrorText(event: AGUIEvent): string {
   if (typeof event.error === 'string') {
     const errorText = event.error.trim()
     if (errorText !== '') {
-      return errorText
+      return sanitizeErrorText(errorText)
     }
   }
   if (event.error && typeof event.error === 'object') {
     const message = pickText(event.error.message)
     if (message) {
-      return message
+      return sanitizeErrorText(message)
     }
   }
   const fallback = pickText(event.text, event.content)
-  return fallback || 'Error'
+  return sanitizeErrorText(fallback || 'Error')
+}
+
+function sanitizeErrorText(text: string): string {
+  if (!text) {
+    return 'Error'
+  }
+  let out = text
+  // Strip assignment-style secrets: KEY=value
+  out = out.replace(
+    /\b(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|AGENTHUB_API_TOKEN|DATABASE_URL|DB_PASSWORD|MYSQL_ROOT_PASSWORD)\s*=\s*(?:\S+|"[^"]*"|'[^']*')/gi,
+    '[redacted]',
+  )
+  // Strip private-key blocks
+  out = out.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi, '[redacted]')
+  // Strip sk- prefixed tokens
+  out = out.replace(/\bsk-[A-Za-z0-9_-]{20,}\b/g, '[redacted]')
+  // Strip Windows-style file paths
+  out = out.replace(/[a-zA-Z]:\\(?:\S+\\\S*)+/g, '[path]')
+  // Strip Unix-style file paths
+  out = out.replace(/(?:\/(?:\S+\/)+\S+)/g, (match) => {
+    // Only redact paths that look like filesystem paths, not ordinary words
+    if (match.length > 8 && match.split('/').length >= 3) {
+      return '[path]'
+    }
+    return match
+  })
+  // If text contains stack trace / panic markers, replace entirely
+  if (/\bpanic\b/i.test(out) || /\bstack\b.*\btrace\b/i.test(out) || /\bfatal\b.*\berror\b/i.test(out)) {
+    return 'internal error'
+  }
+  return out || 'Error'
 }
 
 function normalizeToolArguments(raw: unknown): Record<string, unknown> | null {
