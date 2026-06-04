@@ -18,6 +18,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /out/gateway ./cmd/gateway
 FROM alpine:3.20
 
 RUN addgroup -S app && adduser -S -G app app
+RUN mkdir -p /data && chown -R app:app /data
 COPY --from=builder /out/gateway /usr/local/bin/gateway
 
 USER app

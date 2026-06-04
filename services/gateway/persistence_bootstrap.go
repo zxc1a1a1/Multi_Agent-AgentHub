@@ -3,6 +3,8 @@ package gateway
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	_ "modernc.org/sqlite"
 
@@ -19,6 +21,16 @@ import (
 func BootstrapPersistence(dbPath string) (*sql.DB, *sqlite.Store, *httpapi.PersistenceWriter, func() error, error) {
 	if dbPath == "" {
 		return nil, nil, nil, nil, fmt.Errorf("sqlite db path is required")
+	}
+
+	// Ensure the parent directory exists so the SQLite driver can create the
+	// database file. This is important in container environments where the
+	// mount point may not exist before the volume is attached.
+	parentDir := filepath.Dir(dbPath)
+	if parentDir != "." && parentDir != "" {
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("create db parent directory %s: %w", parentDir, err)
+		}
 	}
 
 	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_foreign_keys=on")
