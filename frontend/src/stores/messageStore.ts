@@ -25,11 +25,18 @@ interface StoredMessage {
   conversationId?: string
   senderType?: string
   senderName?: string
+  senderDisplayName?: string
   agentName?: string
   author?: string
   role?: string
   content?: string
   text?: string
+  runId?: string
+  stepId?: string
+  sseMessageId?: string
+  status?: string
+  errorCode?: string
+  errorMessage?: string
   artifacts?: string
   createdAt: string
 }
@@ -264,12 +271,27 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           id: raw.id,
           conversationId: raw.conversationId || conversationId,
           senderType,
-          senderName: pickText(raw.senderName, raw.author),
+          senderName: pickText(
+            raw.senderDisplayName,
+            raw.senderName,
+            raw.agentName,
+            senderType === 'agent' ? raw.author : undefined,
+          ),
           agentName: normalizedAgentName,
           content,
-          status: 'sent',
+          status:
+            raw.status === 'failed'
+              ? ('failed' as const)
+              : raw.status === 'streaming'
+                ? ('streaming' as const)
+                : ('sent' as const),
           codeBlocks: parsedArtifacts.codeBlocks,
           webPreviews: parsedArtifacts.webPreviews,
+          runId: raw.runId,
+          stepId: raw.stepId,
+          sseMessageId: raw.sseMessageId,
+          errorCode: raw.errorCode,
+          errorMessage: raw.errorMessage,
           createdAt: raw.createdAt,
         }
       })

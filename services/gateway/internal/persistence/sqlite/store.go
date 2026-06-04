@@ -382,6 +382,156 @@ func (s *Store) CreateArtifactMetadata(ctx context.Context, a Artifact) error {
 }
 
 // ---------------------------------------------------------------------------
+// Auditing (Step 3-F: Failure / Retry / Audit)
+// ---------------------------------------------------------------------------
+
+// ListFailedRunsByConversation returns runs with status='failed' for a conversation.
+func (s *Store) ListFailedRunsByConversation(ctx context.Context, conversationID string) ([]Run, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, conversation_id, status, planning_mode,
+		        started_at, finished_at, error_code, error_message, metadata_json
+		 FROM runs
+		 WHERE conversation_id = ? AND status = 'failed'
+		 ORDER BY started_at DESC`, conversationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Run
+	for rows.Next() {
+		var r Run
+		var sa string
+		var fa sql.NullString
+		if err := rows.Scan(
+			&r.ID, &r.ConversationID, &r.Status, &r.PlanningMode,
+			&sa, &fa, &r.ErrorCode, &r.ErrorMessage, &r.MetadataJSON,
+		); err != nil {
+			return nil, err
+		}
+		r.StartedAt, _ = time.Parse(time.RFC3339, sa)
+		if fa.Valid {
+			r.FinishedAt, _ = time.Parse(time.RFC3339, fa.String)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ListFailedMessagesByConversation returns messages with status='failed' for a conversation.
+func (s *Store) ListFailedMessagesByConversation(ctx context.Context, conversationID string) ([]Message, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, conversation_id, run_id, step_id, message_id,
+		        role, sender_type, sender_name, agent_name,
+		        content, status, error_code, error_message,
+		        created_at, updated_at, metadata_json
+		 FROM messages
+		 WHERE conversation_id = ? AND status = 'failed'
+		 ORDER BY created_at ASC`, conversationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Message
+	for rows.Next() {
+		var msg Message
+		var runID, stepID sql.NullString
+		var ca, ua string
+		if err := rows.Scan(
+			&msg.ID, &msg.ConversationID, &runID, &stepID, &msg.MessageID,
+			&msg.Role, &msg.SenderType, &msg.SenderName, &msg.AgentName,
+			&msg.Content, &msg.Status, &msg.ErrorCode, &msg.ErrorMessage,
+			&ca, &ua, &msg.MetadataJSON,
+		); err != nil {
+			return nil, err
+		}
+		msg.RunID = runID.String
+		msg.StepID = stepID.String
+		msg.CreatedAt, _ = time.Parse(time.RFC3339, ca)
+		msg.UpdatedAt, _ = time.Parse(time.RFC3339, ua)
+		out = append(out, msg)
+	}
+	return out, rows.Err()
+}
+
+// ListArtifactsByConversation returns all artifact metadata for a conversation.
+func (s *Store) ListArtifactsByConversation(ctx context.Context, conversationID string) ([]Artifact, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, conversation_id, run_id, step_id, message_id,
+		        artifact_type, title, mime_type, preview_type, content_ref, status,
+		        created_at, updated_at, metadata_json
+		 FROM artifacts
+		 WHERE conversation_id = ?
+		 ORDER BY created_at ASC`, conversationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Artifact
+	for rows.Next() {
+		var a Artifact
+		var runID, stepID, messageID sql.NullString
+		var ca, ua string
+		if err := rows.Scan(
+			&a.ID, &a.ConversationID, &runID, &stepID, &messageID,
+			&a.ArtifactType, &a.Title, &a.MimeType, &a.PreviewType, &a.ContentRef, &a.Status,
+			&ca, &ua, &a.MetadataJSON,
+		); err != nil {
+			return nil, err
+		}
+		a.RunID = runID.String
+		a.StepID = stepID.String
+		a.MessageID = messageID.String
+		a.CreatedAt, _ = time.Parse(time.RFC3339, ca)
+		a.UpdatedAt, _ = time.Parse(time.RFC3339, ua)
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// ListArtifactsByMessageID returns artifact metadata for a specific message.
+func (s *Store) ListArtifactsByMessageID(ctx context.Context, messageID string) ([]Artifact, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, conversation_id, run_id, step_id, message_id,
+		        artifact_type, title, mime_type, preview_type, content_ref, status,
+		        created_at, updated_at, metadata_json
+		 FROM artifacts
+		 WHERE message_id = ?
+		 ORDER BY created_at ASC`, messageID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Artifact
+	for rows.Next() {
+		var a Artifact
+		var runID, stepID, msgID sql.NullString
+		var ca, ua string
+		if err := rows.Scan(
+			&a.ID, &a.ConversationID, &runID, &stepID, &msgID,
+			&a.ArtifactType, &a.Title, &a.MimeType, &a.PreviewType, &a.ContentRef, &a.Status,
+			&ca, &ua, &a.MetadataJSON,
+		); err != nil {
+			return nil, err
+		}
+		a.RunID = runID.String
+		a.StepID = stepID.String
+		a.MessageID = msgID.String
+		a.CreatedAt, _ = time.Parse(time.RFC3339, ca)
+		a.UpdatedAt, _ = time.Parse(time.RFC3339, ua)
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 

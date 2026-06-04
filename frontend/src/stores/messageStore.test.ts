@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMessageStore } from './messageStore'
 import type { AGUIChatRequest } from '../agui/client'
 import type { AGUIEvent } from '../types'
+import * as api from '../services/api'
 
 vi.mock('../services/api', () => ({
   listMessages: vi.fn().mockResolvedValue([]),

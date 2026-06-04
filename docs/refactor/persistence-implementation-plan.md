@@ -355,10 +355,13 @@ When fallback is triggered in the Orchestrator:
 - `docs/refactor/current-architecture-state.md` — Current architecture
 - `docs/refactor/legacy-boundary.md` — Legacy vs new architecture boundary
 - `docs/refactor/frontend-multi-agent-ui-rendering-report.md` — Step 2-B/2-C completion
+- `docs/refactor/step-3b-3c-persistence-foundation-report.md` — Step 3-B/3-C completion
+- `docs/refactor/step-3d-gateway-runtime-write-path-report.md` — Step 3-D completion
+- `docs/refactor/step-3e-3f-replay-audit-report.md` — Step 3-E/3-F completion (this round)
 
 ---
 
 - Created: 2026-06-04
 - Step: AgentHub v1.0 Productization Stage Step 3-A (planning)
-- Updated: 2026-06-04 — Step 3-B / 3-C / 3-D completed (schema + migration + SqliteStore + runtime write path)
-- Status: Step 3-B/3-C/3-D ready for review; Step 3-E (message replay) pending
+- Updated: 2026-06-04 — Step 3-B / 3-C / 3-D / 3-E / 3-F completed
+- Status: All steps completed. Step 3-E (message replay + frontend refresh recovery) and Step 3-F (failure/audit query methods + error sanitization) done.
