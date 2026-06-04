@@ -12,7 +12,8 @@ set -euo pipefail
 #   4. Single web-agent request via Gateway → Orchestrator → web-agent
 #   5. Mixed ordered_parallel request via Gateway → Orchestrator → both agents
 #   6. Agent output distinction (code-agent / web-agent / orchestrator)
-#   7. Secret / error leakage in logs
+#   7. Replay / persistence: GET messages returns web-agent, code-agent, orchestrator
+#   8. Secret / error leakage in logs
 #
 # Usage:
 #   ./smoke-new-arch.sh                    # run all checks
@@ -373,6 +374,93 @@ check_mixed_ordered_parallel() {
   return 0
 }
 
+# ── replay / persistence sanity check ──────────────────────────────────────────
+
+check_replay_persistence() {
+  echo ""
+  echo "=== Level 4: Replay / Persistence Sanity ==="
+
+  local conv_id body replay_body
+  conv_id="$(create_conversation "code-agent")" || {
+    fail "replay persistence: failed to create conversation"
+    return 1
+  }
+
+  body="$(send_chat_no_agent "$conv_id" "写一个 HTML 登录页面，并实现 Go API 接口")" || {
+    fail "replay persistence: /api/chat request failed"
+    return 1
+  }
+
+  # Verify SSE stream has expected agent outputs (sanity check before replay).
+  if ! detect_agent "$body" "web-agent"; then
+    fail "replay persistence: web-agent output not found in SSE stream"
+    dump_raw_sse "$body" "replay-persistence"
+    return 1
+  fi
+
+  replay_body="$(http_get "${GATEWAY_URL}/api/conversations/${conv_id}/messages")" || {
+    fail "replay persistence: GET /api/conversations/${conv_id}/messages failed"
+    return 1
+  }
+
+  if [ -z "$replay_body" ]; then
+    fail "replay persistence: empty replay response"
+    return 1
+  fi
+
+  # Verify replay returns a JSON array with senderType and senderName fields.
+  if ! contains_any "$replay_body" '"senderType"'; then
+    fail "replay persistence: senderType field missing in replay"
+    return 1
+  fi
+
+  if ! contains_any "$replay_body" '"senderName"'; then
+    fail "replay persistence: senderName field missing in replay"
+    return 1
+  fi
+
+  # Verify replay contains web-agent, code-agent, and orchestrator messages.
+  if contains_any "$replay_body" '"senderName":"web-agent"'; then
+    pass "replay persistence: web-agent message detected"
+  else
+    fail "replay persistence: web-agent message NOT found in replay"
+  fi
+
+  if contains_any "$replay_body" '"senderName":"code-agent"'; then
+    pass "replay persistence: code-agent message detected"
+  else
+    fail "replay persistence: code-agent message NOT found in replay"
+  fi
+
+  if contains_any "$replay_body" '"senderName":"orchestrator"'; then
+    pass "replay persistence: orchestrator message detected"
+  else
+    fail "replay persistence: orchestrator message NOT found in replay"
+  fi
+
+  # Verify user message is present with senderType user.
+  if contains_any "$replay_body" '"senderType":"user"'; then
+    pass "replay persistence: user message with senderType=user detected"
+  else
+    fail "replay persistence: user message with senderType=user NOT found"
+  fi
+
+  # Verify runId and status fields are present.
+  if contains_any "$replay_body" '"runId"'; then
+    pass "replay persistence: runId field present"
+  else
+    fail "replay persistence: runId field missing"
+  fi
+
+  if contains_any "$replay_body" '"status":"sent"'; then
+    pass "replay persistence: message status=sent present"
+  else
+    fail "replay persistence: message status=sent missing"
+  fi
+
+  return 0
+}
+
 # ── log safety check ────────────────────────────────────────────────────────
 
 check_log_safety() {
@@ -497,7 +585,10 @@ else
   fail "mixed ordered_parallel: one or more agents not detected"
 fi
 
-# Level 4: Log safety
+# Level 4: Replay / persistence sanity
+check_replay_persistence
+
+# Level 5: Log safety
 check_log_safety
 
 # ═══ result ═════════════════════════════════════════════════════════════════

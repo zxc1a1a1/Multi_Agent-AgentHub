@@ -11,6 +11,7 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/persistence/sqlite"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/sse"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
@@ -54,12 +55,37 @@ func WithAgents(agents []AgentSummary) Option {
 	}
 }
 
+// WithPersistenceWriter injects an optional SQLite-backed writer that mirrors
+// SSE events to the persistence layer. When nil (default), behavior is unchanged.
+func WithPersistenceWriter(w *PersistenceWriter) Option {
+	return func(s *Server) {
+		if s == nil {
+			return
+		}
+		s.persistenceWriter = w
+	}
+}
+
+// WithPersistenceStore injects an optional SQLite store for message replay.
+// When set, GET /api/conversations/{id}/messages reads from SQLite instead of
+// MemoryStore, returning rich sender identity, run/step linkage, and error fields.
+func WithPersistenceStore(db *sqlite.Store) Option {
+	return func(s *Server) {
+		if s == nil {
+			return
+		}
+		s.persistenceStore = db
+	}
+}
+
 type Server struct {
-	store      Store
-	runner     RunService
-	translator *agui.Translator
-	agents     []AgentSummary
-	mux        *http.ServeMux
+	store             Store
+	runner            RunService
+	translator        *agui.Translator
+	agents            []AgentSummary
+	mux               *http.ServeMux
+	persistenceWriter *PersistenceWriter
+	persistenceStore  *sqlite.Store
 }
 
 func NewServer(st Store, runner RunService, opts ...Option) (*Server, error) {
@@ -185,6 +211,13 @@ func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Prefer SQLite replay when persistence is configured, falling back to
+	// MemoryStore for backward compatibility.
+	if s.persistenceStore != nil {
+		s.handleReplayFromSQLite(w, r, conversationID)
+		return
+	}
+
 	messages, err := s.store.ListMessages(r.Context(), conversationID)
 	if err != nil {
 		if errors.Is(err, store.ErrConversationNotFound) {
@@ -194,7 +227,19 @@ func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Reque
 		writeJSONError(w, http.StatusInternalServerError, "failed to list messages")
 		return
 	}
-	writeJSON(w, http.StatusOK, messages)
+	writeJSON(w, http.StatusOK, memoryStoreToReplayMessages(messages))
+}
+
+func (s *Server) handleReplayFromSQLite(w http.ResponseWriter, r *http.Request, conversationID string) {
+	msgs, err := s.persistenceStore.ListMessages(r.Context(), conversationID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to list messages")
+		return
+	}
+	if msgs == nil {
+		msgs = []sqlite.Message{}
+	}
+	writeJSON(w, http.StatusOK, sqliteToReplayMessages(msgs))
 }
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -244,6 +289,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Also persist user message to SQLite via PersistenceWriter (optional).
+	if s.persistenceWriter != nil {
+		_ = s.persistenceWriter.SaveUserMessage(r.Context(), req.ConversationID, req.Message)
+	}
+
 	sse.SetHeaders(w)
 	writer := sse.NewWriter(w)
 	ctx := r.Context()
@@ -282,6 +332,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+			// Mirror event to SQLite persistence (optional, best-effort).
+			if s.persistenceWriter != nil {
+				s.persistenceWriter.HandleEvent(ctx, req.ConversationID, item)
+			}
+
 			// Check for run error to stop processing after writing the error event.
 			if item.Type == "RUN_ERROR" {
 				runFailed = true
