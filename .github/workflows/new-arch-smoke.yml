@@ -1,0 +1,78 @@
+name: New Architecture Smoke
+
+on:
+  push:
+    branches:
+      - y
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Show tool versions
+        run: |
+          go version
+          docker version
+          docker compose version
+
+      - name: Run Go tests
+        run: |
+          go test \
+            ./services/orchestrator/... \
+            ./services/gateway/... \
+            ./services/agents/code-agent/... \
+            ./services/agents/web-agent/... \
+            -count=1
+
+      - name: Check compose config
+        run: |
+          docker compose -f docker-compose.new-arch.yml config --services
+
+          echo "## gateway direct agent URL guard"
+          if docker compose -f docker-compose.new-arch.yml config \
+            | sed -n '/gateway-new:/,/orchestrator-new:/p' \
+            | grep -E "AGENT_CODE_URL|AGENT_WEB_URL|CODE_AGENT_URL|WEB_AGENT_URL"; then
+            echo "FAIL: gateway-new must not contain direct agent URLs"
+            exit 1
+          fi
+          echo "PASS: gateway-new has no direct agent URLs"
+
+          echo "## orchestrator agent URL config"
+          docker compose -f docker-compose.new-arch.yml config \
+            | sed -n '/orchestrator-new:/,/ports:/p' \
+            | grep -qE "CODE_AGENT_URL|WEB_AGENT_URL" \
+            && echo "PASS: orchestrator has agent URL config" \
+            || echo "WARN: orchestrator agent URL config not found"
+
+      - name: Start new architecture
+        run: |
+          docker compose -f docker-compose.new-arch.yml up --build -d
+
+      - name: Show compose status
+        run: |
+          docker compose -f docker-compose.new-arch.yml ps
+
+      - name: Run smoke test
+        run: |
+          chmod +x ./smoke-new-arch.sh
+          ./smoke-new-arch.sh
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "## compose status"
+          docker compose -f docker-compose.new-arch.yml ps
+          echo "## all service logs"
+          docker compose -f docker-compose.new-arch.yml logs --no-color
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f docker-compose.new-arch.yml down -v

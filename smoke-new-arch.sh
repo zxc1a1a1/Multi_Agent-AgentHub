@@ -1,77 +1,112 @@
-#!/usr/bin/env sh
-set -u
+#!/usr/bin/env bash
+set -euo pipefail
 
-GATEWAY_URL="${GATEWAY_URL:-${1:-http://localhost:8080}}"
-CODE_AGENT_URL="${CODE_AGENT_URL:-${2:-http://localhost:8081}}"
-WEB_AGENT_URL="${WEB_AGENT_URL:-${3:-http://localhost:8082}}"
-TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-${4:-60}}"
-SKIP_AGENT_HEALTH="${SKIP_AGENT_HEALTH:-false}"
+# ── AgentHub v1.0 Phase 8: New Architecture Smoke Test ──────────────────────
+# Validates the five-service topology:
+#   frontend-new → gateway-new → orchestrator-new → code-agent-new / web-agent-new
+#
+# Covers:
+#   1. Docker / compose config preflight
+#   2. Health checks: code-agent, web-agent, orchestrator, gateway
+#   3. Single code-agent request via Gateway → Orchestrator → code-agent
+#   4. Single web-agent request via Gateway → Orchestrator → web-agent
+#   5. Mixed ordered_parallel request via Gateway → Orchestrator → both agents
+#   6. Agent output distinction (code-agent / web-agent / orchestrator)
+#   7. Secret / error leakage in logs
+#
+# Usage:
+#   ./smoke-new-arch.sh                    # run all checks
+#   ./smoke-new-arch.sh --skip-health      # skip per-endpoint health checks
+#   GATEWAY_URL=http://localhost:8080 ./smoke-new-arch.sh
 
-case "$TIMEOUT_SECONDS" in
-  ''|*[!0-9]*)
-    TIMEOUT_SECONDS=60
-    ;;
-esac
-if [ "$TIMEOUT_SECONDS" -lt 10 ]; then
-  TIMEOUT_SECONDS=10
-fi
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${ROOT_DIR}"
+
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.new-arch.yml}"
+GATEWAY_URL="${GATEWAY_URL:-http://localhost:8080}"
+ORCHESTRATOR_URL="${ORCHESTRATOR_URL:-http://localhost:8090}"
+CODE_AGENT_URL="${CODE_AGENT_URL:-http://localhost:8081}"
+WEB_AGENT_URL="${WEB_AGENT_URL:-http://localhost:8082}"
+TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-120}"
+SKIP_HEALTH="${SKIP_HEALTH:-false}"
 
 HAS_FAILURE=0
 DOCKER_DAEMON_OK=0
 
-pass() {
-  printf '[PASS] %s\n' "$1"
-}
+# ── helpers ─────────────────────────────────────────────────────────────────
 
-warn() {
-  printf '[WARN] %s\n' "$1"
-}
+red()    { printf '\033[31m%s\033[0m\n' "$1" >&2; }
+green()  { printf '\033[32m%s\033[0m\n' "$1"; }
+yellow() { printf '\033[33m%s\033[0m\n' "$1"; }
+
+pass() { green "  [PASS] $1"; }
+warn() { yellow "  [WARN] $1"; }
 
 fail() {
-  printf '[FAIL] %s\n' "$1" >&2
+  red "  [FAIL] $*"
   HAS_FAILURE=1
 }
 
-print_hints() {
-  context="$1"
-  printf '  HINT (%s): run docker compose -f docker-compose.new-arch.yml up --build\n' "$context"
-  printf '  HINT (%s): verify Docker daemon with: docker version\n' "$context"
-  printf '  HINT (%s): verify compose plugin with: docker compose version\n' "$context"
-  printf '  HINT (%s): verify compose file with: docker compose -f docker-compose.new-arch.yml config\n' "$context"
-  printf '  HINT (%s): check port usage for 8080/8081/8082/3000\n' "$context"
-}
-
 contains_any() {
-  body="$1"
+  local body="$1"
   shift
   for needle in "$@"; do
     case "$body" in
-      *"$needle"*)
-        return 0
-        ;;
+      *"$needle"*) return 0 ;;
     esac
   done
   return 1
 }
 
-invoke_check() {
-  check_name="$1"
+contains_all() {
+  local body="$1"
   shift
-  echo "-> ${check_name}"
-  if "$@"; then
-    pass "$check_name"
-    return 0
-  fi
-  fail "$check_name"
-  print_hints "$check_name"
-  return 1
+  for needle in "$@"; do
+    if ! contains_any "$body" "$needle"; then
+      return 1
+    fi
+  done
+  return 0
 }
 
+dump_raw_sse() {
+  local raw="$1" label="$2"
+  if [ -z "$raw" ]; then
+    return 0
+  fi
+  echo ""
+  yellow "--- raw SSE response (${label}) first 120 lines ---"
+  printf '%s' "$raw" | head -n 120
+  echo ""
+  yellow "--- end raw SSE response (${label}) ---"
+}
+
+# detect_agent checks multiple fields for agent attribution in Gateway SSE output.
+# The Gateway writes SSE events with JSON data containing "author" and optionally
+# "sender":{"type":"agent","name":"..."} fields. This function matches any of them.
+detect_agent() {
+  local body="$1" agent_name="$2"
+  contains_any "$body" \
+    "\"author\":\"${agent_name}\"" \
+    "\"name\":\"${agent_name}\"" \
+    "\"sender\":{\"type\":\"agent\",\"name\":\"${agent_name}\"" \
+    "\"sender\":{\"name\":\"${agent_name}\",\"type\":\"agent\""
+}
+
+# has_sse_events checks for SSE event framing (the "event:" line prefix).
+has_sse_events() {
+  local body="$1"
+  contains_any "$body" "event: message" "event: message.delta" "event: run_started" "event: state.delta"
+}
+
+# ── preflight ───────────────────────────────────────────────────────────────
+
 docker_preflight() {
-  echo "== Docker/Compose preflight =="
+  echo ""
+  echo "=== Level 0: Docker / Compose Preflight ==="
+
   if ! command -v docker >/dev/null 2>&1; then
-    warn "docker command not found in PATH."
-    print_hints "docker preflight"
+    warn "docker not found in PATH"
     return 0
   fi
 
@@ -79,36 +114,46 @@ docker_preflight() {
     pass "docker daemon reachable"
     DOCKER_DAEMON_OK=1
   else
-    warn "docker version failed (daemon may be unavailable)."
+    warn "docker daemon not reachable"
   fi
 
   if docker compose version >/dev/null 2>&1; then
     pass "docker compose plugin available"
   else
-    warn "docker compose version failed."
+    warn "docker compose not available"
   fi
 
-  if docker compose -f docker-compose.new-arch.yml config >/dev/null 2>&1; then
-    pass "docker compose config check passed"
+  if [ -f "$COMPOSE_FILE" ]; then
+    if docker compose -f "$COMPOSE_FILE" config >/dev/null 2>&1; then
+      pass "compose config ($COMPOSE_FILE) is valid"
+    else
+      fail "compose config ($COMPOSE_FILE) is invalid"
+    fi
   else
-    warn "docker compose config failed."
+    warn "compose file $COMPOSE_FILE not found"
   fi
 }
 
+# ── health readiness ────────────────────────────────────────────────────────
+
+http_get() {
+  curl -fsS --max-time 5 "$1" 2>/dev/null
+}
+
 wait_http_ready() {
-  name="$1"
-  url="$2"
+  local name="$1" url="$2"
   shift 2
 
+  local start_ts elapsed
   start_ts="$(date +%s)"
-  last_err="no successful response"
+  local last_err="no response"
 
   while :; do
-    if body="$(curl -fsS --max-time 8 "$url" 2>/dev/null)"; then
+    if body="$(http_get "$url")"; then
       if [ "$#" -eq 0 ] || contains_any "$body" "$@"; then
         return 0
       fi
-      last_err="endpoint reachable but readiness marker not found"
+      last_err="reachable but readiness marker not found"
     else
       last_err="connection failed"
     fi
@@ -116,20 +161,49 @@ wait_http_ready() {
     now_ts="$(date +%s)"
     elapsed=$((now_ts - start_ts))
     if [ "$elapsed" -ge "$TIMEOUT_SECONDS" ]; then
-      printf '[FAIL] %s did not become ready within %ss (%s). Last error: %s\n' "$name" "$TIMEOUT_SECONDS" "$url" "$last_err" >&2
-      print_hints "$name readiness"
-      HAS_FAILURE=1
+      fail "$name did not become ready within ${TIMEOUT_SECONDS}s (url=$url). last: $last_err"
       return 1
     fi
-
     sleep 2
   done
 }
 
+# ── health checks ───────────────────────────────────────────────────────────
+
+check_code_agent_health() {
+  local body
+  body="$(http_get "${CODE_AGENT_URL}/health")" || return 1
+  contains_any "$body" '"status":"ok"'
+}
+
+check_web_agent_health() {
+  local body
+  body="$(http_get "${WEB_AGENT_URL}/health")" || return 1
+  contains_any "$body" '"status":"ok"'
+}
+
+check_orchestrator_health() {
+  local body
+  body="$(http_get "${ORCHESTRATOR_URL}/health")" || return 1
+  contains_any "$body" '"status":"ok"' && contains_any "$body" '"service":"orchestrator"'
+}
+
+check_gateway_health() {
+  local body
+  body="$(http_get "${GATEWAY_URL}/health")" || return 1
+  contains_any "$body" '"status":"ok"' && contains_any "$body" '"service":"gateway"'
+}
+
+# ── chat helpers ────────────────────────────────────────────────────────────
+
 create_conversation() {
-  agent_name="$1"
-  payload="$(printf '{"userId":"demo-user","agentName":"%s"}' "$agent_name")"
-  body="$(curl -fsS --max-time 15 -X POST "${GATEWAY_URL}/api/conversations" -H 'Content-Type: application/json' --data "$payload")" || return 1
+  local agent_name="$1"
+  local payload
+  payload="$(printf '{"userId":"smoke-user","agentName":"%s"}' "$agent_name")"
+  local body
+  body="$(curl -fsS --max-time 10 -X POST "${GATEWAY_URL}/api/conversations" \
+    -H 'Content-Type: application/json' --data "$payload")" || return 1
+  local conv_id
   conv_id="$(printf '%s' "$body" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
   if [ -z "$conv_id" ]; then
     return 1
@@ -138,101 +212,303 @@ create_conversation() {
 }
 
 send_chat() {
-  conversation_id="$1"
-  agent_name="$2"
-  message="$3"
-  payload="$(printf '{"conversationId":"%s","message":"%s","agentName":"%s"}' "$conversation_id" "$message" "$agent_name")"
-  curl -fsS --max-time "$TIMEOUT_SECONDS" -X POST "${GATEWAY_URL}/api/chat" -H 'Content-Type: application/json' --data "$payload"
+  local conversation_id="$1" agent_name="$2" message="$3"
+  local payload
+  payload="$(printf '{"conversationId":"%s","message":"%s","agentName":"%s"}' \
+    "$conversation_id" "$message" "$agent_name")"
+  curl -fsS --max-time "$TIMEOUT_SECONDS" -X POST "${GATEWAY_URL}/api/chat" \
+    -H 'Content-Type: application/json' --data "$payload"
 }
 
-check_code_agent_health() {
-  body="$(curl -fsS --max-time 10 "${CODE_AGENT_URL}/health")" || return 1
-  contains_any "$body" '"status":"ok"'
+send_chat_no_agent() {
+  local conversation_id="$1" message="$2"
+  local payload
+  payload="$(printf '{"conversationId":"%s","message":"%s"}' \
+    "$conversation_id" "$message")"
+  curl -fsS --max-time "$TIMEOUT_SECONDS" -X POST "${GATEWAY_URL}/api/chat" \
+    -H 'Content-Type: application/json' --data "$payload"
 }
 
-check_web_agent_health() {
-  body="$(curl -fsS --max-time 10 "${WEB_AGENT_URL}/health")" || return 1
-  contains_any "$body" '"status":"ok"'
-}
+# ── chat checks ─────────────────────────────────────────────────────────────
 
-check_gateway_health() {
-  body="$(curl -fsS --max-time 10 "${GATEWAY_URL}/health")" || return 1
-  contains_any "$body" '"status":"ok"'
-}
+check_single_code_agent() {
+  local conv_id body
+  conv_id="$(create_conversation "code-agent")" || {
+    fail "single code-agent: failed to create conversation"
+    return 1
+  }
+  body="$(send_chat "$conv_id" "code-agent" "用 Go 写一个 HTTP API 接口")" || {
+    fail "single code-agent: /api/chat request failed"
+    dump_raw_sse "$body" "single-code-agent"
+    return 1
+  }
 
-check_gateway_agents() {
-  body="$(curl -fsS --max-time 10 "${GATEWAY_URL}/api/agents")" || return 1
-  contains_any "$body" "code-agent" && contains_any "$body" "web-agent"
-}
-
-check_gateway_conversations() {
-  curl -fsS --max-time 10 "${GATEWAY_URL}/api/conversations?userId=demo-user" >/dev/null
-}
-
-check_chat_code_agent() {
-  conv_id="$(create_conversation "code-agent")" || return 1
-  body="$(send_chat "$conv_id" "code-agent" "please generate a tiny go http server code sample")" || return 1
-  contains_any "$body" "event: message" "event: message.delta" &&
-    contains_any "$body" '"author":"code-agent"' "code-agent v0.1 mock response" "```go"
-}
-
-check_chat_web_agent() {
-  conv_id="$(create_conversation "web-agent")" || return 1
-  body="$(send_chat "$conv_id" "web-agent" "please build a login html page with form and button")" || return 1
-  contains_any "$body" "event: message" "event: message.delta" &&
-    contains_any "$body" '"author":"web-agent"' "web-agent v0.1 mock response" "web-agent-preview" "<section"
-}
-
-check_chat_unknown_agent_safe_error() {
-  conv_id="$(create_conversation "code-agent")" || return 1
-  body="$(send_chat "$conv_id" "unknown-agent" "test unknown agent routing")" || return 1
-  if ! contains_any "$body" "event: error"; then
+  # Must contain SSE events and code-agent authorship across multiple fields.
+  if ! has_sse_events "$body"; then
+    fail "single code-agent: no SSE events found in stream"
+    dump_raw_sse "$body" "single-code-agent"
     return 1
   fi
-  if printf '%s' "$body" | grep -Eqi '(token|stack|panic|sk-[A-Za-z0-9_-]{20,}|begin rsa|begin openssh|code-agent-new:8080|web-agent-new:8080|http://code-agent-new:8080|http://web-agent-new:8080)'; then
+
+  if ! detect_agent "$body" "code-agent"; then
+    fail "single code-agent: code-agent attribution not found (checked author, sender.name, sender fields)"
+    dump_raw_sse "$body" "single-code-agent"
     return 1
   fi
+
+  if contains_any "$body" "event: error" "run_error"; then
+    fail "single code-agent: error event or run_error found in SSE stream"
+    dump_raw_sse "$body" "single-code-agent"
+    return 1
+  fi
+
   return 0
 }
 
-echo "=== Smoke: New Architecture Compose Demo ==="
-echo "GatewayURL      : ${GATEWAY_URL}"
-echo "CodeAgentURL    : ${CODE_AGENT_URL}"
-echo "WebAgentURL     : ${WEB_AGENT_URL}"
-echo "TimeoutSeconds  : ${TIMEOUT_SECONDS}"
-echo "SkipAgentHealth : ${SKIP_AGENT_HEALTH}"
+check_single_web_agent() {
+  local conv_id body
+  conv_id="$(create_conversation "web-agent")" || {
+    fail "single web-agent: failed to create conversation"
+    return 1
+  }
+  body="$(send_chat "$conv_id" "web-agent" "写一个 HTML 登录页面")" || {
+    fail "single web-agent: /api/chat request failed"
+    dump_raw_sse "$body" "single-web-agent"
+    return 1
+  }
 
+  if ! has_sse_events "$body"; then
+    fail "single web-agent: no SSE events found in stream"
+    dump_raw_sse "$body" "single-web-agent"
+    return 1
+  fi
+
+  if ! detect_agent "$body" "web-agent"; then
+    fail "single web-agent: web-agent attribution not found (checked author, sender.name, sender fields)"
+    dump_raw_sse "$body" "single-web-agent"
+    return 1
+  fi
+
+  if contains_any "$body" "event: error" "run_error"; then
+    fail "single web-agent: error event or run_error found in SSE stream"
+    dump_raw_sse "$body" "single-web-agent"
+    return 1
+  fi
+
+  return 0
+}
+
+check_mixed_ordered_parallel() {
+  # Use a message that triggers both web and code keywords.
+  # The RulePlanner should generate an ordered_parallel plan.
+  # Do NOT pass an explicit agentName so the planner uses keyword detection.
+  local conv_id body
+  conv_id="$(create_conversation "code-agent")" || {
+    fail "mixed ordered_parallel: failed to create conversation"
+    return 1
+  }
+  body="$(send_chat_no_agent "$conv_id" "写一个 HTML 登录页面，并实现 Go API 接口")" || {
+    fail "mixed ordered_parallel: /api/chat request failed"
+    dump_raw_sse "$body" "mixed-ordered-parallel"
+    return 1
+  }
+
+  local ok=0
+
+  # Check SSE stream events exist.
+  if ! has_sse_events "$body"; then
+    fail "mixed ordered_parallel: no SSE events found"
+    dump_raw_sse "$body" "mixed-ordered-parallel"
+    return 1
+  fi
+
+  # REQUIRED: web-agent output must be present.
+  if detect_agent "$body" "web-agent"; then
+    pass "mixed: web-agent output detected"
+  else
+    fail "mixed: web-agent output NOT found in SSE stream (checked author, sender.name, sender fields)"
+    ok=1
+  fi
+
+  # REQUIRED: code-agent output must be present.
+  if detect_agent "$body" "code-agent"; then
+    pass "mixed: code-agent output detected"
+  else
+    fail "mixed: code-agent output NOT found in SSE stream (checked author, sender.name, sender fields)"
+    ok=1
+  fi
+
+  # REQUIRED: orchestrator summary must be present.
+  if detect_agent "$body" "orchestrator"; then
+    pass "mixed: orchestrator summary detected"
+  else
+    fail "mixed: orchestrator summary NOT found in SSE stream (checked author, sender.name, sender fields)"
+    ok=1
+  fi
+
+  # REQUIRED: web-agent output must appear BEFORE code-agent output (ordered_parallel).
+  local web_pos code_pos
+  web_pos="$(printf '%s' "$body" | grep -b -o '"author":"web-agent"' | head -1 | cut -d: -f1 || echo "")"
+  code_pos="$(printf '%s' "$body" | grep -b -o '"author":"code-agent"' | head -1 | cut -d: -f1 || echo "")"
+  if [ -n "$web_pos" ] && [ -n "$code_pos" ] && [ "$web_pos" -lt "$code_pos" ]; then
+    pass "mixed: web-agent output precedes code-agent output (ordered_parallel)"
+  elif [ -n "$web_pos" ] && [ -n "$code_pos" ]; then
+    fail "mixed: web-agent/code-agent ordering violated (web_pos=$web_pos, code_pos=$code_pos)"
+    ok=1
+  else
+    warn "mixed: could not determine ordering (web_pos=$web_pos, code_pos=$code_pos)"
+  fi
+
+  # REQUIRED: no run_error in the stream.
+  if contains_any "$body" "run_error" "ORCHESTRATOR_PLANNER_FAILED" "ORCHESTRATOR_PLAN_INVALID"; then
+    fail "mixed: run_error or plan error found in SSE stream"
+    ok=1
+  fi
+
+  if [ "$ok" -ne 0 ]; then
+    dump_raw_sse "$body" "mixed-ordered-parallel"
+    return 1
+  fi
+
+  return 0
+}
+
+# ── log safety check ────────────────────────────────────────────────────────
+
+check_log_safety() {
+  echo ""
+  echo "--- Log Safety Check ---"
+
+  if [ "$DOCKER_DAEMON_OK" -ne 1 ]; then
+    warn "docker daemon not reachable, skipping log check"
+    return 0
+  fi
+
+  local logs
+  logs="$(docker compose -f "$COMPOSE_FILE" logs --tail=200 2>&1)" || {
+    warn "could not fetch compose logs"
+    return 0
+  }
+
+  # Check for panic / fatal.
+  if printf '%s' "$logs" | grep -qiE 'panic|fatal'; then
+    fail "log safety: panic or fatal found in logs"
+    return 1
+  fi
+  pass "log safety: no panic/fatal in logs"
+
+  # Check for API key leakage.
+  if printf '%s' "$logs" | grep -qiE 'sk-ant-[a-zA-Z0-9_-]{20,}|sk-[a-zA-Z0-9_-]{20,}'; then
+    fail "log safety: possible API key leakage in logs"
+    return 1
+  fi
+  pass "log safety: no API key leakage detected"
+}
+
+# ── main ────────────────────────────────────────────────────────────────────
+
+echo "=============================================="
+echo " AgentHub v1.0 Phase 8: New Architecture Smoke"
+echo "=============================================="
+echo ""
+echo "Compose file   : ${COMPOSE_FILE}"
+echo "Gateway URL    : ${GATEWAY_URL}"
+echo "Orchestrator   : ${ORCHESTRATOR_URL}"
+echo "Code Agent     : ${CODE_AGENT_URL}"
+echo "Web Agent      : ${WEB_AGENT_URL}"
+echo "Timeout        : ${TIMEOUT_SECONDS}s"
+echo ""
+
+# Level 0: Preflight
 docker_preflight
 
-if [ "$DOCKER_DAEMON_OK" -ne 1 ]; then
-  warn "Docker daemon appears unavailable. If services are not started manually, smoke exit 1 is expected."
-fi
+# Level 1: Health readiness + checks
+echo ""
+echo "=== Level 1: Service Health ==="
 
-if [ "$SKIP_AGENT_HEALTH" = "true" ]; then
-  warn "skip direct agent health checks"
+if [ "$DOCKER_DAEMON_OK" -eq 1 ]; then
+  echo "--- Waiting for readiness ---"
+
+  wait_http_ready "code-agent /health"    "${CODE_AGENT_URL}/health"    '"status":"ok"'
+  wait_http_ready "web-agent /health"     "${WEB_AGENT_URL}/health"     '"status":"ok"'
+  wait_http_ready "orchestrator /health"  "${ORCHESTRATOR_URL}/health"  '"status":"ok"'
+  wait_http_ready "gateway /health"       "${GATEWAY_URL}/health"       '"status":"ok"'
 else
-  wait_http_ready "code-agent /health" "${CODE_AGENT_URL}/health" '"status":"ok"'
-  wait_http_ready "web-agent /health" "${WEB_AGENT_URL}/health" '"status":"ok"'
+  warn "docker daemon not reachable; assuming services already running"
 fi
-wait_http_ready "gateway /health" "${GATEWAY_URL}/health" '"status":"ok"'
-wait_http_ready "gateway /api/agents" "${GATEWAY_URL}/api/agents" "code-agent"
 
-if [ "$SKIP_AGENT_HEALTH" = "true" ]; then
-  warn "skip code-agent /health and web-agent /health checks"
+echo ""
+echo "--- Endpoint health checks ---"
+
+if [ "$SKIP_HEALTH" = "true" ]; then
+  warn "SKIP_HEALTH=true: skipping per-endpoint health checks"
 else
-  invoke_check "code-agent /health" check_code_agent_health
-  invoke_check "web-agent /health" check_web_agent_health
-fi
-invoke_check "gateway /health" check_gateway_health
-invoke_check "gateway /api/agents" check_gateway_agents
-invoke_check "gateway /api/conversations" check_gateway_conversations
-invoke_check "gateway /api/chat agentName=code-agent" check_chat_code_agent
-invoke_check "gateway /api/chat agentName=web-agent" check_chat_web_agent
-invoke_check "gateway /api/chat agentName=unknown-agent returns safe error" check_chat_unknown_agent_safe_error
+  if check_code_agent_health; then
+    pass "code-agent /health"
+  else
+    fail "code-agent /health"
+  fi
 
+  if check_web_agent_health; then
+    pass "web-agent /health"
+  else
+    fail "web-agent /health"
+  fi
+
+  if check_orchestrator_health; then
+    pass "orchestrator /health"
+  else
+    fail "orchestrator /health"
+  fi
+
+  if check_gateway_health; then
+    pass "gateway /health"
+  else
+    fail "gateway /health"
+  fi
+fi
+
+# Level 2: Single agent tests
+echo ""
+echo "=== Level 2: Single Agent Execution ==="
+
+echo "-> single code-agent (go http server)"
+if check_single_code_agent; then
+  pass "single code-agent: SSE stream received, code-agent identified"
+else
+  fail "single code-agent: SSE stream missing or code-agent not identified"
+fi
+
+echo "-> single web-agent (login html page)"
+if check_single_web_agent; then
+  pass "single web-agent: SSE stream received, web-agent identified"
+else
+  fail "single web-agent: SSE stream missing or web-agent not identified"
+fi
+
+# Level 3: Mixed ordered_parallel test
+echo ""
+echo "=== Level 3: Mixed Ordered Parallel Execution ==="
+
+echo "-> mixed ordered_parallel (login page + go api)"
+if check_mixed_ordered_parallel; then
+  pass "mixed ordered_parallel: web-agent + code-agent + orchestrator summary all detected"
+else
+  fail "mixed ordered_parallel: one or more agents not detected"
+fi
+
+# Level 4: Log safety
+check_log_safety
+
+# ═══ result ═════════════════════════════════════════════════════════════════
+
+echo ""
+echo "=============================================="
 if [ "$HAS_FAILURE" -ne 0 ]; then
-  echo "=== Smoke FAILED ===" >&2
+  red "  SMOKE TEST FAILED"
+  echo "=============================================="
   exit 1
 fi
 
-echo "=== Smoke PASSED ==="
+green "  SMOKE TEST PASSED"
+echo "=============================================="

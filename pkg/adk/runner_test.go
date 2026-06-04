@@ -674,17 +674,25 @@ func TestRunner_AfterGeneratePluginError(t *testing.T) {
 	}
 }
 
-func TestRunner_SessionNotFound(t *testing.T) {
+func TestRunner_SessionAutoCreate(t *testing.T) {
 	sessionSvc := NewMemorySessionService()
 	agent := mockAgent{name: "runner-agent"}
 
 	runner := NewRunner(agent, sessionSvc)
-	events, runErr := collectRun(runner.Run(context.Background(), "missing-session-id", newUserContent("hello")))
-	if runErr == nil {
-		t.Fatal("expected session-not-found error")
+	events, runErr := collectRun(runner.Run(context.Background(), "auto-created-session", newUserContent("hello")))
+	if runErr != nil {
+		t.Fatalf("expected session auto-create to succeed, got: %v", runErr)
 	}
-	if len(events) != 0 {
-		t.Fatalf("unexpected yielded events when session missing: %d", len(events))
+	if len(events) == 0 {
+		t.Fatal("expected events after session auto-create")
+	}
+	// Verify session was created with the given ID.
+	sess, err := sessionSvc.Get(context.Background(), "auto-created-session")
+	if err != nil {
+		t.Fatalf("expected session to exist after auto-create: %v", err)
+	}
+	if sess.ID != "auto-created-session" {
+		t.Fatalf("expected session ID to match, got %q", sess.ID)
 	}
 }
 

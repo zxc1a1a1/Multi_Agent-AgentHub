@@ -1,16 +1,16 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /src
 
 COPY go.work go.work.sum ./
-COPY agents/go.mod ./agents/go.mod
-COPY server/go.mod ./server/go.mod
-COPY services/agents/code-agent/go.mod ./services/agents/code-agent/go.mod
-COPY services/agents/web-agent/go.mod ./services/agents/web-agent/go.mod
 
-COPY pkg/adk ./pkg/adk
-COPY pkg/runtime ./pkg/runtime
+COPY agents ./agents
+COPY server ./server
+COPY pkg ./pkg
 COPY services/gateway ./services/gateway
+COPY services/orchestrator ./services/orchestrator
+COPY services/agents/code-agent ./services/agents/code-agent
+COPY services/agents/web-agent ./services/agents/web-agent
 
 WORKDIR /src/services/gateway
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/gateway ./cmd/gateway

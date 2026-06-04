@@ -282,6 +282,433 @@ func TestTranslator_InvalidToolArguments(t *testing.T) {
 	}
 }
 
+// ── AG-UI v1.0 metadata-driven tests ──
+
+func TestTranslator_V1RunStarted(t *testing.T) {
+	tr := NewTranslator()
+	events := tr.Translate(adk.Event{
+		Author: "orchestrator",
+		Metadata: map[string]any{
+			MetaEventType: "run_started",
+			MetaRunID:     "run-001",
+		},
+		Actions: &adk.EventActions{
+			StateDelta: map[string]any{"phase": "executing", "planId": "plan-1"},
+		},
+	})
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	e := events[0]
+	if e.Type != "RUN_STARTED" {
+		t.Fatalf("unexpected type: %q", e.Type)
+	}
+	if e.RunID != "run-001" {
+		t.Fatalf("runId not preserved: %q", e.RunID)
+	}
+	if e.State == nil || e.State["phase"] != "executing" {
+		t.Fatalf("state not preserved: %#v", e.State)
+	}
+	if e.StateDelta == nil {
+		t.Fatalf("stateDelta backward compat not set")
+	}
+}
+
+func TestTranslator_V1RunFinished(t *testing.T) {
+	tr := NewTranslator()
+	events := tr.Translate(adk.Event{
+		Author: "orchestrator",
+		Metadata: map[string]any{
+			MetaEventType: "run_finished",
+			MetaRunID:     "run-001",
+		},
+		Final: true,
+		Actions: &adk.EventActions{
+			StateDelta: map[string]any{"status": "completed", "taskCount": float64(2)},
+		},
+	})
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	e := events[0]
+	if e.Type != "RUN_FINISHED" {
+		t.Fatalf("unexpected type: %q", e.Type)
+	}
+	if e.RunID != "run-001" {
+		t.Fatalf("runId not preserved: %q", e.RunID)
+	}
+	if !e.Final {
+		t.Fatalf("expected final=true")
+	}
+}
+
+func TestTranslator_V1RunError(t *testing.T) {
+	tr := NewTranslator()
+	events := tr.Translate(adk.Event{
+		Author: "orchestrator",
+		Metadata: map[string]any{
+			MetaEventType: "run_error",
+			MetaRunID:     "run-001",
+		},
+		Final: true,
+		Actions: &adk.EventActions{
+			StateDelta: map[string]any{
+				"code":    "ORCHESTRATOR_INTERNAL",
+				"message": "something went wrong",
+			},
+		},
+	})
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	e := events[0]
+	if e.Type != "RUN_ERROR" {
+		t.Fatalf("unexpected type: %q", e.Type)
+	}
+	if e.RunID != "run-001" {
+		t.Fatalf("runId not preserved: %q", e.RunID)
+	}
+	if e.Error == nil {
+		t.Fatal("expected error object")
+	}
+	if e.Error.Code != "ORCHESTRATOR_INTERNAL" {
+		t.Fatalf("unexpected error code: %q", e.Error.Code)
+	}
+}
+
+func TestTranslator_V1MessageStart(t *testing.T) {
+	tr := NewTranslator()
+	events := tr.Translate(adk.Event{
+		Author: "web-agent",
+		Metadata: map[string]any{
+			MetaEventType:  "message_start",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-0",
+			MetaTaskID:     "task_web",
+			MetaSenderType: "agent",
+			MetaSenderName: "web-agent",
+		},
+	})
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	e := events[0]
+	if e.Type != "TEXT_MESSAGE_START" {
+		t.Fatalf("unexpected type: %q", e.Type)
+	}
+	if e.RunID != "run-001" {
+		t.Fatalf("runId not preserved: %q", e.RunID)
+	}
+	if e.MessageID != "msg-0" {
+		t.Fatalf("messageId not preserved: %q", e.MessageID)
+	}
+	if e.TaskID != "task_web" {
+		t.Fatalf("taskId not preserved: %q", e.TaskID)
+	}
+	if e.Sender == nil || e.Sender.Name != "web-agent" || e.Sender.Type != "agent" {
+		t.Fatalf("sender not preserved: %#v", e.Sender)
+	}
+	if e.Author != "web-agent" {
+		t.Fatalf("author backward compat not set: %q", e.Author)
+	}
+}
+
+func TestTranslator_V1MessageDelta(t *testing.T) {
+	tr := NewTranslator()
+	events := tr.Translate(adk.Event{
+		Author: "web-agent",
+		Metadata: map[string]any{
+			MetaEventType:  "message_delta",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-0",
+			MetaSenderType: "agent",
+			MetaSenderName: "web-agent",
+		},
+		Content: &adk.Content{
+			Role:  adk.RoleAssistant,
+			Parts: []adk.Part{adk.TextPart{Text: "hello from web"}},
+		},
+		Partial: true,
+	})
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	e := events[0]
+	if e.Type != "TEXT_MESSAGE_CONTENT" {
+		t.Fatalf("unexpected type: %q", e.Type)
+	}
+	if e.Delta != "hello from web" {
+		t.Fatalf("delta not set: %q", e.Delta)
+	}
+	if e.Content != "hello from web" {
+		t.Fatalf("content backward compat not set: %q", e.Content)
+	}
+	if e.Text != "hello from web" {
+		t.Fatalf("text backward compat not set: %q", e.Text)
+	}
+	if e.RunID != "run-001" {
+		t.Fatalf("runId not preserved: %q", e.RunID)
+	}
+	if e.MessageID != "msg-0" {
+		t.Fatalf("messageId not preserved: %q", e.MessageID)
+	}
+}
+
+func TestTranslator_V1MessageEnd(t *testing.T) {
+	tr := NewTranslator()
+	events := tr.Translate(adk.Event{
+		Author: "web-agent",
+		Metadata: map[string]any{
+			MetaEventType:  "message_end",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-0",
+			MetaSenderType: "agent",
+			MetaSenderName: "web-agent",
+		},
+	})
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	e := events[0]
+	if e.Type != "TEXT_MESSAGE_END" {
+		t.Fatalf("unexpected type: %q", e.Type)
+	}
+	if e.MessageID != "msg-0" {
+		t.Fatalf("messageId not preserved: %q", e.MessageID)
+	}
+	if e.RunID != "run-001" {
+		t.Fatalf("runId not preserved: %q", e.RunID)
+	}
+}
+
+func TestTranslator_V1StateUpdate(t *testing.T) {
+	tr := NewTranslator()
+	events := tr.Translate(adk.Event{
+		Author: "orchestrator",
+		Metadata: map[string]any{
+			MetaEventType: "state_update",
+			MetaRunID:     "run-001",
+		},
+		Actions: &adk.EventActions{
+			StateDelta: map[string]any{
+				"phase":   "dispatching",
+				"message": "dispatching to 2 agents",
+			},
+		},
+	})
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	e := events[0]
+	if e.Type != "STATE_UPDATE" {
+		t.Fatalf("unexpected type: %q", e.Type)
+	}
+	if e.State == nil || e.State["phase"] != "dispatching" {
+		t.Fatalf("state not preserved: %#v", e.State)
+	}
+	if e.StateDelta == nil {
+		t.Fatalf("stateDelta backward compat not set")
+	}
+}
+
+func TestTranslator_V1MultiAgentOrderedParallel(t *testing.T) {
+	tr := NewTranslator()
+
+	// Simulate ordered_parallel: web-agent message, code-agent message, orchestrator summary
+	events := make([]Event, 0)
+
+	// Web-agent message_start
+	events = append(events, tr.Translate(adk.Event{
+		Author: "web-agent",
+		Metadata: map[string]any{
+			MetaEventType:  "message_start",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-0",
+			MetaSenderType: "agent",
+			MetaSenderName: "web-agent",
+		},
+	})...)
+
+	// Web-agent message_delta
+	events = append(events, tr.Translate(adk.Event{
+		Author: "web-agent",
+		Metadata: map[string]any{
+			MetaEventType:  "message_delta",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-0",
+			MetaSenderType: "agent",
+			MetaSenderName: "web-agent",
+		},
+		Content: &adk.Content{
+			Role:  adk.RoleAssistant,
+			Parts: []adk.Part{adk.TextPart{Text: "web output"}},
+		},
+	})...)
+
+	// Web-agent message_end
+	events = append(events, tr.Translate(adk.Event{
+		Author: "web-agent",
+		Metadata: map[string]any{
+			MetaEventType:  "message_end",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-0",
+			MetaSenderType: "agent",
+			MetaSenderName: "web-agent",
+		},
+	})...)
+
+	// Code-agent message_start (different messageId!)
+	events = append(events, tr.Translate(adk.Event{
+		Author: "code-agent",
+		Metadata: map[string]any{
+			MetaEventType:  "message_start",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-1",
+			MetaSenderType: "agent",
+			MetaSenderName: "code-agent",
+		},
+	})...)
+
+	// Code-agent message_delta
+	events = append(events, tr.Translate(adk.Event{
+		Author: "code-agent",
+		Metadata: map[string]any{
+			MetaEventType:  "message_delta",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-1",
+			MetaSenderType: "agent",
+			MetaSenderName: "code-agent",
+		},
+		Content: &adk.Content{
+			Role:  adk.RoleAssistant,
+			Parts: []adk.Part{adk.TextPart{Text: "code output"}},
+		},
+	})...)
+
+	// Code-agent message_end
+	events = append(events, tr.Translate(adk.Event{
+		Author: "code-agent",
+		Metadata: map[string]any{
+			MetaEventType:  "message_end",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-1",
+			MetaSenderType: "agent",
+			MetaSenderName: "code-agent",
+		},
+	})...)
+
+	// Orchestrator summary
+	events = append(events, tr.Translate(adk.Event{
+		Author: "orchestrator",
+		Metadata: map[string]any{
+			MetaEventType:  "message_start",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-2",
+			MetaSenderType: "orchestrator",
+			MetaSenderName: "orchestrator",
+		},
+	})...)
+	events = append(events, tr.Translate(adk.Event{
+		Author: "orchestrator",
+		Metadata: map[string]any{
+			MetaEventType:  "message_delta",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-2",
+			MetaSenderType: "orchestrator",
+			MetaSenderName: "orchestrator",
+		},
+		Content: &adk.Content{
+			Role:  adk.RoleAssistant,
+			Parts: []adk.Part{adk.TextPart{Text: "All tasks completed"}},
+		},
+	})...)
+	events = append(events, tr.Translate(adk.Event{
+		Author: "orchestrator",
+		Metadata: map[string]any{
+			MetaEventType:  "message_end",
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-2",
+			MetaSenderType: "orchestrator",
+			MetaSenderName: "orchestrator",
+		},
+	})...)
+
+	// Count message_start, content, end events
+	msgStarts := 0
+	msgContents := 0
+	msgEnds := 0
+	senders := make(map[string]bool)
+	messageIDs := make(map[string]bool)
+
+	for _, e := range events {
+		switch e.Type {
+		case "TEXT_MESSAGE_START":
+			msgStarts++
+			if e.Sender != nil {
+				senders[e.Sender.Name] = true
+			}
+			messageIDs[e.MessageID] = true
+		case "TEXT_MESSAGE_CONTENT":
+			msgContents++
+		case "TEXT_MESSAGE_END":
+			msgEnds++
+		}
+	}
+
+	if msgStarts != 3 {
+		t.Fatalf("expected 3 TEXT_MESSAGE_START events, got %d", msgStarts)
+	}
+	if msgContents != 3 {
+		t.Fatalf("expected 3 TEXT_MESSAGE_CONTENT events, got %d", msgContents)
+	}
+	if msgEnds != 3 {
+		t.Fatalf("expected 3 TEXT_MESSAGE_END events, got %d", msgEnds)
+	}
+	if len(senders) != 3 {
+		t.Fatalf("expected 3 distinct senders, got %d: %v", len(senders), senders)
+	}
+	if !senders["web-agent"] || !senders["code-agent"] || !senders["orchestrator"] {
+		t.Fatalf("missing expected senders: %v", senders)
+	}
+	if len(messageIDs) != 3 {
+		t.Fatalf("expected 3 distinct messageIds, got %d: %v", len(messageIDs), messageIDs)
+	}
+}
+
+func TestTranslator_LegacyFallbackWithoutMetadata(t *testing.T) {
+	tr := NewTranslator()
+	// Without metadata, should still produce legacy event types
+	events := tr.Translate(adk.Event{
+		ID:     "e1",
+		Author: "agent-a",
+		Content: &adk.Content{
+			Role:  adk.RoleAssistant,
+			Parts: []adk.Part{adk.TextPart{Text: "legacy text"}},
+		},
+	})
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != "message" {
+		t.Fatalf("legacy fallback: expected 'message' type, got %q", events[0].Type)
+	}
+	if events[0].Text != "legacy text" {
+		t.Fatalf("legacy fallback: text not preserved")
+	}
+	// Legacy events should have backward-compat fields
+	if events[0].Delta == "" {
+		t.Fatalf("legacy fallback: delta should be set for forward compat")
+	}
+}
+
 func TestTranslator_NilContent(t *testing.T) {
 	tr := NewTranslator()
 

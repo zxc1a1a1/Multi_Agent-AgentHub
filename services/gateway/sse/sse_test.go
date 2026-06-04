@@ -39,15 +39,17 @@ func TestWriteEventWritesEventData(t *testing.T) {
 	writer := NewWriter(rec)
 
 	event := agui.Event{
-		Type: "message",
+		Type: "TEXT_MESSAGE_CONTENT",
 		ID:   "evt-1",
 		Text: "hello",
+		Delta: "hello",
 	}
 	if err := writer.WriteEvent(context.Background(), event); err != nil {
 		t.Fatalf("write event failed: %v", err)
 	}
 
 	body := rec.Body.String()
+	// SSE wire event name should be lowercase "message" for backward compat
 	if !strings.Contains(body, "event: message\n") {
 		t.Fatalf("missing event line: %q", body)
 	}
@@ -65,8 +67,59 @@ func TestWriteEventWritesEventData(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 		t.Fatalf("invalid json payload: %v", err)
 	}
-	if decoded.Type != "message" || decoded.ID != "evt-1" || decoded.Text != "hello" {
+	// JSON type should be AG-UI standard UPPER_SNAKE_CASE
+	if decoded.Type != "TEXT_MESSAGE_CONTENT" || decoded.ID != "evt-1" || decoded.Text != "hello" {
 		t.Fatalf("unexpected payload event: %+v", decoded)
+	}
+}
+
+func TestSseEventNameMapping(t *testing.T) {
+	tests := []struct {
+		aguiType string
+		wantSSE  string
+	}{
+		{"RUN_STARTED", "run_started"},
+		{"RUN_FINISHED", "run_finished"},
+		{"RUN_ERROR", "error"},
+		{"TEXT_MESSAGE_START", "message_start"},
+		{"TEXT_MESSAGE_CONTENT", "message"},
+		{"TEXT_MESSAGE_END", "message_end"},
+		{"TOOL_CALL_START", "tool_call_start"},
+		{"TOOL_CALL_ARGS", "tool_call_args"},
+		{"TOOL_CALL_END", "tool_call_end"},
+		{"STATE_UPDATE", "state_update"},
+		{"message", "message"},           // legacy fallthrough
+		{"message.delta", "message.delta"}, // legacy fallthrough
+	}
+	for _, tt := range tests {
+		got := sseEventName(tt.aguiType)
+		if got != tt.wantSSE {
+			t.Errorf("sseEventName(%q) = %q, want %q", tt.aguiType, got, tt.wantSSE)
+		}
+	}
+}
+
+func TestWriteEventRunStarted(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writer := NewWriter(rec)
+
+	event := agui.Event{
+		Type:   "RUN_STARTED",
+		RunID:  "run-001",
+		Author: "orchestrator",
+		State:  map[string]any{"phase": "executing"},
+	}
+	if err := writer.WriteEvent(context.Background(), event); err != nil {
+		t.Fatalf("write event failed: %v", err)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: run_started\n") {
+		t.Fatalf("expected run_started event name, got: %q", body)
+	}
+	// JSON data should contain AG-UI standard fields
+	if !strings.Contains(body, "\"runId\":\"run-001\"") {
+		t.Fatalf("expected runId in JSON, got: %q", body)
 	}
 }
 

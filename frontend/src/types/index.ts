@@ -5,6 +5,8 @@ export interface AGUIEvent {
   id?: string
   messageId?: string
   runId?: string
+  threadId?: string
+  taskId?: string
   role?: string
   delta?: string
   text?: string
@@ -12,6 +14,14 @@ export interface AGUIEvent {
   author?: string
   senderName?: string
   agentName?: string
+  // AG-UI v1.0 sender object
+  sender?: {
+    type?: string
+    name?: string
+    displayName?: string
+  }
+  // AG-UI v1.0 state object (replaces string-encoded stateDelta)
+  state?: Record<string, unknown>
   toolCallId?: string
   toolName?: string
   toolCall?: {
@@ -30,10 +40,13 @@ export interface AGUIEvent {
   error?:
     | string
     | {
+        code?: string
         message?: string
       }
   final?: boolean
   partial?: boolean
+  timestamp?: string
+  traceId?: string
 }
 
 export interface Conversation {
