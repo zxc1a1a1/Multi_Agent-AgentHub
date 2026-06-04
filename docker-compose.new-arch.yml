@@ -1,3 +1,6 @@
+volumes:
+  gateway-data:
+
 services:
   code-agent-new:
     build:
@@ -61,8 +64,12 @@ services:
       ORCHESTRATOR_INTERNAL_TOKEN: "dev-internal-token"
       GATEWAY_ENABLE_AUTH: "false"
       GATEWAY_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+      AGENTHUB_GATEWAY_STORE: "sqlite"
+      AGENTHUB_SQLITE_PATH: "/data/agenthub.db"
     ports:
       - "8080:8080"
+    volumes:
+      - gateway-data:/data
     depends_on:
       orchestrator-new:
         condition: service_healthy

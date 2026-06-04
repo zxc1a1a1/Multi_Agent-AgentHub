@@ -357,7 +357,42 @@ When fallback is triggered in the Orchestrator:
 - `docs/refactor/frontend-multi-agent-ui-rendering-report.md` — Step 2-B/2-C completion
 - `docs/refactor/step-3b-3c-persistence-foundation-report.md` — Step 3-B/3-C completion
 - `docs/refactor/step-3d-gateway-runtime-write-path-report.md` — Step 3-D completion
-- `docs/refactor/step-3e-3f-replay-audit-report.md` — Step 3-E/3-F completion (this round)
+- `docs/refactor/step-3e-3f-replay-audit-report.md` — Step 3-E/3-F completion
+- `docs/refactor/productization-final-polish-report.md` — Step 4 completion
+- `docs/refactor/legacy-cleanup-final-review.md` — Final legacy cleanup audit
+
+---
+
+## 12. Step 4: Productization Final Polish ✅ COMPLETED (2026-06-04)
+
+### 12.1 Scope
+
+SQLite runtime enablement + compose productization + replay smoke + release docs + legacy cleanup final review.
+
+### 12.2 Implementation Summary
+
+| File | Operation | Description |
+|------|-----------|-------------|
+| `services/gateway/persistence_bootstrap.go` | **New** | SQLite bootstrap: open DB, run migrations, create store + writer |
+| `services/gateway/cmd/gateway/main.go` | Modify | Added AGENTHUB_GATEWAY_STORE / AGENTHUB_SQLITE_PATH env var support |
+| `docker-compose.new-arch.yml` | Modify | Added gateway-data volume + AGENTHUB_GATEWAY_STORE=sqlite |
+| `smoke-new-arch.sh` | Modify | Added Level 4 Replay / Persistence Sanity check |
+| `README.md` | Modify | Updated with SQLite persistence configuration |
+| `docs/refactor/productization-final-polish-report.md` | **New** | Step 4 completion report |
+| `docs/refactor/release-checklist-v1.0.md` | **New** | v1.0 release checklist |
+| `docs/refactor/demo-script-v1.0.md` | **New** | v1.0 demo script |
+| `docs/refactor/legacy-cleanup-final-review.md` | **New** | Legacy cleanup final audit |
+
+### 12.3 Key Design Decisions
+
+- **AGENTHUB_GATEWAY_STORE**: `memory` (default, backward-compatible) or `sqlite`
+- **AGENTHUB_SQLITE_PATH**: Path to SQLite DB file (default `/data/agenthub.db`)
+- SQLite bootstrap is fail-fast: if `sqlite` mode is configured and DB fails to open, startup fails
+- No silent fallback from sqlite to memory
+- MemoryStore remains the default for local development and tests
+- DB cleanup is deferred to after HTTP server shutdown
+
+---
 
 ---
 
