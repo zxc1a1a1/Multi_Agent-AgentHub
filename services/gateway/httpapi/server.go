@@ -54,12 +54,24 @@ func WithAgents(agents []AgentSummary) Option {
 	}
 }
 
+// WithPersistenceWriter injects an optional SQLite-backed writer that mirrors
+// SSE events to the persistence layer. When nil (default), behavior is unchanged.
+func WithPersistenceWriter(w *PersistenceWriter) Option {
+	return func(s *Server) {
+		if s == nil {
+			return
+		}
+		s.persistenceWriter = w
+	}
+}
+
 type Server struct {
-	store      Store
-	runner     RunService
-	translator *agui.Translator
-	agents     []AgentSummary
-	mux        *http.ServeMux
+	store            Store
+	runner           RunService
+	translator       *agui.Translator
+	agents           []AgentSummary
+	mux              *http.ServeMux
+	persistenceWriter *PersistenceWriter
 }
 
 func NewServer(st Store, runner RunService, opts ...Option) (*Server, error) {
@@ -244,6 +256,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Also persist user message to SQLite via PersistenceWriter (optional).
+	if s.persistenceWriter != nil {
+		_ = s.persistenceWriter.SaveUserMessage(r.Context(), req.ConversationID, req.Message)
+	}
+
 	sse.SetHeaders(w)
 	writer := sse.NewWriter(w)
 	ctx := r.Context()
@@ -282,6 +299,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+			// Mirror event to SQLite persistence (optional, best-effort).
+			if s.persistenceWriter != nil {
+				s.persistenceWriter.HandleEvent(ctx, req.ConversationID, item)
+			}
+
 			// Check for run error to stop processing after writing the error event.
 			if item.Type == "RUN_ERROR" {
 				runFailed = true

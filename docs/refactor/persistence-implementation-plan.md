@@ -16,225 +16,151 @@ Step 3-B: Schema & Migration
   → Step 3-F: Failure / Retry / Audit
 ```
 
-## 3. Step 3-B: Schema & Migration
+## 3. Step 3-B: Schema & Migration ✅ COMPLETED (2026-06-04)
 
 ### 3-B.1 Scope
 
 Create the initial DDL schema and a minimal migration runner. No runtime logic changes.
 
-### 3-B.2 Allowed modifications
+### 3-B.2 Actual implementation
 
 | File | Operation | Description |
 |------|-----------|-------------|
-| `services/gateway/store/migration.go` | **New** | Migration runner (apply DDL in order) |
-| `services/gateway/store/migration_test.go` | **New** | Test idempotency and rollback |
-| `services/gateway/store/schema.sql` | **New** | DDL for all tables |
-| `services/gateway/go.mod` | Modify | Add `modernc.org/sqlite` or `github.com/mattn/go-sqlite3` dependency |
+| `services/gateway/internal/persistence/migrations/001_initial_schema.sql` | **New** | DDL for all 6 tables + 12 indexes |
+| `services/gateway/internal/persistence/migrate.go` | **New** | Migration runner (embed.FS + schema_migrations idempotent) |
+| `services/gateway/internal/persistence/migrate_test.go` | **New** | Migration tests (table creation, idempotency, indexes, nil defense) |
+| `services/gateway/internal/persistence/schema_test.go` | **New** | Schema structure validation (pragma_table_info field checks) |
+| `services/gateway/go.mod` | Modify | Added `modernc.org/sqlite` dependency (CGO-free) |
 
-### 3-B.3 Tables to create
+### 3-B.3 Tables created
 
-1. `conversations` — per model design
-2. `conversation_participants` — per model design
-3. `runs` — per model design
-4. `run_steps` — per model design
-5. `messages` — per model design
-6. `artifacts` — per model design
+1. `conversations` — id, title, status, created_at, updated_at, metadata_json
+2. `conversation_participants` — id, conversation_id, participant_type, participant_name, display_name, created_at, metadata_json
+3. `runs` — id, conversation_id, status, planning_mode, started_at, finished_at, error_code, error_message, metadata_json
+4. `run_steps` — id, run_id, conversation_id, task_id, step_index, agent_name, capability_id, status, started_at, finished_at, error_code, error_message, metadata_json
+5. `messages` — id, conversation_id, run_id, step_id, message_id, role, sender_type, sender_name, agent_name, content, status, error_code, error_message, created_at, updated_at, metadata_json
+6. `artifacts` — id, conversation_id, run_id, step_id, message_id, artifact_type, title, mime_type, preview_type, content_ref, status, created_at, updated_at, metadata_json
 
-All tables use `TEXT` primary keys (32-char hex), `TEXT` timestamps (ISO 8601), foreign keys with `ON DELETE CASCADE`.
+All tables use `TEXT` primary keys, `TEXT` timestamps (RFC3339 strings), foreign keys. Optional text columns use `NOT NULL DEFAULT ''` pattern to avoid `sql.NullString` complexity.
 
-### 3-B.4 Migration runner requirements
+### 3-B.4 Indexes (12 total)
 
-- Reads SQL files from embedded `schema.sql` (use `embed` package)
-- Tracks applied migrations in a `_migrations` table
-- Runs on Gateway startup (before HTTP server starts)
-- Idempotent: running twice produces no errors
-- Test: apply → apply again → verify no duplicate errors; verify all tables exist
+`conversations(updated_at)`, `conversation_participants(conversation_id)`, `runs(conversation_id, started_at)`, `run_steps(run_id, step_index)`, `run_steps(task_id)`, `messages(conversation_id, created_at)`, `messages(run_id)`, `messages(step_id)`, `messages(message_id)`, `artifacts(conversation_id)`, `artifacts(run_id)`, `artifacts(message_id)`
 
-### 3-B.5 Forbidden
+### 3-B.5 Tests
 
-- Do NOT modify Gateway/Ochestrator HTTP handlers
-- Do NOT modify SSE/stream logic
-- Do NOT modify Frontend
-- Do NOT modify docker-compose or CI
-- Do NOT create a separate database service (use embedded SQLite)
+- `TestMigrateCreatesTables` — 7 tables verified (6 business + schema_migrations)
+- `TestMigrateIsIdempotent` — double RunMigrations no error, no duplicate records
+- `TestInitialSchemaIndexes` — 12 indexes verified
+- `TestMigrateNilDB` — nil DB returns error
+- `TestSchemaConformsToDesign` — column existence and NOT NULL constraints via pragma_table_info
+- All tests use `:memory:` SQLite with foreign_keys pragma
 
-### 3-B.6 Tests
+## 4. Step 3-C: Gateway Persistent Store ✅ FOUNDATION COMPLETED (2026-06-04)
 
-- `go test ./services/gateway/store/...` — migration idempotency
-- GitHub Actions: `new-arch-smoke.yml` must still pass (new tables don't affect runtime)
+### 4-C.1 Actual scope (narrower than original plan)
 
-## 4. Step 3-C: Gateway Persistent Store
+Implemented SqliteStore as a **standalone foundation** in `services/gateway/internal/persistence/sqlite/`. The store is NOT wired to Gateway runtime — it exists independently from the existing `store.MemoryStore`. Runtime wiring is deferred to Step 3-D.
 
-### 4-C.1 Scope
-
-Implement `Store` interface backed by SQLite. Replace `MemoryStore` with `SqliteStore` in Gateway startup. Keep `MemoryStore` for tests.
-
-### 4-C.2 Allowed modifications
+### 4-C.2 Actual implementation
 
 | File | Operation | Description |
 |------|-----------|-------------|
-| `services/gateway/store/sqlite_store.go` | **New** | `SqliteStore` implementing `Store` interface |
-| `services/gateway/store/sqlite_store_test.go` | **New** | Full interface compliance tests |
-| `services/gateway/store/store.go` | Modify | Extend `Store` interface with new methods if needed |
-| `services/gateway/main.go` or startup | Modify | Wire `SqliteStore` instead of `MemoryStore` |
+| `services/gateway/internal/persistence/sqlite/models.go` | **New** | 6 Go structs (Conversation, Message, Run, RunStep, Artifact) |
+| `services/gateway/internal/persistence/sqlite/store.go` | **New** | SqliteStore with 11 methods (CRUD for all entities) |
+| `services/gateway/internal/persistence/sqlite/store_test.go` | **New** | Store tests (conversation CRUD, 4-message verification, run/step ordering, artifact metadata) |
 
-### 4-C.3 Extended Store interface
+### 4-C.3 Implemented methods
 
-The `Store` interface needs new methods for Run/RunStep:
+| Method | Description |
+|--------|-------------|
+| `NewStore(db *sql.DB) *Store` | Accepts opened *sql.DB, does not open its own connection |
+| `CreateConversation(ctx, Conversation)` | Auto-generates ID and timestamps |
+| `GetConversation(ctx, id)` | Single conversation lookup |
+| `ListConversations(ctx)` | All conversations ordered by updated_at DESC |
+| `AppendMessage(ctx, Message)` | Insert message with full sender/agent fields |
+| `ListMessages(ctx, conversationID)` | All messages ordered by created_at ASC |
+| `CreateRun(ctx, Run)` | Create run record |
+| `GetRun(ctx, id)` | Single run lookup |
+| `CreateRunStep(ctx, RunStep)` | Create run step with task_id/agent_name/step_index |
+| `ListRunSteps(ctx, runID)` | All steps ordered by step_index ASC |
+| `CreateArtifactMetadata(ctx, Artifact)` | Create artifact metadata (content NOT stored, uses content_ref) |
 
-```go
-type Store interface {
-    // Existing (keep)
-    CreateConversation(ctx, userID, agentName, title, convType string) (*Conversation, error)
-    GetConversation(ctx, id string) (*Conversation, error)
-    ListConversations(ctx, userID string) ([]Conversation, error)
-    AppendMessage(ctx, msg Message) (*Message, error)
-    ListMessages(ctx, conversationID string) ([]Message, error)
-    DeleteConversation(ctx, id string) error
+### 4-C.4 Deferred to Step 3-D
 
-    // New
-    CreateRun(ctx, run Run) (*Run, error)
-    UpdateRun(ctx, id string, update RunUpdate) (*Run, error)
-    GetRun(ctx, id string) (*Run, error)
-    ListRuns(ctx, conversationID string) ([]Run, error)
+- Gateway `store.Store` interface adapter
+- SSE event to Message/RunStep real-time writes
+- Message status updates (streaming → sent → failed)
+- Run completion/failure status updates
+- Error sanitization writes
+- `ListRunsByConversation`, `ListArtifacts` and other query methods
 
-    CreateRunStep(ctx, step RunStep) (*RunStep, error)
-    UpdateRunStep(ctx, id string, update RunStepUpdate) (*RunStep, error)
-    ListRunSteps(ctx, runID string) ([]RunStep, error)
+### 4-C.5 Relationship with MemoryStore
 
-    UpdateMessage(ctx, id string, update MessageUpdate) (*Message, error)
+**MemoryStore is NOT replaced.** Gateway runtime continues to use `store.MemoryStore`. SqliteStore lives in `internal/persistence/sqlite` package, isolated from runtime, ready for Step 3-D wiring.
 
-    CreateArtifact(ctx, artifact Artifact) (*Artifact, error)
-    ListArtifacts(ctx, messageID string) ([]Artifact, error)
-}
-```
+### 4-C.6 Tests
 
-### 4-C.4 Updated Message struct
+- `TestSqliteStoreConversationAndMessages` — 4 independent messages (user/web-agent/code-agent/orchestrator) with correct sender_name
+- `TestSqliteStoreRunAndRunStep` — 1 Run + 3 RunSteps (web/code/summary) with correct task_id/agent_name/step_index ordering
+- `TestArtifactMetadataPlaceholder` — Artifact metadata writes, content_ref empty, artifact_type/preview_type verified
+- `TestSqliteStoreConversationCRUD` — Create/Get/List CRUD cycle
+- All tests pass: `go test ./services/gateway/... -count=1`
 
-```go
-type Message struct {
-    ID                string    `json:"id"`
-    ConversationID    string    `json:"conversationId"`
-    RunID             string    `json:"runId,omitempty"`
-    SSEMessageID      string    `json:"sseMessageId,omitempty"`
-    SenderType        string    `json:"senderType"`
-    SenderName        string    `json:"senderName,omitempty"`
-    SenderDisplayName string    `json:"senderDisplayName,omitempty"`
-    Role             string    `json:"role"`
-    Content          string    `json:"content"`
-    Status           string    `json:"status"`
-    ErrorCode        string    `json:"errorCode,omitempty"`
-    ErrorMessage     string    `json:"errorMessage,omitempty"`
-    Metadata         string    `json:"metadata,omitempty"` // JSON
-    CreatedAt        time.Time `json:"createdAt"`
-}
-```
+## 5. Step 3-D: Gateway Runtime Write Path ✅ COMPLETED (2026-06-04)
 
-### 4-C.5 Backward compatibility
+### 5-D.1 Actual scope
 
-The `ListMessages` JSON response must include legacy fields for frontend compatibility:
-- `author` = `senderName` (or `"user"`/`"assistant"` fallback)
-- `text` = `content`
-- `agentName` = `senderName` (when senderType is agent)
+Implemented PersistenceWriter as an optional add-on to Gateway runtime. The writer consumes AG-UI events inside the SSE loop and writes Run/RunStep/Message rows to SQLite. MemoryStore is unchanged; the writer is injected via `WithPersistenceWriter` Option.
 
-### 4-C.6 Forbidden
-
-- Do NOT modify SSE parsing in `handleChat()`
-- Do NOT modify Orchestrator
-- Do NOT change `handleChat()` request/response format
-- Do NOT modify Frontend
-
-### 4-C.7 Tests
-
-- `go test ./services/gateway/store/...` — full CRUD for all entities
-- GitHub Actions: `new-arch-smoke.yml` — single code, single web, mixed ordered_parallel
-
-## 5. Step 3-D: Orchestrator Run / RunStep Write Path
-
-### 5-D.1 Scope
-
-Modify Gateway `handleChat()` to persist Run, RunStep, and per-agent Messages based on SSE events. This is the most complex step — it bridges SSE streaming with database writes.
-
-### 5-D.2 Allowed modifications
+### 5-D.2 Actual implementation
 
 | File | Operation | Description |
 |------|-----------|-------------|
-| `services/gateway/httpapi/server.go` | Modify | `handleChat()` — persist Run/RunStep/Message per SSE event |
-| `services/gateway/httpapi/server_test.go` | Modify | Add persistence-aware tests |
-| `services/gateway/store/` | Possibly extend | Add batch methods if needed |
+| `services/gateway/httpapi/persistence_writer.go` | **New** | PersistenceWriter: event → DB mapping with delta buffering |
+| `services/gateway/httpapi/persistence_writer_test.go` | **New** | 12 tests (single, ordered_parallel, error, sanitize, nil-safe, handler-level) |
+| `services/gateway/httpapi/server.go` | Modify | Added `persistenceWriter` field + `WithPersistenceWriter` Option; handleChat calls writer |
+| `services/gateway/internal/persistence/sqlite/store.go` | Modify | Added 4 update/query methods |
 
-### 5-D.3 handleChat() changes
+### 5-D.3 handleChat() changes (actual)
 
-Current post-SSE behavior:
-```go
-// After SSE loop: append one merged "assistant" message
-_, _ = s.store.AppendMessage(ctx, store.Message{
-    ConversationID: req.ConversationID,
-    Author:         "assistant",
-    Role:           string(adk.RoleAssistant),
-    Text:           text,
-})
-```
+Minimal diff — 3 insertion points in `handleChat`:
+1. After MemoryStore user message save: `s.persistenceWriter.SaveUserMessage(...)`
+2. Inside SSE loop, after text accumulation: `s.persistenceWriter.HandleEvent(ctx, req.ConversationID, item)`
+3. No changes to the post-loop merged assistant message save (MemoryStore path unchanged)
 
-New per-event behavior within the SSE loop:
-```go
-seq(func(event adk.Event, eventErr error) bool {
-    mapped := s.translator.Translate(event)
-    for _, item := range mapped {
-        switch item.Type {
-        case "RUN_STARTED":
-            // INSERT Run (status=running, runId from event)
-        case "TEXT_MESSAGE_START":
-            // INSERT Message (status=streaming, sender from event)
-            // INSERT RunStep if new taskId
-        case "TEXT_MESSAGE_CONTENT":
-            // Buffer delta (no DB write per chunk)
-        case "TEXT_MESSAGE_END":
-            // UPDATE Message (status=sent, content=buffered)
-            // UPDATE RunStep (status=completed, output_message_id)
-        case "RUN_ERROR":
-            // UPDATE Run (status=failed, error fields)
-            // UPDATE current Message (status=failed)
-        case "RUN_FINISHED":
-            // UPDATE Run (status=completed)
-        }
-        // write SSE event to client
-    }
-})
-```
+When `persistenceWriter == nil` (default), the function behaves identically to before.
 
-### 5-D.4 Ordered parallel specifics
+### 5-D.4 PersistenceWriter event mapping
 
-The `ensureAgentMessage()`-style separation (currently only in frontend) needs an equivalent in the Gateway handler:
-- Track current `messageId` from SSE events
-- When `messageId` changes → finalize current Message, start new Message
-- Before Run, the user message already has a Message row
-- Each agent message_start creates a new Message with correct sender
+| Event | DB Operation |
+|-------|-------------|
+| `RUN_STARTED` | INSERT Run (status=running) |
+| `TEXT_MESSAGE_START` | Finalize previous message; INSERT RunStep (if new taskId); INSERT Message (status=streaming, sender from event.Sender) |
+| `TEXT_MESSAGE_CONTENT` | Buffer delta (no DB write) |
+| `TEXT_MESSAGE_END` | UPDATE Message (content=buffered, status=sent); UPDATE RunStep (status=completed) |
+| `RUN_ERROR` | UPDATE Run/Step/Message (status=failed, error fields from event.Error) |
+| `RUN_FINISHED` | UPDATE Run (status=completed, finished_at=now) |
 
-### 5-D.5 Error persistence
+### 5-D.5 SqliteStore new methods
 
-- `RUN_ERROR` with `taskId` → set RunStep.error + Message.error
-- `RUN_ERROR` without `taskId` → set Run.error + current Message.error
-- Always apply `TextStreamFilter` before writing error_message to DB
-- If no Message exists yet (error before TEXT_MESSAGE_START) → create a failed Message with generic error
+- `UpdateRunStatus(ctx, runID, status, errorCode, errorMessage, finishedAt)`
+- `UpdateRunStepStatus(ctx, stepID, status, errorCode, errorMessage, finishedAt)`
+- `UpdateMessageContentAndStatus(ctx, id, content, status, errorCode, errorMessage, updatedAt)`
+- `ListRunsByConversation(ctx, conversationID)`
 
-### 5-D.6 Forbidden
+### 5-D.6 Tests
 
-- Do NOT modify Orchestrator code
-- Do NOT modify SSE protocol or event format
-- Do NOT modify Frontend
-- Do NOT change the user-visible SSE stream behavior
-- Do NOT make DB writes blocking for SSE (write to DB async or tolerate latency)
-
-### 5-D.7 Tests
-
-- `go test ./services/gateway/httpapi/...` — handler-level tests with real SQLite
-- Test: single code-agent run → 1 Run, 1 RunStep, 1 agent Message
-- Test: single web-agent run → same shape
-- Test: ordered_parallel → 1 Run, 3 RunSteps, 3 agent Messages (web, code, orchestrator)
-- Test: run_error → Run.status=failed, Message.status=failed, error fields populated
-- Test: error sanitization in persisted messages
-- GitHub Actions: `new-arch-smoke.yml`
+12 new tests, all passing:
+- `TestPersistenceWriterSingleCode` / `TestPersistenceWriterSingleWeb` — single agent
+- `TestPersistenceWriterMixedOrderedParallel` — 3 agents, 4 messages, 3 steps
+- `TestPersistenceWriterRunError` / `TestPersistenceWriterRunErrorSanitized` — error persistence + sanitization
+- `TestHandleChatWithPersistenceWriterDoesNotChangeSSE` — handler-level: SSE unchanged + DB written
+- `TestHandleChatWithoutPersistenceWriterPreservesLegacyBehavior` — nil writer = legacy
+- `TestHandleChatWithPersistenceWriterMultiAgentSSE` — handler-level ordered_parallel
+- `TestPersistenceWriterNilIsSafe` / `TestPersistenceWriterErrorDoesNotPanic` — nil safety / error safety
+- `TestUpdateRunAndStepStatus` — update methods verification
+- `go test ./services/gateway/... -count=1` — all 11 packages pass
 
 ## 6. Step 3-E: Message Replay / Frontend Refresh Recovery
 
@@ -359,26 +285,27 @@ When fallback is triggered in the Orchestrator:
 ## 8. Acceptance Criteria by Step
 
 ### Step 3-B
-- [ ] `schema.sql` created with all 6 tables
-- [ ] Migration runner applies DDL idempotently
-- [ ] `go test ./services/gateway/store/...` passes
-- [ ] GitHub Actions New Architecture Smoke passes (no regression)
+- [x] `001_initial_schema.sql` created with all 6 tables + 12 indexes
+- [x] Migration runner applies DDL idempotently
+- [x] `go test ./services/gateway/...` passes (11 packages)
+- [ ] GitHub Actions New Architecture Smoke passes (no regression) — pending commit/push
 
 ### Step 3-C
-- [ ] `SqliteStore` implements full `Store` interface
-- [ ] All CRUD operations work correctly
-- [ ] `ListMessages` returns backward-compatible JSON
-- [ ] `go test ./services/gateway/store/...` passes
-- [ ] GitHub Actions New Architecture Smoke passes
+- [x] `SqliteStore` created with 11 methods for all 6 entities
+- [x] All CRUD operations work correctly
+- [x] `go test ./services/gateway/...` passes (11 packages)
+- [ ] `ListMessages` returns backward-compatible JSON — deferred to Step 3-D (store not yet wired to API)
+- [ ] GitHub Actions New Architecture Smoke passes — pending commit/push
+- [ ] `SqliteStore` implements `store.Store` interface — deferred to Step 3-D (foundation only)
 
 ### Step 3-D
-- [ ] `handleChat()` persists Run on RUN_STARTED
-- [ ] `handleChat()` persists per-agent Messages (not merged)
-- [ ] `handleChat()` persists RunSteps
-- [ ] Ordered parallel produces correct Run → RunStep → Message hierarchy
-- [ ] Error runs have correct status and sanitized error messages
-- [ ] `go test ./services/gateway/httpapi/...` passes
-- [ ] GitHub Actions New Architecture Smoke passes
+- [x] `handleChat()` persists Run on RUN_STARTED
+- [x] `handleChat()` persists per-agent Messages (not merged)
+- [x] `handleChat()` persists RunSteps
+- [x] Ordered parallel produces correct Run → RunStep → Message hierarchy
+- [x] Error runs have correct status and sanitized error messages
+- [x] `go test ./services/gateway/...` passes (11 packages)
+- [ ] GitHub Actions New Architecture Smoke passes — pending commit/push
 
 ### Step 3-E
 - [ ] `GET /api/conversations/{id}/messages` returns sender info
@@ -432,5 +359,6 @@ When fallback is triggered in the Orchestrator:
 ---
 
 - Created: 2026-06-04
-- Step: AgentHub v1.0 Productization Stage Step 3-A
-- Status: Implementation plan (no code changes)
+- Step: AgentHub v1.0 Productization Stage Step 3-A (planning)
+- Updated: 2026-06-04 — Step 3-B / 3-C / 3-D completed (schema + migration + SqliteStore + runtime write path)
+- Status: Step 3-B/3-C/3-D ready for review; Step 3-E (message replay) pending
