@@ -1,127 +1,50 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agenthub.local/schemas/project-architecture.schema.json",
-  "title": "AgentHub Project Architecture Contract",
+  "title": "AgentHub New Architecture Contract",
   "type": "object",
-  "additionalProperties": false,
   "required": [
-    "version",
-    "services",
-    "processBoundary",
-    "profiles",
-    "review"
+    "modules",
+    "communications",
+    "legacyPaths"
   ],
   "properties": {
-    "version": {
-      "type": "string",
-      "const": "v1"
-    },
-    "services": {
+    "modules": {
       "type": "array",
-      "minItems": 4,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "name",
-          "category",
-          "public",
-          "responsibilities",
-          "forbidden"
-        ],
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "category": {
-            "type": "string",
-            "enum": [
-              "frontend",
-              "gateway",
-              "orchestrator",
-              "child-agent",
-              "data-layer",
-              "attached-resource"
-            ]
-          },
-          "public": {
-            "type": "boolean"
-          },
-          "responsibilities": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "forbidden": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
+        "enum": [
+          "pkg/adk",
+          "pkg/runtime",
+          "services/gateway",
+          "services/orchestrator",
+          "services/agents",
+          "frontend"
+        ]
+      }
+    },
+    "communications": {
+      "type": "object",
+      "properties": {
+        "frontendGateway": {
+          "const": "AG-UI/SSE"
+        },
+        "gatewayOrchestrator": {
+          "enum": [
+            "gRPC streaming",
+            "temporary HTTP/SSE compatibility"
+          ]
+        },
+        "orchestratorAgents": {
+          "const": "A2A"
         }
       }
     },
-    "processBoundary": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "gatewayAndOrchestratorSeparate",
-        "frontendOnlyAccessGateway",
-        "gatewayDoesNotOrchestrate"
-      ],
-      "properties": {
-        "gatewayAndOrchestratorSeparate": {
-          "type": "boolean",
-          "const": true
-        },
-        "frontendOnlyAccessGateway": {
-          "type": "boolean",
-          "const": true
-        },
-        "gatewayDoesNotOrchestrate": {
-          "type": "boolean",
-          "const": true
-        }
-      }
-    },
-    "profiles": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "historicalMvp",
-        "v1Sprint"
-      ],
-      "properties": {
-        "historicalMvp": {
-          "type": "object"
-        },
-        "v1Sprint": {
-          "type": "object"
-        }
-      }
-    },
-    "review": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "mustNotHardcodeAgentNames",
-        "mustSupportGroupConversation",
-        "mustSupportRegistryHealth"
-      ],
-      "properties": {
-        "mustNotHardcodeAgentNames": {
-          "type": "boolean",
-          "const": true
-        },
-        "mustSupportGroupConversation": {
-          "type": "boolean",
-          "const": true
-        },
-        "mustSupportRegistryHealth": {
-          "type": "boolean",
-          "const": true
-        }
+    "legacyPaths": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "server/**",
+          "agents/**"
+        ]
       }
     }
   }

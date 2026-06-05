@@ -1,54 +1,29 @@
-# Storage Profiles 契约
+# Storage Profiles Contract
 
-## Current: MySQL 8
+**Status:** Active
+**Owner:** AgentHub
+**Primary source:** Module Separation & Runtime Redesign
 
-MySQL 8 是当前 v1.0 关系型事实源。
 
-用于：
+## Authoritative source order
 
-- conversations
-- messages
-- agents
-- runs
-- tasks
-- tool calls
-- artifacts metadata
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. PDR product goals only, not old module layout
+4. Sprint/UML as supporting product/demo references only
 
-## Planned: PostgreSQL
+Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
 
-PostgreSQL 是长期可选演进方向。
 
-规则：
+## Profiles
 
-- 不得影响当前 MySQL 落地。
-- JSONB 不能替代必要关系建模。
-- 高频 JSON 查询必须设计索引。
+| Profile | Use | Status |
+|---|---|---|
+| `mysql` | Full redesign target for Gateway and Runtime session persistence | target |
+| `sqlite-demo` | Local/demo compatibility only | temporary |
+| `memory` | Unit tests and ephemeral child-agent runtime | active for tests |
+| `object-storage` | Large file artifacts | future |
 
-## Cache: Redis
+## Rule
 
-Redis 只用于缓存和短期状态。
-
-不得作为：
-
-- 消息事实源。
-- Run 事实源。
-- Artifact 事实源。
-- Agent Registry 事实源。
-
-## Large Object: Object Storage
-
-Object Storage 用于大型产物。
-
-数据库保存：
-
-- content_ref
-- metadata
-- ownership
-- trace id
-- permission state
-
-禁止：
-
-- 永久公开 URL。
-- 未授权直连下载。
-- 只靠路径表达归属。
+Contracts must label non-target profiles explicitly. Do not silently replace MySQL target with SQLite in delivery docs.

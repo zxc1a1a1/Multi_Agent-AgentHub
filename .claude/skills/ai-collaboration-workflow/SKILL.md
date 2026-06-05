@@ -1,505 +1,75 @@
 ---
 name: ai-collaboration-workflow
-description: "用于规范 AgentHub 项目中人类开发者与 AI 编程代理的协作流程，适用于需求分析、串行 Skill 重构、计划制定、范围控制、文档生成、代码修改、测试验证、Review、文件包交付和交接报告。"
+description: "AI collaboration workflow skill. Updated for Module Separation & Runtime Redesign."
 ---
 
 # ai-collaboration-workflow
 
-## 1. Skill 目的
+## Purpose
 
-本 Skill 定义 AgentHub 项目中“人类开发者 + AI 编程代理”的协作流程。
+Use this to plan task-by-task work. Always cite the redesign plan as engineering source of truth.
 
-它约束 AI 在参与项目开发时如何：
+## Authoritative source order
 
-- 接收任务；
-- 识别当前阶段；
-- 扫描上下文；
-- 锁定修改范围；
-- 制定计划；
-- 执行文档或代码修改；
-- 生成文件包；
-- 进行验证和 Review；
-- 输出交接报告；
-- 记录关键决策。
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. Contracts listed in this skill
+4. PDR product goals only
+5. Sprint/UML as supplemental demo/product context only
 
-本 Skill 不定义任何具体业务协议、事件字段、数据库表结构、Runtime API、前端组件参数或部署服务细节。
-
-一句话：
-
-**本 Skill 负责“怎么协作”，不负责“某个技术契约具体怎么实现”。**
-
----
-
-## 2. 独立性原则
-
-本 Skill 必须独立可读。
-
-使用本 Skill 时，不要求读者先阅读其他 Skill。
-
-本 Skill 可以说明“某类任务应查看用户指定的相关文档”，但不得把其他 Skill 的详细规则复制进来，也不得把其他 Skill 作为理解本文的前置条件。
-
-规则：
-
-- 一个 Skill 只解决一个问题域。
-- 本 Skill 只解决 AI 协作流程问题。
-- 不在本 Skill 中展开具体协议细节。
-- 不在本 Skill 中硬编码其他 Skill 的完整路由表。
-- 不要求一次性读取全部 Skill。
-- 不因“相关”就自动修改其他 Skill。
-- 如果用户要求串行生成 Skill，每轮只处理用户明确指定的一个 Skill。
-
----
-
-## 3. 当前阶段识别
-
-AgentHub 的开发阶段不应在本 Skill 中永久写死。
-
-AI 必须根据用户本轮提供的上下文识别当前阶段，例如：
-
-- MVP v0.1；
-- v1.0 Sprint；
-- 后续 v1.x 迭代；
-- 单个 Skill 重构；
-- 单个模块修复；
-- Demo 打磨；
-- Review / 验收。
-
-MVP v0.1 如果已经完成，只能作为历史回归基线。
-
-如果用户上传或指定 Sprint / PDR / Plan / Contract 文件，应以用户当前指定的文件作为本轮工作的阶段依据。
-
-不得把历史阶段当成当前限制。
-
-例如：
+## Active architecture facts
 
 ```text
-错误：因为旧 Skill 写着 MVP 不做多 Agent，所以阻止用户当前 v1.0 多 Agent 迭代。
-正确：MVP 规则保留为历史基线；当前 v1.0 Sprint 规则由用户指定的 Sprint 计划决定。
+pkg/adk                 pure ADK engine
+pkg/runtime             runtime framework over ADK
+services/gateway        public Gateway, auth, SSE, persistence
+services/orchestrator   planner/router/executor/dispatcher
+services/agents/*       child A2A agents
+frontend                React client, Gateway-only access
 ```
 
----
-
-## 4. 适用场景
-
-当用户要求以下任务时，应使用本 Skill：
-
-- 分析一个开发计划；
-- 设计或重构某个 Skill；
-- 串行生成多个 Skill；
-- 输出某个 Skill 的文件包；
-- 制定开发任务计划；
-- 让 AI 参与代码修改；
-- 让 AI 做 Review；
-- 让 AI 整理交接文档；
-- 让 AI 判断是否越界；
-- 让 AI 按 Sprint / PDR 推进开发；
-- 生成 Patch Notes / Manifest；
-- 归纳 AI 协作记录。
-
----
-
-## 5. 不适用场景
-
-本 Skill 不直接用于：
-
-- 定义 AG-UI 事件字段；
-- 定义 A2A 消息字段；
-- 定义 Agent Runtime API；
-- 定义 Artifact Schema；
-- 定义数据库表；
-- 定义 Docker Compose 服务；
-- 定义前端组件参数；
-- 定义 LLM Provider HTTP 请求格式；
-- 定义安全沙箱细节。
-
-遇到这些任务时，AI 应遵守用户本轮指定的相关文件或需求，但不要在本 Skill 中展开那些技术细节。
-
----
-
-## 6. 标准协作流程
-
-AI 参与 AgentHub 开发时，默认流程为：
+Legacy paths are not implementation targets for new-architecture work:
 
 ```text
-任务接收 → 上下文扫描 → 范围锁定 → 计划制定 → 执行修改 → 验证 → Review → 交接
+server/**               legacy reference only
+agents/**               legacy reference only
 ```
 
-### 6.1 任务接收
-
-AI 必须先判断用户要的是：
-
-- 思路分析；
-- 文件包；
-- 代码补丁；
-- Review；
-- 测试建议；
-- 架构决策；
-- 文档重构；
-- 故障排查；
-- Demo 打磨。
-
-如果用户明确说“只思考”“先不要输出文件”，不得生成文件包。
-
-如果用户明确说“输出文件包”，应生成可解压覆盖仓库路径的文件包。
-
-### 6.2 上下文扫描
-
-AI 只能优先使用：
-
-1. 用户本轮明确给出的文件、链接、目录或 Skill；
-2. 用户上传的 Sprint / PDR / Contract 文件；
-3. 当前任务直接涉及的最小文件集合；
-4. 必要时再请求用户允许或说明需要额外资料。
-
-不得因为一个任务“可能相关”就自动读取或修改全部 Skill。
-
-### 6.3 范围锁定
-
-AI 执行前应明确：
-
-- 本轮要改哪些文件；
-- 本轮不改哪些文件；
-- 是否生成业务代码；
-- 是否生成文档；
-- 是否生成 zip；
-- 是否只处理一个 Skill；
-- 是否允许同步 docs/contracts。
-
-### 6.4 计划制定
-
-复杂任务必须先给简短计划。
-
-计划应包含：
-
-- 目标；
-- 依据；
-- 文件范围；
-- 改动方向；
-- 验证方式。
-
-如果用户已经明确要求直接输出文件包，可以直接生成，但必须在包内附 `PATCH_NOTES.md` 和 `MANIFEST.md`。
-
-### 6.5 执行修改
-
-执行时必须：
-
-- 小步、聚焦；
-- 不偷偷扩大范围；
-- 不自动重构无关文件；
-- 不安装新依赖，除非用户允许；
-- 不生成无关示例项目；
-- 不覆盖用户未指定的 Skill；
-- 中文项目默认输出中文；
-- 文件路径使用仓库相对路径。
-
-### 6.6 验证
-
-能运行测试时应运行测试。
-
-不能运行测试时，应说明原因并进行静态验证。
-
-文档类任务至少验证：
-
-- 路径正确；
-- frontmatter 合法；
-- 中文一致；
-- 文件清单完整；
-- 没有明显交叉引用失控；
-- 没有把示例写成硬约束；
-- 没有把历史阶段写成当前禁令。
-
-### 6.7 Review
-
-Review 应检查：
-
-- 是否符合本轮用户目标；
-- 是否越过授权范围；
-- 是否误改其他 Skill；
-- 是否出现硬编码具体 Agent / 阶段 / 技术实现；
-- 是否缺少变更说明；
-- 是否缺少交接说明。
-
-### 6.8 交接
-
-交接必须说明：
-
-- 产物位置；
-- 包内文件清单；
-- 主要改动；
-- 如何使用；
-- 是否包含业务代码；
-- 后续可选步骤。
-
----
-
-## 7. 串行 Skill 生成规则
-
-当用户采用“一个一个 Skill 串行生成”的方式时，必须遵守：
-
-- 每轮只处理用户明确指定的一个 Skill。
-- 不主动生成下一个 Skill。
-- 不自动修改其他 Skill。
-- 不在当前 Skill 中大量引用尚未重构的其他 Skill。
-- 当前 Skill 必须独立可读。
-- 可以写“本 Skill 不负责哪些内容”，但不要展开那些内容。
-- 示例不能变成硬约束。
-- 不得为了“全局一致性”一次性修改多个 Skill。
-- 如果发现另一个 Skill 需要同步，最多在交接中列为“后续建议”，不得直接生成。
-- 用户要求“思考”时，只输出改写思路。
-- 用户要求“输出文件包”时，才生成 zip。
-- 用户要求“中文版”时，所有正文文档必须使用中文。
-
----
-
-## 8. 任务输入模板
-
-推荐用户或 AI 在任务开始时组织以下信息：
-
-```md
-## Goal
-本轮要完成什么？
-
-## Scope
-允许修改哪些文件或目录？
-
-## Context
-必须参考哪些文档、Sprint、PDR 或代码？
-
-## Constraints
-不得做什么？是否只处理一个 Skill？是否必须中文？
-
-## Output
-输出思路、补丁、文件包、Review，还是代码实现？
-
-## Done When
-什么情况下算完成？
-```
-
-AI 在信息不完整时，应基于现有资料给出最小可行方案，不应反复追问已能合理处理的问题。
-
----
-
-## 9. 范围控制规则
-
-AI 必须控制范围。
-
-允许：
-
-- 修改用户明确指定的 Skill；
-- 为该 Skill 生成必要 references；
-- 为该 Skill 生成必要 docs/contracts；
-- 生成 MANIFEST；
-- 生成 PATCH_NOTES；
-- 给出后续建议。
-
-禁止：
-
-- 顺手修改其他 Skill；
-- 顺手修改业务代码；
-- 顺手新增不相关 docs；
-- 顺手重命名目录；
-- 顺手引入新依赖；
-- 顺手把所有旧规则全部迁移到当前文件；
-- 顺手把项目未来规划写成当前硬约束。
-
-范围不清时，应按“最小安全范围”执行。
-
----
-
-## 10. 文件修改授权规则
-
-AI 只有在用户明确要求时才生成或修改文件。
-
-用户说：
-
-- “思考怎么改” → 只输出思路，不生成文件。
-- “给出改写方案” → 输出方案，不生成 zip。
-- “输出文件包” → 生成 zip。
-- “直接改代码” → 可以生成代码补丁或文件。
-- “不要直接放到仓库” → 只提供下载包，不直接写目标仓库路径之外的操作说明。
-- “中文版” → 所有文档正文必须中文。
-
-文件包必须使用仓库相对路径，方便解压覆盖。
-
----
-
-## 11. 文档与代码边界
-
-文档类任务默认不生成业务代码。
-
-Skill 重构任务默认只生成：
-
-- `SKILL.md`
-- `references/*.md`
-- `docs/contracts/*.md`
-- `PATCH_NOTES.md`
-- `MANIFEST.md`
-
-除非用户明确要求，不生成：
-
-- Go 业务实现；
-- TypeScript 业务实现；
-- Dockerfile；
-- SQL migration；
-- 测试代码；
-- 自动执行脚本。
-
-如果文档中需要示例代码，必须标注为示例，不得暗示已经实现。
-
----
-
-## 12. 文件包输出规则
-
-当用户要求文件包时，必须：
-
-- 生成 zip；
-- 使用仓库相对路径；
-- 包内包含 `MANIFEST.md`；
-- 包内包含 `PATCH_NOTES.md`；
-- 包名包含 Skill 名称、版本方向和语言；
-- 不包含缓存文件；
-- 不包含系统隐藏文件；
-- 不包含无关产物；
-- 不包含用户未要求的业务代码。
-
-推荐包名：
-
-```text
-{skill-name}-v1-independent-cn.zip
-```
-
-例如：
-
-```text
-ai-collaboration-workflow-v1-independent-cn.zip
-```
-
----
-
-## 13. Prompt / 决策记录规则
-
-AI 协作过程应能留下可解释记录。
-
-重要任务建议记录：
-
-- 用户目标；
-- 当前阶段；
-- 参考文件；
-- 范围决定；
-- 关键取舍；
-- 为什么没有修改某些文件；
-- 验证方式；
-- 风险和后续建议。
-
-记录可以放在：
-
-- `PATCH_NOTES.md`
-- `docs/contracts/*`
-- Sprint 交接文档
-- PR 描述
-- Review 报告
-
-不要记录：
-
-- API key；
-- 私密 token；
-- 原始系统提示；
-- 不必要的长篇内部推理；
-- 与任务无关的聊天内容。
-
----
-
-## 14. 测试与验证规则
-
-AI 完成任务后应尽量验证。
-
-代码任务可验证：
-
-- 单元测试；
-- 类型检查；
-- lint；
-- 构建；
-- smoke test；
-- docker compose config。
-
-文档任务可验证：
-
-- frontmatter 是否标准；
-- Markdown 标题层级；
-- 文件路径是否正确；
-- 是否存在空文件；
-- 是否中文一致；
-- 是否和用户当前阶段冲突；
-- 是否引入未授权依赖；
-- 是否过度引用其他 Skill。
-
-无法运行测试时，必须说明没有运行的原因。
-
----
-
-## 15. Review 规则
-
-Review 时必须检查：
-
-- 是否完成用户目标；
-- 是否符合当前阶段；
-- 是否只处理授权范围；
-- 是否保持独立可读；
-- 是否没有硬编码过早假设；
-- 是否没有把示例变成限制；
-- 是否没有把历史规则当作当前规则；
-- 是否没有泄漏敏感信息；
-- 是否有清晰交接说明；
-- 是否有后续建议但未擅自执行。
-
----
-
-## 16. 禁止事项
-
-AI 在本项目协作中不得：
-
-- 未经用户要求一次性重写所有 Skill；
-- 未经用户要求修改业务代码；
-- 把 MVP 历史限制当作当前限制；
-- 把当前 Sprint 的样例当作永久硬约束；
-- 把一个 Skill 写成对多个 Skill 的强依赖；
-- 在 Skill 里大量复制其他 Skill 的规则；
-- 使用英文输出中文项目文档，除非用户要求；
-- 生成没有清单的 zip；
-- 生成没有补丁说明的 zip；
-- 输出无法定位的文件；
-- 承诺后台异步完成工作；
-- 隐瞒未验证或未完成的部分。
-
----
-
-## 17. 完成定义
-
-本 Skill 视为完成，当且仅当：
-
-- `SKILL.md` 是中文；
-- frontmatter 标准；
-- 不写死 MVP 当前阶段；
-- 支持串行 Skill 生成；
-- 支持文件包交付；
-- 明确范围控制；
-- 明确上下文选择规则；
-- 明确 Review 和交接；
-- 不依赖其他 Skill 才能理解；
-- references 只补充 AI 协作流程；
-- docs/contracts 有独立契约说明；
-- 包内包含 MANIFEST 和 PATCH_NOTES。
-
----
-
-## References
-
-- `references/task-intake-template.md`
-- `references/plan-before-editing.md`
-- `references/scope-control.md`
-- `references/allowed-files-policy.md`
-- `references/serial-skill-generation.md`
-- `references/prompt-log-policy.md`
-- `references/change-report-template.md`
-- `references/review-checklist.md`
-- `references/handoff-checklist.md`
+## Contracts to read first
+
+- `docs/contracts/ai-collaboration-workflow.md`
+
+## Allowed implementation targets
+
+- `docs`
+- `pkg`
+- `services`
+- `frontend`
+
+## Non-negotiable rules
+
+- Follow the redesign plan over old PDR/Sprint directory details.
+- Do not add new new-architecture work under legacy `server/` or root `agents/`.
+- Do not make Frontend call Orchestrator or Child Agents directly.
+- Do not put concrete LLM providers or business handlers in `pkg/adk`.
+- Keep Gateway and Orchestrator as separate services.
+- Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
+- Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
+
+## Required workflow
+
+1. Identify the relevant contract files above.
+2. Check whether the requested change touches cross-module fields or event lifecycles.
+3. Update contract first when the boundary changes.
+4. Implement only in allowed targets.
+5. Add/update tests for the touched module.
+6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
+
+## Completion checklist
+
+- [ ] No stale old-path instructions were introduced.
+- [ ] Contract and implementation agree.
+- [ ] Public Gateway API remains separate from internal service API.
+- [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
+- [ ] Errors are sanitized and do not expose secrets or internal URLs.
+- [ ] Tests or a clear blocker are reported.

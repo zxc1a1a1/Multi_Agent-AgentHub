@@ -1,38 +1,46 @@
 # Docker Compose Delivery Contract
 
-## 目的
+**Status:** Active
+**Owner:** AgentHub
+**Primary source:** Module Separation & Runtime Redesign
 
-本文是 AgentHub 本地 Compose 交付的项目级契约。
 
-它定义：
+## Authoritative source order
 
-- Compose 文件策略。
-- 服务拓扑。
-- Child Agent 服务模式。
-- 环境变量和 secrets。
-- healthcheck。
-- Makefile 命令。
-- smoke test。
-- Demo checklist。
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. PDR product goals only, not old module layout
+4. Sprint/UML as supporting product/demo references only
 
-## 当前交付目标
+Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
 
-当前交付目标支持：
 
-- frontend
-- gateway
-- mysql
-- 2+ Child Agent 服务
-- 一键启动
-- healthcheck
-- smoke test
-- Demo 稳定运行
+## Canonical target topology
 
-## 原则
+```text
+frontend:3000
+gateway:8080
+orchestrator:9090
+code-agent:8081
+web-agent:8082
+mysql:3306
+```
 
-- 本地 Compose 是开发和 Demo 交付入口。
-- 不固定具体 Agent 名称。
-- 新增 Agent 必须遵守通用服务模式。
-- 不提交真实 secret。
-- 所有长期运行服务必须能健康检查。
-- Smoke test 不依赖真实 LLM 随机输出。
+## Required services
+
+| Service | Build path | Notes |
+|---|---|---|
+| `frontend` | `./frontend` | Talks only to Gateway. |
+| `gateway` | `./services/gateway` | Public API + persistence + Orchestrator client. |
+| `orchestrator` | `./services/orchestrator` | gRPC server + planner/executor. |
+| `code-agent` | `./services/agents/code-agent` | A2A Child Agent. |
+| `web-agent` | `./services/agents/web-agent` | A2A Child Agent. |
+| `mysql` | `mysql:8.0` | Target persistence. |
+
+## Legacy compose rule
+
+A compose file that builds `./server` or root `./agents` is legacy and must not be the default delivery path after migration.
+
+## Temporary profiles
+
+A `docker-compose.new-arch.yml` may exist during migration, but it should either become canonical `docker-compose.yml` or be removed after cutover.
