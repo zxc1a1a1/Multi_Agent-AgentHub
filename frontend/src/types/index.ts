@@ -67,6 +67,11 @@ export interface Message {
   status: 'sending' | 'streaming' | 'sent' | 'failed'
   codeBlocks?: CodeBlock[]
   webPreviews?: WebPreviewBlock[]
+  runId?: string
+  stepId?: string
+  sseMessageId?: string
+  errorCode?: string
+  errorMessage?: string
   createdAt: string
 }
 

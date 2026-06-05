@@ -25,11 +25,18 @@ interface StoredMessage {
   conversationId?: string
   senderType?: string
   senderName?: string
+  senderDisplayName?: string
   agentName?: string
   author?: string
   role?: string
   content?: string
   text?: string
+  runId?: string
+  stepId?: string
+  sseMessageId?: string
+  status?: string
+  errorCode?: string
+  errorMessage?: string
   artifacts?: string
   createdAt: string
 }
@@ -86,17 +93,48 @@ function resolveErrorText(event: AGUIEvent): string {
   if (typeof event.error === 'string') {
     const errorText = event.error.trim()
     if (errorText !== '') {
-      return errorText
+      return sanitizeErrorText(errorText)
     }
   }
   if (event.error && typeof event.error === 'object') {
     const message = pickText(event.error.message)
     if (message) {
-      return message
+      return sanitizeErrorText(message)
     }
   }
   const fallback = pickText(event.text, event.content)
-  return fallback || 'Error'
+  return sanitizeErrorText(fallback || 'Error')
+}
+
+function sanitizeErrorText(text: string): string {
+  if (!text) {
+    return 'Error'
+  }
+  let out = text
+  // Strip assignment-style secrets: KEY=value
+  out = out.replace(
+    /\b(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|AGENTHUB_API_TOKEN|DATABASE_URL|DB_PASSWORD|MYSQL_ROOT_PASSWORD)\s*=\s*(?:\S+|"[^"]*"|'[^']*')/gi,
+    '[redacted]',
+  )
+  // Strip private-key blocks
+  out = out.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gi, '[redacted]')
+  // Strip sk- prefixed tokens
+  out = out.replace(/\bsk-[A-Za-z0-9_-]{20,}\b/g, '[redacted]')
+  // Strip Windows-style file paths
+  out = out.replace(/[a-zA-Z]:\\(?:\S+\\\S*)+/g, '[path]')
+  // Strip Unix-style file paths
+  out = out.replace(/(?:\/(?:\S+\/)+\S+)/g, (match) => {
+    // Only redact paths that look like filesystem paths, not ordinary words
+    if (match.length > 8 && match.split('/').length >= 3) {
+      return '[path]'
+    }
+    return match
+  })
+  // If text contains stack trace / panic markers, replace entirely
+  if (/\bpanic\b/i.test(out) || /\bstack\b.*\btrace\b/i.test(out) || /\bfatal\b.*\berror\b/i.test(out)) {
+    return 'internal error'
+  }
+  return out || 'Error'
 }
 
 function normalizeToolArguments(raw: unknown): Record<string, unknown> | null {
@@ -233,12 +271,27 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           id: raw.id,
           conversationId: raw.conversationId || conversationId,
           senderType,
-          senderName: pickText(raw.senderName, raw.author),
+          senderName: pickText(
+            raw.senderDisplayName,
+            raw.senderName,
+            raw.agentName,
+            senderType === 'agent' ? raw.author : undefined,
+          ),
           agentName: normalizedAgentName,
           content,
-          status: 'sent',
+          status:
+            raw.status === 'failed'
+              ? ('failed' as const)
+              : raw.status === 'streaming'
+                ? ('streaming' as const)
+                : ('sent' as const),
           codeBlocks: parsedArtifacts.codeBlocks,
           webPreviews: parsedArtifacts.webPreviews,
+          runId: raw.runId,
+          stepId: raw.stepId,
+          sseMessageId: raw.sseMessageId,
+          errorCode: raw.errorCode,
+          errorMessage: raw.errorMessage,
           createdAt: raw.createdAt,
         }
       })

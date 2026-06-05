@@ -35,6 +35,8 @@ type runtimeConfig struct {
 	AgentEndpoints    []runservice.AgentEndpoint
 	OrchestratorURL   string
 	OrchestratorToken string
+	StoreMode         string
+	SQLitePath        string
 }
 
 func main() {
@@ -47,6 +49,22 @@ func run() error {
 	cfg, err := loadRuntimeConfigFromEnv()
 	if err != nil {
 		return err
+	}
+
+	var opts []httpapi.Option
+	var dbCleanup func() error
+
+	if cfg.StoreMode == "sqlite" {
+		log.Printf("store mode: sqlite, db path: %s", cfg.SQLitePath)
+		_, sqliteStore, writer, cleanup, err := gateway.BootstrapPersistence(cfg.SQLitePath)
+		if err != nil {
+			return fmt.Errorf("sqlite bootstrap failed: %w", err)
+		}
+		dbCleanup = cleanup
+		opts = append(opts, httpapi.WithPersistenceWriter(writer))
+		opts = append(opts, httpapi.WithPersistenceStore(sqliteStore))
+	} else {
+		log.Printf("store mode: memory")
 	}
 
 	var runner gateway.RunService
@@ -76,11 +94,13 @@ func run() error {
 		agents = toAgentSummaries(registry.List())
 	}
 
+	opts = append(opts, httpapi.WithAgents(agents))
+
 	gw, err := gateway.New(
 		cfg.Gateway,
 		store.NewMemoryStore(),
 		runner,
-		httpapi.WithAgents(agents),
+		opts...,
 	)
 	if err != nil {
 		return err
@@ -111,6 +131,13 @@ func run() error {
 			return fmt.Errorf("server shutdown failed: %w; close failed: %v", err, closeErr)
 		}
 		return fmt.Errorf("server shutdown failed: %w", err)
+	}
+
+	if dbCleanup != nil {
+		if err := dbCleanup(); err != nil {
+			return fmt.Errorf("sqlite db close failed: %w", err)
+		}
+		log.Printf("sqlite db closed")
 	}
 
 	log.Printf("gateway shutdown complete")
@@ -166,6 +193,15 @@ func loadRuntimeConfigFromEnv() (runtimeConfig, error) {
 	orchestratorURL := strings.TrimSpace(os.Getenv("ORCHESTRATOR_URL"))
 	orchestratorToken := strings.TrimSpace(os.Getenv("ORCHESTRATOR_INTERNAL_TOKEN"))
 
+	storeMode := strings.TrimSpace(os.Getenv("AGENTHUB_GATEWAY_STORE"))
+	if storeMode == "" {
+		storeMode = "memory"
+	}
+	sqlitePath := strings.TrimSpace(os.Getenv("AGENTHUB_SQLITE_PATH"))
+	if sqlitePath == "" && storeMode == "sqlite" {
+		sqlitePath = "/data/agenthub.db"
+	}
+
 	cfg := runtimeConfig{
 		Gateway: config.Config{
 			Addr:           addr,
@@ -177,6 +213,8 @@ func loadRuntimeConfigFromEnv() (runtimeConfig, error) {
 		AgentEndpoints:    endpoints,
 		OrchestratorURL:   orchestratorURL,
 		OrchestratorToken: orchestratorToken,
+		StoreMode:         storeMode,
+		SQLitePath:        sqlitePath,
 	}
 	if err := cfg.Gateway.Validate(); err != nil {
 		return runtimeConfig{}, err
