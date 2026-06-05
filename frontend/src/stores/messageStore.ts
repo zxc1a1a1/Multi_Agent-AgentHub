@@ -4,6 +4,7 @@ import type { AgentName } from '../lib/agents'
 import * as api from '../services/api'
 import { runAgent, type AGUIChatRequest } from '../agui/client'
 import { DEFAULT_AGENT_NAME, getAgentDisplayName, isSupportedAgentName, normalizeAgentName } from '../lib/agents'
+import type { OrchestrationInfo } from '../components/OrchestrationCard'
 
 interface SendMessageOptions {
   agentName?: AgentName
@@ -13,6 +14,7 @@ interface MessageState {
   messages: Record<string, Message[]> // conversationId -> messages[]
   streamingByConversation: Record<string, boolean>
   abortControllersByConversation: Record<string, AbortController | null>
+  orchestrationByConversation: Record<string, OrchestrationInfo>
 
   loadMessages: (conversationId: string) => Promise<void>
   sendMessage: (conversationId: string, content: string, options?: SendMessageOptions) => void
@@ -250,6 +252,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   messages: {},
   streamingByConversation: {},
   abortControllersByConversation: {},
+  orchestrationByConversation: {},
 
   loadMessages: async (conversationId: string) => {
     try {
@@ -602,8 +605,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           case 'STATE_UPDATE':
           case 'state.delta': {
             // Persist state updates for orchestration progress display.
-            // The state object may carry phase, planId, activeAgent, message, etc.
-            const state = event.state ?? event.stateDelta
+            const state = (event.state ?? event.stateDelta) as Record<string, unknown> | undefined
             if (state && typeof state === 'object') {
               const phaseInfo = pickText(
                 typeof state.phase === 'string' ? state.phase : undefined,
@@ -616,7 +618,46 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                   ensureAgentMessage(event)
                 }
               }
-              // Log phase transitions for debugging (not persisted to message content).
+              // Populate orchestration info for display.
+              const orchInfo: OrchestrationInfo = {}
+              let hasOrchInfo = false
+              if (typeof state.intent === 'string' && state.intent) {
+                orchInfo.intent = state.intent as string
+                hasOrchInfo = true
+              }
+              if (typeof state.reasoning === 'string' && state.reasoning) {
+                orchInfo.reasoning = state.reasoning as string
+                hasOrchInfo = true
+              }
+              if (typeof state.strategy === 'string' && state.strategy) {
+                orchInfo.strategy = state.strategy as string
+                hasOrchInfo = true
+              }
+              if (typeof state.taskCount === 'number') {
+                orchInfo.taskCount = state.taskCount as number
+                hasOrchInfo = true
+              }
+              if (typeof state.plannerSource === 'string' && state.plannerSource) {
+                orchInfo.plannerSource = state.plannerSource as string
+                hasOrchInfo = true
+              }
+              if (typeof state.plannerSourceLabel === 'string' && state.plannerSourceLabel) {
+                orchInfo.plannerSourceLabel = state.plannerSourceLabel as string
+                hasOrchInfo = true
+              }
+              if (typeof state.plannerModel === 'string' && state.plannerModel) {
+                orchInfo.plannerModel = state.plannerModel as string
+                hasOrchInfo = true
+              }
+              if (hasOrchInfo) {
+                set((s) => ({
+                  orchestrationByConversation: {
+                    ...s.orchestrationByConversation,
+                    [conversationId]: orchInfo,
+                  },
+                }))
+              }
+              // Log phase transitions for debugging.
               if (phaseInfo) {
                 // eslint-disable-next-line no-console
                 console.debug(`[orchestrator] phase: ${phaseInfo}`, state)

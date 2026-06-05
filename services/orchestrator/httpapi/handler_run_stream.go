@@ -98,7 +98,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build PlannerInput and generate an OrchestrationPlan via RulePlanner.
+	// Build PlannerInput and generate an OrchestrationPlan.
 	availableAgentNames := s.registry.Names()
 	plannerInput := planner.PlannerInput{
 		RunID:              runID,
@@ -113,8 +113,12 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		AvailableAgents:    availableAgentNames,
 	}
 
-	rulePlanner := planner.NewRulePlanner(availableAgentNames)
-	orchPlan, err := rulePlanner.Plan(r.Context(), plannerInput)
+	// Use the configured Planner, or default to RulePlanner.
+	p := s.planner
+	if p == nil {
+		p = planner.NewRulePlanner(availableAgentNames)
+	}
+	orchPlan, err := p.Plan(r.Context(), plannerInput)
 	if err != nil {
 		s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED", "Failed to generate orchestration plan")
 		return
@@ -155,12 +159,25 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	msgID := fmt.Sprintf("msg_%d", time.Now().UnixMilli())
 
-	// Emit run_started with plan metadata and validation status.
+	// Emit run_started with plan metadata, validation status, and planner info.
 	planState := map[string]any{
 		"phase":     "executing",
 		"planId":    orchPlan.PlanID,
 		"validated": orchPlan.Validation.Validated,
 	}
+	if orchPlan.PlannerSource != "" {
+		planState["plannerSource"] = orchPlan.PlannerSource
+		planState["plannerSourceLabel"] = plannerSourceLabel(orchPlan.PlannerSource)
+	}
+	if orchPlan.PlannerReasoning != "" {
+		planState["reasoning"] = orchPlan.PlannerReasoning
+		planState["intent"] = orchPlan.IntentSummary
+	}
+	if orchPlan.PlannerModel != "" {
+		planState["plannerModel"] = orchPlan.PlannerModel
+	}
+	planState["strategy"] = orchPlan.Strategy
+	planState["taskCount"] = len(orchPlan.Tasks)
 	s.emitEvent(w, flusher, OrchestratorStreamEvent{
 		Type:  "run_started",
 		RunID: runID,
@@ -300,4 +317,17 @@ func sanitizeForError(name string) string {
 		name = name[:64]
 	}
 	return name
+}
+
+func plannerSourceLabel(source string) string {
+	switch source {
+	case "llm":
+		return "AI 编排"
+	case "rule":
+		return "规则编排"
+	case "fallback":
+		return "降级编排"
+	default:
+		return source
+	}
 }
