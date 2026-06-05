@@ -1,82 +1,41 @@
-# AgentHub 数据模型契约
+# Data Model Contract
 
-## 目的
+**Status:** Active
+**Owner:** AgentHub
+**Primary source:** Module Separation & Runtime Redesign
 
-本文定义 AgentHub v1.0 的数据模型事实源。
 
-## 当前 Profile
+## Authoritative source order
 
-```text
-profile = v1.0-generic-persistence
-storage = MySQL 8
-supports = 2+ agents, single/group conversations, runs, steps, tasks, artifacts, tool calls
-```
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. PDR product goals only, not old module layout
+4. Sprint/UML as supporting product/demo references only
 
-## 核心实体
+Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
 
-| 表 | 说明 |
-|---|---|
-| users | 用户 |
-| conversations | 会话 |
-| conversation_participants | 会话参与者 |
-| messages | 消息 |
-| agents | Agent 注册信息 |
-| agent_health_checks | 健康检查 |
-| runs | 一次运行 |
-| run_steps | 运行步骤 |
-| agent_tasks | 子 Agent 任务 |
-| tool_calls | 工具调用 |
-| artifacts | 产物 |
 
-## 关系
+## Scope
 
-- User 1:N Conversation。
-- Conversation 1:N Message。
-- Conversation 1:N Run。
-- Conversation 1:N ConversationParticipant。
-- Agent 1:N AgentHealthCheck。
-- Run 1:N RunStep。
-- Run 1:N AgentTask。
-- Run 1:N Message。
-- Message 1:N Artifact。
-- Message 1:N ToolCall。
-- Artifact 1:N ToolCall 可选。
+Gateway owns conversation/message persistence. Runtime session persistence is separate and belongs to `pkg/runtime/session`.
 
-## 通用字段
+## Current target database
 
-推荐所有核心表具备：
+MySQL is the current target profile for full redesign delivery. SQLite may exist only as a demo compatibility profile.
 
-```text
-id
-created_at
-updated_at
-```
+## Gateway tables
 
-用户可见历史表建议具备：
+- `conversations`
+- `messages`
+- `artifacts` if persisted separately
 
-```text
-deleted_at
-```
+## Runtime session tables
 
-## 状态分层
+- `sessions`
+- `session_events`
 
-### Agent 状态分离
+## Separation rules
 
-- `agents.status`：生命周期/启用状态，枚举 `enabled | disabled | experimental | deprecated`。
-- `agents.health`：当前健康状态，由 Registry 周期性探测 `/health` 后归一化写入，枚举 `healthy | degraded | unhealthy | unknown`。
-- `disabled` 属于 `agents.status`，不属于 `agents.health`。
-- `agent_health_checks.status`：归一化后健康检查记录状态，枚举 `healthy | degraded | unhealthy | unknown`。
-
-### Run 状态分层
-
-- `runs.status`：粗粒度生命周期状态，只使用 `accepted | running | completed | failed | cancelled`。不得写入细粒度阶段。
-- `runs.phase`：可选细粒度当前阶段（如 `planning`、`dispatching`、`aggregating`），用于展示运行细节。
-- `run_steps.step_type`：持久化详细步骤类型（如 `planning | dispatch | agent_call | tool_call | artifact | retry | fallback | aggregate`），用于审计和排障。
-- `STATE_UPDATE.state.phase`：前端 SSE 事件中的阶段提示，不持久化。
-
-## 命名
-
-- 数据库字段使用 snake_case。
-- API 字段使用 camelCase。
-- 表名使用复数 snake_case。
-- JSON 字段必须有结构说明。
+- Orchestrator does not write Gateway conversation tables.
+- Child Agents do not write Gateway conversation tables.
+- Runtime session storage must satisfy `adk.SessionService`.

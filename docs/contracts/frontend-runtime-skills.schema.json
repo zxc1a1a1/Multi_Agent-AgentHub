@@ -1,72 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agenthub.local/schemas/frontend-runtime-skills.schema.json",
-  "title": "Frontend Runtime Capability Registry",
+  "title": "FrontendSkill",
   "type": "object",
-  "additionalProperties": {
-    "$ref": "#/$defs/runtimeSkill"
-  },
-  "$defs": {
-    "runtimeSkill": {
-      "type": "object",
-      "required": [
-        "toolName",
-        "description",
-        "status",
-        "behavior",
-        "riskLevel",
-        "requiresConfirmation",
-        "acceptsStreamingArgs",
-        "parseAt",
-        "parametersSchema",
-        "failureMode"
-      ],
-      "properties": {
-        "toolName": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9_]*$"
-        },
-        "description": {
-          "type": "string",
-          "minLength": 1
-        },
-        "status": {
-          "type": "string",
-          "enum": ["implemented", "seeded", "reserved", "disabled", "deprecated"]
-        },
-        "component": {
-          "type": "string"
-        },
-        "behavior": {
-          "type": "string",
-          "enum": ["render", "interactive", "side_effect"]
-        },
-        "riskLevel": {
-          "type": "string",
-          "enum": ["low", "medium", "high"]
-        },
-        "requiresConfirmation": {
-          "type": "boolean"
-        },
-        "acceptsStreamingArgs": {
-          "type": "boolean"
-        },
-        "parseAt": {
-          "type": "string",
-          "const": "tool_call_end"
-        },
-        "parametersSchema": {
-          "type": ["object", "boolean"]
-        },
-        "resultSchema": {
-          "type": ["object", "boolean"]
-        },
-        "failureMode": {
-          "type": "string",
-          "enum": ["hide", "placeholder", "error_card", "text_fallback"]
-        }
-      },
-      "additionalProperties": false
+  "required": [
+    "name"
+  ],
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "parameters": {
+      "type": "object"
     }
   }
 }

@@ -1,28 +1,34 @@
-# PlannerInput Contract
+# Planner Input Contract
 
-PlannerInput 是 Planner 的标准输入。
+**Status:** Active
+**Owner:** AgentHub
+**Primary source:** Module Separation & Runtime Redesign
 
-## 字段
 
-| 字段 | 说明 |
-|---|---|
-| `runId` | 当前 Run ID |
-| `conversationId` | 当前对话 ID |
-| `conversationType` | `single` 或 `group` |
-| `userMessage` | 当前用户输入 |
-| `historySummary` | 可选历史摘要 |
-| `messages` | 受控历史消息 |
-| `availableAgents` | 当前可用 Agent 能力摘要 |
-| `runtimeCapabilities` | 前端可处理能力摘要 |
-| `mentions` | 用户显式 @mention |
-| `manualSelectedAgents` | 手动选择的 Agent |
-| `planningMode` | 路由模式 |
-| `constraints` | 最大 task、最大 retry 等约束 |
-| `traceId` | 追踪 ID |
+## Authoritative source order
 
-## 安全规则
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. PDR product goals only, not old module layout
+4. Sprint/UML as supporting product/demo references only
 
-- 不得包含 API key、token、数据库连接串。
-- 不得包含完整敏感 system prompt。
-- 历史消息必须裁剪或摘要化。
-- `availableAgents` 只传能力摘要。
+Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
+
+
+## PlannerInput
+
+```json
+{
+  "messages": [{"role":"user","content":"..."}],
+  "history": [{"role":"assistant","content":"...","senderName":"code-agent"}],
+  "agents": [{"name":"code-agent","skills":["code_generate"],"outputModes":["text","code"]}],
+  "tools": [{"name":"code_preview"}],
+  "metadata": {"conversationType":"single|group"}
+}
+```
+
+## Rules
+
+- Planner must never inspect Gateway DB directly.
+- Planner must not call Child Agents.
+- Planner output must be validated before execution.

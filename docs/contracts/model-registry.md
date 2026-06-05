@@ -1,27 +1,33 @@
-# Model Registry
+# Model Registry Contract
 
-Model Registry 记录模型能力、限制、状态和适用场景。
+**Status:** Active
+**Owner:** AgentHub
+**Primary source:** Module Separation & Runtime Redesign
 
-## 必填信息
 
-- modelId
-- providerName
-- status
-- capabilities
-- costClass
+## Authoritative source order
 
-## 能力字段
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. PDR product goals only, not old module layout
+4. Sprint/UML as supporting product/demo references only
 
-- streaming
-- structuredOutput
-- jsonSchema
-- toolUse
-- vision
-- reasoning
+Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
 
-## 规则
 
-- 模型能力不得由代码猜测。
-- fallback 必须选择能力兼容的模型。
-- disabled 模型不得被新请求选择。
-- Provider 能力不自动继承到所有模型。
+## Shape
+
+```yaml
+models:
+  - name: claude-sonnet
+    provider: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+    model: claude-sonnet-4-20250514
+    base_url: https://api.anthropic.com
+```
+
+## Rules
+
+- `provider` maps to a registered Runtime `ModelProvider`.
+- `name` is the stable reference used by Agent YAML config.
+- No model instance is constructed before config/env validation.

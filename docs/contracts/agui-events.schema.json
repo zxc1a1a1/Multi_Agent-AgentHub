@@ -1,35 +1,35 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agenthub.local/contracts/agui-events.schema.json",
-  "title": "AgentHub AG-UI Event",
+  "title": "AG-UI Event",
   "type": "object",
   "required": [
     "type"
   ],
   "properties": {
     "type": {
-      "type": "string",
       "enum": [
         "RUN_STARTED",
         "RUN_FINISHED",
         "RUN_ERROR",
+        "STATE_UPDATE",
         "TEXT_MESSAGE_START",
         "TEXT_MESSAGE_CONTENT",
         "TEXT_MESSAGE_END",
         "TOOL_CALL_START",
         "TOOL_CALL_ARGS",
-        "TOOL_CALL_END",
-        "STATE_UPDATE"
+        "TOOL_CALL_END"
       ]
     },
     "runId": {
       "type": "string"
     },
-    "threadId": {
-      "type": "string",
-      "description": "conversationId 的 AG-UI 协议别名。内部统一使用 conversationId。"
-    },
     "messageId": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string"
+    },
+    "content": {
       "type": "string"
     },
     "toolCallId": {
@@ -38,274 +38,15 @@
     "toolName": {
       "type": "string"
     },
-    "role": {
-      "type": "string",
-      "enum": [
-        "user",
-        "assistant",
-        "system",
-        "tool"
-      ]
-    },
-    "timestamp": {
-      "type": "string"
-    },
-    "traceId": {
-      "type": "string"
-    },
-    "delta": {
-      "type": "string"
-    },
-    "content": {
-      "type": "string"
-    },
-    "sender": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": [
-            "user",
-            "agent",
-            "system"
-          ]
-        },
-        "name": {
-          "type": "string"
-        },
-        "displayName": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": true
-    },
-    "state": {
-      "type": "object",
-      "properties": {
-        "phase": {
-          "type": "string",
-          "enum": [
-            "accepted",
-            "planning",
-            "dispatching",
-            "agent_streaming",
-            "tool_calling",
-            "retrying",
-            "finished",
-            "failed"
-          ]
-        },
-        "message": {
-          "type": "string"
-        },
-        "strategy": {
-          "type": "string",
-          "enum": [
-            "single",
-            "ordered_parallel",
-            "sequential"
-          ]
-        },
-        "activeAgent": {
-          "type": "string"
-        },
-        "assignedAgents": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "failedAgent": {
-          "type": "string"
-        },
-        "fallbackAgent": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": true
-    },
     "error": {
-      "type": "object",
-      "required": [
-        "code",
-        "message"
-      ],
-      "properties": {
-        "code": {
-          "type": "string",
-          "enum": [
-            "AGUI_BAD_REQUEST",
-            "AGUI_UNAUTHORIZED",
-            "AGUI_STREAM_INTERRUPTED",
-            "AGUI_PLANNING_FAILED",
-            "AGUI_AGENT_UNAVAILABLE",
-            "AGUI_AGENT_FAILED",
-            "AGUI_TOOL_ARGS_INVALID",
-            "AGUI_TOOL_UNSUPPORTED",
-            "AGUI_INTERNAL",
-            "AGUI_RUN_FAILED"
-          ]
-        },
-        "message": {
-          "type": "string"
-        },
-        "retryable": {
-          "type": "boolean"
-        },
-        "details": {
-          "type": "object",
-          "additionalProperties": true
-        }
-      },
-      "additionalProperties": true
+      "type": "string"
+    },
+    "agentName": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object"
     }
   },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "type": {
-            "const": "RUN_STARTED"
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "runId",
-          "threadId"
-        ]
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "type": {
-            "const": "RUN_FINISHED"
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "runId"
-        ]
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "type": {
-            "const": "RUN_ERROR"
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "runId",
-          "error"
-        ]
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "type": {
-            "const": "TEXT_MESSAGE_START"
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "runId",
-          "messageId",
-          "role"
-        ]
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "type": {
-            "const": "TEXT_MESSAGE_CONTENT"
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "messageId"
-        ]
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "type": {
-            "const": "TEXT_MESSAGE_END"
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "messageId"
-        ]
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "type": {
-            "const": "TOOL_CALL_START"
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "toolCallId",
-          "toolName"
-        ]
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "type": {
-            "const": "TOOL_CALL_ARGS"
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "toolCallId"
-        ]
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "type": {
-            "const": "TOOL_CALL_END"
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "toolCallId"
-        ]
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "type": {
-            "const": "STATE_UPDATE"
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "runId"
-        ]
-      }
-    }
-  ],
   "additionalProperties": true
 }

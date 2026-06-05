@@ -1,200 +1,54 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agenthub.local/schemas/orchestration-plan.schema.json",
-  "title": "AgentHub OrchestrationPlan",
+  "title": "OrchestrationPlan",
   "type": "object",
   "required": [
-    "version",
-    "planId",
-    "runId",
-    "conversationId",
-    "planningMode",
-    "strategy",
-    "intentSummary",
-    "tasks",
-    "fallback",
-    "validation"
+    "mode",
+    "steps"
   ],
-  "additionalProperties": false,
   "properties": {
-    "version": {
-      "type": "string",
-      "const": "v1"
-    },
-    "planId": {
-      "type": "string",
-      "minLength": 1
-    },
-    "runId": {
-      "type": "string",
-      "minLength": 1
-    },
-    "conversationId": {
-      "type": "string",
-      "minLength": 1
-    },
-    "planningMode": {
-      "type": "string",
-      "description": "外部请求只允许 direct/mention/manual/auto。fallback 仅限 Orchestrator 内部生成的降级计划。",
-      "enum": [
-        "direct",
-        "mention",
-        "manual",
-        "auto",
-        "fallback"
-      ]
-    },
-    "strategy": {
-      "type": "string",
+    "mode": {
       "enum": [
         "single",
-        "ordered_parallel",
-        "sequential"
+        "sequential",
+        "parallel",
+        "ordered_parallel"
       ]
     },
-    "intentSummary": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 2000
+    "intent": {
+      "type": "string"
     },
-    "tasks": {
+    "steps": {
       "type": "array",
-      "minItems": 1,
-      "maxItems": 16,
       "items": {
-        "$ref": "#/$defs/taskPlan"
-      }
-    },
-    "aggregation": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "mode": {
-          "type": "string",
-          "enum": [
-            "message_per_task",
-            "merged_summary",
-            "none"
-          ]
-        },
-        "summaryRequired": {
-          "type": "boolean"
-        }
-      }
-    },
-    "fallback": {
-      "type": "object",
-      "required": [
-        "mode",
-        "maxAttempts"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "mode": {
-          "type": "string",
-          "enum": [
-            "none",
-            "same_capability_alternative",
-            "lower_risk_plan",
-            "single_agent_fallback",
-            "fail_fast"
-          ]
-        },
-        "maxAttempts": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 5
-        }
-      }
-    },
-    "parentPlanId": {
-      "type": "string",
-      "description": "fallback plan 的原计划 ID"
-    },
-    "fallbackOf": {
-      "type": "object",
-      "description": "fallback plan 指向的原计划引用",
-      "additionalProperties": false,
-      "properties": {
-        "planId": { "type": "string" },
-        "reason": { "type": "string" }
-      }
-    },
-    "reason": {
-      "type": "string",
-      "description": "触发 fallback 的原因摘要"
-    },
-    "validation": {
-      "type": "object",
-      "required": [
-        "schemaVersion",
-        "validated"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "schemaVersion": {
-          "type": "string",
-          "const": "v1"
-        },
-        "validated": {
-          "type": "boolean"
-        }
-      }
-    }
-  },
-  "$defs": {
-    "taskPlan": {
-      "type": "object",
-      "required": [
-        "taskId",
-        "agentName",
-        "capabilityIds",
-        "taskContent",
-        "dependsOn",
-        "expectedOutputs"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "taskId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "agentName": {
-          "type": "string",
-          "minLength": 1
-        },
-        "capabilityIds": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
+        "type": "object",
+        "required": [
+          "id",
+          "agentName",
+          "input"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
           },
-          "minItems": 1
-        },
-        "taskContent": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 20000
-        },
-        "dependsOn": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
+          "agentName": {
+            "type": "string"
+          },
+          "input": {
+            "type": "string"
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expectedOutputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
-        },
-        "expectedOutputs": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1
-        },
-        "priority": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 100
         }
       }
     }

@@ -1,7 +1,56 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agenthub.local/schemas/execution-plan.schema.json",
-  "title": "AgentHub ExecutionPlan Compatibility Alias",
-  "description": "兼容旧命名。语义与 orchestration-plan.schema.json 一致，新增设计应优先使用 OrchestrationPlan 命名。",
-  "$ref": "./orchestration-plan.schema.json"
+  "title": "OrchestrationPlan",
+  "type": "object",
+  "required": [
+    "mode",
+    "steps"
+  ],
+  "properties": {
+    "mode": {
+      "enum": [
+        "single",
+        "sequential",
+        "parallel",
+        "ordered_parallel"
+      ]
+    },
+    "intent": {
+      "type": "string"
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "agentName",
+          "input"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agentName": {
+            "type": "string"
+          },
+          "input": {
+            "type": "string"
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expectedOutputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
 }

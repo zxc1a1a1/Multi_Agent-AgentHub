@@ -1,32 +1,35 @@
 # LLM Provider Contract
 
-本文是 AgentHub LLM Provider 适配层的正式契约。
+**Status:** Active
+**Owner:** AgentHub
+**Primary source:** Module Separation & Runtime Redesign
 
-## 目标
 
-统一所有 LLM 调用，避免业务代码直接绑定 Provider SDK 或 Provider 原始响应结构。
+## Authoritative source order
 
-## 核心对象
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. PDR product goals only, not old module layout
+4. Sprint/UML as supporting product/demo references only
 
-- ProviderDefinition
-- ModelDefinition
-- LLMRequest
-- LLMResponse
-- LLMStreamEvent
-- TokenUsage
-- SafeLLMError
-- RetryPolicy
-- RateLimitPolicy
-- FallbackPolicy
-- PromptTemplate
+Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
 
-## 核心规则
 
-1. 所有模型调用必须通过 Provider Adapter。
-2. Gateway Service 不直接调用 LLM Provider。
-3. Provider secret 只能来自环境变量或 secret manager。
-4. 结构化输出必须本地 schema validation。
-5. 流式事件必须归一化。
-6. Provider 错误必须脱敏。
-7. fallback 必须满足能力兼容。
-8. 本契约不绑定具体 Agent 名称。
+## Scope
+
+Concrete providers live in `pkg/runtime/model`. ADK only defines `adk.Model`.
+
+## Providers
+
+| Provider | Package | API style |
+|---|---|---|
+| Anthropic | `pkg/runtime/model/anthropic.go` | Messages API |
+| OpenAI | `pkg/runtime/model/openai.go` | ChatCompletions |
+| Proxy | `pkg/runtime/model/proxy.go` | OpenAI-compatible |
+
+## Rules
+
+- Providers are registered through Runtime model registry.
+- API keys come from env vars only.
+- Provider errors must be sanitized before reaching browser.
+- Planner may use an LLM provider, but RulePlanner remains fallback only.

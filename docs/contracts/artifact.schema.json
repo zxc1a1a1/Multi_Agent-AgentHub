@@ -1,212 +1,37 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agenthub.local/schemas/artifact.schema.json",
-  "title": "AgentHub Artifact",
+  "title": "Artifact",
   "type": "object",
-  "additionalProperties": false,
   "required": [
-    "artifactId",
     "type",
-    "title",
-    "mimeType",
-    "links",
-    "version",
-    "status",
-    "createdAt"
+    "title"
   ],
   "properties": {
-    "artifactId": {
-      "type": "string",
-      "minLength": 1,
-      "pattern": "^art_[A-Za-z0-9_-]+$"
-    },
     "type": {
-      "type": "string",
       "enum": [
         "code",
         "webpage",
-        "markdown",
         "document",
-        "data",
-        "image",
-        "archive",
-        "audio",
-        "video",
+        "file",
         "diff",
-        "terminal_log"
+        "terminal",
+        "image"
       ]
     },
     "title": {
-      "type": "string",
-      "minLength": 1
-    },
-    "mimeType": {
-      "type": "string",
-      "minLength": 1
+      "type": "string"
     },
     "content": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
-    "contentRef": {
-      "oneOf": [
-        {
-          "type": "null"
-        },
-        {
-          "type": "object",
-          "additionalProperties": true,
-          "required": [
-            "kind"
-          ],
-          "properties": {
-            "kind": {
-              "type": "string"
-            },
-            "bucket": {
-              "type": "string"
-            },
-            "key": {
-              "type": "string"
-            },
-            "sizeBytes": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "sha256": {
-              "type": "string"
-            }
-          }
-        }
-      ]
-    },
-    "summary": {
-      "type": [
-        "string",
-        "null"
-      ]
+    "url": {
+      "type": "string"
     },
     "metadata": {
       "type": "object",
-      "additionalProperties": true
-    },
-    "source": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "agentName": {
-          "type": "string"
-        },
-        "taskId": {
-          "type": "string"
-        },
-        "stepId": {
-          "type": "string"
-        }
+      "additionalProperties": {
+        "type": "string"
       }
-    },
-    "links": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "conversationId",
-        "messageId",
-        "runId"
-      ],
-      "properties": {
-        "conversationId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "messageId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "runId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "groupId": {
-          "type": "string"
-        }
-      }
-    },
-    "preview": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "previewType": {
-          "type": "string",
-          "enum": [
-            "code_preview",
-            "web_preview",
-            "markdown_render",
-            "document_preview",
-            "data_preview",
-            "image_preview",
-            "file_download"
-          ]
-        },
-        "available": {
-          "type": "boolean"
-        },
-        "reason": {
-          "type": "string"
-        }
-      }
-    },
-    "version": {
-      "type": "integer",
-      "minimum": 1
-    },
-    "status": {
-      "type": "string",
-      "enum": [
-        "pending",
-        "normalizing",
-        "ready",
-        "failed",
-        "superseded",
-        "deleted"
-      ]
-    },
-    "parentArtifactId": {
-      "type": "string"
-    },
-    "supersedes": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "artifactId": {
-          "type": "string"
-        },
-        "version": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
-    },
-    "createdAt": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "updatedAt": {
-      "type": "string",
-      "format": "date-time"
     }
-  },
-  "anyOf": [
-    {
-      "required": [
-        "content"
-      ]
-    },
-    {
-      "required": [
-        "contentRef"
-      ]
-    }
-  ]
+  }
 }
