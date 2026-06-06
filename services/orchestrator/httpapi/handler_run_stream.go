@@ -178,6 +178,11 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 	planState["strategy"] = orchPlan.Strategy
 	planState["taskCount"] = len(orchPlan.Tasks)
+	// Phase 5: always emit repair/fallback/validation metadata.
+	planState["repairCount"] = orchPlan.RepairCount
+	planState["fallback"] = orchPlan.Fallback.Enabled
+	planState["fallbackReason"] = orchPlan.Fallback.Reason
+	planState["validationPassed"] = orchPlan.Validation.Validated
 	s.emitEvent(w, flusher, OrchestratorStreamEvent{
 		Type:  "run_started",
 		RunID: runID,
