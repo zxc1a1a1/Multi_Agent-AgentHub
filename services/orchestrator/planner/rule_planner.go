@@ -9,6 +9,10 @@ import (
 
 // RulePlanner implements Planner using keyword-based rules.
 // Mixed web+code keywords produce ordered_parallel; everything else is single.
+//
+// Deprecated: RulePlanner is a transitional fallback only.
+// Do not add new routing rules. It will be removed after LLMPlanner
+// validation and repair are stable.
 type RulePlanner struct {
 	availableAgents []string
 }

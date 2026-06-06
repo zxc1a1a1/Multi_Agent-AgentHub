@@ -53,14 +53,38 @@ type llmTaskPlan struct {
 }
 
 // ---------------------------------------------------------------------------
+// Validation error codes for plan validation failures
+// ---------------------------------------------------------------------------
+
+const (
+	ValCodeUnknownAgent          = "unknown_agent"
+	ValCodeUnsupportedSequential = "unsupported_sequential"
+	ValCodeEmptyTasks            = "empty_tasks"
+	ValCodeEmptyAgent            = "empty_agent"
+)
+
+// ValError is a single validation/pipeline failure with a code and message.
+type ValError struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	TaskIndex int    `json:"task_index,omitempty"` // -1 if not task-specific
+}
+
+// ValResult is the outcome of plan validation.
+type ValResult struct {
+	Valid  bool       `json:"valid"`
+	Errors []ValError `json:"errors,omitempty"`
+}
+
+// ---------------------------------------------------------------------------
 // PlanValidator — in-planner validation interface
 // ---------------------------------------------------------------------------
 
 // PlanValidator validates an OrchestrationPlan produced by the LLM.
-// Returns true when the plan passes all checks. The concrete implementation
-// is auto-wired from the AgentLister in NewLLMPlanner.
+// Returns a ValResult with structured error codes that the Repairer can use.
+// The concrete implementation is auto-wired from the AgentLister in NewLLMPlanner.
 type PlanValidator interface {
-	Validate(p *plan.OrchestrationPlan) bool
+	Validate(p *plan.OrchestrationPlan) *ValResult
 }
 
 // ---------------------------------------------------------------------------
@@ -69,16 +93,20 @@ type PlanValidator interface {
 
 // LLMPlanner implements the Planner interface using an LLM.
 // On failure it falls back to RulePlanner (deprecated transitional fallback).
-// The new pipeline (Phase 3): build prompt from registry → call model →
-// parse via PlanParser → normalize via PlanNormalizer →
-// validate via PlanValidator → return plan.
+// The pipeline (Phase 4):
+//
+//	PromptBuilder → PlannerModel → Parser → Normalizer → Validator
+//	  → (if fail) Repairer once → Parser → Normalizer → Validator
+//	  → (if still fail) RulePlanner fallback
+//
 // Unknown agent names are never fuzzy-matched or defaulted; they are rejected
-// by the Validator, triggering a RulePlanner fallback.
+// by the Validator, triggering a repair attempt, then RulePlanner fallback.
 type LLMPlanner struct {
 	model     PlannerModel
 	modelName string
 	lister    AgentLister
 	validator PlanValidator
+	repairer  *PlanRepairer
 	fallback  *RulePlanner
 }
 
@@ -98,21 +126,26 @@ func NewLLMPlanner(model PlannerModel, modelName string, lister AgentLister) *LL
 		modelName: modelName,
 		lister:    lister,
 		validator: newListerPlanValidator(lister),
+		repairer:  NewPlanRepairer(model),
 		fallback:  NewRulePlanner(availableAgents),
 	}
 }
 
-// Plan generates an OrchestrationPlan using the LLM pipeline:
+// Plan generates an OrchestrationPlan using the LLM pipeline with one-shot repair:
 //
-//	PromptBuilder (registry agents) → PlannerModel → PlanParser →
-//	PlanNormalizer → PlanValidator → return plan
+//	PromptBuilder (registry agents) → PlannerModel →
+//	  Parser → Normalizer → Validator → return plan (primary path)
 //
-// On any failure (model call, parse, normalize, validation), the method
-// falls back to RulePlanner automatically (deprecated transitional fallback).
+// On pipeline failure (parse/normalize/validate):
+//
+//	Repairer (one shot) → Parser → Normalizer → Validator → return repaired plan
+//	  → (if repair fails) RulePlanner fallback
+//
+// Repair success: PlannerSource=llm, RepairCount=1, Fallback.Enabled=false.
+// Repair failure: fallback RulePlanner.
 //
 // Unknown agent names are never fuzzy-matched or defaulted — the Normalizer
-// preserves them as-is, and the PlanValidator rejects them, triggering a
-// RulePlanner fallback.
+// preserves them as-is, and the PlanValidator/Repairer handles them.
 func (p *LLMPlanner) Plan(ctx context.Context, input PlannerInput) (*plan.OrchestrationPlan, error) {
 	// 1. Build prompts using PromptBuilder with real registry agent info.
 	pb := NewPromptBuilder(p.lister)
@@ -129,35 +162,71 @@ func (p *LLMPlanner) Plan(ctx context.Context, input PlannerInput) (*plan.Orches
 		return p.fallbackPlan(input, "llm_error", p.modelName), nil
 	}
 
-	// 3. Parse raw output into PlanSchema.
+	// 3. Try pipeline: parse → normalize → validate.
+	orchPlan, failures := p.runPipeline(raw, input)
+	if orchPlan != nil {
+		// Primary path success — stamp metadata.
+		orchPlan.PlannerSource = "llm"
+		orchPlan.PlannerModel = p.modelName
+		orchPlan.PlannerReasoning = truncateToLength(strings.TrimSpace(orchPlan.IntentSummary), 120)
+		orchPlan.Fallback = plan.Fallback{Enabled: false}
+		return orchPlan, nil
+	}
+
+	// 4. Pipeline failed — attempt one-shot repair.
+	log.Printf("llm_planner: pipeline failed with %d error(s), attempting repair", len(failures))
+	repairedRaw, repairErr := p.repairer.Repair(ctx, raw, failures, p.lister)
+	if repairErr != nil {
+		log.Printf("llm_planner: repair model call failed: %v, falling back to RulePlanner", repairErr)
+		return p.fallbackPlan(input, "repair_failed", p.modelName), nil
+	}
+
+	// 5. Re-run pipeline on repaired output.
+	orchPlan, _ = p.runPipeline(repairedRaw, input)
+	if orchPlan != nil {
+		// Repair success — stamp metadata with repair count.
+		log.Printf("llm_planner: repair succeeded, returning repaired plan")
+		orchPlan.PlannerSource = "llm"
+		orchPlan.PlannerModel = p.modelName
+		orchPlan.PlannerReasoning = truncateToLength(strings.TrimSpace(orchPlan.IntentSummary), 120)
+		orchPlan.RepairCount = 1
+		orchPlan.Fallback = plan.Fallback{Enabled: false}
+		return orchPlan, nil
+	}
+
+	// 6. Repair did not fix the issue — fallback to RulePlanner.
+	log.Printf("llm_planner: pipeline still failed after repair, falling back to RulePlanner")
+	return p.fallbackPlan(input, "repair_failed", p.modelName), nil
+}
+
+// runPipeline runs the parse → normalize → validate pipeline on raw LLM output.
+// Returns (plan, nil) on success, or (nil, failures) on any pipeline error.
+// The returned plan does NOT have PlannerSource/PlannerModel/Fallback set —
+// the caller (Plan) is responsible for metadata stamping.
+func (p *LLMPlanner) runPipeline(raw string, input PlannerInput) (*plan.OrchestrationPlan, []ValError) {
+	// Parse raw output into PlanSchema.
 	parser := NewPlanParser()
 	schema, err := parser.Parse(raw)
 	if err != nil {
-		log.Printf("llm_planner: parse failed: %v, falling back to RulePlanner", err)
-		return p.fallbackPlan(input, "parse_error", p.modelName), nil
+		return nil, []ValError{{Code: "parse_error", Message: err.Error(), TaskIndex: -1}}
 	}
 
-	// 4. Normalize PlanSchema → OrchestrationPlan.
+	// Normalize PlanSchema → OrchestrationPlan.
 	// Unknown agent names are preserved as-is; no fuzzyMatchAgent/defaultAgent.
 	normalizer := NewPlanNormalizer()
 	orchPlan, err := normalizer.Normalize(schema, input.RunID, input.ConversationID, input.PlanningMode)
 	if err != nil {
-		log.Printf("llm_planner: normalize failed: %v, falling back to RulePlanner", err)
-		return p.fallbackPlan(input, "normalize_error", p.modelName), nil
+		return nil, []ValError{{Code: "normalize_error", Message: err.Error(), TaskIndex: -1}}
 	}
 
-	// 5. Validate the normalized plan against registry agents.
+	// Validate the normalized plan against registry agents.
 	// Unknown agents are rejected here — NOT fuzzy-matched or defaulted.
-	if p.validator != nil && !p.validator.Validate(orchPlan) {
-		log.Printf("llm_planner: validation failed, falling back to RulePlanner")
-		return p.fallbackPlan(input, "validation_error", p.modelName), nil
+	if p.validator != nil {
+		result := p.validator.Validate(orchPlan)
+		if !result.Valid {
+			return nil, result.Errors
+		}
 	}
-
-	// 6. Stamp planner metadata. Fallback is disabled — this is the primary path.
-	orchPlan.PlannerSource = "llm"
-	orchPlan.PlannerModel = p.modelName
-	orchPlan.PlannerReasoning = truncateToLength(strings.TrimSpace(schema.Intent), 120)
-	orchPlan.Fallback = plan.Fallback{Enabled: false} // primary path, fallback not active
 
 	return orchPlan, nil
 }
@@ -182,9 +251,13 @@ func newListerPlanValidator(lister AgentLister) PlanValidator {
 	return &listerPlanValidator{lister: lister}
 }
 
-func (v *listerPlanValidator) Validate(p *plan.OrchestrationPlan) bool {
+func (v *listerPlanValidator) Validate(p *plan.OrchestrationPlan) *ValResult {
+	r := &ValResult{Valid: true}
+
 	if p == nil {
-		return false
+		r.Valid = false
+		r.Errors = append(r.Errors, ValError{Code: "invalid_plan", Message: "plan is nil", TaskIndex: -1})
+		return r
 	}
 
 	// Build set of known agent names from registry.
@@ -198,27 +271,48 @@ func (v *listerPlanValidator) Validate(p *plan.OrchestrationPlan) bool {
 	for i, task := range p.Tasks {
 		if task.AgentName == "" {
 			log.Printf("llm_planner: validation reject: task[%d] has empty agentName", i)
-			return false
+			r.Valid = false
+			r.Errors = append(r.Errors, ValError{
+				Code:      ValCodeEmptyAgent,
+				Message:   "task has empty agentName",
+				TaskIndex: i,
+			})
+			continue
 		}
 		if !known[task.AgentName] {
 			log.Printf("llm_planner: validation reject: agent %q not in registry", task.AgentName)
-			return false
+			r.Valid = false
+			r.Errors = append(r.Errors, ValError{
+				Code:      ValCodeUnknownAgent,
+				Message:   "agent \"" + task.AgentName + "\" not found in registry",
+				TaskIndex: i,
+			})
 		}
 	}
 
 	// Structural: tasks must not be empty.
 	if len(p.Tasks) == 0 {
 		log.Printf("llm_planner: validation reject: plan has no tasks")
-		return false
+		r.Valid = false
+		r.Errors = append(r.Errors, ValError{
+			Code:      ValCodeEmptyTasks,
+			Message:   "plan has no tasks",
+			TaskIndex: -1,
+		})
 	}
 
 	// Structural: sequential strategy is not supported.
 	if p.Strategy == plan.StrategySequential {
 		log.Printf("llm_planner: validation reject: sequential strategy not supported")
-		return false
+		r.Valid = false
+		r.Errors = append(r.Errors, ValError{
+			Code:      ValCodeUnsupportedSequential,
+			Message:   "sequential strategy is not yet supported",
+			TaskIndex: -1,
+		})
 	}
 
-	return true
+	return r
 }
 
 // ---------------------------------------------------------------------------

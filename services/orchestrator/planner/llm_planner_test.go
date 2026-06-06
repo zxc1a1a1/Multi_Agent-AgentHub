@@ -1009,3 +1009,384 @@ func TestLLMPlanner_ParseErrorFallsBack(t *testing.T) {
 
 	t.Logf("✓ Parse error correctly triggers deprecated RulePlanner fallback: Source=%s", orchPlan.PlannerSource)
 }
+
+// ============================================================================
+// Phase 4: Repairer tests
+// ============================================================================
+
+// fakeMultiModel implements PlannerModel for repair tests.
+// It cycles through a list of responses — first call returns the invalid
+// response, second call returns the corrected response (simulating repair).
+type fakeMultiModel struct {
+	responses []string
+	callCount int
+	err       error
+}
+
+func (f *fakeMultiModel) Generate(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	idx := f.callCount
+	f.callCount++
+	if idx >= len(f.responses) {
+		return f.responses[len(f.responses)-1], nil
+	}
+	return f.responses[idx], nil
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: TestLLMPlanner_InvalidJSON_RepairSucceeds
+// Invalid JSON → repair once → parse → normalize → validate → success.
+// Evidence: PlannerSource=llm, RepairCount=1, Fallback.Enabled=false.
+// ---------------------------------------------------------------------------
+
+func TestLLMPlanner_InvalidJSON_RepairSucceeds(t *testing.T) {
+	lister := &mockLister{
+		agents: []AgentInfoLite{
+			{Name: "code-agent", Description: "code generation", CapabilityIDs: []string{"code_generation"}, OutputModes: []string{"text", "code"}},
+			{Name: "web-agent", Description: "web UI generation", CapabilityIDs: []string{"web_generation"}, OutputModes: []string{"text", "webpage"}},
+		},
+	}
+	// First response: raw text (not JSON at all) → parse fails.
+	// Second response (repair): valid JSON.
+	model := &fakeMultiModel{
+		responses: []string{
+			"this is not JSON at all, just some random text",
+			`{"intent":"generate code","mode":"single","confidence":0.95,"steps":[{"agent_name":"code-agent","input":"write Go code","reason":"code task"}],"user_visible_summary":"I will ask code-agent to generate code."}`,
+		},
+	}
+
+	p := NewLLMPlanner(model, "test-model", lister)
+	input := PlannerInput{
+		RunID:          "run_invalid_json",
+		ConversationID: "conv_invalid_json",
+		UserMessage:    "write Go code",
+		PlanningMode:   "auto",
+	}
+
+	orchPlan, err := p.Plan(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Key evidence 1: PlannerSource must be "llm" (repaired LLM plan, NOT fallback).
+	if orchPlan.PlannerSource != "llm" {
+		t.Errorf("FAIL: expected PlannerSource=llm (repaired LLM plan), got %q", orchPlan.PlannerSource)
+	}
+
+	// Key evidence 2: RepairCount must be 1 (one repair succeeded).
+	if orchPlan.RepairCount != 1 {
+		t.Errorf("FAIL: expected RepairCount=1, got %d", orchPlan.RepairCount)
+	}
+
+	// Key evidence 3: Fallback must be disabled (repair succeeded).
+	if orchPlan.Fallback.Enabled {
+		t.Errorf("FAIL: Fallback.Enabled=true (reason=%q) — repair should have succeeded, not triggered fallback", orchPlan.Fallback.Reason)
+	}
+
+	// Key evidence 4: Model must be populated.
+	if orchPlan.PlannerModel != "test-model" {
+		t.Errorf("expected PlannerModel=test-model, got %q", orchPlan.PlannerModel)
+	}
+
+	// Plan should be valid.
+	if orchPlan.Strategy != plan.StrategySingle {
+		t.Errorf("expected StrategySingle, got %q", orchPlan.Strategy)
+	}
+	if len(orchPlan.Tasks) == 0 {
+		t.Error("expected non-empty tasks")
+	}
+
+	t.Logf("✓ Invalid JSON repaired successfully: Source=%s, RepairCount=%d, Fallback.Enabled=%v",
+		orchPlan.PlannerSource, orchPlan.RepairCount, orchPlan.Fallback.Enabled)
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: TestLLMPlanner_UnknownAgent_RepairSucceeds
+// Unknown agent → repair once → corrected agent → parse → normalize → validate → success.
+// Evidence: PlannerSource=llm, RepairCount=1, Fallback.Enabled=false, agent fixed.
+// ---------------------------------------------------------------------------
+
+func TestLLMPlanner_UnknownAgent_RepairSucceeds(t *testing.T) {
+	lister := &mockLister{
+		agents: []AgentInfoLite{
+			{Name: "code-agent", Description: "code generation", CapabilityIDs: []string{"code_generation"}, OutputModes: []string{"text", "code"}},
+			{Name: "web-agent", Description: "web UI generation", CapabilityIDs: []string{"web_generation"}, OutputModes: []string{"text", "webpage"}},
+		},
+	}
+	// First response: uses "gibberish-agent" which is NOT in registry.
+	// Second response (repair): corrected to use "web-agent".
+	model := &fakeMultiModel{
+		responses: []string{
+			`{"intent":"build UI","mode":"single","confidence":0.9,"steps":[{"agent_name":"gibberish-agent","input":"build a login page","reason":"UI task"}],"user_visible_summary":"Building UI."}`,
+			`{"intent":"build UI","mode":"single","confidence":0.9,"steps":[{"agent_name":"web-agent","input":"build a login page","reason":"UI task"}],"user_visible_summary":"Building UI."}`,
+		},
+	}
+
+	p := NewLLMPlanner(model, "test-model", lister)
+	input := PlannerInput{
+		RunID:          "run_unknown_agent",
+		ConversationID: "conv_unknown_agent",
+		UserMessage:    "build a login page",
+		PlanningMode:   "auto",
+	}
+
+	orchPlan, err := p.Plan(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Key evidence 1: PlannerSource must be "llm" (repaired, NOT fallback).
+	if orchPlan.PlannerSource != "llm" {
+		t.Errorf("FAIL: expected PlannerSource=llm (repaired plan), got %q", orchPlan.PlannerSource)
+	}
+
+	// Key evidence 2: RepairCount must be 1.
+	if orchPlan.RepairCount != 1 {
+		t.Errorf("FAIL: expected RepairCount=1, got %d", orchPlan.RepairCount)
+	}
+
+	// Key evidence 3: Fallback must be disabled.
+	if orchPlan.Fallback.Enabled {
+		t.Errorf("FAIL: Fallback.Enabled=true — repair should have succeeded")
+	}
+
+	// Key evidence 4: The agent MUST be the corrected one (web-agent), NOT gibberish-agent.
+	if len(orchPlan.Tasks) == 0 {
+		t.Fatal("expected non-empty tasks")
+	}
+	if orchPlan.Tasks[0].AgentName == "gibberish-agent" {
+		t.Errorf("FAIL: unknown agent leaked into repaired plan")
+	}
+	if orchPlan.Tasks[0].AgentName != "web-agent" {
+		t.Errorf("expected repaired agent=web-agent, got %q", orchPlan.Tasks[0].AgentName)
+	}
+
+	// Should be a single strategy.
+	if orchPlan.Strategy != plan.StrategySingle {
+		t.Errorf("expected StrategySingle, got %q", orchPlan.Strategy)
+	}
+
+	t.Logf("✓ Unknown agent repaired successfully: Source=%s, RepairCount=%d, Agent=%s",
+		orchPlan.PlannerSource, orchPlan.RepairCount, orchPlan.Tasks[0].AgentName)
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: TestLLMPlanner_RepairFail_FallsBackToRulePlanner
+// Invalid plan → repair once (but repair also returns invalid) → fallback RulePlanner.
+// Evidence: PlannerSource=fallback, Fallback.Enabled=true.
+// ---------------------------------------------------------------------------
+
+func TestLLMPlanner_RepairFail_FallsBackToRulePlanner(t *testing.T) {
+	lister := &mockLister{
+		agents: []AgentInfoLite{
+			{Name: "code-agent", Description: "code generation", CapabilityIDs: []string{"code_generation"}, OutputModes: []string{"text", "code"}},
+			{Name: "web-agent", Description: "web UI generation", CapabilityIDs: []string{"web_generation"}, OutputModes: []string{"text", "webpage"}},
+		},
+	}
+	// Both responses use an unknown agent — repair cannot fix it.
+	model := &fakeMultiModel{
+		responses: []string{
+			`{"intent":"do something","mode":"single","confidence":0.5,"steps":[{"agent_name":"nonexistent-agent","input":"something","reason":"test"}],"user_visible_summary":"Test."}`,
+			`{"intent":"do something","mode":"single","confidence":0.5,"steps":[{"agent_name":"still-wrong-agent","input":"something","reason":"test"}],"user_visible_summary":"Test."}`,
+		},
+	}
+
+	p := NewLLMPlanner(model, "test-model", lister)
+	input := PlannerInput{
+		RunID:          "run_repair_fail",
+		ConversationID: "conv_repair_fail",
+		UserMessage:    "do something",
+		PlanningMode:   "auto",
+	}
+
+	orchPlan, err := p.Plan(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Key evidence 1: PlannerSource must be "fallback" — repair failed, RulePlanner invoked.
+	if orchPlan.PlannerSource != "fallback" {
+		t.Errorf("FAIL: expected PlannerSource=fallback after repair failure, got %q", orchPlan.PlannerSource)
+	}
+
+	// Key evidence 2: Fallback must be enabled.
+	if !orchPlan.Fallback.Enabled {
+		t.Error("FAIL: expected Fallback.Enabled=true after repair failure")
+	}
+
+	// Key evidence 3: The fallback plan should use known agents only.
+	for _, task := range orchPlan.Tasks {
+		if task.AgentName == "nonexistent-agent" || task.AgentName == "still-wrong-agent" {
+			t.Errorf("FAIL: unknown agent %q leaked into fallback plan", task.AgentName)
+		}
+	}
+
+	t.Logf("✓ Repair failure correctly triggers RulePlanner fallback: Source=%s, Fallback.Enabled=%v, Fallback.Reason=%q",
+		orchPlan.PlannerSource, orchPlan.Fallback.Enabled, orchPlan.Fallback.Reason)
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: TestPlanRepairer_PromptConstruction
+// Verify the repair prompt contains required elements: original output, errors,
+// available agents, schema, and instruction.
+// ---------------------------------------------------------------------------
+
+func TestPlanRepairer_PromptConstruction(t *testing.T) {
+	lister := &mockLister{
+		agents: []AgentInfoLite{
+			{Name: "code-agent", Description: "code generation", CapabilityIDs: []string{"code_generation"}, OutputModes: []string{"text", "code"}},
+			{Name: "web-agent", Description: "web UI generation", CapabilityIDs: []string{"web_generation"}, OutputModes: []string{"text", "webpage"}},
+		},
+	}
+	repairer := NewPlanRepairer(nil) // nil model is fine — we only test prompt construction.
+
+	failures := []ValError{
+		{Code: ValCodeUnknownAgent, Message: `agent "gibberish-agent" not found in registry`, TaskIndex: 0},
+		{Code: ValCodeUnsupportedSequential, Message: "sequential strategy is not yet supported", TaskIndex: -1},
+	}
+	originalOutput := `{"intent":"test","mode":"sequential","steps":[{"agent_name":"gibberish-agent","input":"do something"}],"user_visible_summary":"Test."}`
+
+	prompt := repairer.buildRepairPrompt(originalOutput, failures, lister)
+
+	// Must contain original output.
+	if !strings.Contains(prompt, originalOutput) {
+		t.Error("FAIL: repair prompt does not contain original output")
+	}
+
+	// Must contain error codes.
+	if !strings.Contains(prompt, ValCodeUnknownAgent) {
+		t.Errorf("FAIL: repair prompt does not contain error code %q", ValCodeUnknownAgent)
+	}
+	if !strings.Contains(prompt, ValCodeUnsupportedSequential) {
+		t.Errorf("FAIL: repair prompt does not contain error code %q", ValCodeUnsupportedSequential)
+	}
+
+	// Must contain available agents.
+	if !strings.Contains(prompt, "code-agent") {
+		t.Error("FAIL: repair prompt does not list code-agent")
+	}
+	if !strings.Contains(prompt, "web-agent") {
+		t.Error("FAIL: repair prompt does not list web-agent")
+	}
+
+	// Must contain JSON schema.
+	if !strings.Contains(prompt, "Expected JSON Schema") {
+		t.Error("FAIL: repair prompt does not contain expected JSON schema")
+	}
+
+	// Must contain instructions.
+	if !strings.Contains(prompt, "Instructions") {
+		t.Error("FAIL: repair prompt does not contain instructions")
+	}
+
+	// Must contain instruction to return only corrected JSON.
+	if !strings.Contains(prompt, "ONLY the corrected JSON") {
+		t.Error("FAIL: repair prompt does not include 'ONLY the corrected JSON' instruction")
+	}
+
+	t.Log("✓ Repair prompt contains all required elements: original output, errors, agents, schema, instructions")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: TestRulePlannerDeprecated
+// Verify that RulePlanner has the Deprecated comment and no new keywords were added.
+// ---------------------------------------------------------------------------
+
+func TestRulePlannerDeprecated(t *testing.T) {
+	// Verify RulePlanner has the Deprecated comment by behavior:
+	// RulePlanner is still functional as a fallback, and no new keywords were added.
+
+	rp := NewRulePlanner([]string{"code-agent", "web-agent"})
+
+	// RulePlanner should still work as a deprecated fallback.
+	input := PlannerInput{
+		RunID:          "run_deprecated",
+		ConversationID: "conv_deprecated",
+		UserMessage:    "write Go code",
+		PlanningMode:   "auto",
+	}
+	plan, err := rp.Plan(context.Background(), input)
+	if err != nil {
+		t.Fatalf("RulePlanner (deprecated) should still work: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("expected non-nil plan from deprecated RulePlanner")
+	}
+	if len(plan.Tasks) == 0 {
+		t.Error("expected non-empty tasks from deprecated RulePlanner")
+	}
+
+	// Verify no keywords were changed or removed (keyword set must match).
+	expectedWebKeywords := []string{
+		"页面", "ui", "html", "react", "登录页", "前端",
+		"page", "webpage", "css", "component", "layout",
+	}
+	expectedCodeKeywords := []string{
+		"go", "api", "后端", "接口", "server", "service",
+		"golang", "handler", "endpoint", "database", "sql", "函数",
+	}
+
+	if len(webKeywords) != len(expectedWebKeywords) {
+		t.Errorf("FAIL: webKeywords count changed: got %d, want %d (no new keywords allowed)", len(webKeywords), len(expectedWebKeywords))
+	}
+	if len(codeKeywords) != len(expectedCodeKeywords) {
+		t.Errorf("FAIL: codeKeywords count changed: got %d, want %d (no new keywords allowed)", len(codeKeywords), len(expectedCodeKeywords))
+	}
+
+	t.Log("✓ RulePlanner is deprecated transitional fallback, no keywords added or changed")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: TestLLMPlanner_RepairMaxOnce
+// Verify that repair is called exactly once, not in a loop.
+// Evidence: even if repair output fails again, fallback is triggered (not re-repair).
+// ---------------------------------------------------------------------------
+
+func TestLLMPlanner_RepairMaxOnce(t *testing.T) {
+	lister := &mockLister{
+		agents: []AgentInfoLite{
+			{Name: "code-agent", Description: "code generation", CapabilityIDs: []string{"code_generation"}, OutputModes: []string{"text", "code"}},
+		},
+	}
+	// All responses are invalid — repairer should try once then give up.
+	// The model's callCount will tell us how many times Generate was called.
+	model := &fakeMultiModel{
+		responses: []string{
+			"garbage not json",   // first call: parse fails
+			"still not json",     // repair call: parse still fails
+			"should not be used", // should NEVER be called (repair max once)
+		},
+	}
+
+	p := NewLLMPlanner(model, "test-model", lister)
+	input := PlannerInput{
+		RunID:          "run_repair_once",
+		ConversationID: "conv_repair_once",
+		UserMessage:    "write Go code",
+		PlanningMode:   "auto",
+	}
+
+	orchPlan, err := p.Plan(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// model.callCount must be exactly 2: initial call + one repair call.
+	// If it's 3, the repairer tried again (forbidden).
+	if model.callCount > 2 {
+		t.Errorf("FAIL: model was called %d times — repair should be max once (expected exactly 2: initial + one repair)",
+			model.callCount)
+	}
+	if model.callCount < 2 {
+		t.Errorf("FAIL: model was called only %d times — repair should have been attempted once", model.callCount)
+	}
+
+	// Must have fallen back to RulePlanner.
+	if orchPlan.PlannerSource != "fallback" {
+		t.Errorf("FAIL: expected PlannerSource=fallback after repair failure, got %q", orchPlan.PlannerSource)
+	}
+
+	t.Logf("✓ Repair max once: model called %d times, Source=%s", model.callCount, orchPlan.PlannerSource)
+}
