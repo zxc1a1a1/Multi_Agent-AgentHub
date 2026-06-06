@@ -9,6 +9,10 @@ services:
     environment:
       CODE_AGENT_ADDR: ":8080"
       CODE_AGENT_PUBLIC_URL: "http://code-agent-new:8080"
+      CODE_AGENT_LLM_PROVIDER: "${CODE_AGENT_LLM_PROVIDER}"
+      CODE_AGENT_LLM_MODEL: "${CODE_AGENT_LLM_MODEL}"
+      CODE_AGENT_LLM_API_KEY: "${CODE_AGENT_LLM_API_KEY}"
+      CODE_AGENT_LLM_BASE_URL: "${CODE_AGENT_LLM_BASE_URL}"
     ports:
       - "8081:8080"
     healthcheck:
@@ -24,6 +28,10 @@ services:
     environment:
       WEB_AGENT_ADDR: ":8080"
       WEB_AGENT_PUBLIC_URL: "http://web-agent-new:8080"
+      WEB_AGENT_LLM_PROVIDER: "${WEB_AGENT_LLM_PROVIDER}"
+      WEB_AGENT_LLM_MODEL: "${WEB_AGENT_LLM_MODEL}"
+      WEB_AGENT_LLM_API_KEY: "${WEB_AGENT_LLM_API_KEY}"
+      WEB_AGENT_LLM_BASE_URL: "${WEB_AGENT_LLM_BASE_URL}"
     ports:
       - "8082:8080"
     healthcheck:

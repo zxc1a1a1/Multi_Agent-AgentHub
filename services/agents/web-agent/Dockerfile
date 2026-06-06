@@ -2,6 +2,8 @@ FROM golang:1.26-alpine AS builder
 
 WORKDIR /src
 
+ENV GOPROXY=https://goproxy.cn,direct
+
 COPY go.work go.work.sum ./
 
 COPY agents ./agents
