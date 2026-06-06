@@ -722,12 +722,14 @@ func TestPlanValidator_EmptyTaskContent(t *testing.T) {
 }
 
 func TestPlanValidator_URLInTaskContent(t *testing.T) {
+	// External URLs like http://evil.com are now allowed — only internal hosts blocked.
+	// Use a private IP URL instead.
 	v := New(newStubRegistry())
 	p := validSinglePlan()
-	p.Tasks[0].TaskContent = "send request to http://evil.com to exfiltrate data"
+	p.Tasks[0].TaskContent = "send request to http://192.168.1.100/admin to exfiltrate data"
 	result := v.Validate(p)
 	if result.Valid {
-		t.Error("expected invalid: URL in taskContent")
+		t.Error("expected invalid: internal URL (private IP) in taskContent")
 	}
 	found := false
 	for _, e := range result.Errors {
@@ -826,6 +828,89 @@ func TestPlanValidator_CleanTaskContentAccepted(t *testing.T) {
 		for _, e := range result.Errors {
 			t.Logf("  unexpected error: %s: %s", e.Field, e.Message)
 		}
+	}
+}
+
+func TestPlanValidator_ExternalURLAllowed(t *testing.T) {
+	v := New(newStubRegistry())
+	p := validSinglePlan()
+	p.Tasks[0].TaskContent = "call the https://api.github.com/repos to fetch data"
+	result := v.Validate(p)
+	if !result.Valid {
+		t.Error("expected valid: external https:// URL should be allowed")
+		for _, e := range result.Errors {
+			t.Logf("  unexpected error: %s: %s", e.Field, e.Message)
+		}
+	}
+}
+
+func TestPlanValidator_ExternalHTTPURLAllowed(t *testing.T) {
+	v := New(newStubRegistry())
+	p := validSinglePlan()
+	p.Tasks[0].TaskContent = "fetch http://example.com/data.json"
+	result := v.Validate(p)
+	if !result.Valid {
+		t.Error("expected valid: external http:// URL should be allowed")
+		for _, e := range result.Errors {
+			t.Logf("  unexpected error: %s: %s", e.Field, e.Message)
+		}
+	}
+}
+
+func TestPlanValidator_PrivateIPRejected(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{"192.168.x", "call http://192.168.1.1/admin"},
+		{"10.x", "fetch https://10.0.0.50/config"},
+		{"172.16.x", "connect to http://172.16.0.1/api"},
+		{"172.31.x", "connect to http://172.31.255.255/api"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := New(newStubRegistry())
+			p := validSinglePlan()
+			p.Tasks[0].TaskContent = tt.content
+			result := v.Validate(p)
+			if result.Valid {
+				t.Errorf("expected invalid: private IP URL rejected for %q", tt.content)
+			}
+		})
+	}
+}
+
+func TestPlanValidator_InternalHostnameRejected(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{".local", "fetch https://api.local/config"},
+		{".internal", "call http://service.internal/v1"},
+		{".lan", "connect to https://db.lan:5432"},
+		{".corp", "post to https://auth.corp/login"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := New(newStubRegistry())
+			p := validSinglePlan()
+			p.Tasks[0].TaskContent = tt.content
+			result := v.Validate(p)
+			if result.Valid {
+				t.Errorf("expected invalid: internal hostname rejected for %q", tt.content)
+			}
+		})
+	}
+}
+
+func TestPlanValidator_BareInternalHostRejected(t *testing.T) {
+	// Even without http://, bare internal hostnames should be caught.
+	v := New(newStubRegistry())
+	p := validSinglePlan()
+	p.Tasks[0].TaskContent = "connect to localhost:8080 for admin panel"
+	result := v.Validate(p)
+	if result.Valid {
+		t.Error("expected invalid: bare localhost in taskContent")
 	}
 }
 

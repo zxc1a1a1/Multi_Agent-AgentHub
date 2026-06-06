@@ -4,6 +4,7 @@ package validator
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
@@ -234,18 +235,98 @@ func containsCI(slice []string, item string) bool {
 	return false
 }
 
-// containsURL returns true if s contains internal URL patterns.
+// containsURL returns true if s contains an HTTP(S) URL pointing to an internal
+// or private host, or contains a bare internal hostname/IP even without a scheme.
+//
+// External URLs (https://example.com, https://api.github.com, etc.) are allowed.
 func containsURL(s string) bool {
 	lower := strings.ToLower(s)
-	patterns := []string{
-		"http://", "https://",
-		"localhost", "127.0.0.1", "0.0.0.0",
-	}
-	for _, pat := range patterns {
+
+	// Fast path: bare internal hostnames/IPs (no http:// required).
+	for _, pat := range []string{"localhost", "127.0.0.1", "0.0.0.0", "[::1]"} {
 		if strings.Contains(lower, pat) {
 			return true
 		}
 	}
+
+	// Scan for http:// or https:// URLs and inspect the host.
+	for _, prefix := range []string{"http://", "https://"} {
+		idx := 0
+		for idx < len(lower) {
+			pos := strings.Index(lower[idx:], prefix)
+			if pos < 0 {
+				break
+			}
+			absPos := idx + pos
+			hostStart := absPos + len(prefix)
+			// Host ends at the first /, ?, #, space, or control char.
+			hostEnd := strings.IndexAny(lower[hostStart:], "/?# \t\n\r\"'`<>")
+			var host string
+			if hostEnd < 0 {
+				host = lower[hostStart:]
+			} else {
+				host = lower[hostStart : hostStart+hostEnd]
+			}
+			// Strip port number.
+			if colonIdx := strings.LastIndex(host, ":"); colonIdx >= 0 {
+				// Only strip if it looks like a port (digits after colon).
+				portPart := host[colonIdx+1:]
+				if _, err := strconv.Atoi(portPart); err == nil {
+					host = host[:colonIdx]
+				}
+			}
+			host = strings.TrimSpace(host)
+			if isInternalHost(host) {
+				return true
+			}
+			// Advance past this URL.
+			idx = hostStart + len(host) + 1
+			if idx <= absPos {
+				idx = absPos + 1 // safety: ensure we make progress
+			}
+		}
+	}
+	return false
+}
+
+// isInternalHost returns true if host is a private, loopback, link-local, or
+// internal network address.
+func isInternalHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	// Loopback / unspecified.
+	switch host {
+	case "localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]":
+		return true
+	}
+
+	// Private IPv4 ranges.
+	if strings.HasPrefix(host, "10.") ||
+		strings.HasPrefix(host, "192.168.") ||
+		strings.HasPrefix(host, "169.254.") { // link-local
+		return true
+	}
+	// 172.16.0.0/12
+	if strings.HasPrefix(host, "172.") {
+		parts := strings.Split(host, ".")
+		if len(parts) >= 2 {
+			if second, err := strconv.Atoi(parts[1]); err == nil && second >= 16 && second <= 31 {
+				return true
+			}
+		}
+	}
+
+	// Internal TLDs and hostname suffixes.
+	for _, suffix := range []string{
+		".local", ".internal", ".lan", ".corp",
+		".localhost", ".intranet", ".private",
+	} {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+
 	return false
 }
 
