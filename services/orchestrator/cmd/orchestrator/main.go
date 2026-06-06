@@ -92,28 +92,25 @@ func run() error {
 		httpapi.WithDispatcher(a2aDispatcher),
 	}
 
-	plannerMode := strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_PLANNER")))
-	if plannerMode == "llm" {
-		llmCfg := planner.PlannerLLMConfig{
-			Provider: strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_PROVIDER"))),
-			APIKey:   resolvePlannerAPIKey(),
-			Model:    strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_MODEL")),
-			BaseURL:  strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_BASE_URL")),
-		}
-		if llmCfg.Provider == "" {
-			llmCfg.Provider = "anthropic"
-		}
-		if llmCfg.APIKey != "" {
-			llmClient := planner.NewPlannerLLM(llmCfg)
-			adapter := &registryAgentLister{reg: agentRegistry}
-			llmPlanner := planner.NewLLMPlanner(llmClient, llmCfg.Model, adapter)
-			serverOpts = append(serverOpts, httpapi.WithPlanner(llmPlanner))
-			log.Printf("orchestrator planner: LLM mode (provider=%s, model=%s)", llmCfg.Provider, llmCfg.Model)
-		} else {
-			log.Printf("orchestrator planner: LLM mode requested but no API key found, falling back to RulePlanner")
-		}
+	// LLMPlanner is always the primary planner. If no API key is found,
+	// it falls back to the deprecated RulePlanner automatically.
+	llmCfg := planner.PlannerLLMConfig{
+		Provider: strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_PROVIDER"))),
+		APIKey:   resolvePlannerAPIKey(),
+		Model:    strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_MODEL")),
+		BaseURL:  strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_BASE_URL")),
+	}
+	if llmCfg.Provider == "" {
+		llmCfg.Provider = "anthropic"
+	}
+	if llmCfg.APIKey != "" {
+		llmClient := planner.NewPlannerLLM(llmCfg)
+		adapter := &registryAgentLister{reg: agentRegistry}
+		llmPlanner := planner.NewLLMPlanner(llmClient, llmCfg.Model, adapter)
+		serverOpts = append(serverOpts, httpapi.WithPlanner(llmPlanner))
+		log.Printf("orchestrator planner: LLM mode (provider=%s, model=%s)", llmCfg.Provider, llmCfg.Model)
 	} else {
-		log.Printf("orchestrator planner: RulePlanner mode")
+		log.Printf("orchestrator planner: no API key found, using RulePlanner fallback")
 	}
 
 	server := &http.Server{
