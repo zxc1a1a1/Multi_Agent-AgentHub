@@ -26,6 +26,7 @@ type OrchestrationPlan struct {
 	PlannerReasoning string `json:"plannerReasoning,omitempty"` // LLM reasoning
 	PlannerModel     string `json:"plannerModel,omitempty"`     // model name used
 	PlannerSource    string `json:"plannerSource,omitempty"`    // "llm" | "rule" | "fallback"
+	RepairCount      int    `json:"repairCount,omitempty"`      // number of repair attempts (max 1)
 }
 
 // TaskPlan is a single execution unit within an OrchestrationPlan.

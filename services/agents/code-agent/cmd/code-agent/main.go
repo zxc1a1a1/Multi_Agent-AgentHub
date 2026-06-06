@@ -11,6 +11,7 @@ import (
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	codeagent "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/agents/code-agent"
+	_ "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/model" // register model providers
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
 )
 
