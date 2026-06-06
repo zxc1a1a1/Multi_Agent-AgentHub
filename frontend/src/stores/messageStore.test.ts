@@ -481,3 +481,134 @@ describe('multi-agent mixed ordered_parallel', () => {
     expect(agentMsg?.webPreviews?.[0].title).toBe('page.html')
   })
 })
+
+describe('web preview auto-mode triggering', () => {
+  beforeEach(() => {
+    streamByConversation.clear()
+    useMessageStore.setState({
+      messages: {},
+      streamingByConversation: {},
+      abortControllersByConversation: {},
+    })
+  })
+
+  it('creates web preview in auto mode when web_preview tool call occurs', () => {
+    const { sendMessage } = useMessageStore.getState()
+    // Auto mode — no agentName passed
+    sendMessage('conv-auto-tool', 'build a login page')
+
+    emit('conv-auto-tool', { type: 'TEXT_MESSAGE_START', messageId: 'msg-1' })
+    emit('conv-auto-tool', {
+      type: 'tool.call',
+      messageId: 'msg-1',
+      toolCall: {
+        id: 'tc-1',
+        name: 'web_preview',
+        arguments: { title: 'login.html', html: '<form><input type="text"></form>' },
+      },
+    })
+    emit('conv-auto-tool', { type: 'TEXT_MESSAGE_END', messageId: 'msg-1' })
+
+    const messages = useMessageStore.getState().messages['conv-auto-tool'] || []
+    const agentMsg = messages.find((msg) => msg.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    expect(agentMsg?.webPreviews).toHaveLength(1)
+    expect(agentMsg?.webPreviews?.[0].title).toBe('login.html')
+  })
+
+  it('creates web preview in auto mode when artifact.delta has webpage type', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-auto-artifact', 'make a page')
+
+    emit('conv-auto-artifact', { type: 'TEXT_MESSAGE_START', messageId: 'msg-a' })
+    emit('conv-auto-artifact', {
+      type: 'artifact.delta',
+      messageId: 'msg-a',
+      artifact: {
+        type: 'webpage',
+        title: 'artifact-page.html',
+        content: '<html><body><h1>Artifact</h1></body></html>',
+      },
+    })
+    emit('conv-auto-artifact', { type: 'TEXT_MESSAGE_END', messageId: 'msg-a' })
+
+    const messages = useMessageStore.getState().messages['conv-auto-artifact'] || []
+    const agentMsg = messages.find((msg) => msg.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    expect(agentMsg?.webPreviews).toHaveLength(1)
+    expect(agentMsg?.webPreviews?.[0].title).toBe('artifact-page.html')
+  })
+
+  it('creates web preview in auto mode when SSE resolves agentName to web-agent and content is HTML', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-auto-resolved', 'create a page')
+
+    // SSE event with explicit agentName from orchestrator
+    emit('conv-auto-resolved', {
+      type: 'TEXT_MESSAGE_START',
+      messageId: 'msg-w',
+      agentName: 'web-agent',
+      sender: { type: 'agent', name: 'web-agent', displayName: 'Web Agent' },
+    })
+    emit('conv-auto-resolved', {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: 'msg-w',
+      delta: '<html><body><h1>Auto Page</h1></body></html>',
+      agentName: 'web-agent',
+    })
+    emit('conv-auto-resolved', { type: 'TEXT_MESSAGE_END', messageId: 'msg-w' })
+
+    const messages = useMessageStore.getState().messages['conv-auto-resolved'] || []
+    const agentMsg = messages.find((msg) => msg.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    expect(agentMsg?.webPreviews).toHaveLength(1)
+    expect(agentMsg?.webPreviews?.[0].html).toContain('<h1>Auto Page</h1>')
+  })
+
+  it('does NOT create web preview from markdown code fence HTML in auto mode', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-auto-codefence', 'show me an example')
+
+    // Content is a markdown code block containing HTML — should NOT trigger web preview.
+    emit('conv-auto-codefence', { type: 'TEXT_MESSAGE_START', messageId: 'msg-cf' })
+    emit('conv-auto-codefence', {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: 'msg-cf',
+      delta: 'Here is an HTML example:\n\n```html\n<html>\n<body>\n<h1>Example</h1>\n</body>\n</html>\n```\n\nThat is a code sample.',
+    })
+    emit('conv-auto-codefence', { type: 'TEXT_MESSAGE_END', messageId: 'msg-cf' })
+
+    const messages = useMessageStore.getState().messages['conv-auto-codefence'] || []
+    const agentMsg = messages.find((msg) => msg.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    // Should NOT have web previews — HTML is inside a markdown code fence.
+    expect(agentMsg?.webPreviews).toBeUndefined()
+  })
+
+  it('does NOT create web preview in auto mode when only code-agent HTML example is in content', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-auto-codeagent', 'explain HTML forms')
+
+    // SSE resolves to code-agent; content happens to mention HTML
+    emit('conv-auto-codeagent', {
+      type: 'TEXT_MESSAGE_START',
+      messageId: 'msg-ca',
+      agentName: 'code-agent',
+      sender: { type: 'agent', name: 'code-agent', displayName: 'Code Agent' },
+    })
+    emit('conv-auto-codeagent', {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: 'msg-ca',
+      delta: 'To create a form, use:\n\n```html\n<form>\n<input type="text">\n</form>\n```\n\nThis is standard HTML.',
+      agentName: 'code-agent',
+    })
+    emit('conv-auto-codeagent', { type: 'TEXT_MESSAGE_END', messageId: 'msg-ca' })
+
+    const messages = useMessageStore.getState().messages['conv-auto-codeagent'] || []
+    const agentMsg = messages.find((msg) => msg.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    expect(agentMsg?.codeBlocks).toBeUndefined()
+    // Should NOT extract web preview from code-agent HTML examples in code fences.
+    expect(agentMsg?.webPreviews).toBeUndefined()
+  })
+})

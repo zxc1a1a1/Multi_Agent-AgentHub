@@ -95,8 +95,11 @@ describe('MessageBubble', () => {
         })}
       />,
     )
-    expect(screen.getByText('Web Preview (Safe Mode)')).toBeInTheDocument()
-    expect(screen.getByText('<h1>Demo</h1>')).toBeInTheDocument()
+    expect(screen.getByText('Web Preview')).toBeInTheDocument()
+    // HTML is rendered inside a sandbox iframe, not as visible text.
+    const iframe = screen.getByTitle('demo.html')
+    expect(iframe).toBeInTheDocument()
+    expect(iframe.tagName).toBe('IFRAME')
   })
 
   it('sender label falls back to agentName display when senderName is missing', () => {

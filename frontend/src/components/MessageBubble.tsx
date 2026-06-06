@@ -39,7 +39,7 @@ export default function MessageBubble({ message }: Props) {
           }`}
         >
           {isUser ? (
-            <p className="text-sm whitespace-pre-wrap m-0">{message.content}</p>
+            <p className="text-sm whitespace-pre-wrap break-words overflow-hidden m-0">{message.content}</p>
           ) : (
             <StreamingText content={message.content} isStreaming={isStreaming} />
           )}

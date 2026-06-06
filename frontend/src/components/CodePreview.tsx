@@ -77,10 +77,10 @@ export default function CodePreview({ block }: Props) {
         </button>
       </div>
       {/* Code content */}
-      <pre className="p-4 overflow-x-auto bg-gray-900 text-sm leading-relaxed m-0">
+      <pre className="p-4 overflow-x-auto bg-gray-900 text-sm leading-relaxed m-0 max-w-full">
         {hasCode ? (
           <code
-            className={`language-${language} hljs`}
+            className={`language-${language} hljs break-words`}
             dangerouslySetInnerHTML={{ __html: highlighted }}
           />
         ) : (
