@@ -105,7 +105,8 @@ func run() error {
 		}
 		if llmCfg.APIKey != "" {
 			llmClient := planner.NewPlannerLLM(llmCfg)
-			llmPlanner := planner.NewLLMPlanner(llmClient, agentRegistry.Names())
+			adapter := &registryAgentLister{reg: agentRegistry}
+			llmPlanner := planner.NewLLMPlanner(llmClient, llmCfg.Model, adapter)
 			serverOpts = append(serverOpts, httpapi.WithPlanner(llmPlanner))
 			log.Printf("orchestrator planner: LLM mode (provider=%s, model=%s)", llmCfg.Provider, llmCfg.Model)
 		} else {
@@ -167,4 +168,27 @@ func resolvePlannerAPIKey() string {
 		}
 		return strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
 	}
+}
+
+// registryAgentLister adapts StaticAgentRegistry to planner.AgentLister
+// so the LLMPlanner can read agent metadata for prompt construction.
+type registryAgentLister struct {
+	reg *registry.StaticAgentRegistry
+}
+
+func (a *registryAgentLister) List() []planner.AgentInfoLite {
+	if a == nil || a.reg == nil {
+		return nil
+	}
+	endpoints := a.reg.List()
+	result := make([]planner.AgentInfoLite, len(endpoints))
+	for i, ep := range endpoints {
+		result[i] = planner.AgentInfoLite{
+			Name:          ep.Name,
+			Description:   ep.Description,
+			CapabilityIDs: ep.CapabilityIDs,
+			OutputModes:   ep.OutputModes,
+		}
+	}
+	return result
 }

@@ -10,6 +10,13 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 )
 
+// PlannerModel abstracts the LLM call for intent planning.
+// It decouples the LLMPlanner from any specific provider implementation.
+// Fake implementations enable testing without real API keys.
+type PlannerModel interface {
+	Generate(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+}
+
 // AgentInfoLite is the minimal agent information needed by the LLMPlanner.
 // We use our own type instead of importing registry to keep planner
 // decoupled from the concrete registry implementation.
@@ -25,12 +32,16 @@ type AgentLister interface {
 	List() []AgentInfoLite
 }
 
-// llmPlanResponse is the JSON structure we expect the LLM to return.
+// ---------------------------------------------------------------------------
+// Legacy types — preserved for backward compatibility, not used by new pipeline
+// ---------------------------------------------------------------------------
+
+// llmPlanResponse is the legacy JSON structure for the old parsePlanResponse path.
 type llmPlanResponse struct {
-	Intent    string         `json:"intent"`
-	Reasoning string         `json:"reasoning"`
-	Strategy  string         `json:"strategy"`
-	Tasks     []llmTaskPlan  `json:"tasks"`
+	Intent    string        `json:"intent"`
+	Reasoning string        `json:"reasoning"`
+	Strategy  string        `json:"strategy"`
+	Tasks     []llmTaskPlan `json:"tasks"`
 }
 
 type llmTaskPlan struct {
@@ -41,59 +52,181 @@ type llmTaskPlan struct {
 	Priority        int      `json:"priority"`
 }
 
+// ---------------------------------------------------------------------------
+// PlanValidator — in-planner validation interface
+// ---------------------------------------------------------------------------
+
+// PlanValidator validates an OrchestrationPlan produced by the LLM.
+// Returns true when the plan passes all checks. The concrete implementation
+// is auto-wired from the AgentLister in NewLLMPlanner.
+type PlanValidator interface {
+	Validate(p *plan.OrchestrationPlan) bool
+}
+
+// ---------------------------------------------------------------------------
+// LLMPlanner — new pipeline: PromptBuilder → PlannerModel → Parser → Normalizer → Validator
+// ---------------------------------------------------------------------------
+
 // LLMPlanner implements the Planner interface using an LLM.
-// On failure it automatically falls back to RulePlanner.
+// On failure it falls back to RulePlanner (deprecated transitional fallback).
+// The new pipeline (Phase 3): build prompt from registry → call model →
+// parse via PlanParser → normalize via PlanNormalizer →
+// validate via PlanValidator → return plan.
+// Unknown agent names are never fuzzy-matched or defaulted; they are rejected
+// by the Validator, triggering a RulePlanner fallback.
 type LLMPlanner struct {
-	llm      *PlannerLLM
-	fallback *RulePlanner
+	model     PlannerModel
+	modelName string
+	lister    AgentLister
+	validator PlanValidator
+	fallback  *RulePlanner
 }
 
 // NewLLMPlanner creates an LLMPlanner.
-func NewLLMPlanner(llm *PlannerLLM, availableAgents []string) *LLMPlanner {
+// model is the LLM backend; modelName is used for trace metadata.
+// lister provides registry agent info for prompt construction and validation.
+// The PlanValidator is auto-created from the lister — no separate injection needed.
+func NewLLMPlanner(model PlannerModel, modelName string, lister AgentLister) *LLMPlanner {
+	var availableAgents []string
+	if lister != nil {
+		for _, a := range lister.List() {
+			availableAgents = append(availableAgents, a.Name)
+		}
+	}
 	return &LLMPlanner{
-		llm:      llm,
-		fallback: NewRulePlanner(availableAgents),
+		model:     model,
+		modelName: modelName,
+		lister:    lister,
+		validator: newListerPlanValidator(lister),
+		fallback:  NewRulePlanner(availableAgents),
 	}
 }
 
-// Plan generates an OrchestrationPlan using LLM intent analysis.
-// If the LLM call fails or returns invalid JSON, the method falls back
-// to the RulePlanner automatically.
+// Plan generates an OrchestrationPlan using the LLM pipeline:
+//
+//	PromptBuilder (registry agents) → PlannerModel → PlanParser →
+//	PlanNormalizer → PlanValidator → return plan
+//
+// On any failure (model call, parse, normalize, validation), the method
+// falls back to RulePlanner automatically (deprecated transitional fallback).
+//
+// Unknown agent names are never fuzzy-matched or defaulted — the Normalizer
+// preserves them as-is, and the PlanValidator rejects them, triggering a
+// RulePlanner fallback.
 func (p *LLMPlanner) Plan(ctx context.Context, input PlannerInput) (*plan.OrchestrationPlan, error) {
-	systemPrompt := p.buildSystemPrompt(input.AvailableAgents)
-	userPrompt := p.buildUserPrompt(input)
+	// 1. Build prompts using PromptBuilder with real registry agent info.
+	pb := NewPromptBuilder(p.lister)
+	if input.ConversationType != "" {
+		pb = pb.WithConversationType(input.ConversationType)
+	}
+	systemPrompt := pb.BuildSystemPrompt()
+	userPrompt := pb.BuildUserPrompt(input.UserMessage, input.AgentName)
 
-	raw, err := p.llm.Generate(ctx, systemPrompt, userPrompt)
+	// 2. Call the PlannerModel.
+	raw, err := p.model.Generate(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		log.Printf("llm_planner: LLM call failed: %v, falling back to RulePlanner", err)
-		return p.fallbackPlan(input, "llm_error", ""), nil
+		return p.fallbackPlan(input, "llm_error", p.modelName), nil
 	}
 
-	resp, err := parsePlanResponse(raw)
+	// 3. Parse raw output into PlanSchema.
+	parser := NewPlanParser()
+	schema, err := parser.Parse(raw)
 	if err != nil {
-		log.Printf("llm_planner: failed to parse LLM response (%v), raw=%s, falling back", err, truncate(raw, 200))
-		return p.fallbackPlan(input, "parse_error", ""), nil
+		log.Printf("llm_planner: parse failed: %v, falling back to RulePlanner", err)
+		return p.fallbackPlan(input, "parse_error", p.modelName), nil
 	}
 
-	// Convert LLM response into an OrchestrationPlan.
-	orchPlan, convErr := p.convertToPlan(resp, input)
-	if convErr != nil {
-		log.Printf("llm_planner: conversion error: %v, falling back", convErr)
-		return p.fallbackPlan(input, "conversion_error", ""), nil
+	// 4. Normalize PlanSchema → OrchestrationPlan.
+	// Unknown agent names are preserved as-is; no fuzzyMatchAgent/defaultAgent.
+	normalizer := NewPlanNormalizer()
+	orchPlan, err := normalizer.Normalize(schema, input.RunID, input.ConversationID, input.PlanningMode)
+	if err != nil {
+		log.Printf("llm_planner: normalize failed: %v, falling back to RulePlanner", err)
+		return p.fallbackPlan(input, "normalize_error", p.modelName), nil
 	}
 
-	// Stamp planner metadata.
+	// 5. Validate the normalized plan against registry agents.
+	// Unknown agents are rejected here — NOT fuzzy-matched or defaulted.
+	if p.validator != nil && !p.validator.Validate(orchPlan) {
+		log.Printf("llm_planner: validation failed, falling back to RulePlanner")
+		return p.fallbackPlan(input, "validation_error", p.modelName), nil
+	}
+
+	// 6. Stamp planner metadata. Fallback is disabled — this is the primary path.
 	orchPlan.PlannerSource = "llm"
-	orchPlan.PlannerModel = p.llm.cfg.Model
-	orchPlan.PlannerReasoning = resp.Reasoning
+	orchPlan.PlannerModel = p.modelName
+	orchPlan.PlannerReasoning = truncateToLength(strings.TrimSpace(schema.Intent), 120)
+	orchPlan.Fallback = plan.Fallback{Enabled: false} // primary path, fallback not active
 
 	return orchPlan, nil
 }
 
 // ---------------------------------------------------------------------------
-// System / User prompt builders
+// PlanValidator implementation — validates against AgentLister
 // ---------------------------------------------------------------------------
 
+// listerPlanValidator validates an OrchestrationPlan against the agent registry.
+// It checks that every task's agent exists in the registry and enforces basic
+// structural rules. Unknown agents are rejected (no fuzzy-match, no default).
+type listerPlanValidator struct {
+	lister AgentLister
+}
+
+// newListerPlanValidator creates a validator from an AgentLister.
+// Returns nil when lister is nil (validation is skipped).
+func newListerPlanValidator(lister AgentLister) PlanValidator {
+	if lister == nil {
+		return nil
+	}
+	return &listerPlanValidator{lister: lister}
+}
+
+func (v *listerPlanValidator) Validate(p *plan.OrchestrationPlan) bool {
+	if p == nil {
+		return false
+	}
+
+	// Build set of known agent names from registry.
+	agents := v.lister.List()
+	known := make(map[string]bool, len(agents))
+	for _, a := range agents {
+		known[a.Name] = true
+	}
+
+	// Check every task's agent exists in the registry.
+	for i, task := range p.Tasks {
+		if task.AgentName == "" {
+			log.Printf("llm_planner: validation reject: task[%d] has empty agentName", i)
+			return false
+		}
+		if !known[task.AgentName] {
+			log.Printf("llm_planner: validation reject: agent %q not in registry", task.AgentName)
+			return false
+		}
+	}
+
+	// Structural: tasks must not be empty.
+	if len(p.Tasks) == 0 {
+		log.Printf("llm_planner: validation reject: plan has no tasks")
+		return false
+	}
+
+	// Structural: sequential strategy is not supported.
+	if p.Strategy == plan.StrategySequential {
+		log.Printf("llm_planner: validation reject: sequential strategy not supported")
+		return false
+	}
+
+	return true
+}
+
+// ---------------------------------------------------------------------------
+// Legacy: System / User prompt builders (from Phase 1, used by old parsePlanResponse path)
+// ---------------------------------------------------------------------------
+
+// buildSystemPrompt is the legacy prompt builder used by the old parsePlanResponse path.
+// Deprecated: new pipeline uses PromptBuilder with registry agent info.
 func (p *LLMPlanner) buildSystemPrompt(availableAgents []string) string {
 	var b strings.Builder
 	b.WriteString(`You are an intent orchestrator for a multi-agent platform. Your job is to analyze the user's request and create an execution plan.
@@ -140,6 +273,8 @@ Return ONLY a valid JSON object. No markdown, no explanation, no code fences:
 	return b.String()
 }
 
+// buildUserPrompt is the legacy user prompt builder.
+// Deprecated: new pipeline uses PromptBuilder.BuildUserPrompt.
 func (p *LLMPlanner) buildUserPrompt(input PlannerInput) string {
 	var b strings.Builder
 	b.WriteString("## User Message\n")
@@ -155,9 +290,11 @@ func (p *LLMPlanner) buildUserPrompt(input PlannerInput) string {
 }
 
 // ---------------------------------------------------------------------------
-// Response parsing
+// Legacy: Response parsing (Phase 1) — not used by new pipeline
 // ---------------------------------------------------------------------------
 
+// parsePlanResponse is the legacy JSON parser for the llmPlanResponse format.
+// Deprecated: new pipeline uses PlanParser → PlanSchema.
 func parsePlanResponse(raw string) (*llmPlanResponse, error) {
 	text := strings.TrimSpace(raw)
 	if text == "" {
@@ -177,9 +314,13 @@ func parsePlanResponse(raw string) (*llmPlanResponse, error) {
 }
 
 // ---------------------------------------------------------------------------
-// LLM response → OrchestrationPlan conversion
+// Legacy: LLM response → OrchestrationPlan conversion (Phase 1)
+// Deprecated: new pipeline uses PlanNormalizer.
 // ---------------------------------------------------------------------------
 
+// convertToPlan converts a legacy llmPlanResponse into an OrchestrationPlan.
+// It calls fuzzyMatchAgent / defaultAgent for unknown agent names.
+// Deprecated: new pipeline uses PlanNormalizer which preserves unknown agents.
 func (p *LLMPlanner) convertToPlan(resp *llmPlanResponse, input PlannerInput) (*plan.OrchestrationPlan, error) {
 	// Validate strategy.
 	strategy := strings.ToLower(strings.TrimSpace(resp.Strategy))
@@ -302,7 +443,9 @@ func (p *LLMPlanner) fallbackPlan(input PlannerInput, sourceCode, model string) 
 }
 
 // ---------------------------------------------------------------------------
-// Defaults / helpers
+// Legacy: Defaults / helpers — preserved for backward compatibility
+// Deprecated: new pipeline does NOT use fuzzyMatchAgent or defaultAgent.
+//             Agent validation is handled by the Validator.
 // ---------------------------------------------------------------------------
 
 // agentDefaults returns static metadata for well-known agents.
@@ -326,6 +469,7 @@ func agentDefaults(name string) (description string, capabilities, outputModes [
 }
 
 // fuzzyMatchAgent tries to normalize a potentially malformed agent name.
+// Deprecated: new pipeline preserves unknown agent names as-is.
 func fuzzyMatchAgent(name string, available []string) string {
 	lower := strings.ToLower(strings.TrimSpace(name))
 	// Remove hyphens and compare.
@@ -345,6 +489,7 @@ func fuzzyMatchAgent(name string, available []string) string {
 }
 
 // defaultAgent returns the first available agent or "code-agent".
+// Deprecated: new pipeline preserves unknown agent names as-is.
 func defaultAgent(available []string) string {
 	for _, a := range available {
 		if strings.EqualFold(a, "code-agent") {
