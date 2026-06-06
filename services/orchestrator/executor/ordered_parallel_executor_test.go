@@ -450,3 +450,17 @@ func (d *countingDispatcher) Dispatch(ctx context.Context, input dispatcher.Disp
 	}
 	return d.results[idx], d.errs[idx]
 }
+
+// DispatchStream adapts the buffered counting results into single streamed chunks.
+func (d *countingDispatcher) DispatchStream(ctx context.Context, input dispatcher.DispatchInput) func(yield func(dispatcher.DispatchChunk) bool) {
+	return func(yield func(dispatcher.DispatchChunk) bool) {
+		res, err := d.Dispatch(ctx, input)
+		if err != nil {
+			yield(dispatcher.DispatchChunk{Err: err})
+			return
+		}
+		if res != nil && res.Text != "" {
+			yield(dispatcher.DispatchChunk{Text: res.Text})
+		}
+	}
+}

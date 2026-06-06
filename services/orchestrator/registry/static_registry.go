@@ -19,7 +19,8 @@ type AgentEndpoint struct {
 
 // StaticAgentRegistry is a minimal in-memory static registry.
 type StaticAgentRegistry struct {
-	agents map[string]AgentEndpoint
+	agents        map[string]AgentEndpoint
+	healthChecker *HealthChecker // nil when health checking is disabled
 }
 
 // NewStaticAgentRegistry validates and builds a static registry.
@@ -95,6 +96,39 @@ func (r *StaticAgentRegistry) List() []AgentEndpoint {
 		return out[i].Name < out[j].Name
 	})
 	return out
+}
+
+// SetHealthChecker attaches a health checker to the registry. When non-nil,
+// IsHealthy will reflect live probe results. Set to nil to disable (CI mode).
+func (r *StaticAgentRegistry) SetHealthChecker(hc *HealthChecker) {
+	if r == nil {
+		return
+	}
+	r.healthChecker = hc
+}
+
+// IsHealthy reports whether the named agent is currently healthy.
+// When no health checker is attached, all agents are considered healthy.
+func (r *StaticAgentRegistry) IsHealthy(name string) bool {
+	if r == nil {
+		return false
+	}
+	if r.healthChecker == nil {
+		return true // no health checker → all healthy (CI deterministic)
+	}
+	return r.healthChecker.IsHealthy(name)
+}
+
+// HealthyEndpoints returns only agent endpoints currently considered healthy.
+func (r *StaticAgentRegistry) HealthyEndpoints() []AgentEndpoint {
+	if r == nil {
+		return nil
+	}
+	if r.healthChecker != nil {
+		return r.healthChecker.HealthyEndpoints()
+	}
+	// No health checker: all endpoints are healthy.
+	return r.List()
 }
 
 func cloneAgentEndpoint(in AgentEndpoint) AgentEndpoint {

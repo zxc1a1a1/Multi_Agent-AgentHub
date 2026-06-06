@@ -4,6 +4,7 @@ package validator
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 type Registry interface {
 	Get(name string) (registry.AgentEndpoint, bool)
 	Names() []string
+	IsHealthy(name string) bool
 }
 
 // ValidationError is a single validation failure with field path and message.
@@ -33,12 +35,14 @@ type ValidationResult struct {
 // PlanValidator validates an OrchestrationPlan against structural rules and
 // agent registry capabilities.
 type PlanValidator struct {
-	registry Registry
+	registry    Registry
+	hitlEnabled bool // when true, high-risk tasks are allowed (HITL handles confirmation)
 }
 
 // New creates a PlanValidator backed by the given registry.
 func New(reg Registry) *PlanValidator {
-	return &PlanValidator{registry: reg}
+	hitl := strings.ToLower(strings.TrimSpace(os.Getenv("HITL_ENABLED"))) == "true"
+	return &PlanValidator{registry: reg, hitlEnabled: hitl}
 }
 
 // Validate checks the plan against all required rules. If the plan passes, the
@@ -67,15 +71,10 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 		r.add("conversationId", "conversationId is required")
 	}
 
-	// 4a. sequential is explicitly rejected — not yet supported by executor/httpapi.
-	if p.Strategy == plan.StrategySequential {
-		r.add("strategy", "sequential strategy is not yet supported (executor/httpapi does not handle sequential execution)")
-	}
-
-	// 4b. strategy must be single or ordered_parallel (catches unknown strategies).
-	if p.Strategy != plan.StrategySingle && p.Strategy != plan.StrategyOrderedParallel {
-		r.add("strategy", fmt.Sprintf("strategy must be %q or %q, got %q",
-			plan.StrategySingle, plan.StrategyOrderedParallel, p.Strategy))
+	// 4. strategy must be one of the supported values.
+	if p.Strategy != plan.StrategySingle && p.Strategy != plan.StrategyOrderedParallel && p.Strategy != plan.StrategySequential {
+		r.add("strategy", fmt.Sprintf("strategy must be %q, %q, or %q, got %q",
+			plan.StrategySingle, plan.StrategyOrderedParallel, plan.StrategySequential, p.Strategy))
 	}
 
 	// 5. tasks non-empty.
@@ -83,9 +82,15 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 		r.add("tasks", "tasks must not be empty")
 	}
 
-	// 6. v1.0 max 3 tasks.
-	if len(p.Tasks) > 3 {
-		r.add("tasks", fmt.Sprintf("v1.0 supports at most 3 tasks, got %d", len(p.Tasks)))
+	// 6. task limit (default 5, configurable via ORCHESTRATOR_MAX_TASKS).
+	maxTasks := 5
+	if v := strings.TrimSpace(os.Getenv("ORCHESTRATOR_MAX_TASKS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			maxTasks = n
+		}
+	}
+	if len(p.Tasks) > maxTasks {
+		r.add("tasks", fmt.Sprintf("at most %d tasks allowed, got %d", maxTasks, len(p.Tasks)))
 	}
 
 	// 7. single strategy requires exactly 1 task.
@@ -129,6 +134,11 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 			if !ok {
 				r.add(prefix+".agentName", fmt.Sprintf("agent %q not found in registry", agentName))
 			} else {
+				// 7a. agent must be healthy (AGENT_UNAVAILABLE is distinct from INVALID).
+				if !v.registry.IsHealthy(agentName) {
+					r.add(prefix+".agentName", fmt.Sprintf("agent %q is unhealthy", agentName))
+				}
+
 				// 8. capabilityIds must belong to target agent.
 				for _, cid := range t.CapabilityIDs {
 					if !containsCI(agent.CapabilityIDs, cid) {
@@ -187,10 +197,10 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 				fmt.Sprintf("riskLevel must be low/medium/high, got %q", t.RiskLevel))
 		}
 
-		// 13. high risk tasks are not allowed for auto execution in v1.0.
-		if rl == "high" {
+		// 13. high risk tasks require HITL confirmation; auto-execution only when HITL enabled.
+		if rl == "high" && !v.hitlEnabled {
 			r.add(prefix+".riskLevel",
-				"high risk tasks are not allowed for auto execution in v1.0")
+				"high risk tasks are not allowed for auto execution in v1.0 (set HITL_ENABLED=true to enable)")
 		}
 
 		// 14. taskContent must not contain internal URLs.
@@ -215,6 +225,13 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 		if containsSystemPrompt(t.TaskContent) {
 			r.add(prefix+".taskContent",
 				"taskContent must not contain system prompts")
+		}
+	}
+
+	// 18. DAG cycle detection — applicable when any task has dependsOn.
+	if r.Valid && hasDependsOn(p.Tasks) {
+		if err := checkDAGCycle(p.Tasks); err != nil {
+			r.add("tasks", "circular dependency detected in depends_on chain: "+err.Error())
 		}
 	}
 
@@ -380,4 +397,63 @@ func containsSystemPrompt(s string) bool {
 		}
 	}
 	return false
+}
+
+// hasDependsOn reports whether any task in the plan declares dependencies.
+func hasDependsOn(tasks []plan.TaskPlan) bool {
+	for _, t := range tasks {
+		if len(t.DependsOn) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// checkDAGCycle uses Kahn's algorithm to detect cycles in the dependsOn DAG.
+// Returns nil if the graph is acyclic, or an error describing the cycle.
+func checkDAGCycle(tasks []plan.TaskPlan) error {
+	// Build taskID index and adjacency list.
+	taskIndex := make(map[string]int, len(tasks))
+	for i, t := range tasks {
+		taskIndex[t.TaskID] = i
+	}
+
+	inDegree := make([]int, len(tasks))
+	adj := make([][]int, len(tasks))
+	for i, t := range tasks {
+		for _, dep := range t.DependsOn {
+			j, ok := taskIndex[dep]
+			if !ok {
+				continue // already caught by dependsOn validation
+			}
+			adj[j] = append(adj[j], i) // j → i (j must finish before i)
+			inDegree[i]++
+		}
+	}
+
+	// Kahn's algorithm.
+	queue := make([]int, 0, len(tasks))
+	for i, d := range inDegree {
+		if d == 0 {
+			queue = append(queue, i)
+		}
+	}
+
+	visited := 0
+	for len(queue) > 0 {
+		u := queue[0]
+		queue = queue[1:]
+		visited++
+		for _, v := range adj[u] {
+			inDegree[v]--
+			if inDegree[v] == 0 {
+				queue = append(queue, v)
+			}
+		}
+	}
+
+	if visited < len(tasks) {
+		return fmt.Errorf("cycle detected: %d of %d tasks reachable via topological sort", visited, len(tasks))
+	}
+	return nil
 }

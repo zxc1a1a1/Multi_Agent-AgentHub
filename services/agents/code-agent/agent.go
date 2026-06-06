@@ -24,14 +24,29 @@ type Config struct {
 }
 
 // CodeAgent is a minimal mock code agent powered by pkg/adk interfaces.
+// When llm is non-nil, it delegates to the LLM; otherwise it returns mock responses.
 type CodeAgent struct {
 	name        string
 	description string
 	version     string
+	llm         adk.Model // nil means use mock
+}
+
+// CodeAgentOption customizes a CodeAgent.
+type CodeAgentOption func(*CodeAgent)
+
+// WithModel injects an LLM model. When nil, the agent uses mock responses.
+func WithModel(m adk.Model) CodeAgentOption {
+	return func(a *CodeAgent) {
+		if a == nil {
+			return
+		}
+		a.llm = m
+	}
 }
 
 // NewCodeAgent creates a minimal CodeAgent with safe defaults.
-func NewCodeAgent(cfg Config) *CodeAgent {
+func NewCodeAgent(cfg Config, opts ...CodeAgentOption) *CodeAgent {
 	name := strings.TrimSpace(cfg.Name)
 	if name == "" {
 		name = defaultAgentName
@@ -47,11 +62,17 @@ func NewCodeAgent(cfg Config) *CodeAgent {
 		version = defaultAgentVersion
 	}
 
-	return &CodeAgent{
+	a := &CodeAgent{
 		name:        name,
 		description: description,
 		version:     version,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(a)
+		}
+	}
+	return a
 }
 
 // Name returns the stable public identity for this ADK agent.
@@ -63,12 +84,19 @@ func (a *CodeAgent) Name() string {
 }
 
 // Generate produces a deterministic minimal response without calling any real LLM.
+// When an LLM model is configured, it delegates to the model instead.
 func (a *CodeAgent) Generate(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
 	_ = ctx
 	if req == nil {
 		return nil, errors.New("generate request is required")
 	}
 
+	// LLM path: delegate to the configured model.
+	if a.llm != nil {
+		return a.llm.Generate(ctx, req)
+	}
+
+	// Mock path: deterministic response for CI / no-key environments.
 	userText, err := extractLastUserText(req.Contents)
 	if err != nil {
 		return nil, err

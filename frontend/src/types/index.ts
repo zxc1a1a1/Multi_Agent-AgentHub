@@ -47,6 +47,28 @@ export interface AGUIEvent {
   partial?: boolean
   timestamp?: string
   traceId?: string
+  // HITL confirmation fields
+  actionId?: string
+  actionName?: string
+  riskLevel?: 'low' | 'medium' | 'high'
+  description?: string
+  parameters?: Record<string, unknown>
+  timeoutMs?: number
+  confirmed?: boolean
+  rejectReason?: string
+  // Snapshot rendering
+  snapshotType?: string
+  payload?: Record<string, unknown>
+}
+
+/**
+ * HITL confirmation request sent from Frontend to Gateway.
+ */
+export interface HITLConfirmRequest {
+  runId: string
+  actionId: string
+  confirmed: boolean
+  rejectReason: string
 }
 
 export interface Conversation {

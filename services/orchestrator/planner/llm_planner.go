@@ -485,6 +485,7 @@ func (p *LLMPlanner) convertToPlan(resp *llmPlanResponse, input PlannerInput) (*
 		Aggregation:    aggregation,
 		Fallback:       plan.Fallback{Enabled: true, Reason: "llm_default"},
 		Validation:     plan.Validation{Validated: false},
+		TraceID:        input.TraceID,
 	}, nil
 }
 
@@ -512,6 +513,7 @@ func (p *LLMPlanner) fallbackPlan(input PlannerInput, sourceCode, model string) 
 			PlanningMode:   input.PlanningMode,
 			Strategy:       plan.StrategySingle,
 			IntentSummary:  summarize(input.UserMessage),
+			TraceID:        input.TraceID,
 			Tasks: []plan.TaskPlan{{
 				TaskID:          "task_001",
 				AgentName:       agentName,

@@ -39,6 +39,20 @@ func (d *stubDispatcher) Dispatch(ctx context.Context, input dispatcher.Dispatch
 	return d.result, d.err
 }
 
+// DispatchStream adapts the buffered stub result into a single streamed chunk,
+// so stubDispatcher satisfies the streaming AgentDispatcher interface.
+func (d *stubDispatcher) DispatchStream(ctx context.Context, input dispatcher.DispatchInput) func(yield func(dispatcher.DispatchChunk) bool) {
+	return func(yield func(dispatcher.DispatchChunk) bool) {
+		if d.err != nil {
+			yield(dispatcher.DispatchChunk{Err: d.err})
+			return
+		}
+		if d.result != nil && d.result.Text != "" {
+			yield(dispatcher.DispatchChunk{Text: d.result.Text})
+		}
+	}
+}
+
 func validSinglePlan() *plan.OrchestrationPlan {
 	return &plan.OrchestrationPlan{
 		Version:        "v1",

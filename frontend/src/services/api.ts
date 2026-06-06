@@ -1,4 +1,4 @@
-import type { Conversation, Message, Agent } from '../types'
+import type { Conversation, Message, Agent, HITLConfirmRequest } from '../types'
 import type { AgentName } from '../lib/agents'
 import { DEFAULT_AGENT_NAME, normalizeAgentName } from '../lib/agents'
 
@@ -100,4 +100,16 @@ export async function listAgents(): Promise<Agent[]> {
   const payload = await res.json()
   const agents = extractArray(payload).map(normalizeAgent).filter((item): item is Agent => item !== null)
   return agents
+}
+
+/**
+ * Send a HITL confirmation response to the Gateway.
+ */
+export async function confirmHITL(request: HITLConfirmRequest): Promise<void> {
+  const res = await fetch(`${API_BASE}/runs/${request.runId}/confirm`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  })
+  if (!res.ok) throw new Error('Failed to confirm HITL action')
 }

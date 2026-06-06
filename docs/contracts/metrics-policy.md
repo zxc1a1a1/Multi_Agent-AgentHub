@@ -30,6 +30,11 @@
 - `artifact_created_total`
 - `tool_calls_total`
 - `registry_health_check_failures_total`
+- `dispatcher_retry_total` — dispatch retry count per attempt
+- `dispatcher_breaker_state` — circuit breaker state (0=closed, 1=open, 2=half-open)
+- `executor_wave_duration_ms` — DAG executor wave duration histogram
+- `synthesizer_call_total` — synthesizer invocation count
+- `synthesizer_call_duration_ms` — synthesizer call duration
 
 ## 允许低基数标签
 

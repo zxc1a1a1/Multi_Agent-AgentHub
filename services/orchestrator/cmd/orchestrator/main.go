@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -17,13 +18,22 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/httpapi"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
 )
 
 const (
-	defaultAddr           = ":8080"
-	defaultCodeAgentURL   = "http://127.0.0.1:8081"
-	defaultWebAgentURL    = "http://127.0.0.1:8082"
-	defaultShutdown       = 10 * time.Second
+	defaultAddr              = ":8080"
+	defaultCodeAgentURL      = "http://127.0.0.1:8081"
+	defaultWebAgentURL       = "http://127.0.0.1:8082"
+	defaultDocumentAgentURL  = "http://127.0.0.1:8083"
+	defaultVisionAgentURL    = "http://127.0.0.1:8084"
+	defaultContextAgentURL   = "http://127.0.0.1:8085"
+	defaultTestAgentURL      = "http://127.0.0.1:8086"
+	defaultReviewAgentURL    = "http://127.0.0.1:8087"
+	defaultSecurityAgentURL  = "http://127.0.0.1:8088"
+	defaultDeployAgentURL    = "http://127.0.0.1:8089"
+	defaultDiffAgentURL      = "http://127.0.0.1:8090"
+	defaultShutdown          = 10 * time.Second
 )
 
 func main() {
@@ -41,14 +51,34 @@ func run() error {
 	internalToken := strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
 
 	codeAgentURL := strings.TrimSpace(os.Getenv("CODE_AGENT_URL"))
-	if codeAgentURL == "" {
-		codeAgentURL = defaultCodeAgentURL
-	}
+	if codeAgentURL == "" { codeAgentURL = defaultCodeAgentURL }
 
 	webAgentURL := strings.TrimSpace(os.Getenv("WEB_AGENT_URL"))
-	if webAgentURL == "" {
-		webAgentURL = defaultWebAgentURL
-	}
+	if webAgentURL == "" { webAgentURL = defaultWebAgentURL }
+
+	documentAgentURL := strings.TrimSpace(os.Getenv("DOCUMENT_AGENT_URL"))
+	if documentAgentURL == "" { documentAgentURL = defaultDocumentAgentURL }
+
+	visionAgentURL := strings.TrimSpace(os.Getenv("VISION_AGENT_URL"))
+	if visionAgentURL == "" { visionAgentURL = defaultVisionAgentURL }
+
+	contextAgentURL := strings.TrimSpace(os.Getenv("CONTEXT_AGENT_URL"))
+	if contextAgentURL == "" { contextAgentURL = defaultContextAgentURL }
+
+	testAgentURL := strings.TrimSpace(os.Getenv("TEST_AGENT_URL"))
+	if testAgentURL == "" { testAgentURL = defaultTestAgentURL }
+
+	reviewAgentURL := strings.TrimSpace(os.Getenv("REVIEW_AGENT_URL"))
+	if reviewAgentURL == "" { reviewAgentURL = defaultReviewAgentURL }
+
+	securityAgentURL := strings.TrimSpace(os.Getenv("SECURITY_AGENT_URL"))
+	if securityAgentURL == "" { securityAgentURL = defaultSecurityAgentURL }
+
+	deployAgentURL := strings.TrimSpace(os.Getenv("DEPLOY_AGENT_URL"))
+	if deployAgentURL == "" { deployAgentURL = defaultDeployAgentURL }
+
+	diffAgentURL := strings.TrimSpace(os.Getenv("DIFF_AGENT_URL"))
+	if diffAgentURL == "" { diffAgentURL = defaultDiffAgentURL }
 
 	cfg := config.Config{
 		Addr:          addr,
@@ -78,12 +108,97 @@ func run() error {
 			CapabilityIDs: []string{"web_generation"},
 			OutputTypes:   []string{"webpage", "html", "text", "markdown"},
 		},
+		{
+			Name:          "document-agent",
+			URL:           documentAgentURL,
+			Description:   "Generates structured documentation, API docs, READMEs, and technical manuals",
+			OutputModes:   []string{"text", "markdown", "artifact_ref"},
+			CapabilityIDs: []string{"document_generation", "document_translation", "document_quality_check"},
+			OutputTypes:   []string{"markdown", "text"},
+		},
+		{
+			Name:          "vision-agent",
+			URL:           visionAgentURL,
+			Description:   "Analyzes images, extracts text via OCR, and audits visual content",
+			OutputModes:   []string{"text", "structured_json", "artifact_ref"},
+			CapabilityIDs: []string{"image_analysis", "ocr", "visual_audit"},
+			OutputTypes:   []string{"text", "structured_json"},
+		},
+		{
+			Name:          "context-agent",
+			URL:           contextAgentURL,
+			Description:   "Compresses conversation context, generates summaries, and extracts memories",
+			OutputModes:   []string{"text", "structured_json", "summary"},
+			CapabilityIDs: []string{"context_compression", "conversation_summary", "memory_extraction"},
+			OutputTypes:   []string{"text", "structured_json", "summary"},
+		},
+		{
+			Name:          "test-agent",
+			URL:           testAgentURL,
+			Description:   "Analyzes test logs, assesses coverage, and performs root cause analysis",
+			OutputModes:   []string{"text", "structured_json", "analysis_report"},
+			CapabilityIDs: []string{"test_log_analysis", "coverage_assessment", "root_cause_analysis"},
+			OutputTypes:   []string{"text", "structured_json", "analysis_report"},
+		},
+		{
+			Name:          "review-agent",
+			URL:           reviewAgentURL,
+			Description:   "Reviews code, requirements, and assesses project risks",
+			OutputModes:   []string{"text", "structured_json", "review_report"},
+			CapabilityIDs: []string{"code_review", "requirement_review", "risk_assessment"},
+			OutputTypes:   []string{"text", "structured_json", "review_report"},
+		},
+		{
+			Name:          "security-agent",
+			URL:           securityAgentURL,
+			Description:   "Scans code for vulnerabilities, checks dependencies, audits configs, and detects secrets",
+			OutputModes:   []string{"text", "structured_json", "security_report"},
+			CapabilityIDs: []string{"security_scanning", "vulnerability_detection", "config_audit", "secret_detection"},
+			OutputTypes:   []string{"text", "structured_json", "security_report"},
+		},
+		{
+			Name:          "deploy-agent",
+			URL:           deployAgentURL,
+			Description:   "Generates deployment plans, checks environment health, and creates rollback strategies",
+			OutputModes:   []string{"text", "structured_json", "deploy_plan"},
+			CapabilityIDs: []string{"deploy_planning", "environment_check", "rollback_strategy"},
+			OutputTypes:   []string{"text", "structured_json", "deploy_plan"},
+		},
+		{
+			Name:          "diff-agent",
+			URL:           diffAgentURL,
+			Description:   "Generates unified diffs, explains changes, analyzes impact, and resolves merge conflicts",
+			OutputModes:   []string{"text", "code", "diff", "artifact_ref"},
+			CapabilityIDs: []string{"diff_generation", "diff_explanation", "impact_analysis", "merge_resolution"},
+			OutputTypes:   []string{"text", "code", "diff"},
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create agent registry: %w", err)
 	}
 
-	a2aDispatcher := dispatcher.NewA2ADispatcher()
+	a2aDispatcher := dispatcher.NewA2ADispatcher(buildDispatcherOptions()...)
+
+	// Optionally load agent cards from child agents' /.well-known/agent.json.
+	if strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_AGENT_CARD_LOAD"))) == "true" {
+		updatedEndpoints := registry.LoadAllAgentCards(agentRegistry.List())
+		if r, err := registry.NewStaticAgentRegistry(updatedEndpoints); err == nil {
+			agentRegistry = r
+			log.Printf("orchestrator: loaded agent cards from child agents")
+		} else {
+			log.Printf("WARN: failed to rebuild registry from agent cards: %v", err)
+		}
+	}
+
+	// Optionally start health checker (skip in CI mode).
+	if strings.ToLower(strings.TrimSpace(os.Getenv("REGISTRY_HEALTHCHECK"))) != "off" {
+		hc := registry.NewHealthChecker(agentRegistry.List(), registry.HealthCheckerConfig{})
+		agentRegistry.SetHealthChecker(hc)
+		hc.Start()
+		log.Printf("orchestrator: health checker started")
+	} else {
+		log.Printf("orchestrator: health checker disabled (REGISTRY_HEALTHCHECK=off)")
+	}
 
 	// Build server options — planner is configured via env.
 	serverOpts := []httpapi.Option{
@@ -108,6 +223,11 @@ func run() error {
 		adapter := &registryAgentLister{reg: agentRegistry}
 		llmPlanner := planner.NewLLMPlanner(llmClient, llmCfg.Model, adapter)
 		serverOpts = append(serverOpts, httpapi.WithPlanner(llmPlanner))
+
+		// Wire LLM synthesizer for multi-agent result aggregation.
+		syn := synthesizer.NewLLMSynthesizer(llmClient, llmCfg.Model)
+		serverOpts = append(serverOpts, httpapi.WithSynthesizer(syn))
+
 		log.Printf("orchestrator planner: LLM mode (provider=%s, model=%s)", llmCfg.Provider, llmCfg.Model)
 	} else {
 		log.Printf("orchestrator planner: no API key found, using RulePlanner fallback")
@@ -144,8 +264,46 @@ func run() error {
 	return nil
 }
 
+// buildDispatcherOptions reads resilience policy configuration from the
+// environment. With no env set, it returns no options so the dispatcher keeps
+// its default (single attempt, no breaker) — preserving deterministic CI.
+func buildDispatcherOptions() []dispatcher.Option {
+	var opts []dispatcher.Option
+
+	if v := strings.TrimSpace(os.Getenv("DISPATCH_MAX_RETRY")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			base := 200 * time.Millisecond
+			if b := strings.TrimSpace(os.Getenv("DISPATCH_RETRY_BACKOFF_MS")); b != "" {
+				if ms, err := strconv.Atoi(b); err == nil && ms > 0 {
+					base = time.Duration(ms) * time.Millisecond
+				}
+			}
+			opts = append(opts, dispatcher.WithRetry(n, base))
+		}
+	}
+
+	if v := strings.TrimSpace(os.Getenv("DISPATCH_TIMEOUT_MS")); v != "" {
+		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
+			opts = append(opts, dispatcher.WithPerCallTimeout(time.Duration(ms)*time.Millisecond))
+		}
+	}
+
+	if v := strings.TrimSpace(os.Getenv("DISPATCH_BREAKER_THRESHOLD")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			cooldown := 30 * time.Second
+			if c := strings.TrimSpace(os.Getenv("DISPATCH_BREAKER_COOLDOWN_MS")); c != "" {
+				if ms, err := strconv.Atoi(c); err == nil && ms > 0 {
+					cooldown = time.Duration(ms) * time.Millisecond
+				}
+			}
+			opts = append(opts, dispatcher.WithCircuitBreaker(n, cooldown))
+		}
+	}
+
+	return opts
+}
+
 // resolvePlannerAPIKey reads the LLM API key from the appropriate environment
-// variable based on the configured provider.
 func resolvePlannerAPIKey() string {
 	provider := strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_PROVIDER")))
 	if provider == "" {

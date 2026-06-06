@@ -60,7 +60,7 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 			"html",
 			"artifact_ref",
 		},
-		Streaming: false,
+		Streaming: true,
 	}
 
 	if errs := a2a.ValidateAgentConfig(agentCfg); len(errs) > 0 {

@@ -41,6 +41,18 @@ agents/**               legacy reference only
 - `docs/contracts/planner-input.md`
 - `docs/contracts/orchestration-plan.md`
 
+## Strategy support
+
+| Strategy | Validator | Executor |
+|---|---|---|
+| `single` | 1 task required | SingleExecutor |
+| `ordered_parallel` | 2+ tasks, no dependsOn | OrderedParallelExecutor |
+| `sequential` | 1+ tasks, dependsOn DAG (acyclic) | DAGExecutor (wave + concurrent fan-out) |
+
+Planner may produce sequential plans with inter-task dependencies; executor
+handles topological sort, wave-based parallelism, upstream result injection
+via `{{deps.{taskId}.output}}`, and failure propagation (SKIPPED_DEP).
+
 ## Allowed implementation targets
 
 - `services/orchestrator`
