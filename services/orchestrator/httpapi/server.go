@@ -7,6 +7,7 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 )
 
@@ -16,6 +17,7 @@ type Server struct {
 	token      string
 	registry   *registry.StaticAgentRegistry
 	dispatcher *dispatcher.A2ADispatcher
+	planner    planner.Planner // nil means use default RulePlanner
 }
 
 // Option customizes Server behavior.
@@ -48,6 +50,17 @@ func WithDispatcher(d *dispatcher.A2ADispatcher) Option {
 			return
 		}
 		s.dispatcher = d
+	}
+}
+
+// WithPlanner injects a custom Planner. When nil or not called, the server
+// defaults to RulePlanner at request time.
+func WithPlanner(p planner.Planner) Option {
+	return func(s *Server) {
+		if s == nil {
+			return
+		}
+		s.planner = p
 	}
 }
 

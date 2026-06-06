@@ -1,106 +1,55 @@
-# AgentHub ADK Runtime Contract
+# ADK Runtime Contract
 
-## 1. Contract 目的
+**Status:** Active
+**Owner:** AgentHub
+**Primary source:** Module Separation & Runtime Redesign
 
-本文是 AgentHub 内部 ADK Runtime 的事实源文档。
 
-ADK Runtime 是 Child Agent 内部运行时，用于统一：
+## Authoritative source order
 
-- config 加载。
-- AgentCard 生成 / 校验。
-- A2A Server 暴露。
-- Task Handler 调用。
-- Runtime Context API。
-- 流式文本输出。
-- Artifact 输出。
-- LLMClient 生命周期。
-- 工具权限。
-- 错误脱敏。
-- 日志追踪。
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. PDR product goals only, not old module layout
+4. Sprint/UML as supporting product/demo references only
 
-## 2. 非目标
+Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
 
-ADK Runtime 不负责：
 
-- Gateway API。
-- Orchestrator Planner。
-- AG-UI Event Schema。
-- 前端渲染。
-- Artifact 持久化策略。
-- LLM Provider 供应商细节。
+## Scope
 
-## 3. Runtime Boundary
+`pkg/adk` is a pure engine package. `pkg/runtime` is the engineering framework over ADK.
 
-```text
-Handler → ADK Runtime → A2A Server → Orchestrator → AG-UI Converter → Frontend
-```
+## ADK owns
 
-## 4. Version Profile
+- `Agent` interface
+- `Model` interface
+- `Tool` interface
+- `Plugin` interface
+- `Runner`
+- `Session` / `SessionService` interface
+- `Event`, `Content`, `Part` types
+- `pkg/adk/a2a` adapter
 
-当前 profile：
+## ADK must not own
 
-```text
-v1.0-sprint
-generic-child-agent-runtime
-```
+- concrete LLM providers
+- YAML config loading
+- MySQL implementation details beyond interfaces
+- Skill repository/manager
+- AG-UI browser translation
+- business-specific Agent handlers
 
-要求：
+## Runtime owns
 
-- 支持 2+ Child Agents。
-- 不固定 Agent 名称。
-- Agent 能力由 config.yaml / AgentCard 声明。
-- Handler 不直接输出 AG-UI。
-- Runtime 负责映射 A2A。
+- YAML configuration
+- model/tool/agent registries
+- Anthropic/OpenAI/Proxy providers
+- session implementations including SQL and memory wrapper
+- context pruning
+- skill system
+- AG-UI translator and filters
+- launcher
 
-## 5. Required Runtime APIs
+## Interface requirement
 
-```go
-ctx.Context() context.Context
-ctx.StreamText(chunk string) error
-ctx.AddArtifact(artifact adk.Artifact) error
-ctx.Fail(err error) error
-ctx.Metadata() map[string]string
-ctx.Logger() Logger
-```
-
-## 6. Runtime Mapping
-
-| Runtime API | A2A Event |
-|---|---|
-| handler start | status working |
-| StreamText | text |
-| AddArtifact | artifact |
-| Fail / error | status failed |
-| return nil | status completed |
-
-## 7. Artifact
-
-`ctx.AddArtifact()` 输出的是 **ArtifactDraft**，不是标准 Core Artifact。
-
-ArtifactDraft 只包含 `type`、`title`、`content`（或 `contentRefDraft`）、`metadata`。
-
-`artifactId`、`mimeType`、`source.*`、`links.*`、`preview.*`、`version`、`status`、`createdAt` 等平台字段由 Orchestrator / ArtifactRegistry 归一化时生成。
-
-ADK Runtime 不要求 Handler 提供这些平台字段。
-
-Artifact 类型由 `artifact-contract` 决定。
-
-Runtime 不得用 agentName 判断 Artifact 类型。
-
-## 8. Security
-
-- 不得泄漏 secret。
-- 不得在 AgentCard 暴露 secret。
-- 不得在 `/health` 暴露 secret。
-- 不得把 provider 原始敏感错误返回用户。
-- 工具默认关闭。
-
-## 9. Required Tests
-
-- config load test。
-- AgentCard generation test。
-- Handler cancellation test。
-- StreamText mapping test。
-- AddArtifact mapping test。
-- LLMClient lifecycle test。
-- secret redaction test。
+Every runtime session implementation must satisfy `adk.SessionService`, including `GetOrCreate` if the ADK interface requires it.

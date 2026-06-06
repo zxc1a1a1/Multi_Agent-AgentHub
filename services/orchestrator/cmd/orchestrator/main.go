@@ -15,6 +15,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/httpapi"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 )
 
@@ -84,13 +85,39 @@ func run() error {
 
 	a2aDispatcher := dispatcher.NewA2ADispatcher()
 
+	// Build server options — planner is configured via env.
+	serverOpts := []httpapi.Option{
+		httpapi.WithInternalToken(internalToken),
+		httpapi.WithRegistry(agentRegistry),
+		httpapi.WithDispatcher(a2aDispatcher),
+	}
+
+	plannerMode := strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_PLANNER")))
+	if plannerMode == "llm" {
+		llmCfg := planner.PlannerLLMConfig{
+			Provider: strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_PROVIDER"))),
+			APIKey:   resolvePlannerAPIKey(),
+			Model:    strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_MODEL")),
+			BaseURL:  strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_BASE_URL")),
+		}
+		if llmCfg.Provider == "" {
+			llmCfg.Provider = "anthropic"
+		}
+		if llmCfg.APIKey != "" {
+			llmClient := planner.NewPlannerLLM(llmCfg)
+			llmPlanner := planner.NewLLMPlanner(llmClient, agentRegistry.Names())
+			serverOpts = append(serverOpts, httpapi.WithPlanner(llmPlanner))
+			log.Printf("orchestrator planner: LLM mode (provider=%s, model=%s)", llmCfg.Provider, llmCfg.Model)
+		} else {
+			log.Printf("orchestrator planner: LLM mode requested but no API key found, falling back to RulePlanner")
+		}
+	} else {
+		log.Printf("orchestrator planner: RulePlanner mode")
+	}
+
 	server := &http.Server{
-		Addr: cfg.Addr,
-		Handler: httpapi.NewServer(
-			httpapi.WithInternalToken(internalToken),
-			httpapi.WithRegistry(agentRegistry),
-			httpapi.WithDispatcher(a2aDispatcher),
-		).Handler(),
+		Addr:    cfg.Addr,
+		Handler: httpapi.NewServer(serverOpts...).Handler(),
 	}
 
 	go func() {
@@ -117,4 +144,27 @@ func run() error {
 
 	log.Printf("orchestrator shutdown complete")
 	return nil
+}
+
+// resolvePlannerAPIKey reads the LLM API key from the appropriate environment
+// variable based on the configured provider.
+func resolvePlannerAPIKey() string {
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_PROVIDER")))
+	if provider == "" {
+		provider = "anthropic"
+	}
+
+	// Check provider-specific key first.
+	switch provider {
+	case "openai":
+		if key := strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_API_KEY")); key != "" {
+			return key
+		}
+		return strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	default:
+		if key := strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_API_KEY")); key != "" {
+			return key
+		}
+		return strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
+	}
 }

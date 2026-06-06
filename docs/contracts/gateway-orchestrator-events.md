@@ -1,43 +1,50 @@
-# OrchestratorStreamEvent 契约
+# Gateway ↔ Orchestrator Events
 
-## 事件类型
+**Status:** Active
+**Owner:** AgentHub
+**Primary source:** Module Separation & Runtime Redesign
+
+
+## Authoritative source order
+
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. PDR product goals only, not old module layout
+4. Sprint/UML as supporting product/demo references only
+
+Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
+
+
+## Event sequence
+
+Typical single-agent run:
 
 ```text
-run_started
-state_update
-message_start
-message_delta
-message_end
-tool_call_start
-tool_call_args
-tool_call_end
-run_finished
-run_error
+RUN_STARTED
+STATE_UPDATE {phase:"planning"}
+STATE_UPDATE {activeAgent:"code-agent"}
+TEXT_MESSAGE_START
+TEXT_MESSAGE_CONTENT ...
+TEXT_MESSAGE_END
+TOOL_CALL_START / TOOL_CALL_ARGS / TOOL_CALL_END
+RUN_FINISHED
 ```
 
-## 通用结构
+Multi-agent run:
 
-```json
-{
-  "type": "message_delta",
-  "runId": "run_001",
-  "messageId": "msg_001",
-  "sender": {
-    "type": "agent",
-    "name": "some-agent"
-  },
-  "delta": "文本片段",
-  "state": null,
-  "toolCall": null,
-  "error": null
-}
+```text
+RUN_STARTED
+STATE_UPDATE {phase:"planning", mode:"parallel|sequential"}
+STATE_UPDATE {activeAgent:"web-agent"}
+... web-agent text/tool events ...
+STATE_UPDATE {activeAgent:"code-agent"}
+... code-agent text/tool events ...
+RUN_FINISHED
 ```
 
-## 规则
+## Ordering rules
 
-- 所有事件必须包含 `runId`。
-- message 类事件必须包含 `messageId`。
-- 多 Agent 输出不得复用 messageId。
-- Gateway 不接收 Child Agent 原始流。
-- Gateway 不改变事件业务语义。
-- 错误必须使用 SafeError。
+- Every `TEXT_MESSAGE_CONTENT` must follow a `TEXT_MESSAGE_START` for the same message id.
+- Every `TOOL_CALL_ARGS` and `TOOL_CALL_END` must reference an active `TOOL_CALL_START`.
+- `RUN_FINISHED` is emitted once per run by Orchestrator, then Gateway closes SSE.
+- `RUN_ERROR` terminates the run unless marked retryable in metadata.

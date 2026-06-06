@@ -5,6 +5,7 @@ import { useAgentStore } from '../stores/agentStore'
 import { useSendMessage } from '../agui/events'
 import MessageBubble from './MessageBubble'
 import MessageInput from './MessageInput'
+import OrchestrationCard from './OrchestrationCard'
 import { Bot } from 'lucide-react'
 import { normalizeAgentName, type AgentName } from '../lib/agents'
 
@@ -14,6 +15,7 @@ interface Props {
 
 export default function ChatWindow({ conversationId }: Props) {
   const messages = useMessageStore((s) => s.messages[conversationId] || [])
+  const orchestration = useMessageStore((s) => s.orchestrationByConversation[conversationId])
   const loadMessages = useMessageStore((s) => s.loadMessages)
   const conversationAgentName = useConversationStore((s) => {
     const conversation = s.conversations.find((item) => item.id === conversationId)
@@ -62,12 +64,15 @@ export default function ChatWindow({ conversationId }: Props) {
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto space-y-6">
-          {messages.length === 0 && (
+          {messages.length === 0 && !orchestration && (
             <div className="text-center text-gray-400 mt-20">
               <Bot className="w-12 h-12 mx-auto mb-4 text-indigo-300" />
               <p className="text-lg font-medium text-gray-600">Start a conversation</p>
               <p className="text-sm mt-1">Ask me to write, explain, or review code</p>
             </div>
+          )}
+          {orchestration && (
+            <OrchestrationCard info={orchestration} />
           )}
           {messages.map((msg) => (
             <MessageBubble key={msg.id} message={msg} />

@@ -1,56 +1,41 @@
-# OrchestrationPlan Contract
+# Orchestration Plan Contract
 
-## 定义
+**Status:** Active
+**Owner:** AgentHub
+**Primary source:** Module Separation & Runtime Redesign
 
-OrchestrationPlan 是意图编排结果的标准结构。
 
-## 示例
+## Authoritative source order
+
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. PDR product goals only, not old module layout
+4. Sprint/UML as supporting product/demo references only
+
+Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
+
+
+## Shape
 
 ```json
 {
-  "version": "v1",
-  "planId": "plan_001",
-  "runId": "run_001",
-  "conversationId": "conv_001",
-  "planningMode": "auto",
-  "strategy": "ordered_parallel",
-  "intentSummary": "用户想完成一个多步骤任务",
-  "tasks": [
+  "mode": "single|sequential|parallel|ordered_parallel",
+  "intent": "brief user intent",
+  "steps": [
     {
-      "taskId": "task_001",
-      "agentName": "some-agent",
-      "capabilityIds": ["capability_id"],
-      "taskContent": "任务描述",
+      "id": "step-1",
+      "agentName": "code-agent",
+      "input": "task for this agent",
       "dependsOn": [],
-      "expectedOutputs": ["markdown"],
-      "priority": 1
+      "expectedOutputs": ["text", "code"]
     }
-  ],
-  "aggregation": {
-    "mode": "message_per_task",
-    "summaryRequired": false
-  },
-  "fallback": {
-    "mode": "same_capability_alternative",
-    "maxAttempts": 1
-  },
-  "validation": {
-    "schemaVersion": "v1",
-    "validated": false
-  }
+  ]
 }
 ```
 
-## planningMode 说明
+## Validation
 
-- `direct` / `mention` / `auto` / `manual` — 对应外部请求来源。
-- `fallback` — **仅限内部**，由 Orchestrator 在主计划失败后生成。外部请求不得传入此值。
-- fallback plan 必须通过 `parentPlanId` 或 `fallbackOf` 关联原 plan。
-
-## 规则
-
-- `tasks` 不得为空。
-- `agentName` 必须来自当前可用 Agent 集合。
-- `capabilityIds` 必须来自目标 Agent 的 `AgentCard.skills[].id`。不得凭自然语言临时生成未注册的 capabilityId，不得将 `toolName`、`artifact.type` 或 `outputMode` 作为 capabilityId。
-- `expectedOutputs` 必须可被目标能力支持。
-- `validation.validated` 只能由本地校验器设置。
+- Every `agentName` must exist in Orchestrator registry and be healthy unless fallback explicitly applies.
+- `dependsOn` ids must reference earlier steps for `sequential`.
+- `parallel` steps must not depend on each other.
+- Frontend skills must support expected artifact outputs or Orchestrator must degrade to text.

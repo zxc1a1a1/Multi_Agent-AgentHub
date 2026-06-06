@@ -1,165 +1,48 @@
 # A2A Task Contract
 
-## 1. 目的
+**Status:** Active
+**Owner:** AgentHub
+**Primary source:** Module Separation & Runtime Redesign
 
-本文档定义 Orchestrator 通过 A2A 调用 Child Agent 的任务请求与流式响应契约。
 
-## 2. Endpoint
+## Authoritative source order
 
-v1.0 核心 endpoint：
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. PDR product goals only, not old module layout
+4. Sprint/UML as supporting product/demo references only
 
-```text
-POST /a2a/tasks/sendSubscribe
-```
+Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
 
-## 3. Request
 
-```json
-{
-  "id": "task-001",
-  "messages": [
-    {
-      "role": "user",
-      "content": "用户请求"
-    }
-  ],
-  "metadata": {
-    "runId": "run-001",
-    "threadId": "conversation-001",
-    "traceId": "trace-001",
-    "agentName": "target-agent"
-  }
-}
-```
+## Scope
 
-## 4. 字段说明
+A2A is the Orchestrator↔Child Agent protocol. The ADK adapter lives in `pkg/adk/a2a`.
 
-| 字段 | 必填 | 说明 |
-|---|---:|---|
-| `id` | 是 | A2A task id |
-| `messages` | 是 | 结构化消息列表 |
-| `metadata` | 否 | 追踪与上下文信息 |
-| `metadata.runId` | 推荐 | AG-UI run id |
-| `metadata.threadId` | 推荐 | `conversationId` 的 A2A 协议别名，不得视为独立会话 ID |
-| `metadata.traceId` | 推荐 | 跨服务追踪 id |
-| `metadata.agentName` | 推荐 | 目标 Agent 名称 |
-
-## 5. Message
-
-```json
-{
-  "role": "user",
-  "content": "消息内容"
-}
-```
-
-推荐 role：
+## Target endpoints
 
 ```text
-user
-assistant
-system
-tool
+GET  /health
+GET  /.well-known/agent.json
+POST /              JSON-RPC / A2A task endpoint
 ```
 
-v1.0 至少支持：
+If streaming endpoint is implemented separately, it must be explicitly documented as A2A streaming compatibility.
 
-```text
-user
-assistant
-system
-```
+## Message mapping
 
-## 6. Streaming Events
+| ADK | A2A |
+|---|---|
+| `Content.Role` | message role |
+| `TextPart` | text part |
+| `ToolCallPart` | task/tool call event |
+| `ToolResultPart` | tool result message |
+| `Artifact` | artifact / output part |
 
-### working
+## Execution
 
-```json
-{"type":"status","status":"working"}
-```
+Child Agent owns its Runner/session for task execution. Orchestrator only sends tasks and consumes stream/result events.
 
-### text
+## Current gap
 
-```json
-{"type":"text","content":"流式文本"}
-```
-
-### artifact
-
-A2A streaming 中的 `event.artifact` 是 **ArtifactDraft**，不是标准 Core Artifact。
-
-```json
-{
-  "type": "artifact",
-  "artifact": {
-    "type": "code",
-    "title": "main.go",
-    "content": "package main",
-    "metadata": {"language": "go"}
-  }
-}
-```
-
-ArtifactDraft 只包含 Child Agent 能提供的字段（`type`、`title`、`content` 或 `contentRefDraft`、`metadata`）。`artifactId`、`mimeType`、`source.*`、`links.*`、`preview.*`、`version`、`status`、`createdAt` 等平台字段由 Orchestrator / ArtifactRegistry 归一化时生成。
-
-### completed
-
-```json
-{"type":"status","status":"completed"}
-```
-
-### failed
-
-```json
-{
-  "type":"status",
-  "status":"failed",
-  "error": {
-    "code":"A2A_AGENT_ERROR",
-    "message":"Agent 执行失败",
-    "retryable":true
-  }
-}
-```
-
-## 7. 生命周期
-
-```text
-submitted → working → completed
-submitted → working → failed
-```
-
-规则：
-
-- Agent 开始处理后应输出 working。
-- 可以输出多个 text。
-- 可以输出多个 artifact。
-- 最终必须 completed 或 failed。
-- completed / failed 后不得继续输出正常内容。
-
-## 8. Health Check 归一化
-
-A2A `/health` endpoint 返回原始探针状态。进入 AgentHub Registry 后必须归一化：
-
-```text
-/health.status = ok       → Agent.health = healthy
-/health.status = degraded → Agent.health = degraded
-timeout / non-2xx / invalid response → Agent.health = unhealthy
-未探测                        → Agent.health = unknown
-```
-
-`Agent.status`（生命周期/启用状态）与 `Agent.health`（健康状态）分离：
-- `Agent.status`：`enabled` / `disabled` / `experimental` / `deprecated`
-- `Agent.health`：`healthy` / `degraded` / `unhealthy` / `unknown`
-
-`disabled` 属于 `Agent.status`，不属于 `Agent.health`。
-
-## 9. 安全
-
-metadata 不得包含：
-
-- API key
-- Authorization token
-- 用户私密 token
-- 数据库密码
-- 完整系统 prompt
+If current A2A implementation returns an event array after completion, mark it as compatibility. Target is streaming event delivery from Child Agent to Orchestrator.

@@ -1,42 +1,46 @@
 # Intent Orchestration Contract
 
-## 目的
+**Status:** Active
+**Owner:** AgentHub
+**Primary source:** Module Separation & Runtime Redesign
 
-本文定义 AgentHub Orchestrator Service 中“用户意图 → 结构化编排计划 → 本地校验 → 可执行调度”的数据与流程契约。
 
-## 当前 Profile
+## Authoritative source order
 
-- MVP v0.1 已完成，仅作为历史基线。
-- 当前支持 2+ Agent。
-- Gateway 与 Orchestrator 分进程。
-- 意图编排只属于 Orchestrator Service。
-- 不固定任何具体 Agent 名称。
+1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
+2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
+3. PDR product goals only, not old module layout
+4. Sprint/UML as supporting product/demo references only
 
-## 核心对象
+Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
 
-- PlannerInput
-- PlanningMode
-- AgentCapabilitySet
-- OrchestrationPlan
-- TaskPlan
-- PlanTrace
-- SafeError
 
-## 核心流程
+## Scope
+
+Planning and execution live only in `services/orchestrator`.
+
+## Components
 
 ```text
-PlannerInput
-  → Planner
-  → OrchestrationPlan
-  → Plan Validation
-  → Execution Strategy
-  → Result / SafeError
+internal/planner      intent → OrchestrationPlan
+internal/router       agent registry and capability match
+internal/executor     single/sequential/parallel execution
+internal/dispatcher   A2A calls to Child Agents
+internal/converter    A2A/ADK events → AG-UI events
 ```
 
-## 硬性规则
+## Planning mode
 
-- 所有 Planner 都必须输出结构化计划。
-- 所有计划都必须先校验后执行。
-- LLM 不得直接驱动执行。
-- Gateway 不得承担意图编排。
-- Agent 能力判断必须基于可用能力集合，而不是具体 Agent 名称分支。
+| Mode | Meaning |
+|---|---|
+| `single` | One Child Agent handles the task. |
+| `sequential` | Ordered dependent steps. |
+| `parallel` | Independent steps may run concurrently. |
+| `ordered_parallel` | Temporary demo-safe mode: independent intent, deterministic ordered output. |
+
+## Planner sources
+
+- Target: LLM planner using AgentCards and history.
+- Fallback: RulePlanner based on capabilities/keywords.
+
+RulePlanner may exist but must not be documented as the final intelligent planning implementation.
