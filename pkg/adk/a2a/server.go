@@ -170,6 +170,14 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
+	// When client accepts text/event-stream, stream each event as an SSE frame
+	// so the remote dispatcher receives partial output incrementally.
+	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		s.handleRunSSE(w, r, reqPayload.SessionID, content)
+		return
+	}
+
+	// Buffered fallback: collect all events and return as single JSON response.
 	events := make([]eventDTO, 0)
 	for event, runErr := range s.runner.Run(r.Context(), reqPayload.SessionID, content) {
 		if runErr != nil {
@@ -185,6 +193,46 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		Events: events,
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleRunSSE streams agent events as SSE data frames. Each event from the
+// runner is serialized as a JSON frame and flushed immediately so the remote
+// dispatcher receives partial text chunks in real time.
+func (s *Server) handleRunSSE(w http.ResponseWriter, r *http.Request, sessionID string, content *adk.Content) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal_error", "streaming unsupported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	for event, runErr := range s.runner.Run(r.Context(), sessionID, content) {
+		if runErr != nil {
+			payload, _ := json.Marshal(runResponse{
+				Error: &responseError{
+					Code:    "internal_error",
+					Message: sanitizeError(runErr),
+				},
+			})
+			fmt.Fprintf(w, "data: %s\n\n", payload)
+			flusher.Flush()
+			return
+		}
+		dto := toEventDTO(event)
+		payload, err := json.Marshal(dto)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(w, "data: %s\n\n", payload)
+		flusher.Flush()
+	}
+
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	flusher.Flush()
 }
 
 func decodeRunRequest(r *http.Request) (*runRequest, error) {

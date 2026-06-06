@@ -2,12 +2,19 @@ name: agent-builder-agent
 description: 用于根据用户描述设计自定义 Agent Profile 草稿，包括名称、职责、技能、允许产物类型、风险等级和系统提示词建议；第一版只输出配置草稿，不创建文件。
 version: "0.1.0"
 url: "http://localhost:8100"
+streaming: true
 skills:
-  - agent_profile_design
-  - agent_scaffold_plan
+  - id: agent_profile_design
+    name: Agent Profile Design
+    description: 根据用户描述设计 Agent 的身份、职责和能力定义
+  - id: agent_scaffold_plan
+    name: Agent Scaffold Plan
+    description: 生成 Agent 脚手架方案，包括技能选择和系统提示词
 inputModes:
   - text
 outputModes:
   - text
   - agent_profile
-streaming: true
+supportedInterfaces:
+  - type: JSONRPC
+    url: "http://localhost:8100"

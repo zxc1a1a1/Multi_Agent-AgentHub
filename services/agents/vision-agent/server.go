@@ -39,7 +39,11 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 		Description: "image analysis, OCR text extraction, and visual content auditing",
 		Version:     defaultAgentVersion,
 		URL:         url,
-		Skills:      []string{"image_analysis", "ocr", "visual_audit"},
+		Skills: []a2a.AgentSkill{
+				{ID: "image_analysis", Name: "Image Analysis", Description: "Analyzes images to identify content and structure"},
+				{ID: "ocr", Name: "OCR", Description: "Extracts text from images using optical character recognition"},
+				{ID: "visual_audit", Name: "Visual Audit", Description: "Audits visual content for quality and compliance"},
+			},
 		InputModes:  []string{"text", "image_ref", "vision_analysis"},
 		OutputModes: []string{"text", "structured_json", "artifact_ref"},
 		Streaming:   true,

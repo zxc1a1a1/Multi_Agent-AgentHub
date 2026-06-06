@@ -39,7 +39,12 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 		Description: "code security scanning, dependency vulnerability check, config audit, and secret detection",
 		Version:     defaultAgentVersion,
 		URL:         url,
-		Skills:      []string{"security_scanning", "vulnerability_detection", "config_audit", "secret_detection"},
+		Skills: []a2a.AgentSkill{
+				{ID: "security_scanning", Name: "Security Scanning", Description: "Scans code for security vulnerabilities"},
+				{ID: "vulnerability_detection", Name: "Vulnerability Detection", Description: "Detects known vulnerabilities in dependencies"},
+				{ID: "config_audit", Name: "Config Audit", Description: "Audits configuration files for security issues"},
+				{ID: "secret_detection", Name: "Secret Detection", Description: "Detects hardcoded secrets and sensitive data"},
+			},
 		InputModes:  []string{"text", "code", "config"},
 		OutputModes: []string{"text", "structured_json", "security_report"},
 		Streaming:   true,

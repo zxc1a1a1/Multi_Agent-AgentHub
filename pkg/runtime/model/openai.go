@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -119,6 +120,67 @@ type openAIChatResponse struct {
 	} `json:"usage"`
 }
 
+// openAIChatStreamRequest adds streaming support.
+type openAIChatStreamRequest struct {
+	Model       string              `json:"model"`
+	Messages    []openAIChatMessage `json:"messages"`
+	MaxTokens   int                 `json:"max_tokens"`
+	Temperature *float64            `json:"temperature,omitempty"`
+	TopP        *float64            `json:"top_p,omitempty"`
+	Stop        []string            `json:"stop,omitempty"`
+	Stream      bool                `json:"stream"`
+}
+
+// openAIStreamChunk is one SSE data frame from a streaming chat completion.
+type openAIStreamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Content   string                 `json:"content"`
+			ToolCalls []openAIStreamToolCall `json:"tool_calls"`
+		} `json:"delta"`
+		FinishReason *string `json:"finish_reason"`
+	} `json:"choices"`
+}
+
+type openAIStreamToolCall struct {
+	Index     int    `json:"index"`
+	ID        string `json:"id"`
+	Name      string `json:"-"`
+	Arguments string `json:"-"`
+}
+
+func (tc *openAIStreamToolCall) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Index    int    `json:"index"`
+		ID       string `json:"id"`
+		Type     string `json:"type"`
+		Function struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	tc.Index = raw.Index
+	tc.ID = raw.ID
+	tc.Name = raw.Function.Name
+	tc.Arguments = raw.Function.Arguments
+	return nil
+}
+
+func (tc openAIStreamToolCall) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"index": tc.Index,
+		"id":    tc.ID,
+		"type":  "function",
+		"function": map[string]string{
+			"name":      tc.Name,
+			"arguments": tc.Arguments,
+		},
+	})
+}
+
 func newOpenAICompatibleModel(providerName, baseURL, modelName, apiKey string, maxTokens int) *openAICompatibleModel {
 	if maxTokens <= 0 {
 		maxTokens = defaultMaxTokens
@@ -235,8 +297,138 @@ func (m *openAICompatibleModel) Generate(ctx context.Context, req *adk.GenerateR
 
 func (m *openAICompatibleModel) GenerateStream(ctx context.Context, req *adk.GenerateRequest) iter.Seq2[*adk.GenerateResponse, error] {
 	return func(yield func(*adk.GenerateResponse, error) bool) {
-		resp, err := m.Generate(ctx, req)
-		yield(resp, err)
+		if req == nil {
+			yield(nil, fmt.Errorf("%s provider: request is required", m.providerName))
+			return
+		}
+
+		messages := buildOpenAIMessages(req.Contents)
+		payload := openAIChatStreamRequest{
+			Model:     m.modelName,
+			Messages:  messages,
+			MaxTokens: m.maxTokens,
+			Stream:    true,
+		}
+		if req.Config != nil {
+			if req.Config.MaxTokens > 0 {
+				payload.MaxTokens = req.Config.MaxTokens
+			}
+			payload.Temperature = req.Config.Temperature
+			payload.TopP = req.Config.TopP
+			if len(req.Config.StopSequences) > 0 {
+				payload.Stop = append([]string(nil), req.Config.StopSequences...)
+			}
+		}
+		if payload.MaxTokens <= 0 {
+			payload.MaxTokens = defaultMaxTokens
+		}
+
+		rawBody, err := json.Marshal(payload)
+		if err != nil {
+			yield(nil, fmt.Errorf("%s provider: marshal request: %w", m.providerName, err))
+			return
+		}
+
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+"/chat/completions", bytes.NewReader(rawBody))
+		if err != nil {
+			yield(nil, fmt.Errorf("%s provider: build request: %w", m.providerName, err))
+			return
+		}
+		httpReq.Header.Set("Authorization", "Bearer "+m.apiKey)
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "text/event-stream")
+
+		httpResp, err := m.httpClient.Do(httpReq)
+		if err != nil {
+			yield(nil, fmt.Errorf("%s provider: %s", m.providerName, sanitizeProviderError(err)))
+			return
+		}
+		defer httpResp.Body.Close()
+
+		if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+			_, _ = io.Copy(io.Discard, httpResp.Body)
+			yield(nil, fmt.Errorf("%s provider: request failed with status %d", m.providerName, httpResp.StatusCode))
+			return
+		}
+
+		// Parse SSE stream. Each chunk carries a delta with incremental content.
+		var toolCallsAcc []openAIStreamToolCall
+		var textBuilder strings.Builder
+		scanner := bufio.NewScanner(httpResp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "[DONE]" {
+				break
+			}
+			var chunk openAIStreamChunk
+			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+				continue
+			}
+			if len(chunk.Choices) == 0 {
+				continue
+			}
+			choice := chunk.Choices[0]
+			delta := choice.Delta
+
+			// Accumulate text content.
+			if delta.Content != "" {
+				textBuilder.WriteString(delta.Content)
+				// Yield partial text chunk so the Runner can emit incremental events.
+				partial := &adk.GenerateResponse{
+					Parts:        []adk.Part{adk.TextPart{Text: delta.Content}},
+					FinishReason: adk.FinishStop,
+				}
+				if !yield(partial, nil) {
+					return
+				}
+			}
+
+			// Accumulate tool calls from streaming deltas.
+			for _, tc := range delta.ToolCalls {
+				for len(toolCallsAcc) <= tc.Index {
+					toolCallsAcc = append(toolCallsAcc, openAIStreamToolCall{})
+				}
+				if tc.ID != "" {
+					toolCallsAcc[tc.Index].ID = tc.ID
+				}
+				if tc.Name != "" {
+					toolCallsAcc[tc.Index].Name = tc.Name
+				}
+				toolCallsAcc[tc.Index].Arguments += tc.Arguments
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			yield(nil, fmt.Errorf("%s provider: read stream: %w", m.providerName, err))
+			return
+		}
+
+		// Build final response with complete text and any tool calls.
+		parts := make([]adk.Part, 0, 1+len(toolCallsAcc))
+		if fullText := textBuilder.String(); strings.TrimSpace(fullText) != "" {
+			parts = append(parts, adk.TextPart{Text: fullText})
+		}
+		for _, tc := range toolCallsAcc {
+			args := strings.TrimSpace(tc.Arguments)
+			if args == "" {
+				args = "{}"
+			}
+			parts = append(parts, adk.ToolCallPart{
+				ID:        tc.ID,
+				Name:      tc.Name,
+				Arguments: json.RawMessage(args),
+			})
+		}
+
+		// Return nil for the final event — let the Runner assemble the final response
+		// from accumulated parts. The partial events already carried text chunks.
+		_ = parts
 	}
 }
 

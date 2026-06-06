@@ -39,7 +39,11 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 		Description: "code review, requirement review, and risk assessment",
 		Version:     defaultAgentVersion,
 		URL:         url,
-		Skills:      []string{"code_review", "requirement_review", "risk_assessment"},
+		Skills: []a2a.AgentSkill{
+				{ID: "code_review", Name: "Code Review", Description: "Reviews code for quality, style, and correctness"},
+				{ID: "requirement_review", Name: "Requirement Review", Description: "Reviews requirements for clarity and completeness"},
+				{ID: "risk_assessment", Name: "Risk Assessment", Description: "Assesses project and code risks"},
+			},
 		InputModes:  []string{"text", "code", "document"},
 		OutputModes: []string{"text", "structured_json", "review_report"},
 		Streaming:   true,

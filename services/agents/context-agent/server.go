@@ -39,7 +39,11 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 		Description: "context compression, conversation summarization, and memory extraction",
 		Version:     defaultAgentVersion,
 		URL:         url,
-		Skills:      []string{"context_compression", "conversation_summary", "memory_extraction"},
+		Skills: []a2a.AgentSkill{
+				{ID: "context_compression", Name: "Context Compression", Description: "Compresses conversation context for efficient token usage"},
+				{ID: "conversation_summary", Name: "Conversation Summary", Description: "Summarizes conversations into concise overviews"},
+				{ID: "memory_extraction", Name: "Memory Extraction", Description: "Extracts key facts and memories from conversations"},
+			},
 		InputModes:  []string{"text", "conversation_history"},
 		OutputModes: []string{"text", "structured_json", "summary"},
 		Streaming:   true,

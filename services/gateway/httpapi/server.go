@@ -442,6 +442,54 @@ func defaultAgentSummaries() []AgentSummary {
 			Description: "Generates webpages and HTML previews",
 			OutputModes: []string{"text", "webpage", "html", "artifact_ref"},
 		},
+		{
+			Name:        "document-agent",
+			DisplayName: "Document Agent",
+			Description: "Generates structured documentation, API docs, READMEs, and technical manuals",
+			OutputModes: []string{"text", "markdown", "artifact_ref"},
+		},
+		{
+			Name:        "vision-agent",
+			DisplayName: "Vision Agent",
+			Description: "Analyzes images, extracts text via OCR, and audits visual content",
+			OutputModes: []string{"text", "structured_json", "artifact_ref"},
+		},
+		{
+			Name:        "context-agent",
+			DisplayName: "Context Agent",
+			Description: "Compresses conversation context, generates summaries, and extracts memories",
+			OutputModes: []string{"text", "structured_json", "summary"},
+		},
+		{
+			Name:        "test-agent",
+			DisplayName: "Test Agent",
+			Description: "Analyzes test logs, assesses coverage, and performs root cause analysis",
+			OutputModes: []string{"text", "structured_json", "analysis_report"},
+		},
+		{
+			Name:        "review-agent",
+			DisplayName: "Review Agent",
+			Description: "Reviews code, requirements, and assesses project risks",
+			OutputModes: []string{"text", "structured_json", "review_report"},
+		},
+		{
+			Name:        "security-agent",
+			DisplayName: "Security Agent",
+			Description: "Scans code for vulnerabilities, checks dependencies, audits configs, and detects secrets",
+			OutputModes: []string{"text", "structured_json", "security_report"},
+		},
+		{
+			Name:        "deploy-agent",
+			DisplayName: "Deploy Agent",
+			Description: "Generates deployment plans, checks environment health, and creates rollback strategies",
+			OutputModes: []string{"text", "structured_json", "deploy_plan"},
+		},
+		{
+			Name:        "diff-agent",
+			DisplayName: "Diff Agent",
+			Description: "Generates unified diffs, explains changes, analyzes impact, and resolves merge conflicts",
+			OutputModes: []string{"text", "code", "diff", "artifact_ref"},
+		},
 	}
 }
 

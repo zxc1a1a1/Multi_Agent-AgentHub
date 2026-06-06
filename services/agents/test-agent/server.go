@@ -39,7 +39,11 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 		Description: "test log analysis, coverage assessment, and root cause analysis",
 		Version:     defaultAgentVersion,
 		URL:         url,
-		Skills:      []string{"test_log_analysis", "coverage_assessment", "root_cause_analysis"},
+		Skills: []a2a.AgentSkill{
+				{ID: "test_log_analysis", Name: "Test Log Analysis", Description: "Analyzes test logs for failures and patterns"},
+				{ID: "coverage_assessment", Name: "Coverage Assessment", Description: "Assesses test coverage and identifies gaps"},
+				{ID: "root_cause_analysis", Name: "Root Cause Analysis", Description: "Performs root cause analysis on test failures"},
+			},
 		InputModes:  []string{"text", "test_log", "coverage_report"},
 		OutputModes: []string{"text", "structured_json", "analysis_report"},
 		Streaming:   true,

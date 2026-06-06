@@ -2,12 +2,19 @@ name: web-research-agent
 description: 用于分析调用方提供的 URL、网页标题和正文摘录，生成网页资料摘要、引用线索和结论整理；第一版不主动联网抓取网页。
 version: "0.1.0"
 url: "http://localhost:8102"
+streaming: true
 skills:
-  - web_summary
-  - citation_summary
+  - id: web_summary
+    name: Web Summary
+    description: 分析网页内容和标题，生成结构化的网页资料摘要
+  - id: citation_summary
+    name: Citation Summary
+    description: 提取和整理网页引用线索和来源信息
 inputModes:
   - text
 outputModes:
   - text
   - web_research
-streaming: true
+supportedInterfaces:
+  - type: JSONRPC
+    url: "http://localhost:8102"

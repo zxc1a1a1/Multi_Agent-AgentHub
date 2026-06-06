@@ -2,14 +2,23 @@ name: test-agent
 description: 用于分析调用方提供的测试日志、构建日志和失败信息，生成测试结论、失败原因、修复建议和后续测试计划；第一版只分析日志，不实际执行测试命令。
 version: "0.1.0"
 url: "http://localhost:8095"
+streaming: true
 skills:
-  - test_log_analysis
-  - build_failure_analysis
-  - test_plan_generation
+  - id: test_log_analysis
+    name: Test Log Analysis
+    description: 分析测试日志，识别失败模式和异常点
+  - id: build_failure_analysis
+    name: Build Failure Analysis
+    description: 分析构建失败原因，定位编译和依赖问题
+  - id: test_plan_generation
+    name: Test Plan Generation
+    description: 根据变更范围生成测试计划和用例建议
 inputModes:
   - text
   - vision_analysis
 outputModes:
   - text
   - test_report
-streaming: true
+supportedInterfaces:
+  - type: JSONRPC
+    url: "http://localhost:8095"

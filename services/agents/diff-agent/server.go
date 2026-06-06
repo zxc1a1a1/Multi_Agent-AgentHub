@@ -39,7 +39,12 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 		Description: "unified diff generation, diff explanation, impact analysis, and merge conflict resolution",
 		Version:     defaultAgentVersion,
 		URL:         url,
-		Skills:      []string{"diff_generation", "diff_explanation", "impact_analysis", "merge_resolution"},
+		Skills: []a2a.AgentSkill{
+				{ID: "diff_generation", Name: "Diff Generation", Description: "Generates unified diff patches"},
+				{ID: "diff_explanation", Name: "Diff Explanation", Description: "Explains code changes in plain language"},
+				{ID: "impact_analysis", Name: "Impact Analysis", Description: "Analyzes the impact of code changes"},
+				{ID: "merge_resolution", Name: "Merge Resolution", Description: "Resolves merge conflicts intelligently"},
+			},
 		InputModes:  []string{"text", "code", "diff"},
 		OutputModes: []string{"text", "code", "diff", "artifact_ref"},
 		Streaming:   true,

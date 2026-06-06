@@ -11,7 +11,7 @@ func TestBuildAgentCard(t *testing.T) {
 		Description: "example description",
 		Version:     "v1.0.0",
 		URL:         "http://localhost:8080",
-		Skills:      []string{"code", "search"},
+		Skills:      []AgentSkill{{ID: "code", Name: "code"}, {ID: "search", Name: "search"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"text/plain", "application/json"},
 		Streaming:   true,
@@ -53,7 +53,7 @@ func TestBuildAgentCard_CopiesSlices(t *testing.T) {
 		Description: "example description",
 		Version:     "v1.0.0",
 		URL:         "http://localhost:8080",
-		Skills:      []string{"code"},
+		Skills:      []AgentSkill{{ID: "code", Name: "code"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 	}
@@ -65,7 +65,7 @@ func TestBuildAgentCard_CopiesSlices(t *testing.T) {
 
 	cfg.InputModes[0] = "mutated-input"
 	cfg.OutputModes[0] = "mutated-output"
-	cfg.Skills[0] = "mutated-skill"
+	cfg.Skills[0] = AgentSkill{ID: "mutated-skill", Name: "mutated-skill"}
 
 	if card.InputModes[0] != "text/plain" {
 		t.Fatalf("input modes should be copied, got=%q", card.InputModes[0])
@@ -84,7 +84,7 @@ func TestBuildAgentCard_SupportedInterface(t *testing.T) {
 		Description: "example description",
 		Version:     "v1.0.0",
 		URL:         "http://localhost:8080",
-		Skills:      []string{"code"},
+		Skills:      []AgentSkill{{ID: "code", Name: "code"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 	}
@@ -115,7 +115,7 @@ func TestValidateAgentConfig_Clean(t *testing.T) {
 		Description: "这是一个普通中文描述",
 		Version:     "v1.0.0",
 		URL:         "http://localhost:8080",
-		Skills:      []string{"code"},
+		Skills:      []AgentSkill{{ID: "code", Name: "code"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 		Streaming:   true,
@@ -133,7 +133,7 @@ func TestValidateAgentConfig_RequiredFields(t *testing.T) {
 		Description: "example description",
 		Version:     "v1.0.0",
 		URL:         "http://localhost:8080",
-		Skills:      []string{"code"},
+		Skills:      []AgentSkill{{ID: "code", Name: "code"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 	}
@@ -171,7 +171,7 @@ func TestValidateAgentConfig_RejectsSecrets(t *testing.T) {
 		Description: "example description",
 		Version:     "v1.0.0",
 		URL:         "http://localhost:8080",
-		Skills:      []string{"code"},
+		Skills:      []AgentSkill{{ID: "code", Name: "code"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 	}
@@ -209,7 +209,7 @@ func TestValidateAgentCard_Clean(t *testing.T) {
 		Description: "普通中文描述",
 		Version:     "v1.0.0",
 		URL:         "http://localhost:8080",
-		Skills:      []string{"code"},
+		Skills:      []AgentSkill{{ID: "code", Name: "code"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 	}
@@ -272,7 +272,7 @@ func TestValidateAgentCard_AllowsNormalChineseDescription(t *testing.T) {
 
 func withConfig(base AgentConfig, mutate func(*AgentConfig)) AgentConfig {
 	copied := base
-	copied.Skills = append([]string(nil), base.Skills...)
+	copied.Skills = append([]AgentSkill{}, base.Skills...)
 	copied.InputModes = append([]string(nil), base.InputModes...)
 	copied.OutputModes = append([]string(nil), base.OutputModes...)
 	mutate(&copied)

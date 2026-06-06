@@ -8,15 +8,17 @@ import (
 )
 
 // AgentConfig defines minimal child-agent metadata for building an AgentCard.
+// Skills use the standard AgentSkill format with id/name/description.
 type AgentConfig struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Version     string   `json:"version"`
-	URL         string   `json:"url"`
-	Skills      []string `json:"skills"`
-	InputModes  []string `json:"inputModes"`
-	OutputModes []string `json:"outputModes"`
-	Streaming   bool     `json:"streaming"`
+	Name                string           `json:"name"`
+	Description         string           `json:"description"`
+	Version             string           `json:"version"`
+	URL                 string           `json:"url"`
+	Skills              []AgentSkill     `json:"skills"`
+	InputModes          []string         `json:"inputModes"`
+	OutputModes         []string         `json:"outputModes"`
+	Streaming           bool             `json:"streaming"`
+	SupportedInterfaces []AgentInterface `json:"supportedInterfaces,omitempty"`
 }
 
 // AgentCard is the published A2A card for agent discovery.
@@ -71,33 +73,54 @@ func BuildAgentCard(cfg *AgentConfig) *AgentCard {
 		}
 	}
 
+	// Map skills, ensuring each has a valid ID and Name.
 	skills := make([]AgentSkill, 0, len(cfg.Skills))
 	for _, skill := range cfg.Skills {
-		name := strings.TrimSpace(skill)
-		if name == "" {
+		id := strings.TrimSpace(skill.ID)
+		if id == "" {
 			continue
 		}
+		name := strings.TrimSpace(skill.Name)
+		if name == "" {
+			name = id
+		}
 		skills = append(skills, AgentSkill{
-			ID:   name,
-			Name: name,
+			ID:          id,
+			Name:        name,
+			Description: strings.TrimSpace(skill.Description),
 		})
 	}
 
+	// Build supported interfaces from config, falling back to URL-derived JSONRPC.
+	var interfaces []AgentInterface
+	if len(cfg.SupportedInterfaces) > 0 {
+		for _, iface := range cfg.SupportedInterfaces {
+			url := strings.TrimSpace(iface.URL)
+			if url == "" {
+				continue
+			}
+			interfaces = append(interfaces, AgentInterface{
+				Type: strings.TrimSpace(iface.Type),
+				URL:  url,
+			})
+		}
+	}
+	if len(interfaces) == 0 && strings.TrimSpace(cfg.URL) != "" {
+		interfaces = []AgentInterface{
+			{Type: "JSONRPC", URL: strings.TrimSpace(cfg.URL)},
+		}
+	}
+
 	return &AgentCard{
-		Name:        strings.TrimSpace(cfg.Name),
-		Description: strings.TrimSpace(cfg.Description),
-		Version:     strings.TrimSpace(cfg.Version),
-		Streaming:   cfg.Streaming,
-		Skills:      skills,
-		InputModes:  copyTrimmedSlice(cfg.InputModes),
-		OutputModes: copyTrimmedSlice(cfg.OutputModes),
-		URL:         strings.TrimSpace(cfg.URL),
-		SupportedInterfaces: []AgentInterface{
-			{
-				Type: "JSONRPC",
-				URL:  strings.TrimSpace(cfg.URL),
-			},
-		},
+		Name:                strings.TrimSpace(cfg.Name),
+		Description:         strings.TrimSpace(cfg.Description),
+		Version:             strings.TrimSpace(cfg.Version),
+		Streaming:           cfg.Streaming,
+		Skills:              skills,
+		InputModes:          copyTrimmedSlice(cfg.InputModes),
+		OutputModes:         copyTrimmedSlice(cfg.OutputModes),
+		URL:                 strings.TrimSpace(cfg.URL),
+		SupportedInterfaces: interfaces,
 	}
 }
 
@@ -120,8 +143,14 @@ func ValidateAgentConfig(cfg *AgentConfig) []error {
 	if strings.TrimSpace(cfg.URL) == "" {
 		errs = append(errs, errors.New("url is required"))
 	}
-	if !hasNonEmptyStrings(cfg.Skills) {
+	if len(cfg.Skills) == 0 {
 		errs = append(errs, errors.New("skills must not be empty"))
+	} else {
+		for i, s := range cfg.Skills {
+			if strings.TrimSpace(s.ID) == "" {
+				errs = append(errs, fmt.Errorf("skills[%d].id is required", i))
+			}
+		}
 	}
 	if !hasNonEmptyStrings(cfg.InputModes) {
 		errs = append(errs, errors.New("inputModes must not be empty"))
@@ -212,8 +241,10 @@ func findSensitiveErrorsInConfig(cfg *AgentConfig) []error {
 	errs = append(errs, sensitiveFieldError("version", cfg.Version)...)
 	errs = append(errs, sensitiveFieldError("url", cfg.URL)...)
 
-	for idx, v := range cfg.Skills {
-		errs = append(errs, sensitiveFieldError(fmt.Sprintf("skills[%d]", idx), v)...)
+	for idx, skill := range cfg.Skills {
+		errs = append(errs, sensitiveFieldError(fmt.Sprintf("skills[%d].id", idx), skill.ID)...)
+		errs = append(errs, sensitiveFieldError(fmt.Sprintf("skills[%d].name", idx), skill.Name)...)
+		errs = append(errs, sensitiveFieldError(fmt.Sprintf("skills[%d].description", idx), skill.Description)...)
 	}
 	for idx, v := range cfg.InputModes {
 		errs = append(errs, sensitiveFieldError(fmt.Sprintf("inputModes[%d]", idx), v)...)

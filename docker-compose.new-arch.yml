@@ -251,6 +251,17 @@ services:
       GATEWAY_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
       AGENTHUB_GATEWAY_STORE: "sqlite"
       AGENTHUB_SQLITE_PATH: "/data/agenthub.db"
+      # Agent endpoint URLs for frontend agent dropdown display
+      CODE_AGENT_URL: "http://code-agent-new:8080"
+      WEB_AGENT_URL: "http://web-agent-new:8080"
+      DOCUMENT_AGENT_URL: "http://document-agent-new:8080"
+      VISION_AGENT_URL: "http://vision-agent-new:8080"
+      CONTEXT_AGENT_URL: "http://context-agent-new:8080"
+      TEST_AGENT_URL: "http://test-agent-new:8080"
+      REVIEW_AGENT_URL: "http://review-agent-new:8080"
+      SECURITY_AGENT_URL: "http://security-agent-new:8080"
+      DEPLOY_AGENT_URL: "http://deploy-agent-new:8080"
+      DIFF_AGENT_URL: "http://diff-agent-new:8080"
     ports:
       - "8080:8080"
     volumes:

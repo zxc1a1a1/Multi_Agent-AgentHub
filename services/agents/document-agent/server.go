@@ -39,7 +39,11 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 		Description: "document generation, translation, and quality checking",
 		Version:     defaultAgentVersion,
 		URL:         url,
-		Skills:      []string{"document_generation", "document_translation", "document_quality_check"},
+		Skills: []a2a.AgentSkill{
+				{ID: "document_generation", Name: "Document Generation", Description: "Generates structured documentation, API docs, and READMEs"},
+				{ID: "document_translation", Name: "Document Translation", Description: "Translates documents between languages"},
+				{ID: "document_quality_check", Name: "Document Quality Check", Description: "Reviews documents for accuracy and completeness"},
+			},
 		InputModes:  []string{"text", "markdown"},
 		OutputModes: []string{"text", "markdown", "artifact_ref"},
 		Streaming:   true,

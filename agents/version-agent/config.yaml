@@ -2,13 +2,22 @@ name: version-agent
 description: 用于根据改动摘要、diff、测试结果和产物关系生成版本快照、版本说明和回滚建议；第一版只生成版本信息，不执行 Git 写操作。
 version: "0.1.0"
 url: "http://localhost:8099"
+streaming: true
 skills:
-  - version_summary
-  - rollback_plan
-  - patch_version_linking
+  - id: version_summary
+    name: Version Summary
+    description: 根据改动生成版本快照摘要和版本号建议
+  - id: rollback_plan
+    name: Rollback Plan
+    description: 根据变更范围和影响生成版本回滚方案
+  - id: patch_version_linking
+    name: Patch Version Linking
+    description: 关联补丁版本与对应的变更记录和产物
 inputModes:
   - text
 outputModes:
   - text
   - version_snapshot
-streaming: true
+supportedInterfaces:
+  - type: JSONRPC
+    url: "http://localhost:8099"

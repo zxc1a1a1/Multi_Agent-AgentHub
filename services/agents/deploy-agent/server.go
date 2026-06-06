@@ -39,7 +39,11 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 		Description: "deployment planning, environment health checks, and rollback strategy",
 		Version:     defaultAgentVersion,
 		URL:         url,
-		Skills:      []string{"deploy_planning", "environment_check", "rollback_strategy"},
+		Skills: []a2a.AgentSkill{
+				{ID: "deploy_planning", Name: "Deploy Planning", Description: "Plans deployment strategies and procedures"},
+				{ID: "environment_check", Name: "Environment Check", Description: "Checks target environments for readiness"},
+				{ID: "rollback_strategy", Name: "Rollback Strategy", Description: "Creates rollback strategies for deployments"},
+			},
 		InputModes:  []string{"text", "config"},
 		OutputModes: []string{"text", "structured_json", "deploy_plan"},
 		Streaming:   true,

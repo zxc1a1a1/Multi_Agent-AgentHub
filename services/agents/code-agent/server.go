@@ -43,9 +43,9 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 		Description: "code generation and code explanation",
 		Version:     defaultAgentVersion,
 		URL:         url,
-		Skills: []string{
-			"code_generation",
-			"code_explanation",
+		Skills: []a2a.AgentSkill{
+			{ID: "code_generation", Name: "Code Generation", Description: "Generates code based on user requirements"},
+			{ID: "code_explanation", Name: "Code Explanation", Description: "Explains and documents existing code"},
 		},
 		InputModes: []string{
 			"text",

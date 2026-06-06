@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"strings"
 	"time"
 )
 
@@ -77,6 +78,8 @@ func NewRunner(agent Agent, session SessionService, opts ...RunOption) *Runner {
 }
 
 // Run executes one user turn and yields runtime events.
+// When the agent implements StreamingAgent, text chunks are yielded as partial
+// events so downstream SSE pipelines see incremental output.
 func (r *Runner) Run(ctx context.Context, sessionID string, userContent *Content) iter.Seq2[Event, error] {
 	return func(yield func(Event, error) bool) {
 		if r == nil {
@@ -146,6 +149,26 @@ func (r *Runner) Run(ctx context.Context, sessionID string, userContent *Content
 				}
 			}
 
+			// ── Streaming path: agent supports GenerateStream ──
+			if streamingAgent, ok := r.agent.(StreamingAgent); ok {
+				finish, toolParts, fatalErr := r.runStreamingLoop(
+					ctx, sess, sessionID, req, contents, streamingAgent, yield,
+				)
+				if fatalErr != nil {
+					yield(Event{}, fatalErr)
+					return
+				}
+				if finish {
+					return
+				}
+				// Tool call executed → contents updated, continue loop.
+				if len(toolParts) > 0 {
+					contents = append(contents, toolParts...)
+				}
+				continue
+			}
+
+			// ── Non-streaming fallback ──
 			resp, err := r.agent.Generate(ctx, req)
 			if err != nil {
 				yield(Event{}, err)
@@ -238,6 +261,157 @@ func (r *Runner) Run(ctx context.Context, sessionID string, userContent *Content
 
 		yield(Event{}, fmt.Errorf("runner exceeded max iterations: %d", r.maxIterations))
 	}
+}
+
+// runStreamingLoop iterates the agent's GenerateStream, yielding each text
+// chunk as a partial Event and accumulating the full response. It returns
+// true when the turn is complete (finish==true), or toolParts for the next
+// tool-call iteration.
+func (r *Runner) runStreamingLoop(
+	ctx context.Context,
+	sess *Session,
+	sessionID string,
+	req *GenerateRequest,
+	contents []*Content,
+	streamingAgent StreamingAgent,
+	yield func(Event, error) bool,
+) (finish bool, toolParts []*Content, fatalErr error) {
+	var allText strings.Builder
+	var toolCallParts []Part
+
+	for partialResp, streamErr := range streamingAgent.GenerateStream(ctx, req) {
+		if streamErr != nil {
+			return false, nil, streamErr
+		}
+		if partialResp == nil {
+			continue
+		}
+
+		for _, part := range partialResp.Parts {
+			switch p := part.(type) {
+			case TextPart:
+				allText.WriteString(p.Text)
+				partialEvent := Event{
+					Author:    r.agent.Name(),
+					Content:   &Content{Role: RoleAssistant, Parts: []Part{TextPart{Text: p.Text}}},
+					Partial:   true,
+					Timestamp: time.Now(),
+				}
+				if !yield(partialEvent, nil) {
+					return false, nil, nil
+				}
+			case *TextPart:
+				if p != nil {
+					allText.WriteString(p.Text)
+					partialEvent := Event{
+						Author:    r.agent.Name(),
+						Content:   &Content{Role: RoleAssistant, Parts: []Part{TextPart{Text: p.Text}}},
+						Partial:   true,
+						Timestamp: time.Now(),
+					}
+					if !yield(partialEvent, nil) {
+						return false, nil, nil
+					}
+				}
+			case ToolCallPart:
+				toolCallParts = append(toolCallParts, part)
+			case *ToolCallPart:
+				if p != nil {
+					toolCallParts = append(toolCallParts, part)
+				}
+			}
+		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return false, nil, err
+	}
+
+	// Build final response parts.
+	finalParts := make([]Part, 0)
+	if finalText := strings.TrimSpace(allText.String()); finalText != "" {
+		finalParts = append(finalParts, TextPart{Text: finalText})
+	}
+	finalParts = append(finalParts, toolCallParts...)
+
+	finishReason := FinishStop
+	if len(toolCallParts) > 0 {
+		finishReason = FinishToolUse
+	}
+
+	finalResp := &GenerateResponse{
+		Parts:        finalParts,
+		FinishReason: finishReason,
+	}
+
+	for _, plugin := range r.plugins {
+		if plugin == nil {
+			continue
+		}
+		if err := plugin.AfterGenerate(ctx, sess.State, finalResp); err != nil {
+			return false, nil, err
+		}
+	}
+
+	assistantContent := &Content{
+		Role:  RoleAssistant,
+		Parts: append([]Part(nil), finalParts...),
+	}
+	assistantEvent := Event{
+		Author:    r.agent.Name(),
+		Content:   assistantContent,
+		Timestamp: time.Now(),
+	}
+
+	if finishReason == FinishToolUse {
+		if !yield(assistantEvent, nil) {
+			return false, nil, nil
+		}
+
+		toolResults, err := r.executeTools(ctx, sess, finalParts)
+		if err != nil {
+			return false, nil, err
+		}
+
+		toolResultParts := make([]Part, len(toolResults))
+		for i := range toolResults {
+			toolResultParts[i] = toolResults[i]
+		}
+
+		toolResultContent := &Content{Role: RoleTool, Parts: toolResultParts}
+		toolResultEvent := Event{
+			Author:    r.agent.Name(),
+			Content:   toolResultContent,
+			Timestamp: time.Now(),
+		}
+
+		if !yield(toolResultEvent, nil) {
+			return false, nil, nil
+		}
+
+		if err := r.session.AppendEvent(ctx, sessionID, assistantEvent); err != nil {
+			return false, nil, err
+		}
+		if err := r.session.AppendEvent(ctx, sessionID, toolResultEvent); err != nil {
+			return false, nil, err
+		}
+
+		return false, []*Content{assistantContent, toolResultContent}, nil
+	}
+
+	assistantEvent.Final = true
+	if !yield(assistantEvent, nil) {
+		return false, nil, nil
+	}
+	if err := r.session.AppendEvent(ctx, sessionID, assistantEvent); err != nil {
+		return false, nil, err
+	}
+	if assistantEvent.Actions != nil && len(assistantEvent.Actions.StateDelta) > 0 {
+		if err := r.session.UpdateState(ctx, sessionID, assistantEvent.Actions.StateDelta); err != nil {
+			return false, nil, err
+		}
+	}
+	return true, nil, nil
 }
 
 func buildContents(sess *Session, userContent *Content) []*Content {

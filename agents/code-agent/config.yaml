@@ -2,14 +2,23 @@ name: code-agent
 description: 用于根据用户需求生成、解释和改进代码，支持输出代码片段与代码产物，适合作为软件开发任务中的基础代码生成 Agent。
 version: "0.1.0"
 url: "http://localhost:8081"
+streaming: true
 skills:
-  - code_generation
-  - code_review
-  - code_refactoring
+  - id: code_generation
+    name: Code Generation
+    description: 根据用户需求生成代码片段和完整代码文件
+  - id: code_review
+    name: Code Review
+    description: 审查代码质量、风格、安全性并提供改进建议
+  - id: code_refactoring
+    name: Code Refactoring
+    description: 重构现有代码以提升可读性、性能和可维护性
 inputModes:
   - text
   - vision_analysis
 outputModes:
   - text
   - code
-streaming: true
+supportedInterfaces:
+  - type: JSONRPC
+    url: "http://localhost:8081"
