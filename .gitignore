@@ -26,6 +26,12 @@ logs/
 *.tsbuildinfo
 
 
+# delivery packs
+*.zip
+
+# tmp
+/tmp/
+
 # Go build outputs
 /server/server
 /server/server.exe
