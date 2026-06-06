@@ -19,6 +19,7 @@ type Registry interface {
 // ValidationError is a single validation failure with field path and message.
 type ValidationError struct {
 	Field   string `json:"field"`
+	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
@@ -46,7 +47,7 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 
 	if p == nil {
 		r.Valid = false
-		r.Errors = append(r.Errors, ValidationError{Field: "plan", Message: "plan is nil"})
+		r.Errors = append(r.Errors, ValidationError{Field: "plan", Code: "INVALID", Message: "plan is nil"})
 		return r
 	}
 
@@ -65,7 +66,12 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 		r.add("conversationId", "conversationId is required")
 	}
 
-	// 4. strategy must be single or ordered_parallel.
+	// 4a. sequential is explicitly rejected — not yet supported by executor/httpapi.
+	if p.Strategy == plan.StrategySequential {
+		r.add("strategy", "sequential strategy is not yet supported (executor/httpapi does not handle sequential execution)")
+	}
+
+	// 4b. strategy must be single or ordered_parallel (catches unknown strategies).
 	if p.Strategy != plan.StrategySingle && p.Strategy != plan.StrategyOrderedParallel {
 		r.add("strategy", fmt.Sprintf("strategy must be %q or %q, got %q",
 			plan.StrategySingle, plan.StrategyOrderedParallel, p.Strategy))
@@ -81,9 +87,27 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 		r.add("tasks", fmt.Sprintf("v1.0 supports at most 3 tasks, got %d", len(p.Tasks)))
 	}
 
+	// 7. single strategy requires exactly 1 task.
+	if p.Strategy == plan.StrategySingle && len(p.Tasks) != 1 {
+		r.add("tasks", fmt.Sprintf("single strategy requires exactly 1 task, got %d", len(p.Tasks)))
+	}
+
+	// 8. ordered_parallel strategy requires at least 2 tasks.
+	if p.Strategy == plan.StrategyOrderedParallel && len(p.Tasks) < 2 {
+		r.add("tasks", fmt.Sprintf("ordered_parallel strategy requires at least 2 tasks, got %d", len(p.Tasks)))
+	}
+
+	// Build taskID set with duplicate detection.
 	taskIDs := make(map[string]bool, len(p.Tasks))
 	for _, t := range p.Tasks {
-		taskIDs[t.TaskID] = true
+		id := strings.TrimSpace(t.TaskID)
+		if id == "" {
+			continue // caught by per-task taskId check below
+		}
+		if taskIDs[id] {
+			r.add("tasks", fmt.Sprintf("duplicate taskId %q", id))
+		}
+		taskIDs[id] = true
 	}
 
 	for i, t := range p.Tasks {
@@ -130,6 +154,25 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 			}
 		}
 
+		// 10a. dependsOn must not reference self.
+		for _, dep := range t.DependsOn {
+			if strings.EqualFold(strings.TrimSpace(dep), id) {
+				r.add(prefix+".dependsOn",
+					fmt.Sprintf("task must not depend on itself (%q)", id))
+			}
+		}
+
+		// 10b. ordered_parallel tasks must not have depends_on.
+		if p.Strategy == plan.StrategyOrderedParallel && len(t.DependsOn) > 0 {
+			r.add(prefix+".dependsOn",
+				"depends_on is not allowed in ordered_parallel strategy")
+		}
+
+		// 10c. taskContent must not be empty.
+		if strings.TrimSpace(t.TaskContent) == "" {
+			r.add(prefix+".taskContent", "taskContent must not be empty")
+		}
+
 		// 11. timeoutMs must be between 5000 and 180000.
 		if t.TimeoutMs < 5000 || t.TimeoutMs > 180000 {
 			r.add(prefix+".timeoutMs",
@@ -148,6 +191,30 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 			r.add(prefix+".riskLevel",
 				"high risk tasks are not allowed for auto execution in v1.0")
 		}
+
+		// 14. taskContent must not contain internal URLs.
+		if containsURL(t.TaskContent) {
+			r.add(prefix+".taskContent",
+				"taskContent must not contain internal URLs")
+		}
+
+		// 15. taskContent must not contain API keys / tokens / secrets.
+		if containsSecret(t.TaskContent) {
+			r.add(prefix+".taskContent",
+				"taskContent must not contain secrets or tokens")
+		}
+
+		// 16. taskContent must not contain database DSNs.
+		if containsDSN(t.TaskContent) {
+			r.add(prefix+".taskContent",
+				"taskContent must not contain database connection strings")
+		}
+
+		// 17. taskContent must not contain system prompts.
+		if containsSystemPrompt(t.TaskContent) {
+			r.add(prefix+".taskContent",
+				"taskContent must not contain system prompts")
+		}
 	}
 
 	return r
@@ -155,12 +222,79 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 
 func (r *ValidationResult) add(field, message string) {
 	r.Valid = false
-	r.Errors = append(r.Errors, ValidationError{Field: field, Message: message})
+	r.Errors = append(r.Errors, ValidationError{Field: field, Code: "INVALID", Message: message})
 }
 
 func containsCI(slice []string, item string) bool {
 	for _, s := range slice {
 		if strings.EqualFold(strings.TrimSpace(s), strings.TrimSpace(item)) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsURL returns true if s contains internal URL patterns.
+func containsURL(s string) bool {
+	lower := strings.ToLower(s)
+	patterns := []string{
+		"http://", "https://",
+		"localhost", "127.0.0.1", "0.0.0.0",
+	}
+	for _, pat := range patterns {
+		if strings.Contains(lower, pat) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsSecret returns true if s contains API key or token-like strings.
+func containsSecret(s string) bool {
+	lower := strings.ToLower(s)
+	patterns := []string{
+		"sk-",          // common LLM API key prefix
+		"api_key", "apikey", "api-key",
+		"bearer ",      // token prefix
+		"token=", "token:", "token ",
+		"secret=", "secret:", "secret ",
+		"password=", "password:", "password ",
+		"credential",
+	}
+	for _, pat := range patterns {
+		if strings.Contains(lower, pat) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsDSN returns true if s contains database connection string patterns.
+func containsDSN(s string) bool {
+	lower := strings.ToLower(s)
+	patterns := []string{
+		"mysql://", "postgres://", "postgresql://",
+		"mongodb://", "sqlite://", "redis://",
+		"jdbc:", "dsn=",
+	}
+	for _, pat := range patterns {
+		if strings.Contains(lower, pat) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsSystemPrompt returns true if s contains system prompt-like text.
+func containsSystemPrompt(s string) bool {
+	lower := strings.ToLower(s)
+	patterns := []string{
+		"you are a", "you are an",
+		"system prompt", "system instruction",
+		"system:", "system message",
+	}
+	for _, pat := range patterns {
+		if strings.Contains(lower, pat) {
 			return true
 		}
 	}
