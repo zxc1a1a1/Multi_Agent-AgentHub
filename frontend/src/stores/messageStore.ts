@@ -3,8 +3,10 @@ import type { Message, AGUIEvent, CodeBlock, WebPreviewBlock } from '../types'
 import type { AgentName } from '../lib/agents'
 import * as api from '../services/api'
 import { runAgent, type AGUIChatRequest } from '../agui/client'
-import { DEFAULT_AGENT_NAME, getAgentDisplayName, isSupportedAgentName, normalizeAgentName } from '../lib/agents'
+import { DEFAULT_AGENT_NAME, getAgentDisplayName, isConcreteAgentName, isSupportedAgentName, normalizeAgentName } from '../lib/agents'
 import type { OrchestrationInfo } from '../components/OrchestrationCard'
+import { useConversationStore } from './conversationStore'
+import { persistTitle } from '../lib/conversationTitles'
 
 interface SendMessageOptions {
   agentName?: AgentName
@@ -108,6 +110,19 @@ function resolveErrorText(event: AGUIEvent): string {
   return sanitizeErrorText(fallback || 'Error')
 }
 
+function generateConversationTitle(text: string): string {
+  const cleaned = text
+    .replace(/\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  // Max ~30 characters (roughly 30 ASCII chars or 15 CJK chars).
+  const maxLen = 30
+  if (cleaned.length <= maxLen) {
+    return cleaned || 'New Conversation'
+  }
+  return cleaned.slice(0, maxLen).trimEnd() + '…'
+}
+
 function sanitizeErrorText(text: string): string {
   if (!text) {
     return 'Error'
@@ -176,12 +191,31 @@ function isLikelyHTML(content: string): boolean {
   return /<[a-zA-Z][^>]*>/.test(content) && /<\/[a-zA-Z][^>]*>/.test(content)
 }
 
+/**
+ * Remove markdown code fences (```...``` and ```html...```) from content
+ * before checking if it contains HTML. This prevents code-agent HTML code
+ * examples from being mistaken for web preview output.
+ */
+function stripMarkdownCodeFences(content: string): string {
+  // Remove triple-backtick fenced blocks (with or without language tag).
+  return content.replace(/```[\s\S]*?```/g, '')
+}
+
 function maybeExtractHTMLSnippet(content: string): string | undefined {
   const text = content.trim()
   if (text === '') {
     return undefined
   }
-  if (!isLikelyHTML(text)) {
+  // Only consider the content as HTML if it predominantly starts with an HTML tag
+  // and does not contain markdown code fences wrapping HTML examples.
+  if (!text.trimStart().startsWith('<')) {
+    return undefined
+  }
+  const cleaned = stripMarkdownCodeFences(text).trim()
+  if (!cleaned) {
+    return undefined
+  }
+  if (!isLikelyHTML(cleaned)) {
     return undefined
   }
   return text
@@ -327,11 +361,21 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       ...setConversationStreaming(s, conversationId, true),
     }))
 
+    // Auto-generate conversation title from first user message.
+    const currentMessages = get().messages[conversationId] || []
+    const isFirstMessage = currentMessages.length <= 1
+    if (isFirstMessage) {
+      const title = generateConversationTitle(content)
+      useConversationStore.getState().updateTitle(conversationId, title)
+      persistTitle(conversationId, title)
+    }
+
     const request: AGUIChatRequest = {
       conversationId,
       message: content,
     }
-    if (options?.agentName) {
+    // Only pass agentName for concrete agents; "auto" lets orchestrator decide.
+    if (options?.agentName && options.agentName !== 'auto') {
       request.agentName = options.agentName
     }
 
@@ -341,6 +385,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     let currentSenderName = fallbackSenderName
     let codeBlocks: CodeBlock[] = []
     let webPreviews: WebPreviewBlock[] = []
+    // Track whether web-related artifact/tool evidence was seen during streaming.
+    // Used to gate content-based Web Preview extraction when agentName is 'auto'.
+    let hasWebArtifactEvidence = false
     const toolCallArgs: Record<string, string> = {}
     const toolCallNames: Record<string, string> = {}
 
@@ -452,9 +499,28 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
 
     const appendWebPreviewFromMessageContent = () => {
+      // Exit early if web previews were already created via tool calls or artifact deltas.
       if (webPreviews.length > 0) {
         return
       }
+
+      // Determine whether we should extract HTML from raw message content.
+      // Priority: 1) SSE-resolved agent name, 2) explicit UI selection, 3) artifact/tool evidence.
+      const isWebAgentResolved =
+        isConcreteAgentName(currentAgentName) && currentAgentName === 'web-agent'
+      const isWebAgentSelected =
+        isConcreteAgentName(selectedAgentName) && selectedAgentName === 'web-agent'
+      // In auto mode, only extract when there's clear web artifact evidence AND
+      // the content is definitively HTML (not markdown-wrapped code examples).
+      const canExtract =
+        isWebAgentResolved ||
+        isWebAgentSelected ||
+        (hasWebArtifactEvidence && currentAgentName === 'auto')
+
+      if (!canExtract) {
+        return
+      }
+
       const htmlSnippet = maybeExtractHTMLSnippet(agentContent)
       if (!htmlSnippet) {
         return
@@ -462,7 +528,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       webPreviews.push({
         html: htmlSnippet,
         title: 'web-preview.html',
-        agentName: currentAgentName,
+        agentName: isConcreteAgentName(currentAgentName) ? currentAgentName : 'web-agent',
       })
       syncPreviewBlocks()
     }
@@ -506,6 +572,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         appendCodePreview(args)
       }
       if (toolName === 'web_preview' || toolName === 'generate_html_snippet') {
+        hasWebArtifactEvidence = true
         appendWebPreview(args)
       }
     }
@@ -529,6 +596,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       }
 
       if (type === 'webpage' || type === 'html') {
+        hasWebArtifactEvidence = true
         const supportedAgentName = isSupportedAgentName(currentAgentName)
           ? currentAgentName
           : selectedAgentName
@@ -647,6 +715,19 @@ export const useMessageStore = create<MessageState>((set, get) => ({
               }
               if (typeof state.plannerModel === 'string' && state.plannerModel) {
                 orchInfo.plannerModel = state.plannerModel as string
+                hasOrchInfo = true
+              }
+              // Capture actual agent selection from orchestrator state.
+              if (typeof state.selectedAgentName === 'string' && state.selectedAgentName) {
+                orchInfo.selectedAgentName = state.selectedAgentName as string
+                hasOrchInfo = true
+              }
+              if (typeof state.selectedAgentDisplayName === 'string' && state.selectedAgentDisplayName) {
+                orchInfo.selectedAgentDisplayName = state.selectedAgentDisplayName as string
+                hasOrchInfo = true
+              }
+              if (typeof state.taskAgentNames === 'string' && state.taskAgentNames) {
+                orchInfo.taskAgentNames = state.taskAgentNames as string
                 hasOrchInfo = true
               }
               if (hasOrchInfo) {

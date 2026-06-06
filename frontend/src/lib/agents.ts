@@ -14,9 +14,15 @@ export type AgentSummary = {
   outputModes?: string[] | null
 }
 
-export const DEFAULT_AGENT_NAME: AgentName = 'code-agent'
+export const DEFAULT_AGENT_NAME: AgentName = 'auto'
 
 export const AGENT_OPTIONS: AgentOption[] = [
+  {
+    name: 'auto',
+    displayName: 'Auto (Smart)',
+    description: 'Automatically selects the best agent for your request',
+    outputModes: ['text', 'code', 'webpage', 'html', 'artifact_ref'],
+  },
   {
     name: 'code-agent',
     displayName: 'Code Agent',
@@ -32,6 +38,7 @@ export const AGENT_OPTIONS: AgentOption[] = [
 ]
 
 const knownDisplayNameMap: Record<string, string> = {
+  'auto': 'Auto',
   'code-agent': 'Code Agent',
   'web-agent': 'Web Agent',
 }
@@ -109,7 +116,11 @@ export function buildAgentOptionsFromSummary(summaries: AgentSummary[] | null | 
   return options
 }
 
-export function isSupportedAgentName(value: string | undefined | null): value is 'code-agent' | 'web-agent' {
+export function isSupportedAgentName(value: string | undefined | null): value is 'auto' | 'code-agent' | 'web-agent' {
+  return value === 'auto' || value === 'code-agent' || value === 'web-agent'
+}
+
+export function isConcreteAgentName(value: string | undefined | null): value is 'code-agent' | 'web-agent' {
   return value === 'code-agent' || value === 'web-agent'
 }
 
