@@ -21,17 +21,17 @@ COPY services/agents/diff-agent/go.mod                ./services/agents/diff-age
 
 RUN go mod download
 
-# Layer 2: source code (only what web-agent needs)
-COPY pkg                         ./pkg
-COPY services/agents/web-agent   ./services/agents/web-agent
+# Layer 2: source code (only what document-agent needs)
+COPY pkg                               ./pkg
+COPY services/agents/document-agent    ./services/agents/document-agent
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux \
-    go build -o /out/web-agent ./services/agents/web-agent/cmd/web-agent
+    go build -o /out/document-agent ./services/agents/document-agent/cmd/document-agent
 
 FROM alpine:3.20
 RUN addgroup -S app && adduser -S -G app app
-COPY --from=builder /out/web-agent /usr/local/bin/web-agent
+COPY --from=builder /out/document-agent /usr/local/bin/document-agent
 USER app
 EXPOSE 8080
-CMD ["web-agent"]
+CMD ["document-agent"]
