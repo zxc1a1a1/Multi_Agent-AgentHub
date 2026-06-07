@@ -32,17 +32,15 @@ export function HITLConfirm({
   const [remainingMs, setRemainingMs] = useState(timeoutMs);
   const [rejectReason, setRejectReason] = useState('');
 
-  // Countdown timer.
+  // Countdown timer (display-only). Backend SSE events
+  // (RUN_ERROR / RUN_FINISHED) determine the actual timeout, avoiding a
+  // race between frontend and backend clocks.
   useEffect(() => {
-    if (remainingMs <= 0) {
-      onTimeout(actionId);
-      return;
-    }
     const timer = setInterval(() => {
       setRemainingMs((prev) => Math.max(0, prev - 1000));
     }, 1000);
     return () => clearInterval(timer);
-  }, [remainingMs, actionId, onTimeout]);
+  }, []);
 
   const handleConfirm = useCallback(() => {
     onConfirm(actionId);
