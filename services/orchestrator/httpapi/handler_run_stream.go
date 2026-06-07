@@ -102,6 +102,29 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set up SSE streaming immediately so that RUN_STARTED is always the first
+	// event on the stream, even when planning or validation fails. This ensures
+	// AG-UI lifecycle contract compliance: RUN_STARTED → (STATE_UPDATE | RUN_ERROR) → RUN_FINISHED.
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.writeSSEError(w, runID, "ORCHESTRATOR_INTERNAL", "streaming unsupported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	msgID := fmt.Sprintf("msg_%d", time.Now().UnixMilli())
+
+	// Emit RUN_STARTED before any planning — guarantees lifecycle contract.
+	s.emitEvent(w, flusher, OrchestratorStreamEvent{
+		Type:  "run_started",
+		RunID: runID,
+		State: map[string]any{"phase": "planning"},
+	})
+
 	// Build PlannerInput and generate an OrchestrationPlan.
 	availableAgentNames := s.registry.Names()
 	plannerInput := planner.PlannerInput{
@@ -118,9 +141,6 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use the configured Planner with mode-aware fallback.
-	//   rule:                     always RulePlanner (deterministic)
-	//   llm:                      LLMPlanner only, error on failure (no silent fallback)
-	//   llm_with_rule_fallback:   LLMPlanner first, RulePlanner on failure
 	rulePlanner := planner.NewRulePlanner(availableAgentNames)
 	mode := s.plannerMode
 	if mode == "" {
@@ -133,7 +153,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	switch mode {
 	case PlannerModeLLM, PlannerModeLLMWithRuleFallback:
 		if s.planner == nil {
-			s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED",
+			s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED",
 				"LLM planner requested but no LLM planner configured (missing API key)")
 			return
 		}
@@ -143,34 +163,35 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 				logLLMPlanFallback(planErr)
 				orchPlan, planErr = rulePlanner.Plan(r.Context(), plannerInput)
 				if planErr != nil || orchPlan == nil {
-					s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED",
+					s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED",
 						"Both LLM and fallback RulePlanner failed")
 					return
 				}
 			} else {
-				s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED",
+				s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED",
 					"LLM planner failed (llm mode, no fallback)")
 				return
 			}
 		}
-	default: // PlannerModeRule or empty
+	default:
 		orchPlan, planErr = rulePlanner.Plan(r.Context(), plannerInput)
 		if planErr != nil {
-			s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED", "Failed to generate orchestration plan")
+			s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED",
+				"Failed to generate orchestration plan")
 			return
 		}
 	}
 
 	if orchPlan == nil {
-		s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED", "Orchestration plan is nil")
+		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED", "Orchestration plan is nil")
 		return
 	}
 	if orchPlan.Strategy == plan.StrategySingle && len(orchPlan.Tasks) == 0 {
-		s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED", "Orchestration plan has no tasks")
+		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED", "Orchestration plan has no tasks")
 		return
 	}
 
-	// Phase 5: validate the plan before execution.
+	// Validate the plan before execution.
 	planValidator := validator.New(s.registry)
 	validationResult := planValidator.Validate(orchPlan)
 	if !validationResult.Valid {
@@ -178,42 +199,36 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		for _, e := range validationResult.Errors {
 			details = append(details, map[string]string{"field": e.Field, "message": e.Message})
 		}
-		s.writeSSEErrorWithDetail(w, runID, "ORCHESTRATOR_PLAN_INVALID", "Orchestration plan validation failed", details)
+		s.emitErrorEventWithDetail(w, flusher, runID, "ORCHESTRATOR_PLAN_INVALID",
+			"Orchestration plan validation failed", details)
 		return
 	}
-	// Only the validator sets validated=true. The Planner never sets it.
 	orchPlan.Validation.Validated = true
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		s.writeSSEError(w, runID, "ORCHESTRATOR_INTERNAL", "streaming unsupported")
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
-
-	msgID := fmt.Sprintf("msg_%d", time.Now().UnixMilli())
-
-	// Check if plan confirmation is required before execution.
-	requireConfirm := strings.ToLower(strings.TrimSpace(
-		os.Getenv("REQUIRE_PLAN_CONFIRMATION"))) == "true"
 
 	planState := buildPlanState(orchPlan)
 
-	if requireConfirm {
-		planState["phase"] = "awaiting_confirmation"
-		planState["requiresConfirmation"] = true
-		planState["confirmationActionId"] = orchPlan.PlanID
-		planState["plannedAgents"] = plannedAgentNames(orchPlan)
-		planState["tasks"] = taskSummaries(orchPlan)
+	// Emit STATE_UPDATE phase=planning with plan details.
+	planState["phase"] = "planning"
+	s.emitEvent(w, flusher, OrchestratorStreamEvent{
+		Type:  "state_update",
+		RunID: runID,
+		State: planState,
+	})
 
-		// Emit AG-UI standard TOOL_CALL_* events for plan confirmation.
-		// This lets the frontend handle confirm_plan through the standard tool-call
-		// pipeline while STATE_UPDATE metadata remains for backward compatibility.
+	// Determine whether to require HITL plan confirmation.
+	// Confirmation is skipped for:
+	//   - Conversational intents (greetings handled by orchestrator itself)
+	//   - Explicit agent selection (user knowingly chose a specific agent)
+	requireConfirm := strings.ToLower(strings.TrimSpace(
+		os.Getenv("REQUIRE_PLAN_CONFIRMATION"))) == "true"
+	hasExplicitAgent := strings.TrimSpace(req.AgentName) != "" &&
+		strings.TrimSpace(req.AgentName) != "auto"
+	isConversational := orchPlan.Strategy == plan.StrategyConversational
+
+	if requireConfirm && !isConversational && !hasExplicitAgent {
 		confirmToolID := orchPlan.PlanID
+
+		// Emit AG-UI TOOL_CALL_START for confirm_plan.
 		s.emitEvent(w, flusher, OrchestratorStreamEvent{
 			Type:         "tool_call_start",
 			RunID:        runID,
@@ -241,55 +256,119 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 			ToolCallID: confirmToolID,
 		})
 
+		// Emit STATE_UPDATE phase=awaiting_confirmation.
+		planState["phase"] = "awaiting_confirmation"
+		planState["requiresConfirmation"] = true
+		planState["confirmationActionId"] = orchPlan.PlanID
+		planState["plannedAgents"] = plannedAgentNames(orchPlan)
+		planState["tasks"] = taskSummaries(orchPlan)
 		s.emitEvent(w, flusher, OrchestratorStreamEvent{
-			Type:  "run_started",
+			Type:  "state_update",
 			RunID: runID,
 			State: planState,
 		})
 
+		// Block on confirmation.
 		confirmCh := s.registerPending(runID, orchPlan)
 		defer s.deregisterPending(runID)
 
 		confirmTimeout := 120 * time.Second
-		select {
-		case result := <-confirmCh:
-			if !result.Confirmed {
+		confirmDeadline := time.After(confirmTimeout)
+		heartbeatTicker := time.NewTicker(15 * time.Second)
+		defer heartbeatTicker.Stop()
+
+	confirmLoop:
+		for {
+			select {
+			case result := <-confirmCh:
+				if !result.Confirmed {
+					rejectReason := result.RejectReason
+					if rejectReason == "" {
+						rejectReason = "user rejected the plan"
+					}
+					s.emitEvent(w, flusher, OrchestratorStreamEvent{
+						Type:  "run_error",
+						RunID: runID,
+						Error: &SafeError{
+							Code:    "ORCHESTRATOR_PLAN_REJECTED",
+							Message: "Plan was rejected: " + sanitizeForError(rejectReason),
+						},
+					})
+					s.emitEvent(w, flusher, OrchestratorStreamEvent{
+						Type:  "run_finished",
+						RunID: runID,
+						State: map[string]any{
+							"status":       "cancelled",
+							"rejectReason": result.RejectReason,
+						},
+					})
+					return
+				}
+				break confirmLoop
+			case <-heartbeatTicker.C:
+				// Send periodic heartbeat to keep SSE connection alive
+				// during awaiting_confirmation.
+				s.emitEvent(w, flusher, OrchestratorStreamEvent{
+					Type:  "state_update",
+					RunID: runID,
+					State: map[string]any{
+						"phase":                "awaiting_confirmation",
+						"requiresConfirmation": true,
+						"confirmationActionId": orchPlan.PlanID,
+						"heartbeat":            true,
+					},
+				})
+			case <-confirmDeadline:
+				s.emitEvent(w, flusher, OrchestratorStreamEvent{
+					Type:  "run_error",
+					RunID: runID,
+					Error: &SafeError{
+						Code:    "ORCHESTRATOR_CONFIRM_TIMEOUT",
+						Message: "Plan confirmation timed out after 120s. Please retry or select a specific agent.",
+					},
+				})
 				s.emitEvent(w, flusher, OrchestratorStreamEvent{
 					Type:  "run_finished",
 					RunID: runID,
 					State: map[string]any{
-						"status":       "cancelled",
-						"rejectReason": result.RejectReason,
+						"status":  "timeout",
+						"message": "plan confirmation timed out",
 					},
 				})
 				return
+			case <-r.Context().Done():
+				return
 			}
-		case <-time.After(confirmTimeout):
-			s.emitEvent(w, flusher, OrchestratorStreamEvent{
-				Type:  "run_finished",
-				RunID: runID,
-				State: map[string]any{
-					"status":  "timeout",
-					"message": "plan confirmation timed out",
-				},
-			})
-			return
-		case <-r.Context().Done():
-			return
 		}
 		planState["phase"] = "executing"
 		planState["requiresConfirmation"] = false
 	} else {
-		planState["phase"] = "executing"
+		if isConversational {
+			// Emit a thinking phase so the frontend shows a thinking skeleton
+			// before the text response arrives.
+			thinkingState := clonePlanState(planState)
+			thinkingState["phase"] = "thinking"
+			s.emitEvent(w, flusher, OrchestratorStreamEvent{
+				Type:  "state_update",
+				RunID: runID,
+				State: thinkingState,
+			})
+			planState["phase"] = "responding"
+		} else {
+			planState["phase"] = "executing"
+		}
 	}
 
+	// Emit STATE_UPDATE for the current phase before execution begins.
 	s.emitEvent(w, flusher, OrchestratorStreamEvent{
-		Type:  "run_started",
+		Type:  "state_update",
 		RunID: runID,
 		State: planState,
 	})
 
 	switch orchPlan.Strategy {
+	case plan.StrategyConversational:
+		s.handleConversational(w, flusher, runID, msgID)
 	case plan.StrategySingle:
 		s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
 			executor.NewSingleExecutor(s.registry, s.dispatcher,
@@ -312,6 +391,85 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 	}
+}
+
+// handleConversational emits an orchestrator self-response for conversational
+// intents (greetings, capability questions). No child agents are dispatched.
+// The response is streamed in chunks so the frontend can show a thinking/typing
+// state before the full response arrives.
+func (s *Server) handleConversational(w http.ResponseWriter, flusher http.Flusher, runID, msgID string) {
+	response := conversationalResponse()
+
+	s.emitEvent(w, flusher, OrchestratorStreamEvent{
+		Type:      "message_start",
+		RunID:     runID,
+		MessageID: msgID,
+		Sender:    &EventSender{Type: "agent", Name: "orchestrator"},
+	})
+	// Stream the response in paragraphs so the frontend sees progressive output
+	// instead of a single instant delta. Split by double-newline (paragraphs).
+	chunks := splitConversationalResponse(response)
+	for _, chunk := range chunks {
+		if chunk == "" {
+			continue
+		}
+		s.emitEvent(w, flusher, OrchestratorStreamEvent{
+			Type:      "message_delta",
+			RunID:     runID,
+			MessageID: msgID,
+			Sender:    &EventSender{Type: "agent", Name: "orchestrator"},
+			Delta:     chunk,
+		})
+	}
+	s.emitEvent(w, flusher, OrchestratorStreamEvent{
+		Type:      "message_end",
+		RunID:     runID,
+		MessageID: msgID,
+		Sender:    &EventSender{Type: "agent", Name: "orchestrator"},
+	})
+	s.emitEvent(w, flusher, OrchestratorStreamEvent{
+		Type:  "run_finished",
+		RunID: runID,
+		State: map[string]any{
+			"status": "completed",
+		},
+	})
+}
+
+// splitConversationalResponse splits the response text into chunks at paragraph
+// boundaries (double newline), keeping the separator. This gives the frontend
+// visible progressive rendering for conversational responses.
+func splitConversationalResponse(text string) []string {
+	if text == "" {
+		return nil
+	}
+	// Split by \n\n (paragraph boundary), keeping the separator.
+	parts := strings.Split(text, "\n\n")
+	result := make([]string, 0, len(parts))
+	for i, part := range parts {
+		if i > 0 {
+			// Add the separator back (except for the last part if not followed by another).
+			result[i-1] = result[i-1] + "\n\n"
+		}
+		if strings.TrimSpace(part) != "" {
+			result = append(result, part)
+		}
+	}
+	return result
+}
+
+// conversationalResponse returns the orchestrator self-introduction text.
+func conversationalResponse() string {
+	return "你好！我是 **AgentHub 自动编排助手**。\n\n" +
+		"我会根据你的任务自动进行规划，并调用合适的子 Agent 来完成任务，" +
+		"包括 **Code Agent**（代码生成）、**Web Agent**（页面生成）、" +
+		"**Document Agent**（文档生成）等。\n\n" +
+		"对于复杂任务，我会先生成执行计划并请你确认，确认后再调度多个 Agent 并行执行。\n\n" +
+		"你可以直接告诉我你想做什么，比如：\n" +
+		"- \"帮我写一个 Go REST API\"\n" +
+		"- \"做一个登录页面，同时生成后端登录接口和接口文档\"\n" +
+		"- \"审查这段代码的安全性\"\n\n" +
+		"有什么我可以帮你的吗？"
 }
 
 // executeViaStreamingExecutor delegates to a StreamingExecutor and converts each
@@ -399,6 +557,25 @@ func (s *Server) writeSSEErrorWithDetail(w http.ResponseWriter, runID, code, mes
 	fmt.Fprintf(w, "event: run_error\ndata: %s\n\n", payload)
 }
 
+// emitErrorEvent sends a run_error through an already-opened SSE stream.
+// Use this after RUN_STARTED has been emitted to maintain lifecycle order.
+func (s *Server) emitErrorEvent(w http.ResponseWriter, flusher http.Flusher, runID, code, message string) {
+	s.emitEvent(w, flusher, OrchestratorStreamEvent{
+		Type:  "run_error",
+		RunID: runID,
+		Error: &SafeError{Code: code, Message: message},
+	})
+}
+
+// emitErrorEventWithDetail sends a run_error with details through an existing SSE stream.
+func (s *Server) emitErrorEventWithDetail(w http.ResponseWriter, flusher http.Flusher, runID, code, message string, details any) {
+	s.emitEvent(w, flusher, OrchestratorStreamEvent{
+		Type:  "run_error",
+		RunID: runID,
+		Error: &SafeError{Code: code, Message: message, Details: details},
+	})
+}
+
 func extractUserText(messages []MessageInput) string {
 	var texts []string
 	for _, m := range messages {
@@ -455,15 +632,15 @@ func buildPlanState(p *plan.OrchestrationPlan) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"planId":         p.PlanID,
-		"strategy":       p.Strategy,
-		"intentSummary":  p.IntentSummary,
-		"plannerSource":  p.PlannerSource,
-		"plannerModel":   p.PlannerModel,
-		"planningMode":   p.PlanningMode,
-		"taskCount":      len(p.Tasks),
-		"plannedAgents":  plannedAgentNames(p),
-		"tasks":          taskSummaries(p),
+		"planId":        p.PlanID,
+		"strategy":      p.Strategy,
+		"intentSummary": p.IntentSummary,
+		"plannerSource": p.PlannerSource,
+		"plannerModel":  p.PlannerModel,
+		"planningMode":  p.PlanningMode,
+		"taskCount":     len(p.Tasks),
+		"plannedAgents": plannedAgentNames(p),
+		"tasks":         taskSummaries(p),
 	}
 }
 
@@ -491,13 +668,26 @@ func taskSummaries(p *plan.OrchestrationPlan) []map[string]any {
 	summaries := make([]map[string]any, 0, len(p.Tasks))
 	for _, t := range p.Tasks {
 		summaries = append(summaries, map[string]any{
-			"taskId":     t.TaskID,
-			"agentName":  t.AgentName,
-			"content":    t.TaskContent,
-			"dependsOn":  t.DependsOn,
-			"priority":   t.Priority,
-			"riskLevel":  t.RiskLevel,
+			"taskId":    t.TaskID,
+			"agentName": t.AgentName,
+			"content":   t.TaskContent,
+			"dependsOn": t.DependsOn,
+			"priority":  t.Priority,
+			"riskLevel": t.RiskLevel,
 		})
 	}
 	return summaries
+}
+
+// clonePlanState returns a shallow copy of the plan state map so phase
+// transitions (thinking -> responding) can be emitted independently.
+func clonePlanState(src map[string]any) map[string]any {
+	if src == nil {
+		return map[string]any{}
+	}
+	dst := make(map[string]any, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }

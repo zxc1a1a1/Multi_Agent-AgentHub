@@ -278,6 +278,23 @@ func TestOrchestratorRunService_InvalidURL(t *testing.T) {
 	}
 }
 
+func TestNoOverallClientTimeout(t *testing.T) {
+	// The streaming client must NOT set an overall http.Client.Timeout because
+	// the SSE body may stay open for long periods (e.g. HITL awaiting_confirmation).
+	// Only Transport-level timeouts (dial, TLS, response header) should be used.
+	svc, err := NewOrchestratorRunService("http://localhost:12345", "")
+	if err != nil {
+		t.Fatalf("NewOrchestratorRunService: %v", err)
+	}
+
+	if svc.httpClient.Timeout != 0 {
+		t.Errorf("http.Client.Timeout must be 0 (no overall timeout) for SSE streaming, got %v", svc.httpClient.Timeout)
+	}
+	if svc.httpClient.Transport == nil {
+		t.Error("http.Client.Transport must be set for connection-level timeouts")
+	}
+}
+
 func TestOrchestratorRunService_NilContext(t *testing.T) {
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

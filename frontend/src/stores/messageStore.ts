@@ -744,13 +744,35 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           }
 
           case 'TEXT_MESSAGE_END':
-          case 'message.end':
+          case 'message.end': {
+            // If TEXT_MESSAGE_END carries full content, use the more complete
+            // version to avoid losing content from partial deltas.
+            const endDelta = resolveContentChunk(event)
+            if (endDelta && endDelta.length > agentContent.length) {
+              agentContent = endDelta
+              updateAgentMessage((message) => ({ ...message, content: agentContent }))
+            }
             finishStreamingMessage()
             break
+          }
 
           case 'RUN_STARTED':
-            // Initialize run state — store runId for debugging.
+            // Initialize run state — store runId and phase for UI state tracking.
             // The streaming state is already set by sendMessage.
+            if (event.state && typeof event.state === 'object') {
+              const phase = typeof event.state.phase === 'string' ? event.state.phase : ''
+              if (phase) {
+                set((s) => ({
+                  orchestrationByConversation: {
+                    ...s.orchestrationByConversation,
+                    [conversationId]: {
+                      ...(s.orchestrationByConversation[conversationId] || {}),
+                      phase,
+                    },
+                  },
+                }))
+              }
+            }
             break
 
           case 'STATE_UPDATE':
@@ -762,6 +784,20 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                 typeof state.phase === 'string' ? state.phase : undefined,
                 typeof state.status === 'string' ? state.status : undefined,
               )
+              // Track the current execution phase so the UI can show thinking/planning/executing states.
+              if (phaseInfo) {
+                // eslint-disable-next-line no-console
+                console.debug(`[orchestrator] phase: ${phaseInfo}`, state)
+                set((s) => ({
+                  orchestrationByConversation: {
+                    ...s.orchestrationByConversation,
+                    [conversationId]: {
+                      ...(s.orchestrationByConversation[conversationId] || {}),
+                      phase: phaseInfo,
+                    },
+                  },
+                }))
+              }
               // If a messageId is present in the state, track it for multi-agent separation.
               if (typeof state.messageId === 'string' && state.messageId) {
                 if (!agentMsgId) {
@@ -834,14 +870,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                 set((s) => ({
                   orchestrationByConversation: {
                     ...s.orchestrationByConversation,
-                    [conversationId]: orchInfo,
+                    [conversationId]: {
+                      ...s.orchestrationByConversation[conversationId],
+                      ...orchInfo,
+                    },
                   },
                 }))
-              }
-              // Log phase transitions for debugging.
-              if (phaseInfo) {
-                // eslint-disable-next-line no-console
-                console.debug(`[orchestrator] phase: ${phaseInfo}`, state)
               }
             }
             break
@@ -950,10 +984,38 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           case 'RUN_ERROR':
           case 'error': {
             ensureAgentMessage(event)
-            failStreamingMessage(resolveErrorText(event))
+            const errorText = resolveErrorText(event)
+            // Extract error code and details for structured error display.
+            // Always pass through sanitizeErrorText to strip secrets/paths/traces.
+            let errorCode = ''
+            let errorMessage = ''
+            if (event.error && typeof event.error === 'object') {
+              errorCode = sanitizeErrorText((event.error as Record<string, unknown>).code as string || '')
+              errorMessage = sanitizeErrorText((event.error as Record<string, unknown>).message as string || errorText)
+            } else {
+              errorMessage = errorText // already sanitized by resolveErrorText
+            }
+            // Determine the phase from orchestration state for context.
+            const currentOrch = get().orchestrationByConversation[conversationId]
+            const errorPhase = currentOrch?.phase || ''
+            failStreamingMessage(errorMessage)
+            updateAgentMessage((message) => ({
+              ...message,
+              errorCode: errorCode || 'RUN_ERROR',
+              errorMessage,
+            }))
             set((s) => ({
               ...setConversationStreaming(s, conversationId, false),
               ...setConversationAbortController(s, conversationId, null),
+              orchestrationByConversation: {
+                ...s.orchestrationByConversation,
+                [conversationId]: {
+                  ...(s.orchestrationByConversation[conversationId] || {}),
+                  phase: 'error',
+                  errorCode: errorCode || 'RUN_ERROR',
+                  errorPhase: errorPhase || 'unknown',
+                },
+              },
             }))
             break
           }

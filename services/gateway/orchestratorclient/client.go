@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -59,7 +60,14 @@ func NewOrchestratorRunService(baseURL, internalToken string, opts ...Option) (*
 
 	if svc.httpClient == nil {
 		svc.httpClient = &http.Client{
-			Timeout: 120 * time.Second,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout: 30 * time.Second,
+				}).DialContext,
+				TLSHandshakeTimeout:   30 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+			},
 		}
 	}
 
@@ -92,7 +100,7 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 				{"role": "user", "text": userText},
 			},
 			"planningMode": "auto",
-			"agentName":     agentName,
+			"agentName":    agentName,
 		}
 
 		bodyBytes, err := json.Marshal(reqBody)
@@ -161,6 +169,10 @@ type safeError struct {
 // values with Metadata carrying event type, runId, messageId, taskId, and sender.
 func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 	scanner := bufio.NewScanner(body)
+	// Increase buffer from default 64KB to 1MB to handle large agent outputs
+	// that would otherwise cause bufio.ErrTooLong and break the SSE stream.
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
 
 	for scanner.Scan() {
 		line := scanner.Text()

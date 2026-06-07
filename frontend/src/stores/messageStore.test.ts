@@ -95,6 +95,28 @@ describe('messageStore per-conversation streaming', () => {
     expect(request?.message).toBe('build web page')
   })
 
+  it('sendMessage with auto does not include agentName in payload', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-auto', 'plan something', { agentName: 'auto' })
+
+    const request = streamByConversation.get('conv-auto')?.request
+    expect(request).toBeDefined()
+    expect(request?.agentName).toBeUndefined()
+    expect(request?.conversationId).toBe('conv-auto')
+    expect(request?.message).toBe('plan something')
+  })
+
+  it('sendMessage with code-agent includes agentName in payload', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-code', 'write code', { agentName: 'code-agent' })
+
+    const request = streamByConversation.get('conv-code')?.request
+    expect(request).toBeDefined()
+    expect(request?.agentName).toBe('code-agent')
+    expect(request?.conversationId).toBe('conv-code')
+    expect(request?.message).toBe('write code')
+  })
+
   it('keeps agentName optional in /api/chat request', () => {
     const { sendMessage } = useMessageStore.getState()
     sendMessage('conv-default', 'default route')
@@ -929,6 +951,302 @@ describe('confirmPlan API integration', () => {
   it('getConfirmation returns null for unknown conversation', () => {
     const confirmation = useMessageStore.getState().getConfirmation('nonexistent')
     expect(confirmation).toBeNull()
+  })
+})
+
+describe('Auto orchestration flow', () => {
+  beforeEach(() => {
+    streamByConversation.clear()
+    useMessageStore.setState({
+      messages: {},
+      streamingByConversation: {},
+      abortControllersByConversation: {},
+      orchestrationByConversation: {},
+      confirmationByConversation: {},
+    })
+  })
+
+  it('Auto mode request does not include agentName', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-auto', '你好，写一个登录页面')
+
+    const harness = streamByConversation.get('conv-auto')
+    expect(harness).toBeDefined()
+    // Auto mode: agentName should be absent from request payload
+    expect((harness!.request as unknown as Record<string, unknown>).agentName).toBeUndefined()
+  })
+
+  it('Manual Code Agent request includes agentName=code-agent', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-manual', 'write Go code', { agentName: 'code-agent' })
+
+    const harness = streamByConversation.get('conv-manual')
+    expect(harness).toBeDefined()
+    expect((harness!.request as unknown as Record<string, unknown>).agentName).toBe('code-agent')
+  })
+
+  it('Conversational response shows orchestrator sender not code-agent', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-greet', '你是谁')
+
+    emit('conv-greet', {
+      type: 'TEXT_MESSAGE_START',
+      runId: 'run-greet',
+      messageId: 'msg-greet',
+      sender: { type: 'agent', name: 'orchestrator' },
+    })
+    emit('conv-greet', {
+      type: 'TEXT_MESSAGE_CONTENT',
+      runId: 'run-greet',
+      messageId: 'msg-greet',
+      sender: { type: 'agent', name: 'orchestrator' },
+      delta: '你好！我是 AgentHub 自动编排助手。',
+    })
+    emit('conv-greet', {
+      type: 'TEXT_MESSAGE_END',
+      runId: 'run-greet',
+      messageId: 'msg-greet',
+      sender: { type: 'agent', name: 'orchestrator' },
+    })
+    emit('conv-greet', {
+      type: 'RUN_FINISHED',
+      runId: 'run-greet',
+      state: { status: 'completed' },
+    })
+
+    const messages = useMessageStore.getState().messages['conv-greet'] || []
+    const agentMsgs = messages.filter((msg) => msg.senderType === 'agent')
+    expect(agentMsgs.length).toBeGreaterThan(0)
+
+    // The sender must be orchestrator, not code-agent.
+    const hasCodeAgent = agentMsgs.some(
+      (msg) =>
+        msg.senderName === 'Code Agent' ||
+        msg.agentName === 'code-agent',
+    )
+    expect(hasCodeAgent).toBe(false)
+  })
+
+  it('STATE_UPDATE with plan details is captured in orchestration state', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-planning', '帮我做一个复杂任务')
+
+    emit('conv-planning', {
+      type: 'STATE_UPDATE',
+      runId: 'run-plan',
+      state: {
+        phase: 'planning',
+        planId: 'plan-123',
+        strategy: 'sequential',
+        plannedAgents: ['code-agent', 'web-agent', 'document-agent'],
+        taskCount: 3,
+        tasks: [
+          { taskId: 't1', agentName: 'code-agent', content: 'Build API', dependsOn: [], priority: 1, riskLevel: 'low' },
+          { taskId: 't2', agentName: 'web-agent', content: 'Build UI', dependsOn: [], priority: 2, riskLevel: 'low' },
+          { taskId: 't3', agentName: 'document-agent', content: 'Write docs', dependsOn: [], priority: 3, riskLevel: 'low' },
+        ],
+      },
+    })
+
+    const orch = useMessageStore.getState().orchestrationByConversation['conv-planning']
+    expect(orch).toBeDefined()
+    expect(orch?.strategy).toBe('sequential')
+    expect(orch?.plannedAgents).toEqual(['code-agent', 'web-agent', 'document-agent'])
+    expect(orch?.taskCount).toBe(3)
+    expect(orch?.plannedTasks).toHaveLength(3)
+  })
+
+  it('STATE_UPDATE with requiresConfirmation sets the flag', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-await', 'build system')
+
+    emit('conv-await', {
+      type: 'STATE_UPDATE',
+      runId: 'run-await',
+      state: {
+        phase: 'awaiting_confirmation',
+        requiresConfirmation: true,
+        confirmationActionId: 'plan-await',
+        plannedAgents: ['code-agent', 'security-agent'],
+        strategy: 'sequential',
+        taskCount: 2,
+      },
+    })
+
+    const orch = useMessageStore.getState().orchestrationByConversation['conv-await']
+    expect(orch).toBeDefined()
+    expect(orch?.requiresConfirmation).toBe(true)
+    expect(orch?.confirmationActionId).toBe('plan-await')
+    expect(orch?.strategy).toBe('sequential')
+  })
+
+  it('confirm_plan TOOL_CALL events set pending confirmation', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-tool-confirm', 'build feature')
+
+    emit('conv-tool-confirm', {
+      type: 'TOOL_CALL_START',
+      runId: 'run-tc',
+      toolCallId: 'plan-tc',
+      toolName: 'confirm_plan',
+      toolCall: { id: 'plan-tc', name: 'confirm_plan' },
+    })
+    emit('conv-tool-confirm', {
+      type: 'TOOL_CALL_ARGS',
+      runId: 'run-tc',
+      toolCallId: 'plan-tc',
+      delta: JSON.stringify({
+        runId: 'run-tc',
+        planId: 'plan-tc',
+        strategy: 'sequential',
+        plannedAgents: ['code-agent', 'test-agent', 'review-agent', 'security-agent'],
+        tasks: [
+          { taskId: 'task_code-agent', agentName: 'code-agent', content: 'write Newton method code' },
+          { taskId: 'task_test-agent', agentName: 'test-agent', content: 'test the code', dependsOn: ['task_code-agent'] },
+          { taskId: 'task_review-agent', agentName: 'review-agent', content: 'review the code', dependsOn: ['task_code-agent'] },
+          { taskId: 'task_security-agent', agentName: 'security-agent', content: 'audit the code', dependsOn: ['task_code-agent'] },
+        ],
+        intentSummary: 'code generation and security review',
+        requiresConfirmation: true,
+      }),
+    })
+    emit('conv-tool-confirm', {
+      type: 'TOOL_CALL_END',
+      runId: 'run-tc',
+      toolCallId: 'plan-tc',
+    })
+
+    const confirmation = useMessageStore.getState().getConfirmation('conv-tool-confirm')
+    expect(confirmation).toBeDefined()
+    expect(confirmation?.status).toBe('pending')
+    expect(confirmation?.agentNames).toHaveLength(4)
+    expect(confirmation?.strategy).toBe('sequential')
+    expect(confirmation?.intentSummary).toBe('code generation and security review')
+  })
+
+  it('confirmPlan changes confirmation status to confirmed', async () => {
+    useMessageStore.setState({
+      confirmationByConversation: {
+        'conv-api-confirm': {
+          runId: 'run-api',
+          actionId: 'plan-api',
+          agentNames: ['code-agent', 'security-agent'],
+          tasks: [
+            { taskId: 't1', agentName: 'code-agent', content: 'write code' },
+            { taskId: 't2', agentName: 'security-agent', content: 'audit code' },
+          ],
+          strategy: 'sequential',
+          status: 'pending',
+        },
+      },
+    })
+
+    const { confirmPlan } = useMessageStore.getState()
+    await confirmPlan('conv-api-confirm', 'run-api', 'plan-api', true)
+
+    const confirmation = useMessageStore.getState().getConfirmation('conv-api-confirm')
+    expect(confirmation?.status).toBe('confirmed')
+  })
+
+  it('rejectPlan changes confirmation status to rejected', async () => {
+    useMessageStore.setState({
+      confirmationByConversation: {
+        'conv-api-reject': {
+          runId: 'run-rej',
+          actionId: 'plan-rej',
+          agentNames: ['code-agent'],
+          tasks: [],
+          strategy: 'single',
+          status: 'pending',
+        },
+      },
+    })
+
+    const { confirmPlan } = useMessageStore.getState()
+    await confirmPlan('conv-api-reject', 'run-rej', 'plan-rej', false, 'plan too complex')
+
+    const confirmation = useMessageStore.getState().getConfirmation('conv-api-reject')
+    expect(confirmation?.status).toBe('rejected')
+  })
+})
+
+describe('streaming delta no duplication', () => {
+  beforeEach(() => {
+    streamByConversation.clear()
+    useMessageStore.setState({
+      messages: {},
+      streamingByConversation: {},
+      abortControllersByConversation: {},
+    })
+  })
+
+  it('appends TEXT_MESSAGE_CONTENT deltas without duplicating prefix', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-delta', 'test delta')
+
+    emit('conv-delta', {
+      type: 'TEXT_MESSAGE_START',
+      messageId: 'msg-delta',
+    })
+    emit('conv-delta', {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: 'msg-delta',
+      delta: 'code-agent v0.1 mock',
+    })
+    emit('conv-delta', {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: 'msg-delta',
+      delta: ' response:\n',
+    })
+    emit('conv-delta', {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: 'msg-delta',
+      delta: '```go\npackage main\n',
+    })
+    emit('conv-delta', {
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: 'msg-delta',
+      delta: '```',
+    })
+    emit('conv-delta', { type: 'TEXT_MESSAGE_END', messageId: 'msg-delta' })
+
+    const messages = useMessageStore.getState().messages['conv-delta'] || []
+    const agentMsg = messages.find((msg) => msg.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+
+    const content = agentMsg?.content || ''
+    // Verify no duplication: count occurrences of the mock marker
+    const occurrences = (content.match(/code-agent v0\.1 mock/g) || []).length
+    expect(occurrences).toBe(1)
+
+    // Verify full content is assembled correctly from deltas
+    expect(content).toContain('package main')
+    expect(content).toContain('```go')
+  })
+
+  it('does not duplicate when TEXT_MESSAGE_END follows delta stream', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-nodup', 'test no dup')
+
+    // resolveContentChunk trims each delta via pickText, so leading/trailing
+    // whitespace in deltas is normalized. The assembled content reflects this.
+    const deltas = ['Hello', 'world', 'from', 'agent']
+    emit('conv-nodup', { type: 'TEXT_MESSAGE_START', messageId: 'msg-nodup' })
+    for (const delta of deltas) {
+      emit('conv-nodup', {
+        type: 'TEXT_MESSAGE_CONTENT',
+        messageId: 'msg-nodup',
+        delta,
+      })
+    }
+    emit('conv-nodup', { type: 'TEXT_MESSAGE_END', messageId: 'msg-nodup' })
+
+    const messages = useMessageStore.getState().messages['conv-nodup'] || []
+    const agentMsg = messages.find((msg) => msg.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    expect(agentMsg?.content).toBe('Helloworldfromagent')
+    // Status should be 'sent' after TEXT_MESSAGE_END
+    expect(agentMsg?.status).toBe('sent')
   })
 })
 

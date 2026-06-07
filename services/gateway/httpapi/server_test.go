@@ -152,10 +152,10 @@ func TestListAgentsDefault(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &agents); err != nil {
 		t.Fatalf("invalid agents response: %v", err)
 	}
-	if len(agents) < 2 {
-		t.Fatalf("expected at least 2 agents, got %d", len(agents))
+	if len(agents) < 3 {
+		t.Fatalf("expected at least 3 agents (auto, code-agent, web-agent), got %d", len(agents))
 	}
-	if agents[0].Name != "code-agent" || agents[1].Name != "web-agent" {
+	if agents[0].Name != "auto" || agents[1].Name != "code-agent" || agents[2].Name != "web-agent" {
 		t.Fatalf("unexpected default agents: %+v", agents)
 	}
 }
@@ -185,14 +185,133 @@ func TestListAgentsWithOverride(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &agents); err != nil {
 		t.Fatalf("invalid agents response: %v", err)
 	}
-	if len(agents) != 1 {
-		t.Fatalf("expected 1 agent after dedupe, got %d", len(agents))
+	if len(agents) < 2 {
+		t.Fatalf("expected at least 2 agents (auto + doc-agent), got %d", len(agents))
 	}
-	if agents[0].Name != "doc-agent" || agents[0].DisplayName != "Doc Agent" {
-		t.Fatalf("unexpected agent payload: %+v", agents[0])
+	// Auto must always be first.
+	if agents[0].Name != "auto" {
+		t.Fatalf("expected auto first, got %q", agents[0].Name)
 	}
-	if len(agents[0].OutputModes) != 2 {
-		t.Fatalf("unexpected output modes: %+v", agents[0].OutputModes)
+	if agents[1].Name != "doc-agent" || agents[1].DisplayName != "Doc Agent" {
+		t.Fatalf("unexpected agent payload: %+v", agents[1])
+	}
+}
+
+func TestListAgentsProductionOverrideIncludesAutoFirst(t *testing.T) {
+	// Simulate production: WithAgents with 10 real agents, no auto.
+	srv, err := NewServer(
+		store.NewMemoryStore(),
+		&mockRunService{},
+		WithAgents([]AgentSummary{
+			{Name: "code-agent", DisplayName: "Code Agent", Description: "Generates code", OutputModes: []string{"text", "code"}},
+			{Name: "web-agent", DisplayName: "Web Agent", Description: "Generates web", OutputModes: []string{"text", "webpage"}},
+			{Name: "document-agent", DisplayName: "Document Agent", Description: "Docs", OutputModes: []string{"text"}},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+
+	var agents []AgentSummary
+	if err := json.Unmarshal(rec.Body.Bytes(), &agents); err != nil {
+		t.Fatalf("invalid agents response: %v", err)
+	}
+	if len(agents) < 4 {
+		t.Fatalf("expected at least 4 agents (auto + 3 real), got %d", len(agents))
+	}
+	if agents[0].Name != "auto" {
+		t.Fatalf("expected auto first, got %q", agents[0].Name)
+	}
+	if agents[0].DisplayName != "Auto (Smart)" {
+		t.Fatalf("expected Auto (Smart), got %q", agents[0].DisplayName)
+	}
+	// Real agents must follow.
+	if agents[1].Name != "code-agent" {
+		t.Fatalf("expected code-agent second, got %q", agents[1].Name)
+	}
+	if agents[2].Name != "web-agent" {
+		t.Fatalf("expected web-agent third, got %q", agents[2].Name)
+	}
+}
+
+func TestChatWithoutAgentNameIsAccepted(t *testing.T) {
+	var codeCalls int32
+	var webCalls int32
+
+	codeServer := newA2AMockServerForHTTPAPITest(t, "code-agent", "reply from code", &codeCalls, false)
+	defer codeServer.Close()
+	webServer := newA2AMockServerForHTTPAPITest(t, "web-agent", "reply from web", &webCalls, false)
+	defer webServer.Close()
+
+	runner := newRoutingRunnerForHTTPAPITest(t, codeServer.URL, webServer.URL)
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "auto")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	// Chat request without agentName — should be accepted.
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(`{"conversationId":"`+conv.ID+`","message":"hello"}`))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for chat without agentName, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: message\n") {
+		t.Fatalf("expected SSE message event, got %q", body)
+	}
+}
+
+func TestChatWithAgentNameAutoIsNotDispatchedDirectly(t *testing.T) {
+	// "auto" should not be treated as a dispatchable child agent.
+	// It should be accepted as a request without agentName being set in context.
+	var codeCalls int32
+	var webCalls int32
+
+	codeServer := newA2AMockServerForHTTPAPITest(t, "code-agent", "reply from code", &codeCalls, false)
+	defer codeServer.Close()
+	webServer := newA2AMockServerForHTTPAPITest(t, "web-agent", "reply from web", &webCalls, false)
+	defer webServer.Close()
+
+	runner := newRoutingRunnerForHTTPAPITest(t, codeServer.URL, webServer.URL)
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "auto")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	// Chat request with agentName="auto" — should not be dispatched as a child agent.
+	// It should behave like no agentName was specified.
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(`{"conversationId":"`+conv.ID+`","message":"hello","agentName":"auto"}`))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: message\n") {
+		t.Fatalf("expected SSE message event, got %q", body)
 	}
 }
 
@@ -889,5 +1008,117 @@ func TestHITLConfirmRouteEmptyRunID(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for path without confirm suffix, got %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteConversationSuccess(t *testing.T) {
+	st := store.NewMemoryStore()
+	srv, err := NewServer(st, &mockRunService{})
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	conv, err := st.CreateConversation(context.Background(), "user-1", "auto")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/conversations/"+conv.ID, nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteConversationRemovedFromList(t *testing.T) {
+	st := store.NewMemoryStore()
+	srv, err := NewServer(st, &mockRunService{})
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	conv, err := st.CreateConversation(context.Background(), "user-1", "auto")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	// Delete the conversation.
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/conversations/"+conv.ID, nil)
+	delRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(delRec, delReq)
+	if delRec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 on delete, got %d", delRec.Code)
+	}
+
+	// List should no longer contain the deleted conversation.
+	listReq := httptest.NewRequest(http.MethodGet, "/api/conversations?userId=user-1", nil)
+	listRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on list, got %d", listRec.Code)
+	}
+
+	var conversations []store.Conversation
+	if err := json.Unmarshal(listRec.Body.Bytes(), &conversations); err != nil {
+		t.Fatalf("invalid list response: %v", err)
+	}
+	for _, c := range conversations {
+		if c.ID == conv.ID {
+			t.Fatalf("deleted conversation still appears in list")
+		}
+	}
+}
+
+func TestDeleteConversationNotFound(t *testing.T) {
+	st := store.NewMemoryStore()
+	srv, err := NewServer(st, &mockRunService{})
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/conversations/nonexistent", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing conversation, got %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteConversationInvalidID(t *testing.T) {
+	st := store.NewMemoryStore()
+	srv, err := NewServer(st, &mockRunService{})
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	// Path with extra segments should return 400 (invalid id).
+	req := httptest.NewRequest(http.MethodDelete, "/api/conversations/a/b", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for malformed path, got %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteConversationMethodNotAllowedOnMessages(t *testing.T) {
+	st := store.NewMemoryStore()
+	srv, err := NewServer(st, &mockRunService{})
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	conv, _ := st.CreateConversation(context.Background(), "user-1", "auto")
+
+	// DELETE on /api/conversations/{id}/messages should return 405.
+	req := httptest.NewRequest(http.MethodDelete, "/api/conversations/"+conv.ID+"/messages", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d body=%q", rec.Code, rec.Body.String())
 	}
 }

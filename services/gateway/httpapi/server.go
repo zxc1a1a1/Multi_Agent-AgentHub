@@ -114,6 +114,7 @@ func NewServer(st Store, runner RunService, opts ...Option) (*Server, error) {
 	if len(s.agents) == 0 {
 		s.agents = defaultAgentSummaries()
 	}
+	s.agents = ensureAutoFirst(s.agents)
 
 	s.registerRoutes()
 	return s, nil
@@ -129,7 +130,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/api/conversations", s.handleConversations)
-	s.mux.HandleFunc("/api/conversations/", s.handleConversationMessages)
+	s.mux.HandleFunc("/api/conversations/", s.handleConversationByID)
 	s.mux.HandleFunc("/api/agents", s.handleListAgents)
 	s.mux.HandleFunc("/api/chat", s.handleChat)
 	s.mux.HandleFunc("/api/runs/", s.handleRuns)
@@ -205,16 +206,58 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		writeMethodNotAllowed(w, http.MethodGet)
 		return
 	}
-	agents := make([]AgentSummary, len(s.agents))
-	copy(agents, s.agents)
+	agents := ensureAutoFirst(s.agents)
 	writeJSON(w, http.StatusOK, agents)
 }
 
-func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request) {
+	// GET /api/conversations/{id}/messages — route to messages handler first
+	if strings.HasSuffix(r.URL.Path, "/messages") {
+		if r.Method == http.MethodGet {
+			s.handleConversationMessages(w, r)
+			return
+		}
 		writeMethodNotAllowed(w, http.MethodGet)
 		return
 	}
+	// DELETE /api/conversations/{id}
+	if r.Method == http.MethodDelete {
+		s.handleDeleteConversation(w, r)
+		return
+	}
+	// GET /api/conversations/{id} — not implemented
+	if r.Method == http.MethodGet {
+		writeJSONError(w, http.StatusNotFound, "use /api/conversations/{id}/messages")
+		return
+	}
+	writeMethodNotAllowed(w, http.MethodGet, http.MethodDelete)
+}
+
+func (s *Server) handleDeleteConversation(w http.ResponseWriter, r *http.Request) {
+	conversationID, ok := extractConversationIDFromPath(r.URL.Path)
+	if !ok {
+		writeJSONError(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+
+	if err := s.store.DeleteConversation(r.Context(), conversationID); err != nil {
+		if errors.Is(err, store.ErrConversationNotFound) {
+			writeJSONError(w, http.StatusNotFound, "conversation not found")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete conversation")
+		return
+	}
+
+	// Also delete from SQLite persistence when configured.
+	if s.persistenceStore != nil {
+		_ = s.persistenceStore.DeleteConversation(r.Context(), conversationID)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Request) {
 	conversationID, ok := extractConversationID(r.URL.Path)
 	if !ok {
 		http.NotFound(w, r)
@@ -307,7 +350,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	sse.SetHeaders(w)
 	writer := sse.NewWriter(w)
 	ctx := r.Context()
-	if req.AgentName != "" {
+	if req.AgentName != "" && req.AgentName != "auto" {
 		ctx = runservice.WithAgentName(ctx, req.AgentName)
 	}
 	assistantText := strings.Builder{}
@@ -364,7 +407,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if streamErr != nil {
-		_ = writer.WriteError(ctx, "runner_error", "assistant run failed")
+		// If a RUN_ERROR was already sent, do not overwrite it with a generic error.
+		if runFailed {
+			return
+		}
+		// Write a sanitized error that preserves diagnostic context from the
+		// underlying stream failure without exposing internal details.
+		safeMsg := sanitizeStreamError(streamErr)
+		_ = writer.WriteErrorWithCode(ctx, "RUN_ERROR", "ORCHESTRATOR_STREAM_ERROR", safeMsg)
 		return
 	}
 
@@ -383,6 +433,21 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		Role:           string(adk.RoleAssistant),
 		Text:           text,
 	})
+}
+
+// extractConversationIDFromPath extracts a bare conversation ID from path
+// like /api/conversations/{id} (no /messages suffix).
+func extractConversationIDFromPath(path string) (string, bool) {
+	const prefix = "/api/conversations/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", false
+	}
+	id := strings.TrimPrefix(path, prefix)
+	id = strings.Trim(id, "/")
+	if id == "" || strings.Contains(id, "/") {
+		return "", false
+	}
+	return id, true
 }
 
 func extractConversationID(path string) (string, bool) {
@@ -440,6 +505,12 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func defaultAgentSummaries() []AgentSummary {
 	return []AgentSummary{
+		{
+			Name:        "auto",
+			DisplayName: "Auto (Smart)",
+			Description: "Automatically plans and delegates to the best agents for your request",
+			OutputModes: []string{"text", "code", "webpage", "html", "artifact_ref"},
+		},
 		{
 			Name:        "code-agent",
 			DisplayName: "Code Agent",
@@ -503,6 +574,34 @@ func defaultAgentSummaries() []AgentSummary {
 	}
 }
 
+// sanitizeStreamError produces a safe error message from a stream error,
+// removing secrets, internal URLs, stack traces, and file paths.
+func sanitizeStreamError(err error) string {
+	if err == nil {
+		return "stream error"
+	}
+	msg := err.Error()
+	// Strip API keys / tokens.
+	if strings.Contains(msg, "sk-") || strings.Contains(msg, "Bearer ") ||
+		strings.Contains(msg, "api_key") || strings.Contains(msg, "token=") {
+		return "orchestrator communication error"
+	}
+	// Strip stack traces.
+	if strings.Contains(msg, "panic:") || strings.Contains(msg, "goroutine ") {
+		return "orchestrator internal error"
+	}
+	// Strip file paths.
+	if strings.Contains(msg, ".go:") && (strings.Contains(msg, "/") || strings.Contains(msg, "\\")) {
+		return "orchestrator processing error"
+	}
+	// Truncate long messages.
+	const maxLen = 200
+	if len(msg) > maxLen {
+		msg = msg[:maxLen-3] + "..."
+	}
+	return msg
+}
+
 func sanitizeAgentSummaries(agents []AgentSummary) []AgentSummary {
 	if len(agents) == 0 {
 		return nil
@@ -530,4 +629,26 @@ func sanitizeAgentSummaries(agents []AgentSummary) []AgentSummary {
 		return nil
 	}
 	return out
+}
+
+func ensureAutoFirst(agents []AgentSummary) []AgentSummary {
+	autoSummary := AgentSummary{
+		Name:        "auto",
+		DisplayName: "Auto (Smart)",
+		Description: "Automatically plans and delegates to the best agents for your request",
+		OutputModes: []string{"text", "code", "webpage", "html", "artifact_ref"},
+	}
+
+	if len(agents) > 0 && agents[0].Name == "auto" {
+		return agents
+	}
+
+	filtered := make([]AgentSummary, 0, len(agents)+1)
+	for _, a := range agents {
+		if a.Name != "auto" {
+			filtered = append(filtered, a)
+		}
+	}
+
+	return append([]AgentSummary{autoSummary}, filtered...)
 }

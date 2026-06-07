@@ -141,7 +141,7 @@ export default function StreamingText({ content, isStreaming }: Props) {
       <div className="message-content">
         <div className="prose prose-sm max-w-none prose-p:my-1 prose-pre:my-2 break-words overflow-x-hidden">
           <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
             components={{
               pre: ({ children, ...props }) => {
                 const codeElement = children as React.ReactElement | undefined

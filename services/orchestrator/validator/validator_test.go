@@ -813,6 +813,53 @@ func TestPlanValidator_LocalhostInTaskContent(t *testing.T) {
 	}
 }
 
+func TestValidateConversationalStrategyAccepted(t *testing.T) {
+	v := New(newStubRegistry())
+	p := &plan.OrchestrationPlan{
+		Version:        "v1",
+		PlanID:         "plan_conv_001",
+		RunID:          "run_conv_001",
+		ConversationID: "conv_conv_001",
+		Strategy:       plan.StrategyConversational,
+		IntentSummary:  "greeting",
+		Tasks:          nil, // conversational plans have no tasks
+		Aggregation:    plan.Aggregation{Required: false, Mode: "none"},
+		Fallback:       plan.Fallback{Enabled: false},
+		Validation:     plan.Validation{Validated: false},
+	}
+	result := v.Validate(p)
+	if !result.Valid {
+		t.Error("expected valid: conversational strategy with no tasks should be accepted")
+		for _, e := range result.Errors {
+			t.Logf("  unexpected error: %s: %s", e.Field, e.Message)
+		}
+	}
+}
+
+func TestValidateConversationalStrategyWithTasksStillValidatesThem(t *testing.T) {
+	// If a conversational plan accidentally has tasks, they should still be validated.
+	v := New(newStubRegistry())
+	p := &plan.OrchestrationPlan{
+		Version:        "v1",
+		PlanID:         "plan_conv_002",
+		RunID:          "run_conv_002",
+		ConversationID: "conv_conv_002",
+		Strategy:       plan.StrategyConversational,
+		IntentSummary:  "test",
+		Tasks: []plan.TaskPlan{
+			{
+				TaskID:    "t1",
+				AgentName: "unknown-agent",
+				// deliberately missing many fields
+			},
+		},
+	}
+	result := v.Validate(p)
+	if result.Valid {
+		t.Error("expected invalid: conversational with bad task data")
+	}
+}
+
 func TestPlanValidator_CleanTaskContentAccepted(t *testing.T) {
 	v := New(newStubRegistry())
 	p := validSinglePlan()

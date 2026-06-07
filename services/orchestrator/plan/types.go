@@ -6,6 +6,7 @@ const (
 	StrategySingle         = "single"
 	StrategyOrderedParallel = "ordered_parallel"
 	StrategySequential      = "sequential"
+	StrategyConversational  = "conversational"
 )
 
 // OrchestrationPlan is the structured result of intent orchestration.

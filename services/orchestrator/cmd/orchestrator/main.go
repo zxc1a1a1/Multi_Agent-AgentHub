@@ -215,6 +215,9 @@ func run() error {
 	if plannerMode == "" {
 		plannerMode = "rule"
 	}
+	requireConfirm := strings.ToLower(strings.TrimSpace(
+		os.Getenv("REQUIRE_PLAN_CONFIRMATION"))) == "true"
+	log.Printf("orchestrator config: plannerMode=%s, requirePlanConfirmation=%v", plannerMode, requireConfirm)
 	serverOpts = append(serverOpts, httpapi.WithPlannerMode(httpapi.PlannerMode(plannerMode)))
 
 	if plannerMode == "llm" || plannerMode == "llm_with_rule_fallback" {

@@ -114,3 +114,20 @@ func (wr *Writer) WriteError(ctx context.Context, code, message string) error {
 		},
 	})
 }
+
+// WriteErrorWithCode writes a RUN_ERROR AG-UI event with structured error code
+// and sanitized message, enabling the frontend to display phase/code context.
+func (wr *Writer) WriteErrorWithCode(ctx context.Context, eventType string, code string, message string) error {
+	filter := agui.NewTextStreamFilter()
+	safeMessage := filter.FilterError(errors.New(message))
+
+	return wr.WriteEvent(ctx, agui.Event{
+		Type:  eventType,
+		Text:  safeMessage,
+		Final: true,
+		Error: &agui.SafeError{
+			Code:    filter.FilterText(code),
+			Message: safeMessage,
+		},
+	})
+}

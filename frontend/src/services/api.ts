@@ -102,6 +102,19 @@ export async function listAgents(): Promise<Agent[]> {
   return agents
 }
 
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/conversations/${conversationId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error('Conversation not found')
+    }
+    throw new Error('Failed to delete conversation')
+  }
+}
+
 /**
  * Send a HITL confirmation response to the Gateway.
  */

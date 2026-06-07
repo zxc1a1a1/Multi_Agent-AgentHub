@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sync"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
@@ -49,9 +50,10 @@ type Server struct {
 	planner      planner.Planner // nil means use default RulePlanner
 	plannerMode  PlannerMode
 	synthesizer  synthesizer.Synthesizer
-	pendingPlans map[string]*plan.OrchestrationPlan          // runID → validated plan awaiting confirmation
-	hitlChans    map[string]chan HITLConfirmResult           // runID → confirmation signal channel
-	hitlStates   map[string]HITLState                        // runID → logical confirmation state
+	hitlMu       sync.RWMutex                                  // protects pendingPlans, hitlChans, hitlStates
+	pendingPlans map[string]*plan.OrchestrationPlan            // runID → validated plan awaiting confirmation
+	hitlChans    map[string]chan HITLConfirmResult             // runID → confirmation signal channel
+	hitlStates   map[string]HITLState                          // runID → logical confirmation state
 }
 
 // Option customizes Server behavior.

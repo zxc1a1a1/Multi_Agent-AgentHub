@@ -101,6 +101,35 @@ func (s *Store) ListConversations(ctx context.Context) ([]Conversation, error) {
 	return out, rows.Err()
 }
 
+// DeleteConversation removes a conversation and all associated data.
+func (s *Store) DeleteConversation(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM messages WHERE conversation_id = ?`, id)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM run_steps WHERE conversation_id = ?`, id)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM artifacts WHERE conversation_id = ?`, id)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM runs WHERE conversation_id = ?`, id)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM conversations WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------

@@ -123,7 +123,7 @@ func (e *OrderedParallelExecutor) Execute(ctx context.Context, p *plan.Orchestra
 	// Orchestrator summary: a separate message with sender="orchestrator".
 	if allSucceeded {
 		summaryMsgID := msgID + "_summary"
-		summary := buildSummary(p, taskResults)
+		summary := buildSummary(taskResults)
 		events = append(events, ExecutionEvent{
 			Type:      "message_start",
 			RunID:     p.RunID,
@@ -231,7 +231,7 @@ func (e *OrderedParallelExecutor) ExecuteStream(ctx context.Context, p *plan.Orc
 		// Use synthesizer if available and plan requests aggregation; otherwise static summary.
 		if !synthesizeIfNeeded(ctx, p, msgID, taskResults, e.synthesizer, emit) {
 			summaryMsgID := msgID + "_summary"
-			summary := buildSummary(p, taskResults)
+			summary := buildSummary(taskResults)
 			if !emit(ExecutionEvent{Type: "message_start", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
 				return nil
 			}
@@ -409,23 +409,62 @@ func (e *OrderedParallelExecutor) executeOneTask(ctx context.Context, p *plan.Or
 	return events, tr, nil
 }
 
-func buildSummary(p *plan.OrchestrationPlan, results []taskResult) string {
+func buildSummary(results []taskResult) string {
 	var b strings.Builder
-	b.WriteString("All ")
-	b.WriteString(fmt.Sprintf("%d", len(results)))
-	b.WriteString(" task(s) completed successfully.")
+	b.WriteString("## 执行总结\n\n")
+	if len(results) == 0 {
+		b.WriteString("没有任务被执行。")
+		return b.String()
+	}
+	b.WriteString(fmt.Sprintf("成功完成了 **%d** 个任务的执行：\n\n", len(results)))
 
 	for _, r := range results {
-		b.WriteString("\n- ")
-		b.WriteString(r.TaskID)
-		b.WriteString(" (")
-		b.WriteString(r.AgentName)
-		b.WriteString(")")
+		b.WriteString(fmt.Sprintf("### %s (`%s`)\n", agentDisplayName(r.AgentName), r.TaskID))
 		if r.Text != "" {
-			b.WriteString(" produced output")
+			// Include the agent's output, truncated if very long.
+			trimmed := strings.TrimSpace(r.Text)
+			if len(trimmed) > 600 {
+				trimmed = trimmed[:597] + "..."
+			}
+			b.WriteString(trimmed)
+			b.WriteString("\n")
+		} else {
+			b.WriteString("(no output)\n")
 		}
+		b.WriteString("\n")
 	}
+
+	b.WriteString("**状态**：所有任务已成功完成，无阻塞问题。\n")
+	b.WriteString("**建议**：请审查各 Agent 的输出，如有问题可继续提出修改需求。")
 	return b.String()
+}
+
+// agentDisplayName returns a human-readable name for an agent.
+func agentDisplayName(name string) string {
+	switch name {
+	case "code-agent":
+		return "Code Agent（代码生成）"
+	case "web-agent":
+		return "Web Agent（页面生成）"
+	case "document-agent":
+		return "Document Agent（文档生成）"
+	case "test-agent":
+		return "Test Agent（测试）"
+	case "review-agent":
+		return "Review Agent（代码审查）"
+	case "security-agent":
+		return "Security Agent（安全分析）"
+	case "vision-agent":
+		return "Vision Agent（图像分析）"
+	case "context-agent":
+		return "Context Agent（上下文管理）"
+	case "deploy-agent":
+		return "Deploy Agent（部署）"
+	case "diff-agent":
+		return "Diff Agent（差异分析）"
+	default:
+		return name
+	}
 }
 
 func sanitizeSummary(s string) string {
