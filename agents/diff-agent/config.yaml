@@ -2,13 +2,22 @@ name: diff-agent
 description: 用于生成、解释和规整 unified diff 补丁内容，输出可审查的 diff 产物和风险摘要；第一版只生成或分析补丁，不实际应用 patch。
 version: "0.1.0"
 url: "http://localhost:8093"
+streaming: true
 skills:
-  - diff_generation
-  - diff_explanation
-  - patch_risk_summary
+  - id: diff_generation
+    name: Diff Generation
+    description: 生成 unified diff 格式的代码变更补丁
+  - id: diff_explanation
+    name: Diff Explanation
+    description: 用自然语言解释代码变更的内容和意图
+  - id: patch_risk_summary
+    name: Patch Risk Summary
+    description: 分析补丁的风险等级和潜在影响范围
 inputModes:
   - text
 outputModes:
   - text
   - diff
-streaming: true
+supportedInterfaces:
+  - type: JSONRPC
+    url: "http://localhost:8093"

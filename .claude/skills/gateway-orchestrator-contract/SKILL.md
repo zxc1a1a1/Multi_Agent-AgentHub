@@ -35,6 +35,13 @@ server/**               legacy reference only
 agents/**               legacy reference only
 ```
 
+## Streaming event semantics
+
+When the Orchestrator forwards streamed agent output, each text event becomes a
+`message_delta` event. The Frontend MUST treat `message_delta` as **append**
+(accumulate by `messageId`), never replace. `message_start` / `message_end`
+bracket one logical message; multiple `message_delta` may occur between them.
+
 ## Contracts to read first
 
 - `docs/contracts/gateway-orchestrator.md`

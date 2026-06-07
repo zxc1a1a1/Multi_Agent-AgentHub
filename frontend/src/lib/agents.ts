@@ -35,12 +35,68 @@ export const AGENT_OPTIONS: AgentOption[] = [
     description: 'Generates webpages and HTML previews',
     outputModes: ['text', 'webpage', 'html', 'artifact_ref'],
   },
+  {
+    name: 'document-agent',
+    displayName: 'Document Agent',
+    description: 'Generates structured documentation, API docs, READMEs, and technical manuals',
+    outputModes: ['text', 'markdown', 'artifact_ref'],
+  },
+  {
+    name: 'vision-agent',
+    displayName: 'Vision Agent',
+    description: 'Analyzes images, extracts text via OCR, and audits visual content',
+    outputModes: ['text', 'structured_json', 'artifact_ref'],
+  },
+  {
+    name: 'context-agent',
+    displayName: 'Context Agent',
+    description: 'Compresses conversation context, generates summaries, and extracts memories',
+    outputModes: ['text', 'structured_json', 'summary'],
+  },
+  {
+    name: 'test-agent',
+    displayName: 'Test Agent',
+    description: 'Analyzes test logs, assesses coverage, and performs root cause analysis',
+    outputModes: ['text', 'structured_json', 'analysis_report'],
+  },
+  {
+    name: 'review-agent',
+    displayName: 'Review Agent',
+    description: 'Reviews code, requirements, and assesses project risks',
+    outputModes: ['text', 'structured_json', 'review_report'],
+  },
+  {
+    name: 'security-agent',
+    displayName: 'Security Agent',
+    description: 'Scans code for vulnerabilities, checks dependencies, audits configs, and detects secrets',
+    outputModes: ['text', 'structured_json', 'security_report'],
+  },
+  {
+    name: 'deploy-agent',
+    displayName: 'Deploy Agent',
+    description: 'Generates deployment plans, checks environment health, and creates rollback strategies',
+    outputModes: ['text', 'structured_json', 'deploy_plan'],
+  },
+  {
+    name: 'diff-agent',
+    displayName: 'Diff Agent',
+    description: 'Generates unified diffs, explains changes, analyzes impact, and resolves merge conflicts',
+    outputModes: ['text', 'code', 'diff', 'artifact_ref'],
+  },
 ]
 
 const knownDisplayNameMap: Record<string, string> = {
-  'auto': 'Auto',
+  'auto': 'Auto (Smart)',
   'code-agent': 'Code Agent',
   'web-agent': 'Web Agent',
+  'document-agent': 'Document Agent',
+  'vision-agent': 'Vision Agent',
+  'context-agent': 'Context Agent',
+  'test-agent': 'Test Agent',
+  'review-agent': 'Review Agent',
+  'security-agent': 'Security Agent',
+  'deploy-agent': 'Deploy Agent',
+  'diff-agent': 'Diff Agent',
 }
 
 function normalizeText(value: string | null | undefined): string {
@@ -116,12 +172,18 @@ export function buildAgentOptionsFromSummary(summaries: AgentSummary[] | null | 
   return options
 }
 
-export function isSupportedAgentName(value: string | undefined | null): value is 'auto' | 'code-agent' | 'web-agent' {
-  return value === 'auto' || value === 'code-agent' || value === 'web-agent'
+export function isSupportedAgentName(value: string | undefined | null): value is AgentName {
+  if (!value) return false
+  const normalized = normalizeText(value)
+  if (!normalized) return false
+  return normalized === 'auto' || normalized in knownDisplayNameMap
 }
 
-export function isConcreteAgentName(value: string | undefined | null): value is 'code-agent' | 'web-agent' {
-  return value === 'code-agent' || value === 'web-agent'
+export function isConcreteAgentName(value: string | undefined | null): value is AgentName {
+  if (!value) return false
+  const normalized = normalizeText(value)
+  if (!normalized || normalized === 'auto') return false
+  return normalized in knownDisplayNameMap
 }
 
 export function normalizeAgentName(value: string | undefined | null): AgentName {

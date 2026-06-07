@@ -2,10 +2,17 @@ name: ppt-agent
 description: 用于根据项目资料、需求说明和演示目标生成演示文稿大纲、页面结构和讲解备注；第一版只输出 slide deck 草稿，不生成真实 pptx 文件。
 version: "0.1.0"
 url: "http://localhost:8105"
+streaming: true
 skills:
-  - slide_deck_outline
-  - presentation_script
-  - demo_storyboard
+  - id: slide_deck_outline
+    name: Slide Deck Outline
+    description: 根据项目资料生成演示文稿大纲和页面结构
+  - id: presentation_script
+    name: Presentation Script
+    description: 为每一页生成讲解备注和演示脚本
+  - id: demo_storyboard
+    name: Demo Storyboard
+    description: 根据演示目标生成分镜规划和叙事线索
 inputModes:
   - text
   - vision_analysis
@@ -13,4 +20,6 @@ inputModes:
 outputModes:
   - text
   - slide_deck
-streaming: true
+supportedInterfaces:
+  - type: JSONRPC
+    url: "http://localhost:8105"

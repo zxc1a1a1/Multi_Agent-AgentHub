@@ -60,8 +60,16 @@ func TestLoadRuntimeConfigFromEnvDefaults(t *testing.T) {
 	t.Setenv("GATEWAY_ENABLE_AUTH", "")
 	t.Setenv("GATEWAY_ADDR", "")
 	t.Setenv("GATEWAY_ALLOWED_ORIGINS", "")
-	t.Setenv("AGENT_CODE_URL", "")
-	t.Setenv("AGENT_WEB_URL", "")
+	t.Setenv("CODE_AGENT_URL", "")
+	t.Setenv("WEB_AGENT_URL", "")
+	t.Setenv("DOCUMENT_AGENT_URL", "")
+	t.Setenv("VISION_AGENT_URL", "")
+	t.Setenv("CONTEXT_AGENT_URL", "")
+	t.Setenv("TEST_AGENT_URL", "")
+	t.Setenv("REVIEW_AGENT_URL", "")
+	t.Setenv("SECURITY_AGENT_URL", "")
+	t.Setenv("DEPLOY_AGENT_URL", "")
+	t.Setenv("DIFF_AGENT_URL", "")
 	t.Setenv("GATEWAY_DEFAULT_AGENT_NAME", "")
 
 	cfg, err := loadRuntimeConfigFromEnv()
@@ -77,8 +85,8 @@ func TestLoadRuntimeConfigFromEnvDefaults(t *testing.T) {
 	if cfg.DefaultAgentName != defaultAgentName {
 		t.Fatalf("expected default agent %q, got %q", defaultAgentName, cfg.DefaultAgentName)
 	}
-	if len(cfg.AgentEndpoints) != 2 {
-		t.Fatalf("expected 2 endpoints, got %d", len(cfg.AgentEndpoints))
+	if len(cfg.AgentEndpoints) != 10 {
+		t.Fatalf("expected 10 endpoints, got %d", len(cfg.AgentEndpoints))
 	}
 }
 

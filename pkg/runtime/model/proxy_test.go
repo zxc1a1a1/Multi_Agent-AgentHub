@@ -156,7 +156,9 @@ func TestProxyModel_GenerateToolCalls(t *testing.T) {
 
 func TestProxyModel_GenerateStream(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"proxy stream"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"proxy stream"},"finish_reason":"stop"}]}`+"\n\n")
+		_, _ = io.WriteString(w, `data: [DONE]`+"\n\n")
 	}))
 	defer srv.Close()
 
@@ -176,8 +178,8 @@ func TestProxyModel_GenerateStream(t *testing.T) {
 		count++
 		return true
 	})
-	if count != 1 {
-		t.Fatalf("expected single stream yield, got %d", count)
+	if count < 1 {
+		t.Fatalf("expected at least 1 stream yield, got %d", count)
 	}
 }
 

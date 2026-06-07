@@ -42,6 +42,12 @@ func ValidateConfig(cfg *AgentConfig) []error {
 	}
 	if len(cfg.Skills) == 0 {
 		errs = append(errs, fmt.Errorf("skills must be non-empty"))
+	} else {
+		for i, s := range cfg.Skills {
+			if s.ID == "" {
+				errs = append(errs, fmt.Errorf("skills[%d].id is required", i))
+			}
+		}
 	}
 	if len(cfg.InputModes) == 0 {
 		errs = append(errs, fmt.Errorf("inputModes must be non-empty"))

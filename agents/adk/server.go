@@ -43,13 +43,24 @@ func (e *codeAgentExecutor) Cancel(ctx context.Context, execCtx *a2asrv.Executor
 	}
 }
 
-func buildAgentSkills(skills []string) []a2a.AgentSkill {
+func buildAgentSkills(skills []AgentSkill) []a2a.AgentSkill {
 	mapped := make([]a2a.AgentSkill, 0, len(skills))
 	for _, skill := range skills {
+		if skill.ID == "" {
+			continue
+		}
+		name := skill.Name
+		if name == "" {
+			name = skill.ID
+		}
+		desc := skill.Description
+		if desc == "" {
+			desc = name
+		}
 		mapped = append(mapped, a2a.AgentSkill{
-			ID:          skill,
-			Name:        skill,
-			Description: skill,
+			ID:          skill.ID,
+			Name:        name,
+			Description: desc,
 		})
 	}
 	return mapped
@@ -68,7 +79,16 @@ func BuildAgentCard(config *AgentConfig) *a2a.AgentCard {
 		Skills:             buildAgentSkills(config.Skills),
 	}
 
-	if config.URL != "" {
+	if len(config.SupportedInterfaces) > 0 {
+		ifaces := make([]*a2a.AgentInterface, 0, len(config.SupportedInterfaces))
+		for _, iface := range config.SupportedInterfaces {
+			if iface.URL == "" {
+				continue
+			}
+			ifaces = append(ifaces, a2a.NewAgentInterface(iface.URL, a2a.TransportProtocolJSONRPC))
+		}
+		card.SupportedInterfaces = ifaces
+	} else if config.URL != "" {
 		card.SupportedInterfaces = []*a2a.AgentInterface{
 			a2a.NewAgentInterface(config.URL, a2a.TransportProtocolJSONRPC),
 		}

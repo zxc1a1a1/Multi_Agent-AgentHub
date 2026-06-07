@@ -178,6 +178,11 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 	planState["strategy"] = orchPlan.Strategy
 	planState["taskCount"] = len(orchPlan.Tasks)
+	// Phase 5: always emit repair/fallback/validation metadata.
+	planState["repairCount"] = orchPlan.RepairCount
+	planState["fallback"] = orchPlan.Fallback.Enabled
+	planState["fallbackReason"] = orchPlan.Fallback.Reason
+	planState["validationPassed"] = orchPlan.Validation.Validated
 	s.emitEvent(w, flusher, OrchestratorStreamEvent{
 		Type:  "run_started",
 		RunID: runID,
@@ -186,9 +191,17 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	switch orchPlan.Strategy {
 	case plan.StrategySingle:
-		s.executeViaExecutor(w, flusher, r, orchPlan, msgID, executor.NewSingleExecutor(s.registry, s.dispatcher))
+		s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
+			executor.NewSingleExecutor(s.registry, s.dispatcher,
+				executor.WithSingleSynthesizer(s.synthesizer)))
 	case plan.StrategyOrderedParallel:
-		s.executeViaExecutor(w, flusher, r, orchPlan, msgID, executor.NewOrderedParallelExecutor(s.registry, s.dispatcher))
+		s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
+			executor.NewOrderedParallelExecutor(s.registry, s.dispatcher,
+				executor.WithOrderedParallelSynthesizer(s.synthesizer)))
+	case plan.StrategySequential:
+		s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
+			executor.NewDAGExecutor(s.registry, s.dispatcher,
+				executor.WithDAGSynthesizer(s.synthesizer)))
 	default:
 		s.emitEvent(w, flusher, OrchestratorStreamEvent{
 			Type:  "run_error",
@@ -201,23 +214,14 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// executeViaExecutor delegates execution to the given Executor and converts
-// executor events into SSE events.
-func (s *Server) executeViaExecutor(w http.ResponseWriter, flusher http.Flusher, r *http.Request, orchPlan *plan.OrchestrationPlan, msgID string, exec executor.Executor) {
-	execEvents, err := exec.Execute(r.Context(), orchPlan, msgID)
-	if err != nil {
-		s.emitEvent(w, flusher, OrchestratorStreamEvent{
-			Type:  "run_error",
-			RunID: orchPlan.RunID,
-			Error: &SafeError{
-				Code:    "ORCHESTRATOR_EXECUTOR_FAILED",
-				Message: "Executor failed: " + sanitizeForError(err.Error()),
-			},
-		})
-		return
-	}
-
-	for _, evt := range execEvents {
+// executeViaStreamingExecutor delegates to a StreamingExecutor and converts each
+// execution event into an SSE event the moment it is produced, flushing after
+// each one so the client receives partial output without head-of-line latency.
+func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http.Flusher, r *http.Request, orchPlan *plan.OrchestrationPlan, msgID string, exec executor.StreamingExecutor) {
+	emit := func(evt executor.ExecutionEvent) bool {
+		if err := r.Context().Err(); err != nil {
+			return false // client disconnected; stop the executor
+		}
 		sse := OrchestratorStreamEvent{
 			Type:      evt.Type,
 			RunID:     evt.RunID,
@@ -230,12 +234,21 @@ func (s *Server) executeViaExecutor(w http.ResponseWriter, flusher http.Flusher,
 			sse.Sender = &EventSender{Type: "agent", Name: evt.AgentName}
 		}
 		if evt.Error != nil {
-			sse.Error = &SafeError{
-				Code:    evt.Error.Code,
-				Message: evt.Error.Message,
-			}
+			sse.Error = &SafeError{Code: evt.Error.Code, Message: evt.Error.Message}
 		}
 		s.emitEvent(w, flusher, sse)
+		return true
+	}
+
+	if err := exec.ExecuteStream(r.Context(), orchPlan, msgID, emit); err != nil {
+		s.emitEvent(w, flusher, OrchestratorStreamEvent{
+			Type:  "run_error",
+			RunID: orchPlan.RunID,
+			Error: &SafeError{
+				Code:    "ORCHESTRATOR_EXECUTOR_FAILED",
+				Message: "Executor failed: " + sanitizeForError(err.Error()),
+			},
+		})
 	}
 }
 

@@ -113,7 +113,7 @@ func TestNewServer(t *testing.T) {
 		Description: "desc",
 		Version:     "v1",
 		URL:         "http://localhost:8080",
-		Skills:      []string{"code"},
+		Skills:      []AgentSkill{{ID: "code", Name: "code"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 	}, &mockServerAgent{name: "agent-a"})
@@ -132,7 +132,7 @@ func TestServer_Health(t *testing.T) {
 		Description: "desc",
 		Version:     "v1",
 		URL:         "http://localhost:8080",
-		Skills:      []string{"code"},
+		Skills:      []AgentSkill{{ID: "code", Name: "code"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 	}
@@ -164,7 +164,7 @@ func TestServer_AgentCard(t *testing.T) {
 		Description: "dynamic description",
 		Version:     "v2",
 		URL:         "http://localhost:18080",
-		Skills:      []string{"plan", "code"},
+		Skills:      []AgentSkill{{ID: "plan", Name: "plan"}, {ID: "code", Name: "code"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 		Streaming:   true,
@@ -200,7 +200,7 @@ func TestServer_AgentCardNoHardcodedCodeAgent(t *testing.T) {
 		Description: "custom",
 		Version:     "v1",
 		URL:         "http://localhost:18080",
-		Skills:      []string{"analyze"},
+		Skills:      []AgentSkill{{ID: "analyze", Name: "analyze"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 	}
@@ -391,7 +391,7 @@ func TestServer_RejectsUnsafeAgentCard(t *testing.T) {
 		Description: "contains OPENAI_API_KEY placeholder",
 		Version:     "v1",
 		URL:         "http://localhost:18080",
-		Skills:      []string{"code"},
+		Skills:      []AgentSkill{{ID: "code", Name: "code"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 	}
@@ -433,7 +433,7 @@ func defaultConfig(name string) *AgentConfig {
 		Description: "normal description",
 		Version:     "v1.0.0",
 		URL:         "http://localhost:8080",
-		Skills:      []string{"code"},
+		Skills:      []AgentSkill{{ID: "code", Name: "code"}},
 		InputModes:  []string{"text/plain"},
 		OutputModes: []string{"application/json"},
 	}

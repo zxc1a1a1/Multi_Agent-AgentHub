@@ -80,7 +80,8 @@ export default function ChatWindow({ conversationId }: Props) {
           {messages.map((msg) => (
             <MessageBubble key={msg.id} message={msg} />
           ))}
-          {streaming && (
+          {/* Only show skeleton when streaming has started but no agent message bubble exists yet. */}
+          {streaming && !messages.some((msg) => msg.status === 'streaming') && (
             <div className="flex gap-3">
               {/* Avatar placeholder — matches AgentAvatar size */}
               <div className="w-8 h-8 rounded-full bg-indigo-100 flex-shrink-0 flex items-center justify-center">

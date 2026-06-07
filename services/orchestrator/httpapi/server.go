@@ -9,15 +9,17 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
 )
 
 // Server is the minimal Orchestrator HTTP server.
 type Server struct {
-	mux        *http.ServeMux
-	token      string
-	registry   *registry.StaticAgentRegistry
-	dispatcher *dispatcher.A2ADispatcher
-	planner    planner.Planner // nil means use default RulePlanner
+	mux         *http.ServeMux
+	token       string
+	registry    *registry.StaticAgentRegistry
+	dispatcher  *dispatcher.A2ADispatcher
+	planner     planner.Planner // nil means use default RulePlanner
+	synthesizer synthesizer.Synthesizer
 }
 
 // Option customizes Server behavior.
@@ -64,6 +66,16 @@ func WithPlanner(p planner.Planner) Option {
 	}
 }
 
+// WithSynthesizer injects a synthesizer for multi-agent result aggregation.
+func WithSynthesizer(syn synthesizer.Synthesizer) Option {
+	return func(s *Server) {
+		if s == nil {
+			return
+		}
+		s.synthesizer = syn
+	}
+}
+
 // NewServer returns a Server with routes registered.
 func NewServer(opts ...Option) *Server {
 	s := &Server{
@@ -90,6 +102,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/internal/orchestrator/runs/stream", s.handleRunStream)
+	s.mux.HandleFunc("/internal/orchestrator/hitl/confirm", s.handleHITLConfirm)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

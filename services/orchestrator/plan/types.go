@@ -21,11 +21,13 @@ type OrchestrationPlan struct {
 	Aggregation    Aggregation `json:"aggregation"`
 	Fallback       Fallback    `json:"fallback"`
 	Validation     Validation  `json:"validation"`
+	TraceID        string      `json:"traceId,omitempty"` // propagated from request through dispatcher to agents
 
 	// Planner metadata — populated by LLMPlanner, zero-value for RulePlanner.
 	PlannerReasoning string `json:"plannerReasoning,omitempty"` // LLM reasoning
 	PlannerModel     string `json:"plannerModel,omitempty"`     // model name used
 	PlannerSource    string `json:"plannerSource,omitempty"`    // "llm" | "rule" | "fallback"
+	RepairCount      int    `json:"repairCount,omitempty"`      // number of repair attempts (max 1)
 }
 
 // TaskPlan is a single execution unit within an OrchestrationPlan.

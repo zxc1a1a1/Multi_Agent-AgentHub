@@ -9,6 +9,10 @@ import (
 
 // RulePlanner implements Planner using keyword-based rules.
 // Mixed web+code keywords produce ordered_parallel; everything else is single.
+//
+// Deprecated: RulePlanner is a transitional fallback only.
+// Do not add new routing rules. It will be removed after LLMPlanner
+// validation and repair are stable.
 type RulePlanner struct {
 	availableAgents []string
 }
@@ -38,6 +42,7 @@ func (p *RulePlanner) Plan(ctx context.Context, input PlannerInput) (*plan.Orche
 			PlanningMode:   input.PlanningMode,
 			Strategy:       plan.StrategyOrderedParallel,
 			IntentSummary:  summarize(input.UserMessage),
+			TraceID:        input.TraceID,
 			Tasks: []plan.TaskPlan{
 				{
 					TaskID:          "task_web",
@@ -79,6 +84,7 @@ func (p *RulePlanner) Plan(ctx context.Context, input PlannerInput) (*plan.Orche
 		PlanningMode:   input.PlanningMode,
 		Strategy:       plan.StrategySingle,
 		IntentSummary:  summarize(input.UserMessage),
+		TraceID:        input.TraceID,
 		Tasks: []plan.TaskPlan{
 			{
 				TaskID:          "task_001",
@@ -126,24 +132,25 @@ func (p *RulePlanner) determineAgent(input PlannerInput) string {
 	}
 
 	msg := strings.ToLower(input.UserMessage)
-	isWeb := containsAny(msg, webKeywords)
-	isCode := containsAny(msg, codeKeywords)
 
-	// Mixed web+code is handled by Plan() as ordered_parallel.
-	// Here in the single-agent fallback, treat mixed as web-first.
-	if isWeb && isCode {
-		if p.isKnown("web-agent") {
-			return "web-agent"
-		}
-		if p.isKnown("code-agent") {
-			return "code-agent"
-		}
+	// Check all specialized agent keywords in priority order.
+	agentKeywords := map[string][]string{
+		"web-agent":      webKeywords,
+		"code-agent":     codeKeywords,
+		"document-agent": {"文档", "doc", "readme", "api文档", "手册", "manual"},
+		"vision-agent":   {"图片", "图像", "ocr", "识别", "截图", "照片"},
+		"context-agent":  {"上下文", "摘要", "压缩", "总结", "记忆"},
+		"test-agent":     {"测试", "test", "覆盖率", "coverage", "用例", "bug"},
+		"review-agent":   {"审查", "review", "评审", "风险", "代码检查"},
+		"security-agent": {"安全", "漏洞", "security", "vulnerability", "注入", "密钥"},
+		"deploy-agent":   {"部署", "deploy", "发布", "上线", "回滚", "k8s", "docker"},
+		"diff-agent":     {"diff", "差异", "对比", "patch", "合并冲突"},
 	}
-	if isWeb && p.isKnown("web-agent") {
-		return "web-agent"
-	}
-	if isCode && p.isKnown("code-agent") {
-		return "code-agent"
+
+	for agentName, keywords := range agentKeywords {
+		if p.isKnown(agentName) && containsAny(msg, keywords) {
+			return agentName
+		}
 	}
 
 	// Default fallback.

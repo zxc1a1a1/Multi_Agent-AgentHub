@@ -43,6 +43,39 @@ If streaming endpoint is implemented separately, it must be explicitly documente
 
 Child Agent owns its Runner/session for task execution. Orchestrator only sends tasks and consumes stream/result events.
 
-## Current gap
+## Streaming response (SSE)
 
-If current A2A implementation returns an event array after completion, mark it as compatibility. Target is streaming event delivery from Child Agent to Orchestrator.
+The Orchestrator client (`pkg/adk/a2a.Client.SendJSONRPCStream`) consumes the
+Child Agent response as a stream of events and yields each event as it arrives,
+so the Orchestrator can forward partial output to the Gateway/Frontend without
+waiting for the whole task to complete.
+
+Transport negotiation is content-type based and backward compatible:
+
+| Server response `Content-Type` | Client behavior |
+|---|---|
+| `text/event-stream` | Parse SSE frames (`data: {EventDTO}\n\n`), yield each `EventDTO` as it arrives. |
+| `application/json` (buffered `RunResponse`) | Compatibility mode: yield each event in `RunResponse.Events` after the full body is read. |
+
+Rules:
+
+- Each SSE frame `data:` payload MUST be one JSON `EventDTO` (same shape as the
+  array elements in buffered `RunResponse.Events`).
+- A frame whose payload is `[DONE]` (or stream EOF) terminates the stream.
+- The client applies the same redaction as buffered mode: `thinking` parts are
+  emptied; transport/remote error messages are sanitized before they surface.
+- `SendJSONRPC` (buffered) remains supported and unchanged for callers that do
+  not need streaming.
+
+## Delta semantics (Orchestrator → Gateway)
+
+When the Orchestrator forwards streamed agent output, each text event becomes a
+`message_delta` event. The Frontend MUST treat `message_delta` as **append**
+(accumulate by `messageId`), never replace. `message_start` / `message_end`
+bracket one logical message; multiple `message_delta` may occur between them.
+
+## Compatibility note
+
+A Child Agent that returns a buffered event array after completion is still
+valid (compatibility mode). The streaming SSE response is the preferred target
+for new agents because it removes head-of-line latency.

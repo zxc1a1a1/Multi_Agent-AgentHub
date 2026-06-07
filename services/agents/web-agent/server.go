@@ -43,10 +43,10 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 		Description: "web UI and HTML generation",
 		Version:     defaultAgentVersion,
 		URL:         url,
-		Skills: []string{
-			"web_generation",
-			"html_generation",
-			"ui_summarization",
+		Skills: []a2a.AgentSkill{
+			{ID: "web_generation", Name: "Web Generation", Description: "Generates self-contained HTML/CSS/JS pages"},
+			{ID: "html_generation", Name: "HTML Generation", Description: "Generates HTML snippets and templates"},
+			{ID: "ui_summarization", Name: "UI Summarization", Description: "Summarizes and describes UI layouts"},
 		},
 		InputModes: []string{
 			"text",
@@ -60,7 +60,7 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 			"html",
 			"artifact_ref",
 		},
-		Streaming: false,
+		Streaming: true,
 	}
 
 	if errs := a2a.ValidateAgentConfig(agentCfg); len(errs) > 0 {

@@ -2,6 +2,10 @@ volumes:
   gateway-data:
 
 services:
+  # =========================================================================
+  # 10 Specialist Agents (ports 8081–8090)
+  # =========================================================================
+
   code-agent-new:
     build:
       context: .
@@ -9,6 +13,10 @@ services:
     environment:
       CODE_AGENT_ADDR: ":8080"
       CODE_AGENT_PUBLIC_URL: "http://code-agent-new:8080"
+      CODE_AGENT_LLM_PROVIDER: "${CODE_AGENT_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
+      CODE_AGENT_LLM_MODEL: "${CODE_AGENT_LLM_MODEL:-${LLM_MODEL}}"
+      CODE_AGENT_LLM_API_KEY: "${CODE_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
+      CODE_AGENT_LLM_BASE_URL: "${CODE_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
     ports:
       - "8081:8080"
     healthcheck:
@@ -24,6 +32,10 @@ services:
     environment:
       WEB_AGENT_ADDR: ":8080"
       WEB_AGENT_PUBLIC_URL: "http://web-agent-new:8080"
+      WEB_AGENT_LLM_PROVIDER: "${WEB_AGENT_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
+      WEB_AGENT_LLM_MODEL: "${WEB_AGENT_LLM_MODEL:-${LLM_MODEL}}"
+      WEB_AGENT_LLM_API_KEY: "${WEB_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
+      WEB_AGENT_LLM_BASE_URL: "${WEB_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
     ports:
       - "8082:8080"
     healthcheck:
@@ -31,6 +43,162 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  document-agent-new:
+    build:
+      context: .
+      dockerfile: services/agents/document-agent/Dockerfile
+    environment:
+      DOCUMENT_AGENT_ADDR: ":8080"
+      DOCUMENT_AGENT_PUBLIC_URL: "http://document-agent-new:8080"
+      DOCUMENT_AGENT_LLM_PROVIDER: "${DOCUMENT_AGENT_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
+      DOCUMENT_AGENT_LLM_MODEL: "${DOCUMENT_AGENT_LLM_MODEL:-${LLM_MODEL}}"
+      DOCUMENT_AGENT_LLM_API_KEY: "${DOCUMENT_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
+      DOCUMENT_AGENT_LLM_BASE_URL: "${DOCUMENT_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
+    ports:
+      - "8083:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  vision-agent-new:
+    build:
+      context: .
+      dockerfile: services/agents/vision-agent/Dockerfile
+    environment:
+      VISION_AGENT_ADDR: ":8080"
+      VISION_AGENT_PUBLIC_URL: "http://vision-agent-new:8080"
+      VISION_AGENT_LLM_PROVIDER: "${VISION_AGENT_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
+      VISION_AGENT_LLM_MODEL: "${VISION_AGENT_LLM_MODEL:-${LLM_MODEL}}"
+      VISION_AGENT_LLM_API_KEY: "${VISION_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
+      VISION_AGENT_LLM_BASE_URL: "${VISION_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
+    ports:
+      - "8084:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  context-agent-new:
+    build:
+      context: .
+      dockerfile: services/agents/context-agent/Dockerfile
+    environment:
+      CONTEXT_AGENT_ADDR: ":8080"
+      CONTEXT_AGENT_PUBLIC_URL: "http://context-agent-new:8080"
+      CONTEXT_AGENT_LLM_PROVIDER: "${CONTEXT_AGENT_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
+      CONTEXT_AGENT_LLM_MODEL: "${CONTEXT_AGENT_LLM_MODEL:-${LLM_MODEL}}"
+      CONTEXT_AGENT_LLM_API_KEY: "${CONTEXT_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
+      CONTEXT_AGENT_LLM_BASE_URL: "${CONTEXT_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
+    ports:
+      - "8085:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  test-agent-new:
+    build:
+      context: .
+      dockerfile: services/agents/test-agent/Dockerfile
+    environment:
+      TEST_AGENT_ADDR: ":8080"
+      TEST_AGENT_PUBLIC_URL: "http://test-agent-new:8080"
+      TEST_AGENT_LLM_PROVIDER: "${TEST_AGENT_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
+      TEST_AGENT_LLM_MODEL: "${TEST_AGENT_LLM_MODEL:-${LLM_MODEL}}"
+      TEST_AGENT_LLM_API_KEY: "${TEST_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
+      TEST_AGENT_LLM_BASE_URL: "${TEST_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
+    ports:
+      - "8086:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  review-agent-new:
+    build:
+      context: .
+      dockerfile: services/agents/review-agent/Dockerfile
+    environment:
+      REVIEW_AGENT_ADDR: ":8080"
+      REVIEW_AGENT_PUBLIC_URL: "http://review-agent-new:8080"
+      REVIEW_AGENT_LLM_PROVIDER: "${REVIEW_AGENT_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
+      REVIEW_AGENT_LLM_MODEL: "${REVIEW_AGENT_LLM_MODEL:-${LLM_MODEL}}"
+      REVIEW_AGENT_LLM_API_KEY: "${REVIEW_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
+      REVIEW_AGENT_LLM_BASE_URL: "${REVIEW_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
+    ports:
+      - "8087:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  security-agent-new:
+    build:
+      context: .
+      dockerfile: services/agents/security-agent/Dockerfile
+    environment:
+      SECURITY_AGENT_ADDR: ":8080"
+      SECURITY_AGENT_PUBLIC_URL: "http://security-agent-new:8080"
+      SECURITY_AGENT_LLM_PROVIDER: "${SECURITY_AGENT_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
+      SECURITY_AGENT_LLM_MODEL: "${SECURITY_AGENT_LLM_MODEL:-${LLM_MODEL}}"
+      SECURITY_AGENT_LLM_API_KEY: "${SECURITY_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
+      SECURITY_AGENT_LLM_BASE_URL: "${SECURITY_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
+    ports:
+      - "8088:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  deploy-agent-new:
+    build:
+      context: .
+      dockerfile: services/agents/deploy-agent/Dockerfile
+    environment:
+      DEPLOY_AGENT_ADDR: ":8080"
+      DEPLOY_AGENT_PUBLIC_URL: "http://deploy-agent-new:8080"
+      DEPLOY_AGENT_LLM_PROVIDER: "${DEPLOY_AGENT_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
+      DEPLOY_AGENT_LLM_MODEL: "${DEPLOY_AGENT_LLM_MODEL:-${LLM_MODEL}}"
+      DEPLOY_AGENT_LLM_API_KEY: "${DEPLOY_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
+      DEPLOY_AGENT_LLM_BASE_URL: "${DEPLOY_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
+    ports:
+      - "8089:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  diff-agent-new:
+    build:
+      context: .
+      dockerfile: services/agents/diff-agent/Dockerfile
+    environment:
+      DIFF_AGENT_ADDR: ":8080"
+      DIFF_AGENT_PUBLIC_URL: "http://diff-agent-new:8080"
+      DIFF_AGENT_LLM_PROVIDER: "${DIFF_AGENT_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
+      DIFF_AGENT_LLM_MODEL: "${DIFF_AGENT_LLM_MODEL:-${LLM_MODEL}}"
+      DIFF_AGENT_LLM_API_KEY: "${DIFF_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
+      DIFF_AGENT_LLM_BASE_URL: "${DIFF_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
+    ports:
+      - "8091:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # =========================================================================
+  # Orchestrator — depends on code-agent + web-agent (core); others optional
+  # =========================================================================
 
   orchestrator-new:
     build:
@@ -41,6 +209,19 @@ services:
       INTERNAL_SERVICE_TOKEN: "dev-internal-token"
       CODE_AGENT_URL: "http://code-agent-new:8080"
       WEB_AGENT_URL: "http://web-agent-new:8080"
+      DOCUMENT_AGENT_URL: "http://document-agent-new:8080"
+      VISION_AGENT_URL: "http://vision-agent-new:8080"
+      CONTEXT_AGENT_URL: "http://context-agent-new:8080"
+      TEST_AGENT_URL: "http://test-agent-new:8080"
+      REVIEW_AGENT_URL: "http://review-agent-new:8080"
+      SECURITY_AGENT_URL: "http://security-agent-new:8080"
+      DEPLOY_AGENT_URL: "http://deploy-agent-new:8080"
+      DIFF_AGENT_URL: "http://diff-agent-new:8080"
+      ORCHESTRATOR_AGENT_CARD_LOAD: "true"
+      ORCHESTRATOR_LLM_PROVIDER: "${ORCHESTRATOR_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
+      ORCHESTRATOR_LLM_MODEL: "${ORCHESTRATOR_LLM_MODEL:-${LLM_MODEL}}"
+      ORCHESTRATOR_LLM_API_KEY: "${ORCHESTRATOR_LLM_API_KEY:-${LLM_API_KEY}}"
+      ORCHESTRATOR_LLM_BASE_URL: "${ORCHESTRATOR_LLM_BASE_URL:-${LLM_BASE_URL}}"
     ports:
       - "8090:8080"
     depends_on:
@@ -54,6 +235,10 @@ services:
       timeout: 3s
       retries: 20
 
+  # =========================================================================
+  # Gateway — public REST API + SSE
+  # =========================================================================
+
   gateway-new:
     build:
       context: .
@@ -66,6 +251,17 @@ services:
       GATEWAY_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
       AGENTHUB_GATEWAY_STORE: "sqlite"
       AGENTHUB_SQLITE_PATH: "/data/agenthub.db"
+      # Agent endpoint URLs for frontend agent dropdown display
+      CODE_AGENT_URL: "http://code-agent-new:8080"
+      WEB_AGENT_URL: "http://web-agent-new:8080"
+      DOCUMENT_AGENT_URL: "http://document-agent-new:8080"
+      VISION_AGENT_URL: "http://vision-agent-new:8080"
+      CONTEXT_AGENT_URL: "http://context-agent-new:8080"
+      TEST_AGENT_URL: "http://test-agent-new:8080"
+      REVIEW_AGENT_URL: "http://review-agent-new:8080"
+      SECURITY_AGENT_URL: "http://security-agent-new:8080"
+      DEPLOY_AGENT_URL: "http://deploy-agent-new:8080"
+      DIFF_AGENT_URL: "http://diff-agent-new:8080"
     ports:
       - "8080:8080"
     volumes:
@@ -78,6 +274,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  # =========================================================================
+  # Frontend — React dev server
+  # =========================================================================
 
   frontend-new:
     build:

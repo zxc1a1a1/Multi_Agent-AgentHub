@@ -2,10 +2,17 @@ name: security-agent
 description: 用于对调用方提供的文本、diff、命令和 Agent 输出进行安全风险审查，识别密钥泄漏、危险命令和权限边界问题；第一版不读取本地文件系统。
 version: "0.1.0"
 url: "http://localhost:8097"
+streaming: true
 skills:
-  - secret_scan
-  - command_risk_review
-  - permission_review
+  - id: secret_scan
+    name: Secret Scan
+    description: 扫描代码和文本中的密钥、令牌和敏感凭证泄漏
+  - id: command_risk_review
+    name: Command Risk Review
+    description: 审查命令和脚本中的危险操作和安全风险
+  - id: permission_review
+    name: Permission Review
+    description: 审查权限配置和访问控制边界的安全性
 inputModes:
   - text
   - vision_analysis
@@ -14,4 +21,6 @@ inputModes:
 outputModes:
   - text
   - security_report
-streaming: true
+supportedInterfaces:
+  - type: JSONRPC
+    url: "http://localhost:8097"

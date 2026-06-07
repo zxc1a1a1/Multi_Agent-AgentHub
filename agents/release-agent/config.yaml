@@ -2,13 +2,22 @@ name: release-agent
 description: 用于根据改动摘要、测试结果、审查结果和版本信息生成发布报告、变更日志、风险说明和回滚建议；第一版只生成报告，不执行发布命令。
 version: "0.1.0"
 url: "http://localhost:8106"
+streaming: true
 skills:
-  - release_report
-  - changelog_generation
-  - release_risk_summary
+  - id: release_report
+    name: Release Report
+    description: 根据改动和测试结果生成发布报告和发布说明
+  - id: changelog_generation
+    name: Changelog Generation
+    description: 根据变更记录自动生成结构化的变更日志
+  - id: release_risk_summary
+    name: Release Risk Summary
+    description: 分析发布风险并生成风险摘要和回滚建议
 inputModes:
   - text
 outputModes:
   - text
   - release_report
-streaming: true
+supportedInterfaces:
+  - type: JSONRPC
+    url: "http://localhost:8106"

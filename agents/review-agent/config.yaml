@@ -2,13 +2,22 @@ name: review-agent
 description: 用于根据需求、代码变更和产物内容进行审查，输出质量问题、风险等级、改进建议和需求覆盖情况，适合作为代码与产物评审 Agent。
 version: "0.1.0"
 url: "http://localhost:8094"
+streaming: true
 skills:
-  - code_review
-  - requirement_coverage_review
-  - risk_review
+  - id: code_review
+    name: Code Review
+    description: 审查代码变更的质量、风格、安全性和正确性
+  - id: requirement_coverage_review
+    name: Requirement Coverage Review
+    description: 检查产物对需求的覆盖度和完整性
+  - id: risk_review
+    name: Risk Review
+    description: 评估代码变更和产物的风险等级和影响范围
 inputModes:
   - text
 outputModes:
   - text
   - review_report
-streaming: true
+supportedInterfaces:
+  - type: JSONRPC
+    url: "http://localhost:8094"

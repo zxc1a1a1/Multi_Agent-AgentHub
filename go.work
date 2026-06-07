@@ -1,12 +1,18 @@
 go 1.26.0
 
 use (
-	./agents
-	./server
 	./pkg/adk
 	./pkg/runtime
 	./services/gateway
+	./services/orchestrator
 	./services/agents/code-agent
 	./services/agents/web-agent
-	./services/orchestrator
+	./services/agents/document-agent
+	./services/agents/vision-agent
+	./services/agents/context-agent
+	./services/agents/test-agent
+	./services/agents/review-agent
+	./services/agents/security-agent
+	./services/agents/deploy-agent
+	./services/agents/diff-agent
 )

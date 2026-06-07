@@ -35,6 +35,18 @@ server/**               legacy reference only
 agents/**               legacy reference only
 ```
 
+## Streaming A2A (current state)
+
+The Orchestrator client (`pkg/adk/a2a.Client.SendJSONRPCStream`) supports
+streaming SSE consumption. Transport negotiation is content-type based:
+
+- `text/event-stream` → parse SSE frames (`data: {EventDTO}\n\n`), yield per-event.
+- `application/json` (buffered) → fallback: yield each event after full body read.
+- `[DONE]` frame or EOF terminates the stream.
+
+Delta semantics (Orchestrator → Gateway): each `message_delta` MUST be treated
+as **append** (accumulate by `messageId`), never replace.
+
 ## Contracts to read first
 
 - `docs/contracts/a2a-agent-card.md`

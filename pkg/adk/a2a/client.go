@@ -1,12 +1,14 @@
 package a2a
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/url"
 	"strings"
@@ -35,6 +37,7 @@ type Message struct {
 type RunRequest struct {
 	SessionID string  `json:"sessionId"`
 	Message   Message `json:"message"`
+	TraceID   string  `json:"traceId,omitempty"`
 }
 
 // ResponseError defines the minimal structured error payload.
@@ -116,6 +119,187 @@ func (c *Client) Send(ctx context.Context, baseURL string, req RunRequest) (*Run
 // SendJSONRPC sends a JSON-RPC wrapped A2A run request via HTTP POST.
 func (c *Client) SendJSONRPC(ctx context.Context, baseURL string, req RunRequest) (*RunResponse, error) {
 	return c.send(ctx, baseURL, req, true)
+}
+
+// StreamChunk is one streamed result from SendJSONRPCStream. Exactly one of
+// Event / Err is meaningful per chunk: when Err != nil the stream is finished
+// with an error and no further chunks follow.
+type StreamChunk struct {
+	Event EventDTO
+	Err   error
+}
+
+// SendJSONRPCStream sends a JSON-RPC wrapped A2A run request and yields events
+// as they arrive. If the server responds with Content-Type text/event-stream,
+// frames are parsed and yielded incrementally. Otherwise (buffered
+// application/json RunResponse) the client falls back to yielding each event
+// after the body is read. thinking parts are redacted and remote error
+// messages are sanitized, matching buffered SendJSONRPC behavior.
+func (c *Client) SendJSONRPCStream(ctx context.Context, baseURL string, req RunRequest) iter.Seq[StreamChunk] {
+	return func(yield func(StreamChunk) bool) {
+		endpoint, err := normalizeBaseURL(baseURL)
+		if err != nil {
+			yield(StreamChunk{Err: err})
+			return
+		}
+		req, err = normalizeRunRequest(req)
+		if err != nil {
+			yield(StreamChunk{Err: err})
+			return
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := ctx.Err(); err != nil {
+			yield(StreamChunk{Err: err})
+			return
+		}
+
+		httpClient := http.DefaultClient
+		if c != nil && c.httpClient != nil {
+			httpClient = c.httpClient
+		}
+
+		bodyRaw, err := json.Marshal(jsonRPCRequest{
+			JSONRPC: "2.0",
+			ID:      "1",
+			Method:  defaultJSONRPCMethod,
+			Params:  req,
+		})
+		if err != nil {
+			yield(StreamChunk{Err: errors.New("encode request failed")})
+			return
+		}
+
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyRaw))
+		if err != nil {
+			yield(StreamChunk{Err: errors.New("build request failed")})
+			return
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "text/event-stream, application/json")
+
+		httpResp, err := httpClient.Do(httpReq)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				yield(StreamChunk{Err: err})
+				return
+			}
+			yield(StreamChunk{Err: errors.New("send request failed")})
+			return
+		}
+		defer httpResp.Body.Close()
+
+		if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+			respBody, _ := io.ReadAll(io.LimitReader(httpResp.Body, maxBodySizeBytes))
+			yield(StreamChunk{Err: buildStatusError(httpResp.StatusCode, respBody)})
+			return
+		}
+
+		if isEventStream(httpResp.Header.Get("Content-Type")) {
+			streamSSE(httpResp.Body, yield)
+			return
+		}
+		// Compatibility fallback: buffered application/json RunResponse.
+		yieldBufferedResponse(httpResp.Body, yield)
+	}
+}
+
+// isEventStream reports whether the content type indicates SSE.
+func isEventStream(contentType string) bool {
+	return strings.Contains(strings.ToLower(contentType), "text/event-stream")
+}
+
+// streamSSE parses SSE frames from r and yields one EventDTO per data frame.
+// A data payload of "[DONE]" terminates the stream.
+func streamSSE(r io.Reader, yield func(StreamChunk) bool) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxBodySizeBytes)
+	var dataLines []string
+
+	dispatch := func() bool {
+		if len(dataLines) == 0 {
+			return true
+		}
+		payload := strings.TrimSpace(strings.Join(dataLines, "\n"))
+		dataLines = dataLines[:0]
+		if payload == "" {
+			return true
+		}
+		if payload == "[DONE]" {
+			return false
+		}
+		var event EventDTO
+		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+			// Skip malformed frames rather than aborting the whole stream.
+			return true
+		}
+		redactThinkingEvent(&event)
+		return yield(StreamChunk{Event: event})
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			// Blank line terminates one SSE frame.
+			if !dispatch() {
+				return
+			}
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue // comment / heartbeat
+		}
+		if strings.HasPrefix(line, "data:") {
+			dataLines = append(dataLines, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
+		}
+	}
+	// Flush any trailing frame not followed by a blank line.
+	if !dispatch() {
+		return
+	}
+	if err := scanner.Err(); err != nil {
+		yield(StreamChunk{Err: errors.New("read stream failed")})
+	}
+}
+
+// yieldBufferedResponse decodes a full RunResponse and yields each event.
+func yieldBufferedResponse(r io.Reader, yield func(StreamChunk) bool) {
+	respBody, err := io.ReadAll(io.LimitReader(r, maxBodySizeBytes))
+	if err != nil {
+		yield(StreamChunk{Err: errors.New("read response failed")})
+		return
+	}
+	var parsed RunResponse
+	if err := decodeStrictJSON(respBody, &parsed); err != nil {
+		yield(StreamChunk{Err: errors.New("decode response failed")})
+		return
+	}
+	if parsed.Error != nil {
+		yield(StreamChunk{Err: fmt.Errorf("remote request failed: %s", sanitizeRemoteErrorMessage(parsed.Error.Message))})
+		return
+	}
+	redactThinkingParts(&parsed)
+	for _, event := range parsed.Events {
+		if !yield(StreamChunk{Event: event}) {
+			return
+		}
+	}
+}
+
+// redactThinkingEvent empties thinking parts in a single event.
+func redactThinkingEvent(event *EventDTO) {
+	if event == nil {
+		return
+	}
+	for j := range event.Parts {
+		if event.Parts[j].Type != "thinking" {
+			continue
+		}
+		event.Parts[j].Text = ""
+		event.Parts[j].Content = ""
+		event.Parts[j].Arguments = nil
+	}
 }
 
 func (c *Client) send(ctx context.Context, baseURL string, req RunRequest, jsonRPC bool) (*RunResponse, error) {
@@ -230,16 +414,33 @@ func normalizeRunRequest(req RunRequest) (RunRequest, error) {
 	return req, nil
 }
 
+// StatusError carries the HTTP status code of a failed A2A response so callers
+// (e.g. the Orchestrator dispatcher) can classify retryability without parsing
+// error strings.
+type StatusError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *StatusError) Error() string {
+	if e == nil {
+		return "remote request failed"
+	}
+	if e.Message != "" {
+		return fmt.Sprintf("remote request failed (%d): %s", e.StatusCode, e.Message)
+	}
+	return fmt.Sprintf("remote request failed (%d)", e.StatusCode)
+}
+
 func buildStatusError(statusCode int, body []byte) error {
 	body = bytes.TrimSpace(body)
 	if len(body) > 0 {
 		var resp RunResponse
 		if err := decodeStrictJSON(body, &resp); err == nil && resp.Error != nil {
-			msg := sanitizeRemoteErrorMessage(resp.Error.Message)
-			return fmt.Errorf("remote request failed (%d): %s", statusCode, msg)
+			return &StatusError{StatusCode: statusCode, Message: sanitizeRemoteErrorMessage(resp.Error.Message)}
 		}
 	}
-	return fmt.Errorf("remote request failed (%d)", statusCode)
+	return &StatusError{StatusCode: statusCode}
 }
 
 func sanitizeRemoteErrorMessage(message string) string {

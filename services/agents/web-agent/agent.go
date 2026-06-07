@@ -33,14 +33,29 @@ type Config struct {
 }
 
 // WebAgent is a minimal mock web agent powered by pkg/adk interfaces.
+// When llm is non-nil, it delegates to the LLM; otherwise it returns mock responses.
 type WebAgent struct {
 	name        string
 	description string
 	version     string
+	llm         adk.Model // nil means use mock
+}
+
+// WebAgentOption customizes a WebAgent.
+type WebAgentOption func(*WebAgent)
+
+// WithModel injects an LLM model. When nil, the agent uses mock responses.
+func WithModel(m adk.Model) WebAgentOption {
+	return func(a *WebAgent) {
+		if a == nil {
+			return
+		}
+		a.llm = m
+	}
 }
 
 // NewWebAgent creates a minimal WebAgent with safe defaults.
-func NewWebAgent(cfg Config) *WebAgent {
+func NewWebAgent(cfg Config, opts ...WebAgentOption) *WebAgent {
 	name := strings.TrimSpace(cfg.Name)
 	if name == "" {
 		name = defaultAgentName
@@ -56,11 +71,17 @@ func NewWebAgent(cfg Config) *WebAgent {
 		version = defaultAgentVersion
 	}
 
-	return &WebAgent{
+	a := &WebAgent{
 		name:        name,
 		description: description,
 		version:     version,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(a)
+		}
+	}
+	return a
 }
 
 // Name returns the stable public identity for this ADK agent.
@@ -72,12 +93,19 @@ func (a *WebAgent) Name() string {
 }
 
 // Generate produces a deterministic minimal response without calling any real LLM.
+// When an LLM model is configured, it delegates to the model instead.
 func (a *WebAgent) Generate(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
 	_ = ctx
 	if req == nil {
 		return nil, errors.New("generate request is required")
 	}
 
+	// LLM path: delegate to the configured model.
+	if a.llm != nil {
+		return a.llm.Generate(ctx, req)
+	}
+
+	// Mock path: deterministic response for CI / no-key environments.
 	userText, err := extractLastUserText(req.Contents)
 	if err != nil {
 		return nil, err

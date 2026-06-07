@@ -4,6 +4,8 @@ package validator
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
@@ -14,11 +16,13 @@ import (
 type Registry interface {
 	Get(name string) (registry.AgentEndpoint, bool)
 	Names() []string
+	IsHealthy(name string) bool
 }
 
 // ValidationError is a single validation failure with field path and message.
 type ValidationError struct {
 	Field   string `json:"field"`
+	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
@@ -31,12 +35,14 @@ type ValidationResult struct {
 // PlanValidator validates an OrchestrationPlan against structural rules and
 // agent registry capabilities.
 type PlanValidator struct {
-	registry Registry
+	registry    Registry
+	hitlEnabled bool // when true, high-risk tasks are allowed (HITL handles confirmation)
 }
 
 // New creates a PlanValidator backed by the given registry.
 func New(reg Registry) *PlanValidator {
-	return &PlanValidator{registry: reg}
+	hitl := strings.ToLower(strings.TrimSpace(os.Getenv("HITL_ENABLED"))) == "true"
+	return &PlanValidator{registry: reg, hitlEnabled: hitl}
 }
 
 // Validate checks the plan against all required rules. If the plan passes, the
@@ -46,7 +52,7 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 
 	if p == nil {
 		r.Valid = false
-		r.Errors = append(r.Errors, ValidationError{Field: "plan", Message: "plan is nil"})
+		r.Errors = append(r.Errors, ValidationError{Field: "plan", Code: "INVALID", Message: "plan is nil"})
 		return r
 	}
 
@@ -65,10 +71,10 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 		r.add("conversationId", "conversationId is required")
 	}
 
-	// 4. strategy must be single or ordered_parallel.
-	if p.Strategy != plan.StrategySingle && p.Strategy != plan.StrategyOrderedParallel {
-		r.add("strategy", fmt.Sprintf("strategy must be %q or %q, got %q",
-			plan.StrategySingle, plan.StrategyOrderedParallel, p.Strategy))
+	// 4. strategy must be one of the supported values.
+	if p.Strategy != plan.StrategySingle && p.Strategy != plan.StrategyOrderedParallel && p.Strategy != plan.StrategySequential {
+		r.add("strategy", fmt.Sprintf("strategy must be %q, %q, or %q, got %q",
+			plan.StrategySingle, plan.StrategyOrderedParallel, plan.StrategySequential, p.Strategy))
 	}
 
 	// 5. tasks non-empty.
@@ -76,14 +82,38 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 		r.add("tasks", "tasks must not be empty")
 	}
 
-	// 6. v1.0 max 3 tasks.
-	if len(p.Tasks) > 3 {
-		r.add("tasks", fmt.Sprintf("v1.0 supports at most 3 tasks, got %d", len(p.Tasks)))
+	// 6. task limit (default 5, configurable via ORCHESTRATOR_MAX_TASKS).
+	maxTasks := 5
+	if v := strings.TrimSpace(os.Getenv("ORCHESTRATOR_MAX_TASKS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			maxTasks = n
+		}
+	}
+	if len(p.Tasks) > maxTasks {
+		r.add("tasks", fmt.Sprintf("at most %d tasks allowed, got %d", maxTasks, len(p.Tasks)))
 	}
 
+	// 7. single strategy requires exactly 1 task.
+	if p.Strategy == plan.StrategySingle && len(p.Tasks) != 1 {
+		r.add("tasks", fmt.Sprintf("single strategy requires exactly 1 task, got %d", len(p.Tasks)))
+	}
+
+	// 8. ordered_parallel strategy requires at least 2 tasks.
+	if p.Strategy == plan.StrategyOrderedParallel && len(p.Tasks) < 2 {
+		r.add("tasks", fmt.Sprintf("ordered_parallel strategy requires at least 2 tasks, got %d", len(p.Tasks)))
+	}
+
+	// Build taskID set with duplicate detection.
 	taskIDs := make(map[string]bool, len(p.Tasks))
 	for _, t := range p.Tasks {
-		taskIDs[t.TaskID] = true
+		id := strings.TrimSpace(t.TaskID)
+		if id == "" {
+			continue // caught by per-task taskId check below
+		}
+		if taskIDs[id] {
+			r.add("tasks", fmt.Sprintf("duplicate taskId %q", id))
+		}
+		taskIDs[id] = true
 	}
 
 	for i, t := range p.Tasks {
@@ -104,6 +134,11 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 			if !ok {
 				r.add(prefix+".agentName", fmt.Sprintf("agent %q not found in registry", agentName))
 			} else {
+				// 7a. agent must be healthy (AGENT_UNAVAILABLE is distinct from INVALID).
+				if !v.registry.IsHealthy(agentName) {
+					r.add(prefix+".agentName", fmt.Sprintf("agent %q is unhealthy", agentName))
+				}
+
 				// 8. capabilityIds must belong to target agent.
 				for _, cid := range t.CapabilityIDs {
 					if !containsCI(agent.CapabilityIDs, cid) {
@@ -130,6 +165,25 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 			}
 		}
 
+		// 10a. dependsOn must not reference self.
+		for _, dep := range t.DependsOn {
+			if strings.EqualFold(strings.TrimSpace(dep), id) {
+				r.add(prefix+".dependsOn",
+					fmt.Sprintf("task must not depend on itself (%q)", id))
+			}
+		}
+
+		// 10b. ordered_parallel tasks must not have depends_on.
+		if p.Strategy == plan.StrategyOrderedParallel && len(t.DependsOn) > 0 {
+			r.add(prefix+".dependsOn",
+				"depends_on is not allowed in ordered_parallel strategy")
+		}
+
+		// 10c. taskContent must not be empty.
+		if strings.TrimSpace(t.TaskContent) == "" {
+			r.add(prefix+".taskContent", "taskContent must not be empty")
+		}
+
 		// 11. timeoutMs must be between 5000 and 180000.
 		if t.TimeoutMs < 5000 || t.TimeoutMs > 180000 {
 			r.add(prefix+".timeoutMs",
@@ -143,10 +197,41 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 				fmt.Sprintf("riskLevel must be low/medium/high, got %q", t.RiskLevel))
 		}
 
-		// 13. high risk tasks are not allowed for auto execution in v1.0.
-		if rl == "high" {
+		// 13. high risk tasks require HITL confirmation; auto-execution only when HITL enabled.
+		if rl == "high" && !v.hitlEnabled {
 			r.add(prefix+".riskLevel",
-				"high risk tasks are not allowed for auto execution in v1.0")
+				"high risk tasks are not allowed for auto execution in v1.0 (set HITL_ENABLED=true to enable)")
+		}
+
+		// 14. taskContent must not contain internal URLs.
+		if containsURL(t.TaskContent) {
+			r.add(prefix+".taskContent",
+				"taskContent must not contain internal URLs")
+		}
+
+		// 15. taskContent must not contain API keys / tokens / secrets.
+		if containsSecret(t.TaskContent) {
+			r.add(prefix+".taskContent",
+				"taskContent must not contain secrets or tokens")
+		}
+
+		// 16. taskContent must not contain database DSNs.
+		if containsDSN(t.TaskContent) {
+			r.add(prefix+".taskContent",
+				"taskContent must not contain database connection strings")
+		}
+
+		// 17. taskContent must not contain system prompts.
+		if containsSystemPrompt(t.TaskContent) {
+			r.add(prefix+".taskContent",
+				"taskContent must not contain system prompts")
+		}
+	}
+
+	// 18. DAG cycle detection — applicable when any task has dependsOn.
+	if r.Valid && hasDependsOn(p.Tasks) {
+		if err := checkDAGCycle(p.Tasks); err != nil {
+			r.add("tasks", "circular dependency detected in depends_on chain: "+err.Error())
 		}
 	}
 
@@ -155,7 +240,7 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 
 func (r *ValidationResult) add(field, message string) {
 	r.Valid = false
-	r.Errors = append(r.Errors, ValidationError{Field: field, Message: message})
+	r.Errors = append(r.Errors, ValidationError{Field: field, Code: "INVALID", Message: message})
 }
 
 func containsCI(slice []string, item string) bool {
@@ -165,4 +250,210 @@ func containsCI(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// containsURL returns true if s contains an HTTP(S) URL pointing to an internal
+// or private host, or contains a bare internal hostname/IP even without a scheme.
+//
+// External URLs (https://example.com, https://api.github.com, etc.) are allowed.
+func containsURL(s string) bool {
+	lower := strings.ToLower(s)
+
+	// Fast path: bare internal hostnames/IPs (no http:// required).
+	for _, pat := range []string{"localhost", "127.0.0.1", "0.0.0.0", "[::1]"} {
+		if strings.Contains(lower, pat) {
+			return true
+		}
+	}
+
+	// Scan for http:// or https:// URLs and inspect the host.
+	for _, prefix := range []string{"http://", "https://"} {
+		idx := 0
+		for idx < len(lower) {
+			pos := strings.Index(lower[idx:], prefix)
+			if pos < 0 {
+				break
+			}
+			absPos := idx + pos
+			hostStart := absPos + len(prefix)
+			// Host ends at the first /, ?, #, space, or control char.
+			hostEnd := strings.IndexAny(lower[hostStart:], "/?# \t\n\r\"'`<>")
+			var host string
+			if hostEnd < 0 {
+				host = lower[hostStart:]
+			} else {
+				host = lower[hostStart : hostStart+hostEnd]
+			}
+			// Strip port number.
+			if colonIdx := strings.LastIndex(host, ":"); colonIdx >= 0 {
+				// Only strip if it looks like a port (digits after colon).
+				portPart := host[colonIdx+1:]
+				if _, err := strconv.Atoi(portPart); err == nil {
+					host = host[:colonIdx]
+				}
+			}
+			host = strings.TrimSpace(host)
+			if isInternalHost(host) {
+				return true
+			}
+			// Advance past this URL.
+			idx = hostStart + len(host) + 1
+			if idx <= absPos {
+				idx = absPos + 1 // safety: ensure we make progress
+			}
+		}
+	}
+	return false
+}
+
+// isInternalHost returns true if host is a private, loopback, link-local, or
+// internal network address.
+func isInternalHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	// Loopback / unspecified.
+	switch host {
+	case "localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]":
+		return true
+	}
+
+	// Private IPv4 ranges.
+	if strings.HasPrefix(host, "10.") ||
+		strings.HasPrefix(host, "192.168.") ||
+		strings.HasPrefix(host, "169.254.") { // link-local
+		return true
+	}
+	// 172.16.0.0/12
+	if strings.HasPrefix(host, "172.") {
+		parts := strings.Split(host, ".")
+		if len(parts) >= 2 {
+			if second, err := strconv.Atoi(parts[1]); err == nil && second >= 16 && second <= 31 {
+				return true
+			}
+		}
+	}
+
+	// Internal TLDs and hostname suffixes.
+	for _, suffix := range []string{
+		".local", ".internal", ".lan", ".corp",
+		".localhost", ".intranet", ".private",
+	} {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// containsSecret returns true if s contains API key or token-like strings.
+func containsSecret(s string) bool {
+	lower := strings.ToLower(s)
+	patterns := []string{
+		"sk-",          // common LLM API key prefix
+		"api_key", "apikey", "api-key",
+		"bearer ",      // token prefix
+		"token=", "token:", "token ",
+		"secret=", "secret:", "secret ",
+		"password=", "password:", "password ",
+		"credential",
+	}
+	for _, pat := range patterns {
+		if strings.Contains(lower, pat) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsDSN returns true if s contains database connection string patterns.
+func containsDSN(s string) bool {
+	lower := strings.ToLower(s)
+	patterns := []string{
+		"mysql://", "postgres://", "postgresql://",
+		"mongodb://", "sqlite://", "redis://",
+		"jdbc:", "dsn=",
+	}
+	for _, pat := range patterns {
+		if strings.Contains(lower, pat) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsSystemPrompt returns true if s contains system prompt-like text.
+func containsSystemPrompt(s string) bool {
+	lower := strings.ToLower(s)
+	patterns := []string{
+		"you are a", "you are an",
+		"system prompt", "system instruction",
+		"system:", "system message",
+	}
+	for _, pat := range patterns {
+		if strings.Contains(lower, pat) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasDependsOn reports whether any task in the plan declares dependencies.
+func hasDependsOn(tasks []plan.TaskPlan) bool {
+	for _, t := range tasks {
+		if len(t.DependsOn) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// checkDAGCycle uses Kahn's algorithm to detect cycles in the dependsOn DAG.
+// Returns nil if the graph is acyclic, or an error describing the cycle.
+func checkDAGCycle(tasks []plan.TaskPlan) error {
+	// Build taskID index and adjacency list.
+	taskIndex := make(map[string]int, len(tasks))
+	for i, t := range tasks {
+		taskIndex[t.TaskID] = i
+	}
+
+	inDegree := make([]int, len(tasks))
+	adj := make([][]int, len(tasks))
+	for i, t := range tasks {
+		for _, dep := range t.DependsOn {
+			j, ok := taskIndex[dep]
+			if !ok {
+				continue // already caught by dependsOn validation
+			}
+			adj[j] = append(adj[j], i) // j → i (j must finish before i)
+			inDegree[i]++
+		}
+	}
+
+	// Kahn's algorithm.
+	queue := make([]int, 0, len(tasks))
+	for i, d := range inDegree {
+		if d == 0 {
+			queue = append(queue, i)
+		}
+	}
+
+	visited := 0
+	for len(queue) > 0 {
+		u := queue[0]
+		queue = queue[1:]
+		visited++
+		for _, v := range adj[u] {
+			inDegree[v]--
+			if inDegree[v] == 0 {
+				queue = append(queue, v)
+			}
+		}
+	}
+
+	if visited < len(tasks) {
+		return fmt.Errorf("cycle detected: %d of %d tasks reachable via topological sort", visited, len(tasks))
+	}
+	return nil
 }

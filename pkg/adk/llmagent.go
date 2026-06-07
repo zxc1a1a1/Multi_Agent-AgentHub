@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 )
 
 var errLLMAgentNilModel = errors.New("llm agent model is nil")
@@ -49,6 +50,27 @@ func (a *LLMAgent) Generate(ctx context.Context, req *GenerateRequest) (*Generat
 		return nil, errLLMAgentNilModel
 	}
 
+	copiedReq := a.prepareRequest(req)
+	return a.model.Generate(ctx, copiedReq)
+}
+
+// GenerateStream forwards to the model's streaming generation path.
+func (a *LLMAgent) GenerateStream(ctx context.Context, req *GenerateRequest) iter.Seq2[*GenerateResponse, error] {
+	return func(yield func(*GenerateResponse, error) bool) {
+		if a.model == nil {
+			yield(nil, errLLMAgentNilModel)
+			return
+		}
+		copiedReq := a.prepareRequest(req)
+		for resp, err := range a.model.GenerateStream(ctx, copiedReq) {
+			if !yield(resp, err) {
+				return
+			}
+		}
+	}
+}
+
+func (a *LLMAgent) prepareRequest(req *GenerateRequest) *GenerateRequest {
 	copiedReq := cloneGenerateRequest(req)
 
 	if a.instruction != "" {
@@ -71,8 +93,7 @@ func (a *LLMAgent) Generate(ctx context.Context, req *GenerateRequest) (*Generat
 			copiedReq.Tools = append(copiedReq.Tools, transferTool{targetAgentName: subAgent.Name()})
 		}
 	}
-
-	return a.model.Generate(ctx, copiedReq)
+	return copiedReq
 }
 
 func cloneGenerateRequest(req *GenerateRequest) *GenerateRequest {

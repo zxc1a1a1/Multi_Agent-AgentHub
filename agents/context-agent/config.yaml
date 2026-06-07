@@ -2,12 +2,19 @@ name: context-agent
 description: 用于整理多轮对话、需求说明和已有产物，生成紧凑的上下文包，帮助后续 Agent 获取必要背景并减少无关信息干扰。
 version: "0.1.0"
 url: "http://localhost:8091"
+streaming: true
 skills:
-  - context_compression
-  - context_selection
+  - id: context_compression
+    name: Context Compression
+    description: 压缩多轮对话上下文，提取关键信息减少 token 消耗
+  - id: context_selection
+    name: Context Selection
+    description: 根据任务需求筛选和排序相关上下文片段
 inputModes:
   - text
 outputModes:
   - text
   - context_bundle
-streaming: true
+supportedInterfaces:
+  - type: JSONRPC
+    url: "http://localhost:8091"
