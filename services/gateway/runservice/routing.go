@@ -36,6 +36,94 @@ func AgentNameFromContext(ctx context.Context) string {
 	return strings.TrimSpace(name)
 }
 
+type selectedAgentNamesContextKey struct{}
+
+// WithSelectedAgentNames stores optional selectedAgentNames into context.
+func WithSelectedAgentNames(ctx context.Context, names []string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if names == nil {
+		names = []string{}
+	}
+	return context.WithValue(ctx, selectedAgentNamesContextKey{}, names)
+}
+
+// SelectedAgentNamesFromContext loads optional selectedAgentNames from context.
+func SelectedAgentNamesFromContext(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	raw := ctx.Value(selectedAgentNamesContextKey{})
+	names, ok := raw.([]string)
+	if !ok {
+		return nil
+	}
+	return names
+}
+
+type mentionsContextKey struct{}
+
+// WithMentions stores optional mentions into context.
+func WithMentions(ctx context.Context, mentions []string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if mentions == nil {
+		mentions = []string{}
+	}
+	return context.WithValue(ctx, mentionsContextKey{}, mentions)
+}
+
+// MentionsFromContext loads optional mentions from context.
+func MentionsFromContext(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	raw := ctx.Value(mentionsContextKey{})
+	mentions, ok := raw.([]string)
+	if !ok {
+		return nil
+	}
+	return mentions
+}
+
+type planningModeContextKey struct{}
+
+// PlanningMode is the user-requested orchestration routing mode.
+// Valid values: "auto", "direct", "manual", "mention".
+// This is distinct from the server-side PlannerMode (rule/llm/llm_with_rule_fallback).
+type PlanningMode string
+
+const (
+	PlanningModeAuto    PlanningMode = "auto"
+	PlanningModeDirect  PlanningMode = "direct"
+	PlanningModeManual  PlanningMode = "manual"
+	PlanningModeMention PlanningMode = "mention"
+)
+
+// WithPlanningMode stores the user-requested planning mode into context.
+func WithPlanningMode(ctx context.Context, mode PlanningMode) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, planningModeContextKey{}, mode)
+}
+
+// PlanningModeFromContext loads the user-requested planning mode from context.
+// Returns empty string if none was set.
+func PlanningModeFromContext(ctx context.Context) PlanningMode {
+	if ctx == nil {
+		return ""
+	}
+	raw := ctx.Value(planningModeContextKey{})
+	mode, ok := raw.(PlanningMode)
+	if !ok {
+		return ""
+	}
+	return mode
+}
+
 // AgentNameSelector decides a target agentName for one run.
 type AgentNameSelector func(ctx context.Context, conversationID string, userContent *adk.Content) string
 
