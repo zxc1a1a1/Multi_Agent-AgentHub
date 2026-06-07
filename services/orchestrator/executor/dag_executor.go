@@ -190,7 +190,7 @@ func (e *DAGExecutor) ExecuteStream(ctx context.Context, p *plan.OrchestrationPl
 	if allSucceeded {
 		if !synthesizeIfNeeded(ctx, p, msgID, taskResults, e.synthesizer, emit) {
 			summaryMsgID := msgID + "_summary"
-			summary := buildSummary(p, taskResults)
+			summary := buildSummary(taskResults)
 			if !emit(ExecutionEvent{Type: "message_start", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
 				return nil
 			}

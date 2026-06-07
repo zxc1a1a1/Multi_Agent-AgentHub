@@ -64,7 +64,17 @@ export default function MessageBubble({ message }: Props) {
 
         {/* Error indicator */}
         {message.status === 'failed' && (
-          <p className="text-xs text-red-500 mt-1">Failed to generate response</p>
+          <div className="mt-1 p-2 bg-red-50 border border-red-200 rounded text-xs">
+            <p className="text-red-600 font-medium">
+              {message.errorCode ? `Error: ${message.errorCode}` : 'Error'}
+            </p>
+            {message.errorMessage && message.errorMessage !== 'Error' && (
+              <p className="text-red-500 mt-0.5">{message.errorMessage}</p>
+            )}
+            {(!message.errorMessage || message.errorMessage === 'Error') && (
+              <p className="text-red-500 mt-0.5">Failed to generate response</p>
+            )}
+          </div>
         )}
       </div>
     </div>

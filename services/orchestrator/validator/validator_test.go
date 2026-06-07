@@ -47,6 +47,11 @@ func (s *stubRegistry) Names() []string {
 	return names
 }
 
+func (s *stubRegistry) IsHealthy(name string) bool {
+	_, ok := s.agents[name]
+	return ok
+}
+
 func validSinglePlan() *plan.OrchestrationPlan {
 	return &plan.OrchestrationPlan{
 		Version:        "v1",
@@ -616,23 +621,13 @@ func TestPlanValidator_OrderedParallelRequiresAtLeastTwoTasks(t *testing.T) {
 	}
 }
 
-func TestPlanValidator_SequentialStrategyRejected(t *testing.T) {
+func TestPlanValidator_SequentialStrategyAccepted(t *testing.T) {
 	v := New(newStubRegistry())
 	p := validOrderedParallelPlan()
 	p.Strategy = plan.StrategySequential
 	result := v.Validate(p)
-	if result.Valid {
-		t.Error("expected invalid: sequential strategy rejected")
-	}
-	// Must contain the explicit sequential rejection message.
-	foundExplicit := false
-	for _, e := range result.Errors {
-		if strings.Contains(e.Message, "sequential strategy is not yet supported") {
-			foundExplicit = true
-		}
-	}
-	if !foundExplicit {
-		t.Error("expected explicit error about sequential not yet supported")
+	if !result.Valid {
+		t.Error("expected valid: sequential strategy is now accepted for DAG executor")
 		for _, e := range result.Errors {
 			t.Logf("  error: %s: %s", e.Field, e.Message)
 		}
@@ -815,6 +810,53 @@ func TestPlanValidator_LocalhostInTaskContent(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected error about URL (localhost) in taskContent")
+	}
+}
+
+func TestValidateConversationalStrategyAccepted(t *testing.T) {
+	v := New(newStubRegistry())
+	p := &plan.OrchestrationPlan{
+		Version:        "v1",
+		PlanID:         "plan_conv_001",
+		RunID:          "run_conv_001",
+		ConversationID: "conv_conv_001",
+		Strategy:       plan.StrategyConversational,
+		IntentSummary:  "greeting",
+		Tasks:          nil, // conversational plans have no tasks
+		Aggregation:    plan.Aggregation{Required: false, Mode: "none"},
+		Fallback:       plan.Fallback{Enabled: false},
+		Validation:     plan.Validation{Validated: false},
+	}
+	result := v.Validate(p)
+	if !result.Valid {
+		t.Error("expected valid: conversational strategy with no tasks should be accepted")
+		for _, e := range result.Errors {
+			t.Logf("  unexpected error: %s: %s", e.Field, e.Message)
+		}
+	}
+}
+
+func TestValidateConversationalStrategyWithTasksStillValidatesThem(t *testing.T) {
+	// If a conversational plan accidentally has tasks, they should still be validated.
+	v := New(newStubRegistry())
+	p := &plan.OrchestrationPlan{
+		Version:        "v1",
+		PlanID:         "plan_conv_002",
+		RunID:          "run_conv_002",
+		ConversationID: "conv_conv_002",
+		Strategy:       plan.StrategyConversational,
+		IntentSummary:  "test",
+		Tasks: []plan.TaskPlan{
+			{
+				TaskID:    "t1",
+				AgentName: "unknown-agent",
+				// deliberately missing many fields
+			},
+		},
+	}
+	result := v.Validate(p)
+	if result.Valid {
+		t.Error("expected invalid: conversational with bad task data")
 	}
 }
 

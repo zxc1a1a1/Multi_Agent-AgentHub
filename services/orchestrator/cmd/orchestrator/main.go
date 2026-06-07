@@ -207,30 +207,49 @@ func run() error {
 		httpapi.WithDispatcher(a2aDispatcher),
 	}
 
-	// LLMPlanner is always the primary planner. If no API key is found,
-	// it falls back to the deprecated RulePlanner automatically.
-	llmCfg := planner.PlannerLLMConfig{
-		Provider: strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_PROVIDER"))),
-		APIKey:   resolvePlannerAPIKey(),
-		Model:    strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_MODEL")),
-		BaseURL:  strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_BASE_URL")),
+	// Planner mode via ORCHESTRATOR_PLANNER_MODE:
+	//   rule (default):     deterministic RulePlanner only, ignores API key
+	//   llm:                LLMPlanner only, fails on error (no silent fallback)
+	//   llm_with_rule_fallback: LLMPlanner with RulePlanner fallback on failure
+	plannerMode := strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_PLANNER_MODE")))
+	if plannerMode == "" {
+		plannerMode = "rule"
 	}
-	if llmCfg.Provider == "" {
-		llmCfg.Provider = "anthropic"
-	}
-	if llmCfg.APIKey != "" {
-		llmClient := planner.NewPlannerLLM(llmCfg)
-		adapter := &registryAgentLister{reg: agentRegistry}
-		llmPlanner := planner.NewLLMPlanner(llmClient, llmCfg.Model, adapter)
-		serverOpts = append(serverOpts, httpapi.WithPlanner(llmPlanner))
+	requireConfirm := strings.ToLower(strings.TrimSpace(
+		os.Getenv("REQUIRE_PLAN_CONFIRMATION"))) == "true"
+	log.Printf("orchestrator config: plannerMode=%s, requirePlanConfirmation=%v", plannerMode, requireConfirm)
+	serverOpts = append(serverOpts, httpapi.WithPlannerMode(httpapi.PlannerMode(plannerMode)))
 
-		// Wire LLM synthesizer for multi-agent result aggregation.
-		syn := synthesizer.NewLLMSynthesizer(llmClient, llmCfg.Model)
-		serverOpts = append(serverOpts, httpapi.WithSynthesizer(syn))
+	if plannerMode == "llm" || plannerMode == "llm_with_rule_fallback" {
+		llmCfg := planner.PlannerLLMConfig{
+			Provider: strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_PROVIDER"))),
+			APIKey:   resolvePlannerAPIKey(),
+			Model:    strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_MODEL")),
+			BaseURL:  strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_BASE_URL")),
+		}
+		if llmCfg.Provider == "" {
+			llmCfg.Provider = "anthropic"
+		}
+		if llmCfg.APIKey == "" {
+			log.Printf("orchestrator planner: LLM mode requested but no API key found, starting in rule mode")
+			serverOpts = append(serverOpts, httpapi.WithPlannerMode(httpapi.PlannerModeRule))
+		} else {
+			llmClient := planner.NewPlannerLLM(llmCfg)
+			adapter := &registryAgentLister{reg: agentRegistry}
+			llmPlanner := planner.NewLLMPlanner(llmClient, llmCfg.Model, adapter)
+			if plannerMode == "llm" {
+				llmPlanner.DisableFallback()
+			}
+			serverOpts = append(serverOpts, httpapi.WithPlanner(llmPlanner))
 
-		log.Printf("orchestrator planner: LLM mode (provider=%s, model=%s)", llmCfg.Provider, llmCfg.Model)
+			// Wire LLM synthesizer for multi-agent result aggregation.
+			syn := synthesizer.NewLLMSynthesizer(llmClient, llmCfg.Model)
+			serverOpts = append(serverOpts, httpapi.WithSynthesizer(syn))
+
+			log.Printf("orchestrator planner: mode=%s (provider=%s, model=%s)", plannerMode, llmCfg.Provider, llmCfg.Model)
+		}
 	} else {
-		log.Printf("orchestrator planner: no API key found, using RulePlanner fallback")
+		log.Printf("orchestrator planner: rule mode (deterministic)")
 	}
 
 	server := &http.Server{

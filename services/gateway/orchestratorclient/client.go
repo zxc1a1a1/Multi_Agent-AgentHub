@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -59,7 +60,14 @@ func NewOrchestratorRunService(baseURL, internalToken string, opts ...Option) (*
 
 	if svc.httpClient == nil {
 		svc.httpClient = &http.Client{
-			Timeout: 120 * time.Second,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout: 30 * time.Second,
+				}).DialContext,
+				TLSHandshakeTimeout:   30 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+			},
 		}
 	}
 
@@ -92,7 +100,7 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 				{"role": "user", "text": userText},
 			},
 			"planningMode": "auto",
-			"agentName":     agentName,
+			"agentName":    agentName,
 		}
 
 		bodyBytes, err := json.Marshal(reqBody)
@@ -135,14 +143,16 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 // orchestratorStreamEvent is a local type for decoding SSE data payloads.
 // This avoids importing the orchestrator package.
 type orchestratorStreamEvent struct {
-	Type      string         `json:"type"`
-	RunID     string         `json:"runId"`
-	MessageID string         `json:"messageId,omitempty"`
-	TaskID    string         `json:"taskId,omitempty"`
-	Sender    *eventSender   `json:"sender,omitempty"`
-	Delta     string         `json:"delta,omitempty"`
-	State     map[string]any `json:"state,omitempty"`
-	Error     *safeError     `json:"error,omitempty"`
+	Type         string         `json:"type"`
+	RunID        string         `json:"runId"`
+	MessageID    string         `json:"messageId,omitempty"`
+	TaskID       string         `json:"taskId,omitempty"`
+	Sender       *eventSender   `json:"sender,omitempty"`
+	Delta        string         `json:"delta,omitempty"`
+	State        map[string]any `json:"state,omitempty"`
+	Error        *safeError     `json:"error,omitempty"`
+	ToolCallID   string         `json:"toolCallId,omitempty"`
+	ToolCallName string         `json:"toolCallName,omitempty"`
 }
 
 type eventSender struct {
@@ -159,6 +169,10 @@ type safeError struct {
 // values with Metadata carrying event type, runId, messageId, taskId, and sender.
 func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 	scanner := bufio.NewScanner(body)
+	// Increase buffer from default 64KB to 1MB to handle large agent outputs
+	// that would otherwise cause bufio.ErrTooLong and break the SSE stream.
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -305,6 +319,41 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
+		case "tool_call_start":
+			meta["toolCallName"] = ose.ToolCallName
+			meta["toolCallId"] = ose.ToolCallID
+			if !yield(adk.Event{
+				Author:   author,
+				Metadata: meta,
+			}, nil) {
+				return nil
+			}
+
+		case "tool_call_args":
+			meta["toolCallId"] = ose.ToolCallID
+			if !yield(adk.Event{
+				Author:   author,
+				Metadata: meta,
+				Content: &adk.Content{
+					Role: adk.RoleAssistant,
+					Parts: []adk.Part{
+						adk.TextPart{Text: ose.Delta},
+					},
+				},
+				Partial: true,
+			}, nil) {
+				return nil
+			}
+
+		case "tool_call_end":
+			if !yield(adk.Event{
+				Author:   author,
+				Metadata: meta,
+				Final:    true,
+			}, nil) {
+				return nil
+			}
+
 		default:
 			// Unknown event types: pass through with metadata for legacy handling
 			if !yield(adk.Event{
@@ -318,6 +367,49 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("orchestrator stream read error: %w", err)
+	}
+	return nil
+}
+
+// HITLConfirmRequest mirrors the Orchestrator HITL confirm payload.
+type HITLConfirmRequest struct {
+	RunID        string `json:"runId"`
+	ActionID     string `json:"actionId"`
+	Confirmed    bool   `json:"confirmed"`
+	RejectReason string `json:"rejectReason"`
+}
+
+// ConfirmRun sends a HITL confirmation to the remote Orchestrator.
+// POST /internal/orchestrator/hitl/confirm
+func (s *OrchestratorRunService) ConfirmRun(ctx context.Context, req HITLConfirmRequest) error {
+	if s == nil {
+		return errors.New("orchestrator run service is nil")
+	}
+
+	bodyBytes, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal confirm request: %w", err)
+	}
+
+	url := s.baseURL + "/internal/orchestrator/hitl/confirm"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("create confirm request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if s.internalToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+s.internalToken)
+	}
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("orchestrator confirm request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("orchestrator confirm returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return nil
 }

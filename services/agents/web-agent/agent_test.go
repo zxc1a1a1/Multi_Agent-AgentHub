@@ -12,6 +12,8 @@ import (
 
 var _ adk.Agent = (*WebAgent)(nil)
 
+var _ adk.StreamingAgent = (*WebAgent)(nil)
+
 func TestNewWebAgent_Defaults(t *testing.T) {
 	agent := NewWebAgent(Config{})
 	if agent == nil {
@@ -239,4 +241,104 @@ func firstTextPart(parts []adk.Part) (adk.TextPart, bool) {
 		}
 	}
 	return adk.TextPart{}, false
+}
+
+func TestWebAgent_GenerateStream_MultipleChunks(t *testing.T) {
+	agent := NewWebAgent(Config{})
+	req := buildRequest("build a login html page with button and form")
+
+	var chunks []string
+	for resp, err := range agent.GenerateStream(context.Background(), req) {
+		if err != nil {
+			t.Fatalf("GenerateStream returned error: %v", err)
+		}
+		for _, part := range resp.Parts {
+			textPart, ok := part.(adk.TextPart)
+			if ok && textPart.Text != "" {
+				chunks = append(chunks, textPart.Text)
+			}
+		}
+	}
+
+	if len(chunks) < 2 {
+		t.Fatalf("expected at least 2 stream chunks, got %d", len(chunks))
+	}
+
+	fullText := strings.Join(chunks, "")
+	if !strings.Contains(fullText, "web-agent v0.1 mock response") {
+		t.Fatalf("streamed text missing mock marker: %q", fullText)
+	}
+}
+
+func TestWebAgent_GenerateStream_ErrorOnNilRequest(t *testing.T) {
+	agent := NewWebAgent(Config{})
+	for resp, err := range agent.GenerateStream(context.Background(), nil) {
+		if err == nil {
+			t.Fatal("expected error for nil request")
+		}
+		if resp != nil {
+			t.Fatal("expected nil response with error")
+		}
+		return
+	}
+	t.Fatal("expected at least one yield from GenerateStream")
+}
+
+func TestWebAgent_GenerateStream_NoFullTextDuplication(t *testing.T) {
+	agent := NewWebAgent(Config{})
+	req := buildRequest("build a login html page with button and form")
+
+	var chunks []string
+	for resp, err := range agent.GenerateStream(context.Background(), req) {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		for _, part := range resp.Parts {
+			textPart, ok := part.(adk.TextPart)
+			if ok && textPart.Text != "" {
+				chunks = append(chunks, textPart.Text)
+			}
+		}
+	}
+
+	if len(chunks) < 2 {
+		t.Fatalf("expected at least 2 delta chunks, got %d", len(chunks))
+	}
+
+	fullText := strings.Join(chunks, "")
+
+	for i, chunk := range chunks {
+		if len(chunk) >= len(fullText) && len(chunks) > 1 {
+			t.Errorf("chunk %d is full text (len=%d) not delta (full len=%d)", i, len(chunk), len(fullText))
+		}
+	}
+
+	for i := 1; i < len(chunks); i++ {
+		if strings.HasPrefix(chunks[i], chunks[i-1]) && len(chunks[i]) > len(chunks[i-1]) {
+			t.Errorf("chunk %d duplicates chunk %d prefix: %q vs %q", i, i-1, chunks[i-1], chunks[i])
+		}
+	}
+
+	if strings.Count(fullText, "web-agent v0.1 mock response") > 1 {
+		t.Errorf("mock marker appears more than once in streaming output: %q", fullText)
+	}
+}
+
+func TestWebAgent_GenerateStream_FallsBackToMock(t *testing.T) {
+	agent := NewWebAgent(Config{})
+	req := buildRequest("hello")
+
+	var chunkCount int
+	for resp, err := range agent.GenerateStream(context.Background(), req) {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp != nil && len(resp.Parts) > 0 {
+			chunkCount++
+		}
+	}
+
+	if chunkCount == 0 {
+		t.Fatal("expected at least one chunk from mock streaming")
+	}
 }

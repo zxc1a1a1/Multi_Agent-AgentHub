@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"html"
+	"iter"
 	"regexp"
 	"strings"
 
@@ -119,6 +120,56 @@ func (a *WebAgent) Generate(ctx context.Context, req *adk.GenerateRequest) (*adk
 		},
 		FinishReason: adk.FinishStop,
 	}, nil
+}
+
+// GenerateStream implements adk.StreamingAgent, yielding incremental text chunks
+// for the mock path, or delegating to the model's streaming generation.
+func (a *WebAgent) GenerateStream(ctx context.Context, req *adk.GenerateRequest) iter.Seq2[*adk.GenerateResponse, error] {
+	return func(yield func(*adk.GenerateResponse, error) bool) {
+		if req == nil {
+			yield(nil, errors.New("generate request is required"))
+			return
+		}
+
+		if a.llm != nil {
+			for resp, err := range a.llm.GenerateStream(ctx, req) {
+				if !yield(resp, err) {
+					return
+				}
+			}
+			return
+		}
+
+		userText, err := extractLastUserText(req.Contents)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+
+		fullText := buildMockResponse(userText)
+		words := strings.Fields(fullText)
+		if len(words) == 0 {
+			yield(&adk.GenerateResponse{
+				Parts:        []adk.Part{adk.TextPart{Text: ""}},
+				FinishReason: adk.FinishStop,
+			}, nil)
+			return
+		}
+
+		chunkSize := 4
+		for i := 0; i < len(words); i += chunkSize {
+			end := i + chunkSize
+			if end > len(words) {
+				end = len(words)
+			}
+			chunk := strings.Join(words[i:end], " ") + " "
+			if !yield(&adk.GenerateResponse{
+				Parts: []adk.Part{adk.TextPart{Text: chunk}},
+			}, nil) {
+				return
+			}
+		}
+	}
 }
 
 func extractLastUserText(contents []*adk.Content) (string, error) {

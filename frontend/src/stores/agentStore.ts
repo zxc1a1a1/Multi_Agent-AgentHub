@@ -55,13 +55,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   defaultAgentName: () => {
-    const first = get().options[0]
-    return normalizeAgentName(first?.name || DEFAULT_AGENT_NAME)
+    return DEFAULT_AGENT_NAME
   },
 
   findOption: (name: string | null | undefined) => {
     const normalized = normalizeAgentName(name)
-    return get().options.find((option) => option.name === normalized)
+    const found = get().options.find((option) => option.name === normalized)
+    if (found) {
+      return found
+    }
+    // Fall back to the auto option (always first in the list).
+    return get().options[0]
   },
 
   getDisplayName: (name: string | null | undefined) => {

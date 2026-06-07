@@ -133,12 +133,19 @@ function fallbackOptionByName(name: string): AgentOption | undefined {
 }
 
 export function buildAgentOptionsFromSummary(summaries: AgentSummary[] | null | undefined): AgentOption[] {
-  if (!Array.isArray(summaries) || summaries.length === 0) {
-    return AGENT_OPTIONS.map((option) => ({ ...option, outputModes: [...option.outputModes] }))
-  }
+  // Always start with Auto as the first option.
+  const autoOption = AGENT_OPTIONS[0]
+  const options: AgentOption[] = [{ ...autoOption, outputModes: [...autoOption.outputModes] }]
+  const seen = new Set<string>(['auto'])
 
-  const options: AgentOption[] = []
-  const seen = new Set<string>()
+  if (!Array.isArray(summaries) || summaries.length === 0) {
+    // No server summaries; append remaining AGENT_OPTIONS after auto.
+    for (let i = 1; i < AGENT_OPTIONS.length; i++) {
+      const option = AGENT_OPTIONS[i]
+      options.push({ ...option, outputModes: [...option.outputModes] })
+    }
+    return options
+  }
 
   for (const summary of summaries) {
     const name = normalizeText(summary?.name || '')
@@ -166,9 +173,6 @@ export function buildAgentOptionsFromSummary(summaries: AgentSummary[] | null | 
     })
   }
 
-  if (options.length === 0) {
-    return AGENT_OPTIONS.map((option) => ({ ...option, outputModes: [...option.outputModes] }))
-  }
   return options
 }
 

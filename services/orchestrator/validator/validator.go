@@ -72,35 +72,40 @@ func (v *PlanValidator) Validate(p *plan.OrchestrationPlan) *ValidationResult {
 	}
 
 	// 4. strategy must be one of the supported values.
-	if p.Strategy != plan.StrategySingle && p.Strategy != plan.StrategyOrderedParallel && p.Strategy != plan.StrategySequential {
-		r.add("strategy", fmt.Sprintf("strategy must be %q, %q, or %q, got %q",
-			plan.StrategySingle, plan.StrategyOrderedParallel, plan.StrategySequential, p.Strategy))
+	if p.Strategy != plan.StrategySingle && p.Strategy != plan.StrategyOrderedParallel &&
+		p.Strategy != plan.StrategySequential && p.Strategy != plan.StrategyConversational {
+		r.add("strategy", fmt.Sprintf("strategy must be %q, %q, %q, or %q, got %q",
+			plan.StrategySingle, plan.StrategyOrderedParallel, plan.StrategySequential,
+			plan.StrategyConversational, p.Strategy))
 	}
 
-	// 5. tasks non-empty.
-	if len(p.Tasks) == 0 {
+	// 5. tasks non-empty (conversational plans may have zero tasks).
+	if p.Strategy != plan.StrategyConversational && len(p.Tasks) == 0 {
 		r.add("tasks", "tasks must not be empty")
 	}
 
 	// 6. task limit (default 5, configurable via ORCHESTRATOR_MAX_TASKS).
-	maxTasks := 5
-	if v := strings.TrimSpace(os.Getenv("ORCHESTRATOR_MAX_TASKS")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
-			maxTasks = n
+	// Skip for conversational plans (they have no tasks).
+	if p.Strategy != plan.StrategyConversational {
+		maxTasks := 5
+		if v := strings.TrimSpace(os.Getenv("ORCHESTRATOR_MAX_TASKS")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+				maxTasks = n
+			}
 		}
-	}
-	if len(p.Tasks) > maxTasks {
-		r.add("tasks", fmt.Sprintf("at most %d tasks allowed, got %d", maxTasks, len(p.Tasks)))
-	}
+		if len(p.Tasks) > maxTasks {
+			r.add("tasks", fmt.Sprintf("at most %d tasks allowed, got %d", maxTasks, len(p.Tasks)))
+		}
 
-	// 7. single strategy requires exactly 1 task.
-	if p.Strategy == plan.StrategySingle && len(p.Tasks) != 1 {
-		r.add("tasks", fmt.Sprintf("single strategy requires exactly 1 task, got %d", len(p.Tasks)))
-	}
+		// 7. single strategy requires exactly 1 task.
+		if p.Strategy == plan.StrategySingle && len(p.Tasks) != 1 {
+			r.add("tasks", fmt.Sprintf("single strategy requires exactly 1 task, got %d", len(p.Tasks)))
+		}
 
-	// 8. ordered_parallel strategy requires at least 2 tasks.
-	if p.Strategy == plan.StrategyOrderedParallel && len(p.Tasks) < 2 {
-		r.add("tasks", fmt.Sprintf("ordered_parallel strategy requires at least 2 tasks, got %d", len(p.Tasks)))
+		// 8. ordered_parallel strategy requires at least 2 tasks.
+		if p.Strategy == plan.StrategyOrderedParallel && len(p.Tasks) < 2 {
+			r.add("tasks", fmt.Sprintf("ordered_parallel strategy requires at least 2 tasks, got %d", len(p.Tasks)))
+		}
 	}
 
 	// Build taskID set with duplicate detection.

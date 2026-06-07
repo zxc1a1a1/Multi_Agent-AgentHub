@@ -11,6 +11,8 @@ import (
 
 var _ adk.Agent = (*CodeAgent)(nil)
 
+var _ adk.StreamingAgent = (*CodeAgent)(nil)
+
 func TestNewCodeAgent_Defaults(t *testing.T) {
 	agent := NewCodeAgent(Config{})
 	if agent == nil {
@@ -160,4 +162,137 @@ func firstTextPart(parts []adk.Part) (adk.TextPart, bool) {
 		}
 	}
 	return adk.TextPart{}, false
+}
+
+func TestCodeAgent_GenerateStream_MultipleChunks(t *testing.T) {
+	agent := NewCodeAgent(Config{})
+	req := buildRequest("write a go http server")
+
+	var chunks []string
+	for resp, err := range agent.GenerateStream(context.Background(), req) {
+		if err != nil {
+			t.Fatalf("GenerateStream returned error: %v", err)
+		}
+		for _, part := range resp.Parts {
+			textPart, ok := part.(adk.TextPart)
+			if ok && textPart.Text != "" {
+				chunks = append(chunks, textPart.Text)
+			}
+		}
+	}
+
+	if len(chunks) < 2 {
+		t.Fatalf("expected at least 2 stream chunks, got %d", len(chunks))
+	}
+
+	fullText := strings.Join(chunks, "")
+	if !strings.Contains(fullText, "code-agent v0.1 mock response") {
+		t.Fatalf("streamed text missing mock marker: %q", fullText)
+	}
+}
+
+func TestCodeAgent_GenerateStream_ErrorOnNilRequest(t *testing.T) {
+	agent := NewCodeAgent(Config{})
+	for resp, err := range agent.GenerateStream(context.Background(), nil) {
+		if err == nil {
+			t.Fatal("expected error for nil request")
+		}
+		if resp != nil {
+			t.Fatal("expected nil response with error")
+		}
+		return
+	}
+	t.Fatal("expected at least one yield from GenerateStream")
+}
+
+func TestCodeAgent_GenerateStream_NoUserText(t *testing.T) {
+	agent := NewCodeAgent(Config{})
+	req := &adk.GenerateRequest{
+		Contents: []*adk.Content{
+			{
+				Role: adk.RoleAssistant,
+				Parts: []adk.Part{
+					adk.TextPart{Text: "assistant only"},
+				},
+			},
+		},
+	}
+
+	for resp, err := range agent.GenerateStream(context.Background(), req) {
+		if err == nil {
+			t.Fatal("expected error for missing user text")
+		}
+		if resp != nil {
+			t.Fatal("expected nil response with error")
+		}
+		return
+	}
+}
+
+func TestCodeAgent_GenerateStream_NoFullTextDuplication(t *testing.T) {
+	// Each chunk must be a delta. Concatenating all chunks should equal
+	// the full mock response without any prefix duplication.
+	agent := NewCodeAgent(Config{})
+	req := buildRequest("write a go http server")
+
+	var chunks []string
+	for resp, err := range agent.GenerateStream(context.Background(), req) {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		for _, part := range resp.Parts {
+			textPart, ok := part.(adk.TextPart)
+			if ok && textPart.Text != "" {
+				chunks = append(chunks, textPart.Text)
+			}
+		}
+	}
+
+	if len(chunks) < 2 {
+		t.Fatalf("expected at least 2 delta chunks, got %d", len(chunks))
+	}
+
+	fullText := strings.Join(chunks, "")
+
+	// Verify no chunk contains the full mock response (each is a delta)
+	for i, chunk := range chunks {
+		// A delta chunk should be much shorter than the full text
+		if len(chunk) >= len(fullText) && len(chunks) > 1 {
+			t.Errorf("chunk %d appears to be full text (len=%d) rather than delta (full len=%d): %q",
+				i, len(chunk), len(fullText), chunk)
+		}
+	}
+
+	// Verify no word-level duplication between consecutive chunks
+	for i := 1; i < len(chunks); i++ {
+		if strings.HasPrefix(chunks[i], chunks[i-1]) && len(chunks[i]) > len(chunks[i-1]) {
+			t.Errorf("chunk %d duplicates chunk %d prefix: %q vs %q", i, i-1, chunks[i-1], chunks[i])
+		}
+	}
+
+	// Mock streaming splits by words, collapsing newlines. Full text
+	// should contain the key markers without duplication.
+	if strings.Count(fullText, "code-agent v0.1 mock response") > 1 {
+		t.Errorf("mock marker appears more than once in streaming output: %q", fullText)
+	}
+}
+
+func TestCodeAgent_GenerateStream_FallsBackToMock(t *testing.T) {
+	// Without an LLM model configured, GenerateStream uses the mock path.
+	agent := NewCodeAgent(Config{})
+	req := buildRequest("hello")
+
+	var chunkCount int
+	for resp, err := range agent.GenerateStream(context.Background(), req) {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp != nil && len(resp.Parts) > 0 {
+			chunkCount++
+		}
+	}
+
+	if chunkCount == 0 {
+		t.Fatal("expected at least one chunk from mock streaming")
+	}
 }
