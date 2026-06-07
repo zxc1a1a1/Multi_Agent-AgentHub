@@ -13,12 +13,17 @@ import (
 	"syscall"
 	"time"
 
+	rtregistry "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
+
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/httpapi"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
+
+	// Register model providers (openai, anthropic) into pkg/runtime/registry.
+	_ "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/model"
 )
 
 const (
@@ -91,88 +96,77 @@ func run() error {
 	}
 
 	// Build static agent registry from env-configured agent URLs.
-	agentRegistry, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{
-		{
-			Name:          "code-agent",
-			URL:           codeAgentURL,
-			Description:   "Generates and explains code",
-			OutputModes:   []string{"text", "code", "artifact_ref"},
-			CapabilityIDs: []string{"code_generation"},
-			OutputTypes:   []string{"code", "text"},
-		},
-		{
-			Name:          "web-agent",
-			URL:           webAgentURL,
-			Description:   "Generates webpages and HTML previews",
-			OutputModes:   []string{"text", "webpage", "html", "artifact_ref"},
-			CapabilityIDs: []string{"web_generation"},
-			OutputTypes:   []string{"webpage", "html", "text", "markdown"},
-		},
-		{
-			Name:          "document-agent",
-			URL:           documentAgentURL,
-			Description:   "Generates structured documentation, API docs, READMEs, and technical manuals",
-			OutputModes:   []string{"text", "markdown", "artifact_ref"},
-			CapabilityIDs: []string{"document_generation", "document_translation", "document_quality_check"},
-			OutputTypes:   []string{"markdown", "text"},
-		},
-		{
-			Name:          "vision-agent",
-			URL:           visionAgentURL,
-			Description:   "Analyzes images, extracts text via OCR, and audits visual content",
-			OutputModes:   []string{"text", "structured_json", "artifact_ref"},
-			CapabilityIDs: []string{"image_analysis", "ocr", "visual_audit"},
-			OutputTypes:   []string{"text", "structured_json"},
-		},
-		{
-			Name:          "context-agent",
-			URL:           contextAgentURL,
-			Description:   "Compresses conversation context, generates summaries, and extracts memories",
-			OutputModes:   []string{"text", "structured_json", "summary"},
-			CapabilityIDs: []string{"context_compression", "conversation_summary", "memory_extraction"},
-			OutputTypes:   []string{"text", "structured_json", "summary"},
-		},
-		{
-			Name:          "test-agent",
-			URL:           testAgentURL,
-			Description:   "Analyzes test logs, assesses coverage, and performs root cause analysis",
-			OutputModes:   []string{"text", "structured_json", "analysis_report"},
-			CapabilityIDs: []string{"test_log_analysis", "coverage_assessment", "root_cause_analysis"},
-			OutputTypes:   []string{"text", "structured_json", "analysis_report"},
-		},
-		{
-			Name:          "review-agent",
-			URL:           reviewAgentURL,
-			Description:   "Reviews code, requirements, and assesses project risks",
-			OutputModes:   []string{"text", "structured_json", "review_report"},
-			CapabilityIDs: []string{"code_review", "requirement_review", "risk_assessment"},
-			OutputTypes:   []string{"text", "structured_json", "review_report"},
-		},
-		{
-			Name:          "security-agent",
-			URL:           securityAgentURL,
-			Description:   "Scans code for vulnerabilities, checks dependencies, audits configs, and detects secrets",
-			OutputModes:   []string{"text", "structured_json", "security_report"},
-			CapabilityIDs: []string{"security_scanning", "vulnerability_detection", "config_audit", "secret_detection"},
-			OutputTypes:   []string{"text", "structured_json", "security_report"},
-		},
-		{
-			Name:          "deploy-agent",
-			URL:           deployAgentURL,
-			Description:   "Generates deployment plans, checks environment health, and creates rollback strategies",
-			OutputModes:   []string{"text", "structured_json", "deploy_plan"},
-			CapabilityIDs: []string{"deploy_planning", "environment_check", "rollback_strategy"},
-			OutputTypes:   []string{"text", "structured_json", "deploy_plan"},
-		},
-		{
-			Name:          "diff-agent",
-			URL:           diffAgentURL,
-			Description:   "Generates unified diffs, explains changes, analyzes impact, and resolves merge conflicts",
-			OutputModes:   []string{"text", "code", "diff", "artifact_ref"},
-			CapabilityIDs: []string{"diff_generation", "diff_explanation", "impact_analysis", "merge_resolution"},
-			OutputTypes:   []string{"text", "code", "diff"},
-		},
-	})
+	agentRegistry, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{{
+		Name:          "code-agent",
+		URL:           codeAgentURL,
+		Description:   "Generates and explains code",
+		OutputModes:   []string{"text", "code", "artifact_ref"},
+		CapabilityIDs: []string{"code_generation"},
+		OutputTypes:   []string{"code", "text"},
+	}, {
+		Name:          "web-agent",
+		URL:           webAgentURL,
+		Description:   "Generates webpages and HTML previews",
+		OutputModes:   []string{"text", "webpage", "html", "artifact_ref"},
+		CapabilityIDs: []string{"web_generation"},
+		OutputTypes:   []string{"webpage", "html", "text", "markdown"},
+	}, {
+		Name:          "document-agent",
+		URL:           documentAgentURL,
+		Description:   "Generates structured documentation, API docs, READMEs, and technical manuals",
+		OutputModes:   []string{"text", "markdown", "artifact_ref"},
+		CapabilityIDs: []string{"document_generation", "document_translation", "document_quality_check"},
+		OutputTypes:   []string{"markdown", "text"},
+	}, {
+		Name:          "vision-agent",
+		URL:           visionAgentURL,
+		Description:   "Analyzes images, extracts text via OCR, and audits visual content",
+		OutputModes:   []string{"text", "structured_json", "artifact_ref"},
+		CapabilityIDs: []string{"image_analysis", "ocr", "visual_audit"},
+		OutputTypes:   []string{"text", "structured_json"},
+	}, {
+		Name:          "context-agent",
+		URL:           contextAgentURL,
+		Description:   "Compresses conversation context, generates summaries, and extracts memories",
+		OutputModes:   []string{"text", "structured_json", "summary"},
+		CapabilityIDs: []string{"context_compression", "conversation_summary", "memory_extraction"},
+		OutputTypes:   []string{"text", "structured_json", "summary"},
+	}, {
+		Name:          "test-agent",
+		URL:           testAgentURL,
+		Description:   "Analyzes test logs, assesses coverage, and performs root cause analysis",
+		OutputModes:   []string{"text", "structured_json", "analysis_report"},
+		CapabilityIDs: []string{"test_log_analysis", "coverage_assessment", "root_cause_analysis"},
+		OutputTypes:   []string{"text", "structured_json", "analysis_report"},
+	}, {
+		Name:          "review-agent",
+		URL:           reviewAgentURL,
+		Description:   "Reviews code, requirements, and assesses project risks",
+		OutputModes:   []string{"text", "structured_json", "review_report"},
+		CapabilityIDs: []string{"code_review", "requirement_review", "risk_assessment"},
+		OutputTypes:   []string{"text", "structured_json", "review_report"},
+	}, {
+		Name:          "security-agent",
+		URL:           securityAgentURL,
+		Description:   "Scans code for vulnerabilities, checks dependencies, audits configs, and detects secrets",
+		OutputModes:   []string{"text", "structured_json", "security_report"},
+		CapabilityIDs: []string{"security_scanning", "vulnerability_detection", "config_audit", "secret_detection"},
+		OutputTypes:   []string{"text", "structured_json", "security_report"},
+	}, {
+		Name:          "deploy-agent",
+		URL:           deployAgentURL,
+		Description:   "Generates deployment plans, checks environment health, and creates rollback strategies",
+		OutputModes:   []string{"text", "structured_json", "deploy_plan"},
+		CapabilityIDs: []string{"deploy_planning", "environment_check", "rollback_strategy"},
+		OutputTypes:   []string{"text", "structured_json", "deploy_plan"},
+	}, {
+		Name:          "diff-agent",
+		URL:           diffAgentURL,
+		Description:   "Generates unified diffs, explains changes, analyzes impact, and resolves merge conflicts",
+		OutputModes:   []string{"text", "code", "diff", "artifact_ref"},
+		CapabilityIDs: []string{"diff_generation", "diff_explanation", "impact_analysis", "merge_resolution"},
+		OutputTypes:   []string{"text", "code", "diff"},
+	}})
 	if err != nil {
 		return fmt.Errorf("failed to create agent registry: %w", err)
 	}
@@ -221,32 +215,48 @@ func run() error {
 	serverOpts = append(serverOpts, httpapi.WithPlannerMode(httpapi.PlannerMode(plannerMode)))
 
 	if plannerMode == "llm" || plannerMode == "llm_with_rule_fallback" {
-		llmCfg := planner.PlannerLLMConfig{
-			Provider: strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_PROVIDER"))),
-			APIKey:   resolvePlannerAPIKey(),
-			Model:    strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_MODEL")),
-			BaseURL:  strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_BASE_URL")),
+		provider := strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_PROVIDER")))
+		if provider == "" {
+			provider = "anthropic"
 		}
-		if llmCfg.Provider == "" {
-			llmCfg.Provider = "anthropic"
-		}
-		if llmCfg.APIKey == "" {
+		modelName := strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_MODEL"))
+		baseURL := strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_BASE_URL"))
+		apiKey := resolvePlannerAPIKey()
+
+		if apiKey == "" {
 			log.Printf("orchestrator planner: LLM mode requested but no API key found, starting in rule mode")
 			serverOpts = append(serverOpts, httpapi.WithPlannerMode(httpapi.PlannerModeRule))
 		} else {
-			llmClient := planner.NewPlannerLLM(llmCfg)
-			adapter := &registryAgentLister{reg: agentRegistry}
-			llmPlanner := planner.NewLLMPlanner(llmClient, llmCfg.Model, adapter)
-			if plannerMode == "llm" {
-				llmPlanner.DisableFallback()
+			// pkg/runtime/model providers read the key from an env var.
+			apiKeyEnv := "ORCHESTRATOR_LLM_API_KEY"
+			os.Setenv(apiKeyEnv, apiKey)
+
+			llmModel, err := rtregistry.CreateAndRegisterModel(context.Background(), rtregistry.ModelConfig{
+				Name:      "orchestrator-planner",
+				Provider:  provider,
+				Model:     modelName,
+				APIKeyEnv: apiKeyEnv,
+				BaseURL:   baseURL,
+				MaxTokens: 1024,
+			})
+			if err != nil {
+				log.Printf("orchestrator planner: failed to create model via pkg/runtime/model: %v, falling back to rule mode", err)
+				serverOpts = append(serverOpts, httpapi.WithPlannerMode(httpapi.PlannerModeRule))
+			} else {
+				llmClient := planner.NewADKModelAdapter(llmModel)
+				adapter := &registryAgentLister{reg: agentRegistry}
+				llmPlanner := planner.NewLLMPlanner(llmClient, modelName, adapter)
+				if plannerMode == "llm" {
+					llmPlanner.DisableFallback()
+				}
+				serverOpts = append(serverOpts, httpapi.WithPlanner(llmPlanner))
+
+				// Wire LLM synthesizer for multi-agent result aggregation.
+				syn := synthesizer.NewLLMSynthesizer(llmClient, modelName)
+				serverOpts = append(serverOpts, httpapi.WithSynthesizer(syn))
+
+				log.Printf("orchestrator planner: mode=%s (provider=%s, model=%s)", plannerMode, provider, modelName)
 			}
-			serverOpts = append(serverOpts, httpapi.WithPlanner(llmPlanner))
-
-			// Wire LLM synthesizer for multi-agent result aggregation.
-			syn := synthesizer.NewLLMSynthesizer(llmClient, llmCfg.Model)
-			serverOpts = append(serverOpts, httpapi.WithSynthesizer(syn))
-
-			log.Printf("orchestrator planner: mode=%s (provider=%s, model=%s)", plannerMode, llmCfg.Provider, llmCfg.Model)
 		}
 	} else {
 		log.Printf("orchestrator planner: rule mode (deterministic)")

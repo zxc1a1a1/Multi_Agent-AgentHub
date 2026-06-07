@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X POST http://localhost:8080/api/conversations -H 'Content-Type: application/json' -d '{\"userId\":\"test-user-001\",\"agentName\":\"auto\"}')",
+      "Bash(curl -s -N -X POST http://localhost:8080/api/chat -H 'Content-Type: application/json' -H 'Accept: text/event-stream' -d '{ *)",
+      "Bash(timeout 90 cat)",
+      "Bash(curl -s -X POST http://localhost:8080/api/conversations -H 'Content-Type: application/json' -d '{\"userId\":\"test-user-002\",\"agentName\":\"auto\"}')",
+      "Bash(curl -s -N -X POST \"http://localhost:8080/api/chat\" \\\\ *)",
+      "Bash(curl -s -X POST http://localhost:8080/api/runs/run_1780858955569/confirm -H 'Content-Type: application/json' -d '{\"runId\":\"run_1780858955569\",\"actionId\":\"plan_1780858964307_6673\",\"confirmed\":true}')",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s http://localhost:3000/api/agents)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); print\\(f'Agents: {len\\(data\\)}'\\); [print\\(f' - {a[\\\\\"name\\\\\"]}: {a[\\\\\"displayName\\\\\"]}'\\) for a in data[:5]]\")",
+      "Bash(curl -s http://localhost:3000/api/health)",
+      "Bash(go test *)",
+      "Read(//c/Program Files/Go/bin/**)",
+      "Read(//c/Go/bin/**)",
+      "Read(//c/Users/86138/**)",
+      "Bash(find / -maxdepth 6 -name \"go.exe\" -type f 2>/dev/null | head -10)",
+      "Read(//c//**)",
+      "Bash(cmd.exe /c \"where go 2>&1\")",
+      "Bash(powershell.exe -Command \"Get-Command go -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Bash(docker run *)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
+    ]
+  }
+}

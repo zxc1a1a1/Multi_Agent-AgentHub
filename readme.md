@@ -163,6 +163,7 @@ Orchestrator 是核心编排层，需要知道所有 Agent 的地址。
 
 | 变量名 | 必填 | 默认值 | 说明 |
 |--------|------|--------|------|
+| `ORCHESTRATOR_PLANNER_MODE` | 否 | `llm_with_rule_fallback` | 编排模式：`rule`（关键词）、`llm`（LLM 无回退）、`llm_with_rule_fallback`（LLM + Rule 回退） |
 | `ORCHESTRATOR_LLM_PROVIDER` | 否 | `anthropic` | LLM 提供商：`anthropic` / `openai` |
 | `ORCHESTRATOR_LLM_MODEL` | 否 | (空) | 模型名，如 `claude-sonnet-4-20250514` |
 | `ORCHESTRATOR_LLM_API_KEY` | 条件 | (空) | API Key（优先级最高） |
