@@ -92,22 +92,31 @@ type PlanValidator interface {
 // ---------------------------------------------------------------------------
 
 // LLMPlanner implements the Planner interface using an LLM.
-// On failure it falls back to RulePlanner (deprecated transitional fallback).
+// On failure it falls back to RulePlanner (deprecated transitional fallback)
+// unless DisableFallback has been called.
 // The pipeline (Phase 4):
 //
 //	PromptBuilder → PlannerModel → Parser → Normalizer → Validator
 //	  → (if fail) Repairer once → Parser → Normalizer → Validator
-//	  → (if still fail) RulePlanner fallback
+//	  → (if still fail) RulePlanner fallback (or error if noFallback is true)
 //
 // Unknown agent names are never fuzzy-matched or defaulted; they are rejected
 // by the Validator, triggering a repair attempt, then RulePlanner fallback.
 type LLMPlanner struct {
-	model     PlannerModel
-	modelName string
-	lister    AgentLister
-	validator PlanValidator
-	repairer  *PlanRepairer
-	fallback  *RulePlanner
+	model       PlannerModel
+	modelName   string
+	lister      AgentLister
+	validator   PlanValidator
+	repairer    *PlanRepairer
+	fallback    *RulePlanner
+	noFallback  bool
+}
+
+// DisableFallback disables the built-in RulePlanner fallback.
+// When fallback is disabled, Plan() returns an error on LLM/pipeline failure
+// instead of silently falling back to deterministic routing.
+func (p *LLMPlanner) DisableFallback() {
+	p.noFallback = true
 }
 
 // NewLLMPlanner creates an LLMPlanner.
@@ -158,6 +167,9 @@ func (p *LLMPlanner) Plan(ctx context.Context, input PlannerInput) (*plan.Orches
 	// 2. Call the PlannerModel.
 	raw, err := p.model.Generate(ctx, systemPrompt, userPrompt)
 	if err != nil {
+		if p.noFallback {
+			return nil, fmt.Errorf("llm_planner: LLM call failed (fallback disabled): %w", err)
+		}
 		log.Printf("llm_planner: LLM call failed: %v, falling back to RulePlanner", err)
 		return p.fallbackPlan(input, "llm_error", p.modelName), nil
 	}
@@ -177,6 +189,9 @@ func (p *LLMPlanner) Plan(ctx context.Context, input PlannerInput) (*plan.Orches
 	log.Printf("llm_planner: pipeline failed with %d error(s), attempting repair", len(failures))
 	repairedRaw, repairErr := p.repairer.Repair(ctx, raw, failures, p.lister)
 	if repairErr != nil {
+		if p.noFallback {
+			return nil, fmt.Errorf("llm_planner: repair failed (fallback disabled): %w", repairErr)
+		}
 		log.Printf("llm_planner: repair model call failed: %v, falling back to RulePlanner", repairErr)
 		return p.fallbackPlan(input, "repair_failed", p.modelName), nil
 	}
@@ -194,7 +209,10 @@ func (p *LLMPlanner) Plan(ctx context.Context, input PlannerInput) (*plan.Orches
 		return orchPlan, nil
 	}
 
-	// 6. Repair did not fix the issue — fallback to RulePlanner.
+	// 6. Repair did not fix the issue — fallback to RulePlanner (or error).
+	if p.noFallback {
+		return nil, fmt.Errorf("llm_planner: pipeline failed after repair (fallback disabled): %d validation errors", len(failures))
+	}
 	log.Printf("llm_planner: pipeline still failed after repair, falling back to RulePlanner")
 	return p.fallbackPlan(input, "repair_failed", p.modelName), nil
 }

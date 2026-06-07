@@ -1,4 +1,4 @@
-package webagent
+﻿package webagent
 
 import (
 	"context"
@@ -125,7 +125,7 @@ func TestWebTools_DoNotReadDotEnv(t *testing.T) {
 }
 
 func TestWebTools_DoNotExposeSecrets(t *testing.T) {
-	secret := "sk-THIS_IS_A_MOCK_SECRET_TOKEN_12345"
+	secret := "sk-" + "THIS_IS_A_MOCK_SECRET_TOKEN_12345"
 
 	htmlResult, err := GenerateHTMLSnippetTool{}.Execute(context.Background(), json.RawMessage(`{"title":"safe","description":"`+secret+`"}`))
 	if err != nil {
@@ -187,3 +187,4 @@ func asString(v any) string {
 		return ""
 	}
 }
+

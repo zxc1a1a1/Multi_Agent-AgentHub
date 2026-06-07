@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMessageStore } from '../stores/messageStore'
 import { useConversationStore } from '../stores/conversationStore'
 import { useAgentStore } from '../stores/agentStore'
@@ -6,6 +6,7 @@ import { useSendMessage } from '../agui/events'
 import MessageBubble from './MessageBubble'
 import MessageInput from './MessageInput'
 import OrchestrationCard from './OrchestrationCard'
+import { HITLConfirm } from './HITLConfirm'
 import { Bot } from 'lucide-react'
 import { normalizeAgentName, type AgentName } from '../lib/agents'
 
@@ -16,6 +17,10 @@ interface Props {
 export default function ChatWindow({ conversationId }: Props) {
   const messages = useMessageStore((s) => s.messages[conversationId] || [])
   const orchestration = useMessageStore((s) => s.orchestrationByConversation[conversationId])
+  const confirmation = useMessageStore((s) => s.confirmationByConversation[conversationId])
+  const getConfirmation = useMessageStore((s) => s.getConfirmation)
+  const confirmPlan = useMessageStore((s) => s.confirmPlan)
+  const clearConfirmation = useMessageStore((s) => s.clearConfirmation)
   const loadMessages = useMessageStore((s) => s.loadMessages)
   const conversationAgentName = useConversationStore((s) => {
     const conversation = s.conversations.find((item) => item.id === conversationId)
@@ -31,6 +36,7 @@ export default function ChatWindow({ conversationId }: Props) {
   const [selectedAgentName, setSelectedAgentName] = useState<AgentName>(() =>
     normalizeAgentName(conversationAgentName || defaultAgentName()),
   )
+  const [confirmError, setConfirmError] = useState<string | null>(null)
 
   const selectedAgentOption = useMemo(
     () => findAgentOption(selectedAgentName),
@@ -59,11 +65,113 @@ export default function ChatWindow({ conversationId }: Props) {
   }, [messages, streaming])
 
   const handleSend = (content: string) => {
+    setConfirmError(null)
     sendMessage(conversationId, content, { agentName: selectedAgentName })
   }
 
+  const handleConfirm = useCallback(
+    async (actionId: string) => {
+      setConfirmError(null)
+      const pending = getConfirmation(conversationId)
+      if (!pending) return
+      try {
+        await confirmPlan(conversationId, pending.runId, actionId, true)
+      } catch (err) {
+        setConfirmError(err instanceof Error ? err.message : 'Confirmation failed')
+      }
+    },
+    [conversationId, getConfirmation, confirmPlan],
+  )
+
+  const handleReject = useCallback(
+    async (actionId: string, reason: string) => {
+      setConfirmError(null)
+      const pending = getConfirmation(conversationId)
+      if (!pending) return
+      try {
+        await confirmPlan(conversationId, pending.runId, actionId, false, reason)
+      } catch (err) {
+        setConfirmError(err instanceof Error ? err.message : 'Rejection failed')
+      }
+    },
+    [conversationId, getConfirmation, confirmPlan],
+  )
+
+  const handleTimeout = useCallback(
+    (actionId: string) => {
+      const pending = getConfirmation(conversationId)
+      if (!pending) return
+      // Auto-reject on timeout.
+      confirmPlan(conversationId, pending.runId, actionId, false, 'Confirmation timed out').catch(() => {})
+    },
+    [conversationId, getConfirmation, confirmPlan],
+  )
+
+  // Build HITL description from plan info.
+  const pendingConfirmation = confirmation && confirmation.status === 'pending' ? confirmation : null
+
   return (
     <div className="flex flex-col h-full">
+      {/* HITL Plan Confirmation dialog */}
+      {pendingConfirmation && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200">
+          <HITLConfirm
+            runId={pendingConfirmation.runId}
+            actionId={pendingConfirmation.actionId}
+            riskLevel="medium"
+            actionName="Plan Confirmation"
+            description={
+              pendingConfirmation.intentSummary ||
+              `Orchestrate ${pendingConfirmation.agentNames.length} agent(s) with ${pendingConfirmation.tasks.length} task(s)`
+            }
+            parameters={pendingConfirmation.tasks.length > 0 ? {
+              agents: pendingConfirmation.agentNames,
+              strategy: pendingConfirmation.strategy,
+              tasks: pendingConfirmation.tasks,
+            } : undefined}
+            timeoutMs={120000}
+            onConfirm={handleConfirm}
+            onReject={handleReject}
+            onTimeout={handleTimeout}
+          />
+          {confirmError && (
+            <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+              {confirmError}
+              <button
+                className="ml-2 underline text-red-600 hover:text-red-800"
+                onClick={() => setConfirmError(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Confirmed/rejected status banner */}
+      {confirmation && confirmation.status === 'confirmed' && (
+        <div className="px-4 py-1.5 bg-green-50 border-b border-green-200 text-sm text-green-700 text-center">
+          Plan confirmed — executing...
+          <button
+            className="ml-2 underline text-green-600 hover:text-green-800"
+            onClick={() => clearConfirmation(conversationId)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+      {confirmation && confirmation.status === 'rejected' && (
+        <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-200 text-sm text-gray-600 text-center">
+          Plan rejected{confirmation.rejectReason ? `: ${confirmation.rejectReason}` : ''}
+          <button
+            className="ml-2 underline text-gray-500 hover:text-gray-700"
+            onClick={() => clearConfirmation(conversationId)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto space-y-6">

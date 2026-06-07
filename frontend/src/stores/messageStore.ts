@@ -12,16 +12,32 @@ interface SendMessageOptions {
   agentName?: AgentName
 }
 
+export interface PendingConfirmation {
+  runId: string
+  actionId: string
+  agentNames: string[]
+  tasks: Array<{ taskId?: string; agentName?: string; content?: string; dependsOn?: string[]; priority?: number; riskLevel?: string }>
+  intentSummary?: string
+  strategy?: string
+  status: 'pending' | 'confirmed' | 'rejected'
+  error?: string
+  rejectReason?: string
+}
+
 interface MessageState {
   messages: Record<string, Message[]> // conversationId -> messages[]
   streamingByConversation: Record<string, boolean>
   abortControllersByConversation: Record<string, AbortController | null>
   orchestrationByConversation: Record<string, OrchestrationInfo>
+  confirmationByConversation: Record<string, PendingConfirmation | null>
 
   loadMessages: (conversationId: string) => Promise<void>
   sendMessage: (conversationId: string, content: string, options?: SendMessageOptions) => void
   isStreaming: (conversationId: string) => boolean
   stopStreaming: (conversationId: string) => void
+  getConfirmation: (conversationId: string) => PendingConfirmation | null
+  confirmPlan: (conversationId: string, runId: string, actionId: string, confirmed: boolean, reason?: string) => Promise<void>
+  clearConfirmation: (conversationId: string) => void
 }
 
 interface StoredMessage {
@@ -144,6 +160,17 @@ function sanitizeErrorText(text: string): string {
     // Only redact paths that look like filesystem paths, not ordinary words
     if (match.length > 8 && match.split('/').length >= 3) {
       return '[path]'
+    }
+    return match
+  })
+  // Strip internal URLs/hostnames (http://host:port, localhost, .local, .internal)
+  out = out.replace(/\bhttps?:\/\/[^\s,;}\]\)"']+/gi, (match) => {
+    // Redact URLs containing internal-looking hostnames or ports
+    if (/:\d+/.test(match) || /localhost/i.test(match) || /\.local\b/i.test(match) ||
+        /\.internal\b/i.test(match) || /\.lan\b/i.test(match) || /\.corp\b/i.test(match) ||
+        /127\.0\.0\.\d+/.test(match) || /10\.\d+\.\d+\.\d+/.test(match) ||
+        /192\.168\.\d+\.\d+/.test(match) || /172\.(1[6-9]|2\d|3[01])\.\d+\.\d+/.test(match)) {
+      return '[url]'
     }
     return match
   })
@@ -287,6 +314,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   streamingByConversation: {},
   abortControllersByConversation: {},
   orchestrationByConversation: {},
+  confirmationByConversation: {},
 
   loadMessages: async (conversationId: string) => {
     try {
@@ -577,6 +605,61 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       }
     }
 
+    // Progressive WebPreview: update preview HTML as tool args stream in.
+    // This lets the Source tab show the HTML being built in real time.
+    const updateProgressiveWebPreview = (toolName: string, rawArgs: string) => {
+      if (toolName !== 'web_preview' && toolName !== 'generate_html_snippet') {
+        return
+      }
+      // Try to extract HTML content from partial args.
+      let html = ''
+      try {
+        const parsed = JSON.parse(rawArgs)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          html = (typeof parsed.html === 'string' ? parsed.html : '') ||
+            (typeof parsed.content === 'string' ? parsed.content : '')
+        }
+      } catch {
+        // Raw args are not yet valid JSON; try heuristic extraction.
+        const htmlMatch = rawArgs.match(/"html"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/)
+        if (htmlMatch) {
+          html = htmlMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n')
+        } else {
+          const contentMatch = rawArgs.match(/"content"\s*:\s*"([^"]*(?:\\.[^"]*)*)"/)
+          if (contentMatch) {
+            html = contentMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n')
+          }
+        }
+      }
+
+      if (!html) {
+        return
+      }
+
+      hasWebArtifactEvidence = true
+      const supportedAgentName = isSupportedAgentName(currentAgentName)
+        ? currentAgentName
+        : selectedAgentName
+
+      // Update or create a streaming web preview block.
+      const existingIdx = webPreviews.findIndex(
+        (wp) => wp.title === 'web-preview.html' && wp.agentName === supportedAgentName,
+      )
+      if (existingIdx >= 0) {
+        webPreviews[existingIdx] = {
+          ...webPreviews[existingIdx],
+          html,
+        }
+      } else {
+        webPreviews.push({
+          html,
+          title: 'web-preview.html',
+          agentName: supportedAgentName,
+        })
+      }
+      syncPreviewBlocks()
+    }
+
     const handleArtifactDelta = (event: AGUIEvent) => {
       if (!event.artifact) {
         return
@@ -730,6 +813,23 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                 orchInfo.taskAgentNames = state.taskAgentNames as string
                 hasOrchInfo = true
               }
+              // HITL plan confirmation: detect requiresConfirmation flag and planned agents/tasks.
+              if (state.requiresConfirmation === true) {
+                orchInfo.requiresConfirmation = true
+                hasOrchInfo = true
+              }
+              if (typeof state.confirmationActionId === 'string' && state.confirmationActionId) {
+                orchInfo.confirmationActionId = state.confirmationActionId as string
+                hasOrchInfo = true
+              }
+              if (Array.isArray(state.plannedAgents)) {
+                orchInfo.plannedAgents = state.plannedAgents as string[]
+                hasOrchInfo = true
+              }
+              if (Array.isArray(state.tasks)) {
+                orchInfo.plannedTasks = state.tasks as OrchestrationInfo['plannedTasks']
+                hasOrchInfo = true
+              }
               if (hasOrchInfo) {
                 set((s) => ({
                   orchestrationByConversation: {
@@ -768,21 +868,63 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             if (event.id) {
               toolCallArgs[event.id] =
                 (toolCallArgs[event.id] || '') + resolveContentChunk(event)
+              const tn = event.toolCall?.name || toolCallNames[event.id] || ''
+              updateProgressiveWebPreview(tn, toolCallArgs[event.id])
             } else if (event.toolCallId) {
               toolCallArgs[event.toolCallId] =
                 (toolCallArgs[event.toolCallId] || '') + resolveContentChunk(event)
+              const tn = event.toolName || toolCallNames[event.toolCallId] || ''
+              updateProgressiveWebPreview(tn, toolCallArgs[event.toolCallId])
             }
             break
 
-          case 'TOOL_CALL_END':
+          case 'TOOL_CALL_END': {
+            let toolName = ''
+            let toolArgs = ''
+            let toolId = ''
             if (event.id) {
-              const toolName = event.toolCall?.name || toolCallNames[event.id] || ''
-              handleToolPayload(toolName, toolCallArgs[event.id] || '')
+              toolName = event.toolCall?.name || toolCallNames[event.id] || ''
+              toolArgs = toolCallArgs[event.id] || ''
+              toolId = event.id
             } else if (event.toolCallId) {
-              const toolName = event.toolName || toolCallNames[event.toolCallId] || ''
-              handleToolPayload(toolName, toolCallArgs[event.toolCallId] || '')
+              toolName = event.toolName || toolCallNames[event.toolCallId] || ''
+              toolArgs = toolCallArgs[event.toolCallId] || ''
+              toolId = event.toolCallId
+            }
+            // Handle confirm_plan: set up pending HITL confirmation state.
+            if (toolName === 'confirm_plan') {
+              const parsed = normalizeToolArguments(toolArgs)
+              if (parsed) {
+                const confirmRunId = (typeof parsed.runId === 'string' ? parsed.runId : '') || ''
+                const confirmPlanId = (typeof parsed.planId === 'string' ? parsed.planId : '') || toolId
+                const confirmAgents: string[] = Array.isArray(parsed.plannedAgents)
+                  ? (parsed.plannedAgents as string[])
+                  : []
+                const confirmTasks = Array.isArray(parsed.tasks)
+                  ? (parsed.tasks as PendingConfirmation['tasks'])
+                  : []
+                const confirmSummary = typeof parsed.intentSummary === 'string' ? parsed.intentSummary : ''
+                const confirmStrategy = typeof parsed.strategy === 'string' ? parsed.strategy : ''
+                set((s) => ({
+                  confirmationByConversation: {
+                    ...s.confirmationByConversation,
+                    [conversationId]: {
+                      runId: confirmRunId,
+                      actionId: confirmPlanId,
+                      agentNames: confirmAgents,
+                      tasks: confirmTasks,
+                      intentSummary: confirmSummary,
+                      strategy: confirmStrategy,
+                      status: 'pending',
+                    },
+                  },
+                }))
+              }
+            } else {
+              handleToolPayload(toolName, toolArgs)
             }
             break
+          }
 
           case 'tool.call': {
             ensureAgentMessage(event)
@@ -855,5 +997,59 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         ...setConversationAbortController(s, conversationId, null),
       }))
     }
+  },
+
+  getConfirmation: (conversationId: string) => {
+    const { confirmationByConversation } = get()
+    return confirmationByConversation[conversationId] || null
+  },
+
+  confirmPlan: async (conversationId: string, runId: string, actionId: string, confirmed: boolean, reason?: string) => {
+    const current = get().confirmationByConversation[conversationId]
+    if (!current || current.status !== 'pending') {
+      return
+    }
+    try {
+      await api.confirmHITL({
+        runId: runId || current.runId,
+        actionId: actionId || current.actionId,
+        confirmed,
+        rejectReason: reason || '',
+      })
+      set((s) => ({
+        confirmationByConversation: {
+          ...s.confirmationByConversation,
+          [conversationId]: {
+            ...current,
+            status: confirmed ? 'confirmed' : 'rejected',
+            rejectReason: reason || '',
+          },
+        },
+      }))
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Confirmation failed'
+      // Sanitize error — no internal URLs, tokens, or stack traces
+      const safeMessage = sanitizeErrorText(errorMessage)
+      set((s) => ({
+        confirmationByConversation: {
+          ...s.confirmationByConversation,
+          [conversationId]: {
+            ...current,
+            status: 'pending',
+            error: safeMessage,
+          },
+        },
+      }))
+      throw new Error(safeMessage)
+    }
+  },
+
+  clearConfirmation: (conversationId: string) => {
+    set((s) => ({
+      confirmationByConversation: {
+        ...s.confirmationByConversation,
+        [conversationId]: null,
+      },
+    }))
   },
 }))

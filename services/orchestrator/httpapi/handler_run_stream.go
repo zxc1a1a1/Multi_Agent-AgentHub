@@ -3,7 +3,9 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -36,14 +38,16 @@ type MessageInput struct {
 
 // OrchestratorStreamEvent is the internal event sent over SSE.
 type OrchestratorStreamEvent struct {
-	Type      string         `json:"type"`
-	RunID     string         `json:"runId"`
-	MessageID string         `json:"messageId,omitempty"`
-	TaskID    string         `json:"taskId,omitempty"`
-	Sender    *EventSender   `json:"sender,omitempty"`
-	Delta     string         `json:"delta,omitempty"`
-	State     map[string]any `json:"state,omitempty"`
-	Error     *SafeError     `json:"error,omitempty"`
+	Type         string         `json:"type"`
+	RunID        string         `json:"runId"`
+	MessageID    string         `json:"messageId,omitempty"`
+	TaskID       string         `json:"taskId,omitempty"`
+	Sender       *EventSender   `json:"sender,omitempty"`
+	Delta        string         `json:"delta,omitempty"`
+	State        map[string]any `json:"state,omitempty"`
+	Error        *SafeError     `json:"error,omitempty"`
+	ToolCallID   string         `json:"toolCallId,omitempty"`
+	ToolCallName string         `json:"toolCallName,omitempty"`
 }
 
 type EventSender struct {
@@ -113,16 +117,50 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		AvailableAgents:    availableAgentNames,
 	}
 
-	// Use the configured Planner, or default to RulePlanner.
-	p := s.planner
-	if p == nil {
-		p = planner.NewRulePlanner(availableAgentNames)
+	// Use the configured Planner with mode-aware fallback.
+	//   rule:                     always RulePlanner (deterministic)
+	//   llm:                      LLMPlanner only, error on failure (no silent fallback)
+	//   llm_with_rule_fallback:   LLMPlanner first, RulePlanner on failure
+	rulePlanner := planner.NewRulePlanner(availableAgentNames)
+	mode := s.plannerMode
+	if mode == "" {
+		mode = PlannerModeRule
 	}
-	orchPlan, err := p.Plan(r.Context(), plannerInput)
-	if err != nil {
-		s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED", "Failed to generate orchestration plan")
-		return
+
+	var orchPlan *plan.OrchestrationPlan
+	var planErr error
+
+	switch mode {
+	case PlannerModeLLM, PlannerModeLLMWithRuleFallback:
+		if s.planner == nil {
+			s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED",
+				"LLM planner requested but no LLM planner configured (missing API key)")
+			return
+		}
+		orchPlan, planErr = s.planner.Plan(r.Context(), plannerInput)
+		if planErr != nil {
+			if mode == PlannerModeLLMWithRuleFallback {
+				logLLMPlanFallback(planErr)
+				orchPlan, planErr = rulePlanner.Plan(r.Context(), plannerInput)
+				if planErr != nil || orchPlan == nil {
+					s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED",
+						"Both LLM and fallback RulePlanner failed")
+					return
+				}
+			} else {
+				s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED",
+					"LLM planner failed (llm mode, no fallback)")
+				return
+			}
+		}
+	default: // PlannerModeRule or empty
+		orchPlan, planErr = rulePlanner.Plan(r.Context(), plannerInput)
+		if planErr != nil {
+			s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED", "Failed to generate orchestration plan")
+			return
+		}
 	}
+
 	if orchPlan == nil {
 		s.writeSSEError(w, runID, "ORCHESTRATOR_PLANNER_FAILED", "Orchestration plan is nil")
 		return
@@ -159,30 +197,92 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	msgID := fmt.Sprintf("msg_%d", time.Now().UnixMilli())
 
-	// Emit run_started with plan metadata, validation status, and planner info.
-	planState := map[string]any{
-		"phase":     "executing",
-		"planId":    orchPlan.PlanID,
-		"validated": orchPlan.Validation.Validated,
+	// Check if plan confirmation is required before execution.
+	requireConfirm := strings.ToLower(strings.TrimSpace(
+		os.Getenv("REQUIRE_PLAN_CONFIRMATION"))) == "true"
+
+	planState := buildPlanState(orchPlan)
+
+	if requireConfirm {
+		planState["phase"] = "awaiting_confirmation"
+		planState["requiresConfirmation"] = true
+		planState["confirmationActionId"] = orchPlan.PlanID
+		planState["plannedAgents"] = plannedAgentNames(orchPlan)
+		planState["tasks"] = taskSummaries(orchPlan)
+
+		// Emit AG-UI standard TOOL_CALL_* events for plan confirmation.
+		// This lets the frontend handle confirm_plan through the standard tool-call
+		// pipeline while STATE_UPDATE metadata remains for backward compatibility.
+		confirmToolID := orchPlan.PlanID
+		s.emitEvent(w, flusher, OrchestratorStreamEvent{
+			Type:         "tool_call_start",
+			RunID:        runID,
+			ToolCallID:   confirmToolID,
+			ToolCallName: "confirm_plan",
+		})
+		confirmArgs, _ := json.Marshal(map[string]any{
+			"runId":                runID,
+			"planId":               orchPlan.PlanID,
+			"strategy":             orchPlan.Strategy,
+			"plannedAgents":        plannedAgentNames(orchPlan),
+			"tasks":                taskSummaries(orchPlan),
+			"intentSummary":        orchPlan.IntentSummary,
+			"requiresConfirmation": true,
+		})
+		s.emitEvent(w, flusher, OrchestratorStreamEvent{
+			Type:       "tool_call_args",
+			RunID:      runID,
+			ToolCallID: confirmToolID,
+			Delta:      string(confirmArgs),
+		})
+		s.emitEvent(w, flusher, OrchestratorStreamEvent{
+			Type:       "tool_call_end",
+			RunID:      runID,
+			ToolCallID: confirmToolID,
+		})
+
+		s.emitEvent(w, flusher, OrchestratorStreamEvent{
+			Type:  "run_started",
+			RunID: runID,
+			State: planState,
+		})
+
+		confirmCh := s.registerPending(runID, orchPlan)
+		defer s.deregisterPending(runID)
+
+		confirmTimeout := 120 * time.Second
+		select {
+		case result := <-confirmCh:
+			if !result.Confirmed {
+				s.emitEvent(w, flusher, OrchestratorStreamEvent{
+					Type:  "run_finished",
+					RunID: runID,
+					State: map[string]any{
+						"status":       "cancelled",
+						"rejectReason": result.RejectReason,
+					},
+				})
+				return
+			}
+		case <-time.After(confirmTimeout):
+			s.emitEvent(w, flusher, OrchestratorStreamEvent{
+				Type:  "run_finished",
+				RunID: runID,
+				State: map[string]any{
+					"status":  "timeout",
+					"message": "plan confirmation timed out",
+				},
+			})
+			return
+		case <-r.Context().Done():
+			return
+		}
+		planState["phase"] = "executing"
+		planState["requiresConfirmation"] = false
+	} else {
+		planState["phase"] = "executing"
 	}
-	if orchPlan.PlannerSource != "" {
-		planState["plannerSource"] = orchPlan.PlannerSource
-		planState["plannerSourceLabel"] = plannerSourceLabel(orchPlan.PlannerSource)
-	}
-	if orchPlan.PlannerReasoning != "" {
-		planState["reasoning"] = orchPlan.PlannerReasoning
-		planState["intent"] = orchPlan.IntentSummary
-	}
-	if orchPlan.PlannerModel != "" {
-		planState["plannerModel"] = orchPlan.PlannerModel
-	}
-	planState["strategy"] = orchPlan.Strategy
-	planState["taskCount"] = len(orchPlan.Tasks)
-	// Phase 5: always emit repair/fallback/validation metadata.
-	planState["repairCount"] = orchPlan.RepairCount
-	planState["fallback"] = orchPlan.Fallback.Enabled
-	planState["fallbackReason"] = orchPlan.Fallback.Reason
-	planState["validationPassed"] = orchPlan.Validation.Validated
+
 	s.emitEvent(w, flusher, OrchestratorStreamEvent{
 		Type:  "run_started",
 		RunID: runID,
@@ -332,6 +432,10 @@ func sanitizeForError(name string) string {
 	return name
 }
 
+func logLLMPlanFallback(err error) {
+	log.Printf("orchestrator: LLM planner failed, falling back to RulePlanner: %v", err)
+}
+
 func plannerSourceLabel(source string) string {
 	switch source {
 	case "llm":
@@ -343,4 +447,57 @@ func plannerSourceLabel(source string) string {
 	default:
 		return source
 	}
+}
+
+// buildPlanState constructs the base plan state map for SSE events.
+func buildPlanState(p *plan.OrchestrationPlan) map[string]any {
+	if p == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"planId":         p.PlanID,
+		"strategy":       p.Strategy,
+		"intentSummary":  p.IntentSummary,
+		"plannerSource":  p.PlannerSource,
+		"plannerModel":   p.PlannerModel,
+		"planningMode":   p.PlanningMode,
+		"taskCount":      len(p.Tasks),
+		"plannedAgents":  plannedAgentNames(p),
+		"tasks":          taskSummaries(p),
+	}
+}
+
+// plannedAgentNames extracts unique agent names from a plan's task list.
+func plannedAgentNames(p *plan.OrchestrationPlan) []string {
+	if p == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	names := make([]string, 0, len(p.Tasks))
+	for _, t := range p.Tasks {
+		if t.AgentName != "" && !seen[t.AgentName] {
+			seen[t.AgentName] = true
+			names = append(names, t.AgentName)
+		}
+	}
+	return names
+}
+
+// taskSummaries builds lightweight task summary objects for SSE event metadata.
+func taskSummaries(p *plan.OrchestrationPlan) []map[string]any {
+	if p == nil {
+		return nil
+	}
+	summaries := make([]map[string]any, 0, len(p.Tasks))
+	for _, t := range p.Tasks {
+		summaries = append(summaries, map[string]any{
+			"taskId":     t.TaskID,
+			"agentName":  t.AgentName,
+			"content":    t.TaskContent,
+			"dependsOn":  t.DependsOn,
+			"priority":   t.Priority,
+			"riskLevel":  t.RiskLevel,
+		})
+	}
+	return summaries
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -212,6 +213,49 @@ func (s *SQLSessionService) Get(ctx context.Context, id string) (*adk.Session, e
 		State:     adk.NewSessionState(stateMap),
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
+	}, nil
+}
+
+func (s *SQLSessionService) GetOrCreate(ctx context.Context, id string) (*adk.Session, error) {
+	ctx = ensureContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	if id == "" {
+		return nil, fmt.Errorf("session id must not be empty")
+	}
+
+	session, err := s.Get(ctx, id)
+	if err == nil {
+		return session, nil
+	}
+	if !errors.Is(err, ErrSessionNotFound) {
+		return nil, err
+	}
+
+	now := time.Now()
+	stateJSON := []byte("{}")
+	_, err = s.db.ExecContext(ctx, insertSessionSQL, id, id, stateJSON, now, now)
+	if err != nil {
+		// Handle race: another goroutine may have created the session between Get and Insert.
+		if strings.Contains(err.Error(), "duplicate") {
+			session, getErr := s.Get(ctx, id)
+			if getErr != nil {
+				return nil, fmt.Errorf("get session after concurrent insert: %w", getErr)
+			}
+			return session, nil
+		}
+		return nil, fmt.Errorf("insert session for GetOrCreate: %w", err)
+	}
+
+	return &adk.Session{
+		ID:        id,
+		UserID:    id,
+		Events:    make([]adk.Event, 0),
+		State:     adk.NewSessionState(map[string]any{}),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}, nil
 }
 

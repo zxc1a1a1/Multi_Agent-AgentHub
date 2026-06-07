@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"iter"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/orchestratorclient"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
 )
@@ -651,5 +653,241 @@ func writeJSONForHTTPAPITest(t *testing.T, w http.ResponseWriter, status int, pa
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
 		t.Fatalf("encode json failed: %v", err)
+	}
+}
+
+// mockHITLConfirmRunner implements both RunService and HITL ConfirmRun.
+type mockHITLConfirmRunner struct {
+	seq        iter.Seq2[adk.Event, error]
+	confirmErr error
+	// Captures the last confirm request for assertions.
+	lastConfirmReq *orchestratorclient.HITLConfirmRequest
+}
+
+func (m *mockHITLConfirmRunner) Run(ctx context.Context, conversationID string, userContent *adk.Content) iter.Seq2[adk.Event, error] {
+	if m.seq == nil {
+		return func(yield func(adk.Event, error) bool) {}
+	}
+	return m.seq
+}
+
+func (m *mockHITLConfirmRunner) ConfirmRun(ctx context.Context, req orchestratorclient.HITLConfirmRequest) error {
+	m.lastConfirmReq = &req
+	return m.confirmErr
+}
+
+func TestHITLConfirmRouteAccepted(t *testing.T) {
+	runner := &mockHITLConfirmRunner{}
+	srv, err := NewServer(store.NewMemoryStore(), runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	body := `{"runId":"run-1","actionId":"action-1","confirmed":true,"rejectReason":""}`
+	req := httptest.NewRequest(http.MethodPost, "/api/runs/run-1/confirm", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if runner.lastConfirmReq == nil {
+		t.Fatal("expected ConfirmRun to be called")
+	}
+	if runner.lastConfirmReq.RunID != "run-1" {
+		t.Fatalf("expected runId run-1, got %q", runner.lastConfirmReq.RunID)
+	}
+	if runner.lastConfirmReq.ActionID != "action-1" {
+		t.Fatalf("expected actionId action-1, got %q", runner.lastConfirmReq.ActionID)
+	}
+	if !runner.lastConfirmReq.Confirmed {
+		t.Fatal("expected confirmed=true")
+	}
+}
+
+func TestHITLConfirmRouteRejected(t *testing.T) {
+	runner := &mockHITLConfirmRunner{}
+	srv, err := NewServer(store.NewMemoryStore(), runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	body := `{"runId":"run-2","actionId":"action-2","confirmed":false,"rejectReason":"not needed"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/runs/run-2/confirm", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if runner.lastConfirmReq == nil {
+		t.Fatal("expected ConfirmRun to be called")
+	}
+	if runner.lastConfirmReq.Confirmed {
+		t.Fatal("expected confirmed=false")
+	}
+	if runner.lastConfirmReq.RejectReason != "not needed" {
+		t.Fatalf("expected rejectReason 'not needed', got %q", runner.lastConfirmReq.RejectReason)
+	}
+}
+
+func TestHITLConfirmRouteDefaultRunID(t *testing.T) {
+	runner := &mockHITLConfirmRunner{}
+	srv, err := NewServer(store.NewMemoryStore(), runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	// Body omits runId; handler should fill it from path.
+	body := `{"actionId":"action-3","confirmed":true,"rejectReason":""}`
+	req := httptest.NewRequest(http.MethodPost, "/api/runs/run-3/confirm", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if runner.lastConfirmReq.RunID != "run-3" {
+		t.Fatalf("expected runId run-3 from path, got %q", runner.lastConfirmReq.RunID)
+	}
+}
+
+func TestHITLConfirmRouteRunIDMismatch(t *testing.T) {
+	runner := &mockHITLConfirmRunner{}
+	srv, err := NewServer(store.NewMemoryStore(), runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	body := `{"runId":"different","actionId":"action-4","confirmed":true,"rejectReason":""}`
+	req := httptest.NewRequest(http.MethodPost, "/api/runs/run-4/confirm", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	respBody := rec.Body.String()
+	if !strings.Contains(respBody, "must match") {
+		t.Fatalf("expected mismatch error, got %q", respBody)
+	}
+}
+
+func TestHITLConfirmRouteNotImplemented(t *testing.T) {
+	// mockRunService does NOT implement ConfirmRun — should get 501.
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{})
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	body := `{"runId":"run-5","actionId":"action-5","confirmed":true,"rejectReason":""}`
+	req := httptest.NewRequest(http.MethodPost, "/api/runs/run-5/confirm", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHITLConfirmRouteMethodNotAllowed(t *testing.T) {
+	runner := &mockHITLConfirmRunner{}
+	srv, err := NewServer(store.NewMemoryStore(), runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/runs/run-6/confirm", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Allow"); got != http.MethodPost {
+		t.Fatalf("expected Allow=POST, got %q", got)
+	}
+}
+
+func TestHITLConfirmRouteBadRequest(t *testing.T) {
+	runner := &mockHITLConfirmRunner{}
+	srv, err := NewServer(store.NewMemoryStore(), runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/runs/run-7/confirm", strings.NewReader(`{invalid}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHITLConfirmRouteNotFound(t *testing.T) {
+	runner := &mockHITLConfirmRunner{}
+	srv, err := NewServer(store.NewMemoryStore(), runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	// Malformed path with extra segments.
+	body := `{"confirmed":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/runs/a/b/confirm", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHITLConfirmRouteErrorSanitized(t *testing.T) {
+	runner := &mockHITLConfirmRunner{
+		confirmErr: fmt.Errorf("orchestrator at http://internal:8090 failed: token=sk-abc123secret"),
+	}
+	srv, err := NewServer(store.NewMemoryStore(), runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	body := `{"runId":"run-8","actionId":"action-8","confirmed":true,"rejectReason":""}`
+	req := httptest.NewRequest(http.MethodPost, "/api/runs/run-8/confirm", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	respBody := rec.Body.String()
+	if strings.Contains(respBody, "internal:8090") || strings.Contains(respBody, "sk-abc123secret") {
+		t.Fatalf("expected sanitized error, got %q", respBody)
+	}
+}
+
+func TestHITLConfirmRouteEmptyRunID(t *testing.T) {
+	runner := &mockHITLConfirmRunner{}
+	srv, err := NewServer(store.NewMemoryStore(), runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	// Path with only /api/runs/ (no runId, no /confirm suffix) should 404.
+	req := httptest.NewRequest(http.MethodPost, "/api/runs/", strings.NewReader(`{"confirmed":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for path without confirm suffix, got %d body=%q", rec.Code, rec.Body.String())
 	}
 }

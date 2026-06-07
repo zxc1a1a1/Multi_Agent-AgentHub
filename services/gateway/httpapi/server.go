@@ -132,6 +132,16 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/conversations/", s.handleConversationMessages)
 	s.mux.HandleFunc("/api/agents", s.handleListAgents)
 	s.mux.HandleFunc("/api/chat", s.handleChat)
+	s.mux.HandleFunc("/api/runs/", s.handleRuns)
+}
+
+// handleRuns dispatches to the appropriate handler based on path suffix.
+func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/confirm") {
+		s.handleRunsConfirm(w, r)
+		return
+	}
+	http.NotFound(w, r)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

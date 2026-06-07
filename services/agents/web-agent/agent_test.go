@@ -12,6 +12,8 @@ import (
 
 var _ adk.Agent = (*WebAgent)(nil)
 
+var _ adk.StreamingAgent = (*WebAgent)(nil)
+
 func TestNewWebAgent_Defaults(t *testing.T) {
 	agent := NewWebAgent(Config{})
 	if agent == nil {
@@ -239,4 +241,64 @@ func firstTextPart(parts []adk.Part) (adk.TextPart, bool) {
 		}
 	}
 	return adk.TextPart{}, false
+}
+
+func TestWebAgent_GenerateStream_MultipleChunks(t *testing.T) {
+	agent := NewWebAgent(Config{})
+	req := buildRequest("build a login html page with button and form")
+
+	var chunks []string
+	for resp, err := range agent.GenerateStream(context.Background(), req) {
+		if err != nil {
+			t.Fatalf("GenerateStream returned error: %v", err)
+		}
+		for _, part := range resp.Parts {
+			textPart, ok := part.(adk.TextPart)
+			if ok && textPart.Text != "" {
+				chunks = append(chunks, textPart.Text)
+			}
+		}
+	}
+
+	if len(chunks) < 2 {
+		t.Fatalf("expected at least 2 stream chunks, got %d", len(chunks))
+	}
+
+	fullText := strings.Join(chunks, "")
+	if !strings.Contains(fullText, "web-agent v0.1 mock response") {
+		t.Fatalf("streamed text missing mock marker: %q", fullText)
+	}
+}
+
+func TestWebAgent_GenerateStream_ErrorOnNilRequest(t *testing.T) {
+	agent := NewWebAgent(Config{})
+	for resp, err := range agent.GenerateStream(context.Background(), nil) {
+		if err == nil {
+			t.Fatal("expected error for nil request")
+		}
+		if resp != nil {
+			t.Fatal("expected nil response with error")
+		}
+		return
+	}
+	t.Fatal("expected at least one yield from GenerateStream")
+}
+
+func TestWebAgent_GenerateStream_FallsBackToMock(t *testing.T) {
+	agent := NewWebAgent(Config{})
+	req := buildRequest("hello")
+
+	var chunkCount int
+	for resp, err := range agent.GenerateStream(context.Background(), req) {
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp != nil && len(resp.Parts) > 0 {
+			chunkCount++
+		}
+	}
+
+	if chunkCount == 0 {
+		t.Fatal("expected at least one chunk from mock streaming")
+	}
 }

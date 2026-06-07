@@ -37,3 +37,22 @@ logs/
 /server/server.exe
 /agents/code-agent/code-agent
 /agents/code-agent/code-agent.exe
+
+# Build artifacts (must not be committed)
+*.exe
+/code-agent
+/web-agent
+/orchestrator
+/document-agent.exe
+/services/agents/*/code-agent
+/services/agents/*/web-agent
+/services/agents/*/context-agent
+/services/agents/*/deploy-agent
+/services/agents/*/diff-agent
+/services/agents/*/document-agent
+/services/agents/*/review-agent
+/services/agents/*/security-agent
+/services/agents/*/test-agent
+/services/agents/*/vision-agent
+/services/orchestrator/orchestrator
+/services/gateway/gateway

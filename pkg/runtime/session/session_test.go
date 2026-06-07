@@ -486,6 +486,128 @@ func TestSQLSessionService_InterfaceCompliance(t *testing.T) {
 	}
 }
 
+func TestSQLSessionService_GetOrCreate_Creates(t *testing.T) {
+	svc, _ := newServiceForTest(t)
+
+	session, err := svc.GetOrCreate(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("GetOrCreate first call: %v", err)
+	}
+	if session.ID != "session-1" {
+		t.Fatalf("expected session ID session-1, got %q", session.ID)
+	}
+	if session.UserID != "session-1" {
+		t.Fatalf("expected user ID session-1, got %q", session.UserID)
+	}
+	if session.State == nil {
+		t.Fatal("expected non-nil state")
+	}
+	if len(session.Events) != 0 {
+		t.Fatalf("expected 0 events for new session, got %d", len(session.Events))
+	}
+
+	// Verify it's persisted
+	got, err := svc.Get(context.Background(), "session-1")
+	if err != nil {
+		t.Fatalf("Get after GetOrCreate: %v", err)
+	}
+	if got.ID != "session-1" {
+		t.Fatalf("persisted session ID mismatch: %q", got.ID)
+	}
+}
+
+func TestSQLSessionService_GetOrCreate_ReturnsExisting(t *testing.T) {
+	svc, _ := newServiceForTest(t)
+
+	// Create via GetOrCreate
+	first, err := svc.GetOrCreate(context.Background(), "session-2")
+	if err != nil {
+		t.Fatalf("first GetOrCreate: %v", err)
+	}
+
+	// Append an event to distinguish from a fresh session
+	if err := svc.AppendEvent(context.Background(), "session-2", adk.Event{
+		ID:      "evt-1",
+		Author:  "assistant",
+		Content: &adk.Content{Role: adk.RoleAssistant, Parts: []adk.Part{adk.TextPart{Text: "hello"}}},
+	}); err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+
+	// Second GetOrCreate should return existing (with event)
+	second, err := svc.GetOrCreate(context.Background(), "session-2")
+	if err != nil {
+		t.Fatalf("second GetOrCreate: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("session ID changed: %q → %q", first.ID, second.ID)
+	}
+	if len(second.Events) != 1 {
+		t.Fatalf("expected 1 event in returned session, got %d", len(second.Events))
+	}
+	if second.Events[0].ID != "evt-1" {
+		t.Fatalf("unexpected event ID: %q", second.Events[0].ID)
+	}
+}
+
+func TestSQLSessionService_GetOrCreate_ConcurrentNoDup(t *testing.T) {
+	svc, store := newServiceForTest(t)
+
+	const concurrency = 5
+	sessionID := "concurrent-session"
+
+	var wg sync.WaitGroup
+	results := make([]*adk.Session, concurrency)
+	errs := make([]error, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			session, err := svc.GetOrCreate(context.Background(), sessionID)
+			results[idx] = session
+			errs[idx] = err
+		}(i)
+	}
+	wg.Wait()
+
+	// All goroutines should succeed (either create or get after race)
+	successCount := 0
+	for i := 0; i < concurrency; i++ {
+		if errs[i] == nil && results[i] != nil && results[i].ID == sessionID {
+			successCount++
+		}
+	}
+	if successCount != concurrency {
+		t.Fatalf("expected %d successful GetOrCreate calls, got %d", concurrency, successCount)
+	}
+
+	// Only one session should exist in the store
+	store.mu.Lock()
+	count := 0
+	for id := range store.sessions {
+		if id == sessionID {
+			count++
+		}
+	}
+	store.mu.Unlock()
+	if count != 1 {
+		t.Fatalf("expected exactly 1 session in store, found %d", count)
+	}
+}
+
+func TestSQLSessionService_GetOrCreate_EmptyID(t *testing.T) {
+	svc, _ := newServiceForTest(t)
+
+	_, err := svc.GetOrCreate(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error for empty session id")
+	}
+	if !strings.Contains(err.Error(), "must not be empty") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestSQLSessionService_CreateAndGet(t *testing.T) {
 	svc, _ := newServiceForTest(t)
 

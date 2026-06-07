@@ -47,6 +47,11 @@ func (s *stubRegistry) Names() []string {
 	return names
 }
 
+func (s *stubRegistry) IsHealthy(name string) bool {
+	_, ok := s.agents[name]
+	return ok
+}
+
 func validSinglePlan() *plan.OrchestrationPlan {
 	return &plan.OrchestrationPlan{
 		Version:        "v1",
@@ -616,23 +621,13 @@ func TestPlanValidator_OrderedParallelRequiresAtLeastTwoTasks(t *testing.T) {
 	}
 }
 
-func TestPlanValidator_SequentialStrategyRejected(t *testing.T) {
+func TestPlanValidator_SequentialStrategyAccepted(t *testing.T) {
 	v := New(newStubRegistry())
 	p := validOrderedParallelPlan()
 	p.Strategy = plan.StrategySequential
 	result := v.Validate(p)
-	if result.Valid {
-		t.Error("expected invalid: sequential strategy rejected")
-	}
-	// Must contain the explicit sequential rejection message.
-	foundExplicit := false
-	for _, e := range result.Errors {
-		if strings.Contains(e.Message, "sequential strategy is not yet supported") {
-			foundExplicit = true
-		}
-	}
-	if !foundExplicit {
-		t.Error("expected explicit error about sequential not yet supported")
+	if !result.Valid {
+		t.Error("expected valid: sequential strategy is now accepted for DAG executor")
 		for _, e := range result.Errors {
 			t.Logf("  error: %s: %s", e.Field, e.Message)
 		}

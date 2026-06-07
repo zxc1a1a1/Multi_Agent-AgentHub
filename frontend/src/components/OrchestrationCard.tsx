@@ -14,6 +14,18 @@ export interface OrchestrationInfo {
   selectedAgentDisplayName?: string
   // Task-level agent assignments (comma-separated or array in raw state).
   taskAgentNames?: string
+  // HITL plan confirmation fields.
+  requiresConfirmation?: boolean
+  confirmationActionId?: string
+  plannedAgents?: string[]
+  plannedTasks?: Array<{
+    taskId?: string
+    agentName?: string
+    content?: string
+    dependsOn?: string[]
+    priority?: number
+    riskLevel?: string
+  }>
 }
 
 interface Props {

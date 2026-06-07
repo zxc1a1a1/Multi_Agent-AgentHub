@@ -232,6 +232,52 @@ func (t *Translator) Translate(event adk.Event) []Event {
 			}
 			out = append(out, evt)
 
+		case "tool_call_start":
+			toolCallID, _ := meta["toolCallId"].(string)
+			toolCallName, _ := meta["toolCallName"].(string)
+			out = append(out, Event{
+				Type:      "TOOL_CALL_START",
+				RunID:     runID,
+				MessageID: messageID,
+				ID:        toolCallID,
+				Sender:    sender,
+				Author:    event.Author,
+				Role:      role,
+				ToolCall: &ToolCall{
+					ID:   toolCallID,
+					Name: toolCallName,
+				},
+			})
+
+		case "tool_call_args":
+			toolCallID, _ := meta["toolCallId"].(string)
+			delta := ""
+			if event.Content != nil {
+				for _, part := range event.Content.Parts {
+					text := t.extractText(part)
+					if text != "" {
+						delta += text
+					}
+				}
+			}
+			if delta != "" {
+				out = append(out, Event{
+					Type:    "TOOL_CALL_ARGS",
+					RunID:   runID,
+					ID:      toolCallID,
+					Delta:   delta,
+					Content: delta,
+				})
+			}
+
+		case "tool_call_end":
+			toolCallID, _ := meta["toolCallId"].(string)
+			out = append(out, Event{
+				Type:  "TOOL_CALL_END",
+				RunID: runID,
+				ID:    toolCallID,
+			})
+
 		default:
 			// Unknown metadata event type: fall through to legacy path
 			out = append(out, t.translateLegacy(event, role, eventType)...)
