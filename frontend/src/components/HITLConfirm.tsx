@@ -89,7 +89,7 @@ export function HITLConfirm({
               className="hitl-btn hitl-btn-reject"
               onClick={handleReject}
             >
-              拒绝
+              取消
             </button>
             <button
               className="hitl-btn hitl-btn-confirm"
@@ -103,7 +103,7 @@ export function HITLConfirm({
         <div className="hitl-confirm-reason">
           <input
             type="text"
-            placeholder="拒绝原因（可选）"
+            placeholder="取消原因（可选）"
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
           />

@@ -2,6 +2,7 @@ package webagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"html"
 	"iter"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
 )
 
 const (
@@ -101,6 +103,11 @@ func (a *WebAgent) Generate(ctx context.Context, req *adk.GenerateRequest) (*adk
 		return nil, errors.New("generate request is required")
 	}
 
+	// plan_only mode: generate an execution plan without side effects.
+	if a2a.RunModeFromContext(ctx) == "plan_only" {
+		return a.generatePlanOnly(ctx, req)
+	}
+
 	// LLM path: delegate to the configured model.
 	if a.llm != nil {
 		return a.llm.Generate(ctx, req)
@@ -120,6 +127,60 @@ func (a *WebAgent) Generate(ctx context.Context, req *adk.GenerateRequest) (*adk
 		},
 		FinishReason: adk.FinishStop,
 	}, nil
+}
+
+// generatePlanOnly returns a structured execution plan without executing any tools.
+func (a *WebAgent) generatePlanOnly(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+	if a.llm != nil {
+		return a.llmPlanOnly(ctx, req)
+	}
+
+	userText, _ := extractLastUserText(req.Contents)
+	plan := map[string]any{
+		"strategy":      "single",
+		"intentSummary": "Web generation plan for: " + summarizeWebText(userText, 80),
+		"tasks": []map[string]any{
+			{
+				"taskId":    "task_001",
+				"agentName": "web-agent",
+				"content":   userText,
+				"dependsOn": []string{},
+				"priority":  1,
+				"riskLevel": "low",
+			},
+		},
+	}
+	planJSON, _ := json.Marshal(plan)
+	return &adk.GenerateResponse{
+		Parts:        []adk.Part{adk.TextPart{Text: string(planJSON)}},
+		FinishReason: adk.FinishStop,
+	}, nil
+}
+
+func (a *WebAgent) llmPlanOnly(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+	userText, _ := extractLastUserText(req.Contents)
+
+	planReq := &adk.GenerateRequest{
+		Contents: []*adk.Content{
+			{
+				Role: adk.RoleSystem,
+				Parts: []adk.Part{
+					adk.TextPart{Text: "You are a web agent. Generate a JSON execution plan for the user's task. " +
+						"Return ONLY a JSON object with fields: strategy (always \"single\"), intentSummary (one-line summary), " +
+						"tasks (array with one task object: taskId, agentName (always \"web-agent\"), content (the task description), " +
+						"dependsOn (empty array), priority (1), riskLevel (\"low\")). Do NOT write any code, do NOT execute anything, " +
+						"do NOT call any tools. Only return the plan JSON."},
+				},
+			},
+			{
+				Role: adk.RoleUser,
+				Parts: []adk.Part{
+					adk.TextPart{Text: userText},
+				},
+			},
+		},
+	}
+	return a.llm.Generate(ctx, planReq)
 }
 
 // GenerateStream implements adk.StreamingAgent, yielding incremental text chunks
@@ -198,6 +259,14 @@ func buildMockResponse(userText string) string {
 		return "web-agent v0.1 mock response:\n" + renderSafeHTMLSnippet("Mock Login Page", userText)
 	}
 	return "web-agent v0.1 mock response: request received. This minimal agent does not call a real LLM."
+}
+
+func summarizeWebText(text string, maxLen int) string {
+	cleaned := strings.TrimSpace(strings.ReplaceAll(text, "\n", " "))
+	if len(cleaned) <= maxLen {
+		return cleaned
+	}
+	return cleaned[:maxLen-3] + "..."
 }
 
 func looksLikeWebRequest(text string) bool {

@@ -820,7 +820,7 @@ func TestHITLConfirmRouteAccepted(t *testing.T) {
 	if runner.lastConfirmReq.ActionID != "action-1" {
 		t.Fatalf("expected actionId action-1, got %q", runner.lastConfirmReq.ActionID)
 	}
-	if !runner.lastConfirmReq.Confirmed {
+	if runner.lastConfirmReq.Confirmed == nil || !*runner.lastConfirmReq.Confirmed {
 		t.Fatal("expected confirmed=true")
 	}
 }
@@ -844,7 +844,7 @@ func TestHITLConfirmRouteRejected(t *testing.T) {
 	if runner.lastConfirmReq == nil {
 		t.Fatal("expected ConfirmRun to be called")
 	}
-	if runner.lastConfirmReq.Confirmed {
+	if runner.lastConfirmReq.Confirmed != nil && *runner.lastConfirmReq.Confirmed {
 		t.Fatal("expected confirmed=false")
 	}
 	if runner.lastConfirmReq.RejectReason != "not needed" {
@@ -1460,5 +1460,413 @@ func TestChat_RequestPlanningModeAccepted(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for request with planningMode field, got %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAGUICompliance_ConfirmPlanToolEventsThroughGateway(t *testing.T) {
+	confirmArgs := `{"runId":"run-agui-001","planId":"plan-agui-001","strategy":"single","revision":2,"executionPath":"single_chat","planOwner":{"type":"agent","agentName":"code-agent"},"participants":[{"agentName":"code-agent","required":true,"selected":true}],"plannedAgents":["code-agent"],"tasks":[{"taskId":"t1","agentName":"code-agent","content":"write code","priority":1,"riskLevel":"low"}],"intentSummary":"revised plan","requiresConfirmation":true}`
+
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-agui", "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	runner := &mockRunService{
+		seq: seqEvents(
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType": "run_started",
+					"runId":     "run-agui-001",
+				},
+				Actions: &adk.EventActions{
+					StateDelta: map[string]any{"phase": "planning"},
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType": "state_update",
+					"runId":     "run-agui-001",
+				},
+				Actions: &adk.EventActions{
+					StateDelta: map[string]any{
+						"phase":                "awaiting_confirmation",
+						"requiresConfirmation": true,
+						"confirmationActionId": "plan-agui-001",
+						"planId":               "plan-agui-001",
+					},
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType":    "tool_call_start",
+					"runId":        "run-agui-001",
+					"toolCallId":   "plan-agui-001",
+					"toolCallName": "confirm_plan",
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType":  "tool_call_args",
+					"runId":      "run-agui-001",
+					"toolCallId": "plan-agui-001",
+				},
+				Content: &adk.Content{
+					Role:  adk.RoleAssistant,
+					Parts: []adk.Part{adk.TextPart{Text: confirmArgs}},
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType":  "tool_call_end",
+					"runId":      "run-agui-001",
+					"toolCallId": "plan-agui-001",
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType": "run_finished",
+					"runId":     "run-agui-001",
+				},
+				Final: true,
+				Actions: &adk.EventActions{
+					StateDelta: map[string]any{"status": "completed"},
+				},
+			},
+		),
+	}
+
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	body := `{"conversationId":"` + conv.ID + `","message":"revise this plan"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+
+	respBody := rec.Body.String()
+
+	if !strings.Contains(respBody, "event: run_started\n") {
+		t.Error("missing run_started SSE event")
+	}
+	if !strings.Contains(respBody, "event: state_update\n") {
+		t.Error("missing state_update SSE event")
+	}
+	if !strings.Contains(respBody, "event: tool_call_start\n") {
+		t.Error("missing tool_call_start SSE event")
+	}
+	if !strings.Contains(respBody, "event: tool_call_args\n") {
+		t.Error("missing tool_call_args SSE event")
+	}
+	if !strings.Contains(respBody, "event: tool_call_end\n") {
+		t.Error("missing tool_call_end SSE event")
+	}
+	if !strings.Contains(respBody, "event: run_finished\n") {
+		t.Error("missing run_finished SSE event")
+	}
+
+	if !strings.Contains(respBody, `"type":"RUN_STARTED"`) {
+		t.Error("JSON missing RUN_STARTED type")
+	}
+	if !strings.Contains(respBody, `"type":"STATE_UPDATE"`) {
+		t.Error("JSON missing STATE_UPDATE type")
+	}
+	if !strings.Contains(respBody, `"type":"TOOL_CALL_START"`) {
+		t.Error("JSON missing TOOL_CALL_START type")
+	}
+	if !strings.Contains(respBody, `"type":"TOOL_CALL_ARGS"`) {
+		t.Error("JSON missing TOOL_CALL_ARGS type")
+	}
+	if !strings.Contains(respBody, `"type":"TOOL_CALL_END"`) {
+		t.Error("JSON missing TOOL_CALL_END type")
+	}
+	if !strings.Contains(respBody, `"type":"RUN_FINISHED"`) {
+		t.Error("JSON missing RUN_FINISHED type")
+	}
+	if !strings.Contains(respBody, `"name":"confirm_plan"`) {
+		t.Error("TOOL_CALL_START JSON missing confirm_plan")
+	}
+	if !strings.Contains(respBody, `"phase":"awaiting_confirmation"`) {
+		t.Error("STATE_UPDATE missing awaiting_confirmation phase")
+	}
+	if !strings.Contains(respBody, "revision") {
+		t.Error("confirm_plan args missing revision")
+	}
+	if !strings.Contains(respBody, "executionPath") {
+		t.Error("confirm_plan args missing executionPath")
+	}
+	if !strings.Contains(respBody, "planOwner") {
+		t.Error("confirm_plan args missing planOwner")
+	}
+
+	runIDCount := strings.Count(respBody, `"runId":"run-agui-001"`)
+	if runIDCount < 3 {
+		t.Errorf("expected runId in >=3 events, got %d", runIDCount)
+	}
+
+	if strings.Contains(respBody, `"type":"run_started"`) {
+		t.Error("lowercase run_started must not appear in JSON payload")
+	}
+	if strings.Contains(respBody, `"type":"tool_call_start"`) {
+		t.Error("lowercase tool_call_start must not appear in JSON payload")
+	}
+	if strings.Contains(respBody, `"type":"state_update"`) {
+		t.Error("lowercase state_update must not appear in JSON payload")
+	}
+
+	if !strings.Contains(respBody, "\nevent: ") {
+		t.Error("SSE output must contain event: lines")
+	}
+	if !strings.Contains(respBody, "\ndata: ") {
+		t.Error("SSE output must contain data: lines")
+	}
+}
+
+// TestAGUICompliance_RevisedConfirmPlanThroughGateway verifies that two
+// rounds of confirm_plan (initial + revised) produce correct AG-UI SSE output
+// through the full Translator -> SSE Writer pipeline.
+func TestAGUICompliance_RevisedConfirmPlanThroughGateway(t *testing.T) {
+	confirmArgsV1 := `{"runId":"run-rev-agui","planId":"plan-v1","strategy":"single","revision":1,"executionPath":"single_chat","planOwner":{"type":"agent","agentName":"code-agent"},"participants":[{"agentName":"code-agent","required":true,"selected":true}],"plannedAgents":["code-agent"],"tasks":[{"taskId":"t1","agentName":"code-agent","content":"write code","priority":1,"riskLevel":"low"}],"intentSummary":"plan v1","requiresConfirmation":true}`
+	confirmArgsV2 := `{"runId":"run-rev-agui","planId":"plan-v2","strategy":"single","revision":2,"executionPath":"single_chat","planOwner":{"type":"agent","agentName":"code-agent"},"participants":[{"agentName":"code-agent","required":true,"selected":true}],"plannedAgents":["code-agent"],"tasks":[{"taskId":"t2","agentName":"code-agent","content":"write simpler code","priority":1,"riskLevel":"low"}],"intentSummary":"plan v2 revised","requiresConfirmation":true}`
+
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-rev-agui", "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	runner := &mockRunService{
+		seq: seqEvents(
+			// Round 1: initial plan
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType": "run_started",
+					"runId":     "run-rev-agui",
+				},
+				Actions: &adk.EventActions{
+					StateDelta: map[string]any{"phase": "planning"},
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType": "state_update",
+					"runId":     "run-rev-agui",
+				},
+				Actions: &adk.EventActions{
+					StateDelta: map[string]any{
+						"phase":                "awaiting_confirmation",
+						"requiresConfirmation": true,
+						"confirmationActionId": "plan-v1",
+						"planId":               "plan-v1",
+						"revision":             1,
+					},
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType":    "tool_call_start",
+					"runId":        "run-rev-agui",
+					"toolCallId":   "plan-v1",
+					"toolCallName": "confirm_plan",
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType":  "tool_call_args",
+					"runId":      "run-rev-agui",
+					"toolCallId": "plan-v1",
+				},
+				Content: &adk.Content{
+					Role:  adk.RoleAssistant,
+					Parts: []adk.Part{adk.TextPart{Text: confirmArgsV1}},
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType":  "tool_call_end",
+					"runId":      "run-rev-agui",
+					"toolCallId": "plan-v1",
+				},
+			},
+			// User revises: revising_plan phase
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType": "state_update",
+					"runId":     "run-rev-agui",
+				},
+				Actions: &adk.EventActions{
+					StateDelta: map[string]any{
+						"phase": "revising_plan",
+					},
+				},
+			},
+			// Revised plan generation
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType": "state_update",
+					"runId":     "run-rev-agui",
+				},
+				Actions: &adk.EventActions{
+					StateDelta: map[string]any{
+						"phase":    "planning",
+						"revision": 2,
+					},
+				},
+			},
+			// Round 2: revised confirm_plan
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType":    "tool_call_start",
+					"runId":        "run-rev-agui",
+					"toolCallId":   "plan-v2",
+					"toolCallName": "confirm_plan",
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType":  "tool_call_args",
+					"runId":      "run-rev-agui",
+					"toolCallId": "plan-v2",
+				},
+				Content: &adk.Content{
+					Role:  adk.RoleAssistant,
+					Parts: []adk.Part{adk.TextPart{Text: confirmArgsV2}},
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType":  "tool_call_end",
+					"runId":      "run-rev-agui",
+					"toolCallId": "plan-v2",
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType": "state_update",
+					"runId":     "run-rev-agui",
+				},
+				Actions: &adk.EventActions{
+					StateDelta: map[string]any{
+						"phase":                "awaiting_confirmation",
+						"requiresConfirmation": true,
+						"confirmationActionId": "plan-v2",
+						"planId":               "plan-v2",
+						"revision":             2,
+					},
+				},
+			},
+			adk.Event{
+				Metadata: map[string]any{
+					"eventType": "run_finished",
+					"runId":     "run-rev-agui",
+				},
+				Final: true,
+				Actions: &adk.EventActions{
+					StateDelta: map[string]any{"status": "completed"},
+				},
+			},
+		),
+	}
+
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	body := `{"conversationId":"` + conv.ID + `","message":"revise this"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+
+	respBody := rec.Body.String()
+
+	// 1. No lowercase type names in JSON payloads.
+	if strings.Contains(respBody, `"type":"run_started"`) {
+		t.Error("lowercase run_started must not appear in JSON payload")
+	}
+	if strings.Contains(respBody, `"type":"state_update"`) {
+		t.Error("lowercase state_update must not appear in JSON payload")
+	}
+	if strings.Contains(respBody, `"type":"tool_call_start"`) {
+		t.Error("lowercase tool_call_start must not appear in JSON payload")
+	}
+
+	// 2. All events use UPPER_SNAKE types in JSON.
+	if !strings.Contains(respBody, `"type":"RUN_STARTED"`) {
+		t.Error("JSON missing RUN_STARTED type")
+	}
+	if !strings.Contains(respBody, `"type":"STATE_UPDATE"`) {
+		t.Error("JSON missing STATE_UPDATE type")
+	}
+	if !strings.Contains(respBody, `"type":"TOOL_CALL_START"`) {
+		t.Error("JSON missing TOOL_CALL_START type")
+	}
+	if !strings.Contains(respBody, `"type":"TOOL_CALL_ARGS"`) {
+		t.Error("JSON missing TOOL_CALL_ARGS type")
+	}
+	if !strings.Contains(respBody, `"type":"TOOL_CALL_END"`) {
+		t.Error("JSON missing TOOL_CALL_END type")
+	}
+
+	// 3. Both confirm_plan events have correct tool name.
+	confirmPlanCount := strings.Count(respBody, `"name":"confirm_plan"`)
+	if confirmPlanCount < 2 {
+		t.Errorf("expected >=2 confirm_plan tool references, got %d", confirmPlanCount)
+	}
+
+	// 4. First confirm_plan has revision=1, second has revision=2.
+	if !strings.Contains(respBody, `"revision":1`) {
+		t.Error("first confirm_plan args must contain revision:1")
+	}
+	if !strings.Contains(respBody, `"revision":2`) {
+		t.Error("second confirm_plan args must contain revision:2")
+	}
+
+	// 5. STATE_UPDATE with revising_plan phase between the two confirm_plans.
+	if !strings.Contains(respBody, `"phase":"revising_plan"`) {
+		t.Error("STATE_UPDATE must contain revising_plan phase")
+	}
+
+	// 6. runId consistent across events.
+	runIDCount := strings.Count(respBody, `"runId":"run-rev-agui"`)
+	if runIDCount < 3 {
+		t.Errorf("expected runId in >=3 events, got %d", runIDCount)
+	}
+
+	// 7. SSE wire format: event: + data: lines.
+	if !strings.Contains(respBody, "\nevent: ") {
+		t.Error("SSE output must contain event: lines")
+	}
+	if !strings.Contains(respBody, "\ndata: ") {
+		t.Error("SSE output must contain data: lines")
+	}
+
+	// 8. SSE event names are lowercase wire names.
+	if !strings.Contains(respBody, "event: run_started\n") {
+		t.Error("missing run_started SSE event")
+	}
+	if !strings.Contains(respBody, "event: state_update\n") {
+		t.Error("missing state_update SSE event")
+	}
+	if !strings.Contains(respBody, "event: tool_call_start\n") {
+		t.Error("missing tool_call_start SSE event")
+	}
+
+	// 9. Two distinct planIds (plan-v1 and plan-v2) appear.
+	if !strings.Contains(respBody, "plan-v1") {
+		t.Error("plan-v1 must appear in output")
+	}
+	if !strings.Contains(respBody, "plan-v2") {
+		t.Error("plan-v2 must appear in output")
 	}
 }

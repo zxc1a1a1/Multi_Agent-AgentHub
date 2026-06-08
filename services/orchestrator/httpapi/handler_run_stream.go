@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/executor"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/validator"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 )
 
 // OrchestratorRequest is the Gateway→Orchestrator run request.
@@ -26,6 +28,8 @@ type OrchestratorRequest struct {
 	SelectedAgentNames []string       `json:"selectedAgentNames"`
 	Mentions           []string       `json:"mentions"`
 	PlanningMode       string         `json:"planningMode"`
+	RequestedPath      string         `json:"requestedPath,omitempty"`
+	ExecutionPath      string         `json:"executionPath,omitempty"`
 	TraceID            string         `json:"traceId"`
 	RequestID          string         `json:"requestId"`
 	DeadlineMs         int64          `json:"deadlineMs"`
@@ -38,16 +42,17 @@ type MessageInput struct {
 
 // OrchestratorStreamEvent is the internal event sent over SSE.
 type OrchestratorStreamEvent struct {
-	Type         string         `json:"type"`
-	RunID        string         `json:"runId"`
-	MessageID    string         `json:"messageId,omitempty"`
-	TaskID       string         `json:"taskId,omitempty"`
-	Sender       *EventSender   `json:"sender,omitempty"`
-	Delta        string         `json:"delta,omitempty"`
-	State        map[string]any `json:"state,omitempty"`
-	Error        *SafeError     `json:"error,omitempty"`
-	ToolCallID   string         `json:"toolCallId,omitempty"`
-	ToolCallName string         `json:"toolCallName,omitempty"`
+	Type         string          `json:"type"`
+	RunID        string          `json:"runId"`
+	MessageID    string          `json:"messageId,omitempty"`
+	TaskID       string          `json:"taskId,omitempty"`
+	Sender       *EventSender    `json:"sender,omitempty"`
+	Delta        string          `json:"delta,omitempty"`
+	State        map[string]any  `json:"state,omitempty"`
+	Error        *SafeError      `json:"error,omitempty"`
+	ToolCallID   string          `json:"toolCallId,omitempty"`
+	ToolCallName string          `json:"toolCallName,omitempty"`
+	Activity     json.RawMessage `json:"activity,omitempty"`
 }
 
 type EventSender struct {
@@ -125,8 +130,70 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		State: map[string]any{"phase": "planning"},
 	})
 
-	// Build PlannerInput and generate an OrchestrationPlan.
+	// --- Phase 1: executionPath derivation + agent selection validation ---
 	availableAgentNames := s.registry.Names()
+
+	// The Orchestrator is the authoritative source for executionPath derivation.
+	// We always derive locally from req.RequestedPath / req.AgentName /
+	// req.SelectedAgentNames / req.Mentions. req.ExecutionPath from Gateway is
+	// treated as debug metadata only and is NOT used for derivation decisions.
+	derivedPath, deriveErr := executionpath.DeriveExecutionPath(
+		req.RequestedPath,
+		req.AgentName,
+		req.SelectedAgentNames,
+		req.Mentions,
+	)
+	if deriveErr != nil {
+		se, ok := deriveErr.(*executionpath.SelectionError)
+		if ok {
+			s.emitErrorEvent(w, flusher, runID, se.Code, se.Message)
+		} else {
+			s.emitErrorEvent(w, flusher, runID, executionpath.ErrCodeInvalidExecutionPath, deriveErr.Error())
+		}
+		return
+	}
+
+	// Validate consistency: if Gateway sent an executionPath that differs from
+	// the locally-derived one, reject with INVALID_EXECUTION_PATH.
+	if req.ExecutionPath != "" && string(derivedPath) != req.ExecutionPath {
+		s.emitErrorEvent(w, flusher, runID, executionpath.ErrCodeInvalidExecutionPath,
+			fmt.Sprintf("executionPath mismatch: Gateway sent %q but local derivation produced %q",
+				req.ExecutionPath, string(derivedPath)))
+		return
+	}
+
+	// Validate agent selection before reaching the Planner.
+	selResult := executionpath.ValidateAgentSelection(
+		derivedPath,
+		req.AgentName,
+		req.SelectedAgentNames,
+		req.Mentions,
+		availableAgentNames,
+	)
+	if selResult.Error != nil {
+		s.emitErrorEvent(w, flusher, runID, selResult.Error.Code, selResult.Error.Message)
+		return
+	}
+
+	// Phase 2: single_chat → plan_only path (agent generates plan, not Planner).
+	// selResult.AllowedAgents is the authoritative source for the single selected agent.
+	if derivedPath == executionpath.PathSingleChat {
+		if len(selResult.AllowedAgents) != 1 {
+			s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_INVALID_AGENT_SELECTION",
+				"single_chat requires exactly one agent")
+			return
+		}
+		planOnlyAgent := selResult.AllowedAgents[0]
+		if !isPlanOnlyWhitelisted(planOnlyAgent) {
+			s.emitErrorEvent(w, flusher, runID, "AGENT_PLAN_ONLY_UNSUPPORTED",
+				"agent "+planOnlyAgent+" does not support plan_only mode")
+			return
+		}
+		s.handlePlanOnlySingleChat(w, flusher, r, runID, convID, msgID, userText, req, selResult, planOnlyAgent)
+		return
+	}
+
+	// Build PlannerInput and generate an OrchestrationPlan.
 	plannerInput := planner.PlannerInput{
 		RunID:              runID,
 		ConversationID:     convID,
@@ -136,19 +203,33 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		SelectedAgentNames: req.SelectedAgentNames,
 		Mentions:           req.Mentions,
 		PlanningMode:       req.PlanningMode,
+		ExecutionPath:      string(derivedPath),
+		AllowedAgents:      selResult.AllowedAgents,
 		TraceID:            req.TraceID,
 		AvailableAgents:    availableAgentNames,
 	}
 
-	// Use the configured Planner with mode-aware fallback.
-	rulePlanner := planner.NewRulePlanner(availableAgentNames)
+	var orchPlan *plan.OrchestrationPlan
+	var planErr error
 	mode := s.plannerMode
+	rulePlanner := planner.NewRulePlanner(availableAgentNames)
+
+	// main_agent_orchestration: use internal MainAgent (not in registry, not A2A).
+	if derivedPath == executionpath.PathMainAgentOrchestration {
+		mainAgent := planner.NewMainAgent(availableAgentNames)
+		orchPlan, planErr = mainAgent.Plan(r.Context(), plannerInput)
+		if planErr != nil || orchPlan == nil {
+			s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED",
+				"MainAgent failed to generate plan")
+			return
+		}
+		goto validatePlan
+	}
+
+	// Use the configured Planner with mode-aware fallback.
 	if mode == "" {
 		mode = PlannerModeRule
 	}
-
-	var orchPlan *plan.OrchestrationPlan
-	var planErr error
 
 	switch mode {
 	case PlannerModeLLM, PlannerModeLLMWithRuleFallback:
@@ -191,6 +272,9 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// MainAgent jump target — skip planner mode logic.
+validatePlan:
+
 	// Validate the plan before execution.
 	planValidator := validator.New(s.registry)
 	validationResult := planValidator.Validate(orchPlan)
@@ -205,6 +289,19 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 	orchPlan.Validation.Validated = true
 
+	// Phase 1: enforce Agent boundary — non-auto must not contain out-of-boundary tasks.
+	if selResult.Error == nil && len(selResult.AllowedAgents) > 0 {
+		taskInfos := make([]executionpath.TaskInfo, len(orchPlan.Tasks))
+		for i, t := range orchPlan.Tasks {
+			taskInfos[i] = executionpath.TaskInfo{TaskID: t.TaskID, AgentName: t.AgentName}
+		}
+		if boundaryErr := executionpath.EnforceAgentBoundary(taskInfos, selResult.AllowedAgents); boundaryErr != nil {
+			s.emitErrorEvent(w, flusher, runID, boundaryErr.Code, boundaryErr.Message)
+			return
+		}
+		orchPlan.AllowedAgents = selResult.AllowedAgents
+	}
+
 	planState := buildPlanState(orchPlan)
 
 	// Emit STATE_UPDATE phase=planning with plan details.
@@ -216,7 +313,8 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Determine whether to require HITL plan confirmation.
-	// Confirmation is skipped for:
+	// Confirmation is always required for main_agent_orchestration.
+	// For other paths, confirmation is skipped for:
 	//   - Conversational intents (greetings handled by orchestrator itself)
 	//   - Explicit agent selection (user knowingly chose a specific agent)
 	requireConfirm := strings.ToLower(strings.TrimSpace(
@@ -224,37 +322,11 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	hasExplicitAgent := strings.TrimSpace(req.AgentName) != "" &&
 		strings.TrimSpace(req.AgentName) != "auto"
 	isConversational := orchPlan.Strategy == plan.StrategyConversational
+	isMainAgentPath := orchPlan.ExecutionPath == string(executionpath.PathMainAgentOrchestration)
 
-	if requireConfirm && !isConversational && !hasExplicitAgent {
-		confirmToolID := orchPlan.PlanID
-
-		// Emit AG-UI TOOL_CALL_START for confirm_plan.
-		s.emitEvent(w, flusher, OrchestratorStreamEvent{
-			Type:         "tool_call_start",
-			RunID:        runID,
-			ToolCallID:   confirmToolID,
-			ToolCallName: "confirm_plan",
-		})
-		confirmArgs, _ := json.Marshal(map[string]any{
-			"runId":                runID,
-			"planId":               orchPlan.PlanID,
-			"strategy":             orchPlan.Strategy,
-			"plannedAgents":        plannedAgentNames(orchPlan),
-			"tasks":                taskSummaries(orchPlan),
-			"intentSummary":        orchPlan.IntentSummary,
-			"requiresConfirmation": true,
-		})
-		s.emitEvent(w, flusher, OrchestratorStreamEvent{
-			Type:       "tool_call_args",
-			RunID:      runID,
-			ToolCallID: confirmToolID,
-			Delta:      string(confirmArgs),
-		})
-		s.emitEvent(w, flusher, OrchestratorStreamEvent{
-			Type:       "tool_call_end",
-			RunID:      runID,
-			ToolCallID: confirmToolID,
-		})
+	if (requireConfirm || isMainAgentPath) && !isConversational && !hasExplicitAgent {
+		// Emit ACTIVITY_SNAPSHOT for plan approval (replaces deprecated confirm_plan TOOL_CALL).
+		s.emitActivitySnapshot(w, flusher, runID, convID, orchPlan, "awaiting_confirmation")
 
 		// Emit STATE_UPDATE phase=awaiting_confirmation.
 		planState["phase"] = "awaiting_confirmation"
@@ -272,6 +344,11 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		confirmCh := s.registerPending(runID, orchPlan)
 		defer s.deregisterPending(runID)
 
+		currentRevision := orchPlan.Revision
+		if currentRevision < 1 {
+			currentRevision = 1
+		}
+
 		confirmTimeout := 120 * time.Second
 		confirmDeadline := time.After(confirmTimeout)
 		heartbeatTicker := time.NewTicker(15 * time.Second)
@@ -281,18 +358,117 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		for {
 			select {
 			case result := <-confirmCh:
-				if !result.Confirmed {
+					// Revise: re-plan with feedback and emit revised ACTIVITY_SNAPSHOT.
+					if result.Action == "revise" {
+						// Reset deadline for the new confirmation window.
+						confirmDeadline = time.After(confirmTimeout)
+
+						// Emit revising_plan phase.
+						s.emitEvent(w, flusher, OrchestratorStreamEvent{
+							Type:  "state_update",
+							RunID: runID,
+							State: map[string]any{"phase": "revising_plan"},
+						})
+
+						// Re-plan with feedback.
+						reviseInput := plannerInput
+						reviseInput.Feedback = result.Feedback
+						reviseInput.PreviousPlanSummary = orchPlan.IntentSummary
+						reviseInput.Revision = currentRevision + 1
+
+						var revisedPlan *plan.OrchestrationPlan
+						var revisedErr error
+						switch mode {
+						case PlannerModeLLM, PlannerModeLLMWithRuleFallback:
+							if s.planner != nil {
+								revisedPlan, revisedErr = s.planner.Plan(r.Context(), reviseInput)
+								if revisedErr != nil && mode == PlannerModeLLMWithRuleFallback {
+									logLLMPlanFallback(revisedErr)
+									revisedPlan, revisedErr = rulePlanner.Plan(r.Context(), reviseInput)
+								}
+							}
+						default:
+							revisedPlan, revisedErr = rulePlanner.Plan(r.Context(), reviseInput)
+						}
+						if revisedErr != nil || revisedPlan == nil {
+							s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED",
+								"Failed to regenerate plan with feedback")
+							s.deregisterPending(runID)
+							return
+						}
+
+						// Validate revised plan.
+						validationResult := planValidator.Validate(revisedPlan)
+						if !validationResult.Valid {
+							details := make([]map[string]string, 0, len(validationResult.Errors))
+							for _, e := range validationResult.Errors {
+								details = append(details, map[string]string{"field": e.Field, "message": e.Message})
+							}
+							s.emitErrorEventWithDetail(w, flusher, runID, "ORCHESTRATOR_PLAN_INVALID",
+								"Revised plan validation failed", details)
+							s.deregisterPending(runID)
+							return
+						}
+						revisedPlan.Validation.Validated = true
+
+						// Enforce agent boundary on revised plan.
+						if len(selResult.AllowedAgents) > 0 {
+							taskInfos := make([]executionpath.TaskInfo, len(revisedPlan.Tasks))
+							for i, t := range revisedPlan.Tasks {
+								taskInfos[i] = executionpath.TaskInfo{TaskID: t.TaskID, AgentName: t.AgentName}
+							}
+							if boundaryErr := executionpath.EnforceAgentBoundary(taskInfos, selResult.AllowedAgents); boundaryErr != nil {
+								s.emitErrorEvent(w, flusher, runID, boundaryErr.Code, boundaryErr.Message)
+								s.deregisterPending(runID)
+								return
+							}
+							revisedPlan.AllowedAgents = selResult.AllowedAgents
+						}
+
+						// Update with revision+1.
+						currentRevision++
+						revisedPlan.Revision = currentRevision
+						revisedPlan.PlanID = fmt.Sprintf("plan_%d", time.Now().UnixMilli())
+						orchPlan = revisedPlan
+
+						// Emit revised ACTIVITY_SNAPSHOT + STATE_UPDATE.
+						planState = buildPlanState(orchPlan)
+						s.emitEvent(w, flusher, OrchestratorStreamEvent{
+							Type:  "state_update",
+							RunID: runID,
+							State: planState,
+						})
+						s.emitActivitySnapshot(w, flusher, runID, convID, orchPlan, "awaiting_confirmation")
+						planState["phase"] = "awaiting_confirmation"
+						planState["requiresConfirmation"] = true
+						planState["confirmationActionId"] = orchPlan.PlanID
+						planState["plannedAgents"] = plannedAgentNames(orchPlan)
+						planState["tasks"] = taskSummaries(orchPlan)
+						s.emitEvent(w, flusher, OrchestratorStreamEvent{
+							Type:  "state_update",
+							RunID: runID,
+							State: planState,
+						})
+
+						// Re-register for the next confirmation round.
+						s.hitlMu.Lock()
+						s.pendingPlans[runID] = orchPlan
+						s.hitlMu.Unlock()
+
+						// Continue loop — keep SSE alive, do NOT deregister.
+						continue
+					}
+					// Cancel/reject path.
+				if result.Action == "cancel" || !result.Confirmed {
 					rejectReason := result.RejectReason
 					if rejectReason == "" {
 						rejectReason = "user rejected the plan"
 					}
+					// Emit STATE_UPDATE cancelled + RUN_FINISHED (no RUN_ERROR).
 					s.emitEvent(w, flusher, OrchestratorStreamEvent{
-						Type:  "run_error",
+						Type:  "state_update",
 						RunID: runID,
-						Error: &SafeError{
-							Code:    "ORCHESTRATOR_PLAN_REJECTED",
-							Message: "Plan was rejected: " + sanitizeForError(rejectReason),
-						},
+						State: map[string]any{"phase": "cancelled"},
 					})
 					s.emitEvent(w, flusher, OrchestratorStreamEvent{
 						Type:  "run_finished",
@@ -576,6 +752,80 @@ func (s *Server) emitErrorEventWithDetail(w http.ResponseWriter, flusher http.Fl
 	})
 }
 
+// emitActivitySnapshot builds and emits an ACTIVITY_SNAPSHOT event for plan-level HITL.
+// This replaces the deprecated confirm_plan TOOL_CALL events.
+func (s *Server) emitActivitySnapshot(w http.ResponseWriter, flusher http.Flusher, runID, convID string, orchPlan *plan.OrchestrationPlan, status string) {
+	if orchPlan == nil {
+		return
+	}
+	activity := map[string]any{
+		"activityId":   orchPlan.PlanID,
+		"activityType": "plan_approval",
+		"status":       status,
+		"executionPath": orchPlan.ExecutionPath,
+		"planId":       orchPlan.PlanID,
+		"revision":     orchPlan.Revision,
+		"title":        orchPlan.IntentSummary,
+		"summary":      orchPlan.IntentSummary,
+		"allowedActions": []string{"approve", "revise", "cancel"},
+	}
+	if orchPlan.PlanOwner != nil {
+		activity["planOwner"] = map[string]any{
+			"type":        orchPlan.PlanOwner.Type,
+			"agentName":   orchPlan.PlanOwner.AgentName,
+			"isMainAgent": orchPlan.PlanOwner.IsMainAgent,
+		}
+	}
+	participants := make([]map[string]any, 0, len(orchPlan.Participants))
+	required := make([]string, 0)
+	for _, p := range orchPlan.Participants {
+		participants = append(participants, map[string]any{
+			"agentName": p.AgentName,
+			"required":  p.Required,
+			"selected":  p.Selected,
+		})
+		if p.Required {
+			required = append(required, p.AgentName)
+		}
+	}
+	activity["participants"] = participants
+	activity["requiredParticipants"] = required
+	activity["tasks"] = taskSummaries(orchPlan)
+
+	if len(orchPlan.CandidateParticipants) > 0 {
+		candidate := make([]map[string]any, 0, len(orchPlan.CandidateParticipants))
+		for _, p := range orchPlan.CandidateParticipants {
+			candidate = append(candidate, map[string]any{
+				"agentName": p.AgentName,
+				"required":  p.Required,
+				"selected":  p.Selected,
+			})
+		}
+		activity["candidateParticipants"] = candidate
+	}
+	if len(orchPlan.DefaultSelectedParticipants) > 0 {
+		defaults := make([]map[string]any, 0, len(orchPlan.DefaultSelectedParticipants))
+		for _, p := range orchPlan.DefaultSelectedParticipants {
+			defaults = append(defaults, map[string]any{
+				"agentName": p.AgentName,
+				"required":  p.Required,
+				"selected":  p.Selected,
+			})
+		}
+		activity["defaultSelectedParticipants"] = defaults
+	}
+
+	activityJSON, err := json.Marshal(activity)
+	if err != nil {
+		return
+	}
+	s.emitEvent(w, flusher, OrchestratorStreamEvent{
+		Type:     "activity_snapshot",
+		RunID:    runID,
+		Activity: activityJSON,
+	})
+}
+
 func extractUserText(messages []MessageInput) string {
 	var texts []string
 	for _, m := range messages {
@@ -638,6 +888,7 @@ func buildPlanState(p *plan.OrchestrationPlan) map[string]any {
 		"plannerSource": p.PlannerSource,
 		"plannerModel":  p.PlannerModel,
 		"planningMode":  p.PlanningMode,
+		"executionPath": p.ExecutionPath,
 		"taskCount":     len(p.Tasks),
 		"plannedAgents": plannedAgentNames(p),
 		"tasks":         taskSummaries(p),
@@ -691,3 +942,524 @@ func clonePlanState(src map[string]any) map[string]any {
 	}
 	return dst
 }
+
+// isPlanOnlyWhitelisted checks whether an agent supports plan_only mode (Phase 2).
+func isPlanOnlyWhitelisted(agentName string) bool {
+	switch strings.TrimSpace(strings.ToLower(agentName)) {
+	case "code-agent", "web-agent":
+		return true
+	}
+	return false
+}
+
+// buildRevisionPlanOnlyMessage constructs the plan_only message for a revision request.
+// It combines the original user task, user feedback, and optional previous plan summary
+// so the agent has full context to regenerate a better plan.
+func buildRevisionPlanOnlyMessage(originalUserText, feedback string, nextRevision int, previousPlanSummary string) string {
+	var b strings.Builder
+	b.WriteString("原始用户任务：\n")
+	b.WriteString(originalUserText)
+	b.WriteString("\n\n用户对上一版方案的修改意见：\n")
+	b.WriteString(feedback)
+	if previousPlanSummary != "" {
+		b.WriteString("\n\n上一版方案摘要：\n")
+		b.WriteString(previousPlanSummary)
+	}
+	fmt.Fprintf(&b, "\n\n请基于原始任务和修改意见重新生成 revision %d 的 single_chat 执行方案。", nextRevision)
+	b.WriteString("\n只返回 JSON plan，不执行任务，不调用工具。")
+	return b.String()
+}
+
+// handlePlanOnlySingleChat implements the single_chat plan_only → confirm → execute/cancel
+// closed loop for Phase 2. The agent generates a plan (not the Planner), the user approves
+// or cancels, and on approval the same agent executes on the same SSE stream.
+func (s *Server) handlePlanOnlySingleChat(w http.ResponseWriter, flusher http.Flusher, r *http.Request, runID, convID, msgID, userText string, req OrchestratorRequest, selResult executionpath.AgentSelectionResult, planOnlyAgent string) {
+	ep, ok := s.registry.Get(planOnlyAgent)
+	if !ok {
+		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_AGENT_NOT_FOUND",
+			"agent not found in registry: "+planOnlyAgent)
+		return
+	}
+
+	planResult, err := s.dispatcher.Dispatch(r.Context(), dispatcher.DispatchInput{
+		AgentURL:       ep.URL,
+		AgentName:      planOnlyAgent,
+		ConversationID: convID,
+		RunID:          runID,
+		Message:        userText,
+		TraceID:        req.TraceID,
+		Mode:           "plan_only",
+	})
+	if err != nil {
+		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLAN_ONLY_FAILED",
+			"agent plan_only failed: "+sanitizeForError(err.Error()))
+		return
+	}
+
+	var agentPlan struct {
+		Strategy      string `json:"strategy"`
+		IntentSummary string `json:"intentSummary"`
+		Tasks         []struct {
+			TaskID    string   `json:"taskId"`
+			AgentName string   `json:"agentName"`
+			Content   string   `json:"content"`
+			DependsOn []string `json:"dependsOn"`
+			Priority  int      `json:"priority"`
+			TimeoutMs int64    `json:"timeoutMs"`
+			RiskLevel string   `json:"riskLevel"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal([]byte(planResult.Text), &agentPlan); err != nil {
+		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLAN_PARSE_FAILED",
+			"failed to parse agent plan: "+sanitizeForError(err.Error()))
+		return
+	}
+
+	// Normalize the agent's plan strategy and validate before building orchPlan.
+	normalizedStrategy := strings.TrimSpace(agentPlan.Strategy)
+	if normalizedStrategy == "" {
+		normalizedStrategy = plan.StrategySingle
+	}
+	if normalizedStrategy != plan.StrategySingle {
+		s.emitErrorEvent(w, flusher, runID, "AGENT_PLAN_PROPOSAL_INVALID",
+			"plan_only: strategy must be single, got "+sanitizeForError(normalizedStrategy))
+		return
+	}
+	if len(agentPlan.Tasks) != 1 {
+		s.emitErrorEvent(w, flusher, runID, "AGENT_PLAN_PROPOSAL_INVALID",
+			"plan_only: single_chat requires exactly 1 task, got "+fmt.Sprintf("%d", len(agentPlan.Tasks)))
+		return
+	}
+	if !strings.EqualFold(strings.TrimSpace(agentPlan.Tasks[0].AgentName), planOnlyAgent) {
+		s.emitErrorEvent(w, flusher, runID, "AGENT_PLAN_PROPOSAL_INVALID",
+			"plan_only: task agentName "+agentPlan.Tasks[0].AgentName+" does not match current agent "+planOnlyAgent)
+		return
+	}
+
+	// Build proposal summaries from agent plan_only for activity snapshot display.
+	proposalTaskSummaries := make([]map[string]any, 0, len(agentPlan.Tasks))
+	for _, t := range agentPlan.Tasks {
+		proposalTaskSummaries = append(proposalTaskSummaries, map[string]any{
+			"taskId":    t.TaskID,
+			"agentName": t.AgentName,
+			"content":   t.Content,
+			"dependsOn": t.DependsOn,
+			"priority":  t.Priority,
+			"riskLevel": t.RiskLevel,
+		})
+	}
+
+	// Build OrchestrationPlan from agent's plan_only response.
+	tasks := make([]plan.TaskPlan, 0, len(agentPlan.Tasks))
+	for _, t := range agentPlan.Tasks {
+		timeoutMs := t.TimeoutMs
+		if timeoutMs <= 0 {
+			timeoutMs = 60000 // default 60s
+		}
+		riskLevel := strings.TrimSpace(t.RiskLevel)
+		if riskLevel == "" {
+			riskLevel = "low"
+		}
+		tasks = append(tasks, plan.TaskPlan{
+			TaskID:      t.TaskID,
+			AgentName:   t.AgentName,
+			TaskContent: userText,
+			DependsOn:   t.DependsOn,
+			Priority:    t.Priority,
+			TimeoutMs:   timeoutMs,
+			RiskLevel:   riskLevel,
+		})
+	}
+	orchPlan := &plan.OrchestrationPlan{
+		Version:        "1.0",
+		PlanID:         fmt.Sprintf("plan_%d", time.Now().UnixMilli()),
+		RunID:          runID,
+		ConversationID: convID,
+		ExecutionPath:  string(executionpath.PathSingleChat),
+		Strategy:       normalizedStrategy,
+		IntentSummary:  agentPlan.IntentSummary,
+		Tasks:          tasks,
+		TraceID:        req.TraceID,
+		AllowedAgents:  selResult.AllowedAgents,
+		PlannerSource:  "agent_plan_only",
+		Revision:       1,
+		PlanOwner: &plan.PlanOwner{
+			Type:      "agent",
+			AgentName: planOnlyAgent,
+		},
+		Participants: []plan.PlanParticipant{
+			{AgentName: planOnlyAgent, Role: "executor", Required: true, Selected: true},
+		},
+	}
+
+	// Run through plan validator.
+	planValidator := validator.New(s.registry)
+	validationResult := planValidator.Validate(orchPlan)
+	if !validationResult.Valid {
+		details := make([]map[string]string, 0, len(validationResult.Errors))
+		for _, e := range validationResult.Errors {
+			details = append(details, map[string]string{"field": e.Field, "message": e.Message})
+		}
+		s.emitErrorEventWithDetail(w, flusher, runID, "ORCHESTRATOR_PLAN_INVALID",
+			"Orchestration plan validation failed", details)
+		return
+	}
+	orchPlan.Validation.Validated = true
+
+	// Enforce agent boundary on the agent's plan.
+	taskInfos := make([]executionpath.TaskInfo, len(tasks))
+	for i, t := range tasks {
+		taskInfos[i] = executionpath.TaskInfo{TaskID: t.TaskID, AgentName: t.AgentName}
+	}
+	if boundaryErr := executionpath.EnforceAgentBoundary(taskInfos, selResult.AllowedAgents); boundaryErr != nil {
+		s.emitErrorEvent(w, flusher, runID, boundaryErr.Code, boundaryErr.Message)
+		return
+	}
+
+	planState := buildPlanState(orchPlan)
+	planState["tasks"] = proposalTaskSummaries
+	planState["phase"] = "planning"
+	s.emitEvent(w, flusher, OrchestratorStreamEvent{
+		Type:  "state_update",
+		RunID: runID,
+		State: planState,
+	})
+
+	// Emit confirm_plan tool call events.
+	// Emit ACTIVITY_SNAPSHOT for plan approval (replaces deprecated confirm_plan TOOL_CALL).
+	s.emitActivitySnapshot(w, flusher, runID, convID, orchPlan, "awaiting_confirmation")
+
+	planState["phase"] = "awaiting_confirmation"
+	planState["requiresConfirmation"] = true
+	planState["revision"] = orchPlan.Revision
+	planState["confirmationActionId"] = orchPlan.PlanID
+	planState["plannedAgents"] = plannedAgentNames(orchPlan)
+	planState["tasks"] = proposalTaskSummaries
+	s.emitEvent(w, flusher, OrchestratorStreamEvent{
+		Type:  "state_update",
+		RunID: runID,
+		State: planState,
+	})
+
+	confirmCh := s.registerPending(runID, orchPlan)
+	// NOTE: do NOT defer deregisterPending here — only deregister on
+	// approve / cancel / timeout. revise keeps the pending entry alive
+	// for the next confirm round.
+
+	confirmTimeout := 120 * time.Second
+	confirmDeadline := time.After(confirmTimeout)
+	heartbeatTicker := time.NewTicker(15 * time.Second)
+	defer heartbeatTicker.Stop()
+
+	currentRevision := 1
+	var approved bool
+	executeUserText := userText // always use original userText for full execute
+
+confirmLoop:
+	for {
+		select {
+		case result := <-confirmCh:
+			switch result.Action {
+			case "revise":
+				// Validate revision match (if provided by frontend).
+				if result.Revision > 0 && result.Revision != currentRevision {
+					s.emitErrorEvent(w, flusher, runID, "PLAN_REVISION_MISMATCH",
+						fmt.Sprintf("revision mismatch: expected %d, got %d", currentRevision, result.Revision))
+					s.deregisterPending(runID)
+					return
+				}
+
+				// Reset deadline for the new confirmation window.
+				confirmDeadline = time.After(confirmTimeout)
+
+				// Emit revising_plan phase.
+				s.emitEvent(w, flusher, OrchestratorStreamEvent{
+					Type:  "state_update",
+					RunID: runID,
+					State: map[string]any{"phase": "revising_plan"},
+				})
+
+				// Call the same Agent in plan_only mode with combined message
+				// (original userText + feedback + previous plan summary).
+				reviseMessage := buildRevisionPlanOnlyMessage(
+					executeUserText,
+					result.Feedback,
+					currentRevision+1,
+					orchPlan.IntentSummary,
+				)
+				planResult, err := s.dispatcher.Dispatch(r.Context(), dispatcher.DispatchInput{
+					AgentURL:       ep.URL,
+					AgentName:      planOnlyAgent,
+					ConversationID: convID,
+					RunID:          runID,
+					Message:        reviseMessage,
+					TraceID:        req.TraceID,
+					Mode:           "plan_only",
+				})
+				if err != nil {
+					s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLAN_ONLY_FAILED",
+						"agent plan_only failed: "+sanitizeForError(err.Error()))
+					s.deregisterPending(runID)
+					return
+				}
+
+				// Parse the revised agent plan.
+				var agentPlan struct {
+					Strategy      string `json:"strategy"`
+					IntentSummary string `json:"intentSummary"`
+					Tasks         []struct {
+						TaskID    string   `json:"taskId"`
+						AgentName string   `json:"agentName"`
+						Content   string   `json:"content"`
+						DependsOn []string `json:"dependsOn"`
+						Priority  int      `json:"priority"`
+						TimeoutMs int64    `json:"timeoutMs"`
+						RiskLevel string   `json:"riskLevel"`
+					} `json:"tasks"`
+				}
+				if err := json.Unmarshal([]byte(planResult.Text), &agentPlan); err != nil {
+					s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLAN_PARSE_FAILED",
+						"failed to parse revised agent plan: "+sanitizeForError(err.Error()))
+					s.deregisterPending(runID)
+					return
+				}
+
+				// Validate the revised plan.
+				normalizedStrategy := strings.TrimSpace(agentPlan.Strategy)
+				if normalizedStrategy == "" {
+					normalizedStrategy = plan.StrategySingle
+				}
+				if normalizedStrategy != plan.StrategySingle {
+					s.emitErrorEvent(w, flusher, runID, "AGENT_PLAN_PROPOSAL_INVALID",
+						"plan_only: strategy must be single, got "+sanitizeForError(normalizedStrategy))
+					s.deregisterPending(runID)
+					return
+				}
+				if len(agentPlan.Tasks) != 1 {
+					s.emitErrorEvent(w, flusher, runID, "AGENT_PLAN_PROPOSAL_INVALID",
+						"plan_only: single_chat requires exactly 1 task, got "+fmt.Sprintf("%d", len(agentPlan.Tasks)))
+					s.deregisterPending(runID)
+					return
+				}
+				if !strings.EqualFold(strings.TrimSpace(agentPlan.Tasks[0].AgentName), planOnlyAgent) {
+					s.emitErrorEvent(w, flusher, runID, "AGENT_PLAN_PROPOSAL_INVALID",
+						"plan_only: task agentName "+agentPlan.Tasks[0].AgentName+" does not match current agent "+planOnlyAgent)
+					s.deregisterPending(runID)
+					return
+				}
+
+				// Build new proposal task summaries.
+				proposalTaskSummaries = make([]map[string]any, 0, len(agentPlan.Tasks))
+				for _, t := range agentPlan.Tasks {
+					proposalTaskSummaries = append(proposalTaskSummaries, map[string]any{
+						"taskId":    t.TaskID,
+						"agentName": t.AgentName,
+						"content":   t.Content,
+						"dependsOn": t.DependsOn,
+						"priority":  t.Priority,
+						"riskLevel": t.RiskLevel,
+					})
+				}
+
+				// Build new tasks for the orchPlan.
+				revisedTasks := make([]plan.TaskPlan, 0, len(agentPlan.Tasks))
+				for _, t := range agentPlan.Tasks {
+					timeoutMs := t.TimeoutMs
+					if timeoutMs <= 0 {
+						timeoutMs = 60000
+					}
+					riskLevel := strings.TrimSpace(t.RiskLevel)
+					if riskLevel == "" {
+						riskLevel = "low"
+					}
+					revisedTasks = append(revisedTasks, plan.TaskPlan{
+						TaskID:      t.TaskID,
+						AgentName:   t.AgentName,
+						TaskContent: executeUserText,
+						DependsOn:   t.DependsOn,
+						Priority:    t.Priority,
+						TimeoutMs:   timeoutMs,
+						RiskLevel:   riskLevel,
+					})
+				}
+
+				// Increment revision.
+				currentRevision++
+				newPlanID := fmt.Sprintf("plan_%d", time.Now().UnixMilli())
+
+				// Build new OrchestrationPlan with revision+1.
+				orchPlan = &plan.OrchestrationPlan{
+					Version:        "1.0",
+					PlanID:         newPlanID,
+					RunID:          runID,
+					ConversationID: convID,
+					ExecutionPath:  string(executionpath.PathSingleChat),
+					Strategy:       normalizedStrategy,
+					IntentSummary:  agentPlan.IntentSummary,
+					Tasks:          revisedTasks,
+					TraceID:        req.TraceID,
+					AllowedAgents:  selResult.AllowedAgents,
+					PlannerSource:  "agent_plan_only",
+					Revision:       currentRevision,
+					PlanOwner: &plan.PlanOwner{
+						Type:      "agent",
+						AgentName: planOnlyAgent,
+					},
+					Participants: []plan.PlanParticipant{
+						{AgentName: planOnlyAgent, Role: "executor", Required: true, Selected: true},
+					},
+				}
+
+				// Validate the revised plan.
+				validationResult := planValidator.Validate(orchPlan)
+				if !validationResult.Valid {
+					details := make([]map[string]string, 0, len(validationResult.Errors))
+					for _, e := range validationResult.Errors {
+						details = append(details, map[string]string{"field": e.Field, "message": e.Message})
+					}
+					s.emitErrorEventWithDetail(w, flusher, runID, "ORCHESTRATOR_PLAN_INVALID",
+						"Revised plan validation failed", details)
+					s.deregisterPending(runID)
+					return
+				}
+				orchPlan.Validation.Validated = true
+
+				// Enforce agent boundary.
+				taskInfos := make([]executionpath.TaskInfo, len(revisedTasks))
+				for i, t := range revisedTasks {
+					taskInfos[i] = executionpath.TaskInfo{TaskID: t.TaskID, AgentName: t.AgentName}
+				}
+				if boundaryErr := executionpath.EnforceAgentBoundary(taskInfos, selResult.AllowedAgents); boundaryErr != nil {
+					s.emitErrorEvent(w, flusher, runID, boundaryErr.Code, boundaryErr.Message)
+					s.deregisterPending(runID)
+					return
+				}
+
+				// Update planState for new revision.
+				planState = buildPlanState(orchPlan)
+				planState["tasks"] = proposalTaskSummaries
+				planState["phase"] = "planning"
+				s.emitEvent(w, flusher, OrchestratorStreamEvent{
+					Type:  "state_update",
+					RunID: runID,
+					State: planState,
+				})
+
+				// Emit ACTIVITY_SNAPSHOT for revised plan approval (replaces deprecated confirm_plan TOOL_CALL).
+				s.emitActivitySnapshot(w, flusher, runID, convID, orchPlan, "awaiting_confirmation")
+
+				planState["phase"] = "awaiting_confirmation"
+				planState["requiresConfirmation"] = true
+				planState["confirmationActionId"] = orchPlan.PlanID
+				planState["revision"] = orchPlan.Revision
+				planState["plannedAgents"] = plannedAgentNames(orchPlan)
+				planState["tasks"] = proposalTaskSummaries
+				s.emitEvent(w, flusher, OrchestratorStreamEvent{
+					Type:  "state_update",
+					RunID: runID,
+					State: planState,
+				})
+
+				// Re-register the pending plan so the next confirm routes to this goroutine.
+				s.hitlMu.Lock()
+				s.pendingPlans[runID] = orchPlan
+				s.hitlMu.Unlock()
+
+				// Continue the loop — do NOT break, do NOT deregister.
+
+			case "approve":
+				s.deregisterPending(runID)
+				approved = true
+				break confirmLoop
+
+			case "cancel":
+				// Cancel: NO RUN_ERROR — STATE_UPDATE + RUN_FINISHED only.
+				s.deregisterPending(runID)
+				s.emitEvent(w, flusher, OrchestratorStreamEvent{
+					Type:  "state_update",
+					RunID: runID,
+					State: map[string]any{"phase": "cancelled"},
+				})
+				s.emitEvent(w, flusher, OrchestratorStreamEvent{
+					Type:  "run_finished",
+					RunID: runID,
+					State: map[string]any{"status": "cancelled"},
+				})
+				return
+
+			default:
+				// Backward-compat: empty action falls through to Confirmed bool.
+				if result.Confirmed {
+					s.deregisterPending(runID)
+					approved = true
+					break confirmLoop
+				}
+				s.deregisterPending(runID)
+				s.emitEvent(w, flusher, OrchestratorStreamEvent{
+					Type:  "state_update",
+					RunID: runID,
+					State: map[string]any{"phase": "cancelled"},
+				})
+				s.emitEvent(w, flusher, OrchestratorStreamEvent{
+					Type:  "run_finished",
+					RunID: runID,
+					State: map[string]any{"status": "cancelled"},
+				})
+				return
+			}
+		case <-heartbeatTicker.C:
+			s.emitEvent(w, flusher, OrchestratorStreamEvent{
+				Type:  "state_update",
+				RunID: runID,
+				State: map[string]any{
+					"phase":                "awaiting_confirmation",
+					"requiresConfirmation": true,
+					"confirmationActionId": orchPlan.PlanID,
+					"heartbeat":            true,
+				},
+			})
+		case <-confirmDeadline:
+			s.deregisterPending(runID)
+			s.emitEvent(w, flusher, OrchestratorStreamEvent{
+				Type:  "run_error",
+				RunID: runID,
+				Error: &SafeError{
+					Code:    "ORCHESTRATOR_CONFIRM_TIMEOUT",
+					Message: "Plan confirmation timed out after 120s. Please retry or select a specific agent.",
+				},
+			})
+			s.emitEvent(w, flusher, OrchestratorStreamEvent{
+				Type:  "run_finished",
+				RunID: runID,
+				State: map[string]any{
+					"status":  "timeout",
+					"message": "plan confirmation timed out",
+				},
+			})
+			return
+		case <-r.Context().Done():
+			return
+		}
+	}
+
+	if !approved {
+		return
+	}
+
+	// Full execute with ORIGINAL userText, never feedback text.
+	planState["phase"] = "executing"
+	planState["requiresConfirmation"] = false
+	s.emitEvent(w, flusher, OrchestratorStreamEvent{
+		Type:  "state_update",
+		RunID: runID,
+		State: planState,
+	})
+
+	// Build execution plan using original userText.
+	execPlan := orchPlan
+	if len(execPlan.Tasks) > 0 {
+		execPlan.Tasks[0].TaskContent = executeUserText
+	}
+	s.executeViaStreamingExecutor(w, flusher, r, execPlan, msgID,
+		executor.NewSingleExecutor(s.registry, s.dispatcher,
+			executor.WithSingleSynthesizer(s.synthesizer)))}

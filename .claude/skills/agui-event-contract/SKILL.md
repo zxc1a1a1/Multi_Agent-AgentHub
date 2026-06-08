@@ -66,6 +66,17 @@ agents/**               legacy reference only
 5. Add/update tests for the touched module.
 6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
 
+## Plan Approval events (v1.2)
+
+```text
+confirm_plan tool call 兼容模式: TOOL_CALL_START/ARGS/END 的 toolCallName="confirm_plan"，toolCallId=<planId>。
+新增 STATE_UPDATE phase: planning / waiting_user_approval / revising_plan / executing / cancelled。
+CANCEL_PLAN 生命周期: 仅 STATE_UPDATE(phase=cancelled) + RUN_FINISHED(status=cancelled)，不 emit RUN_ERROR。
+confirm_plan args 扩展字段: revision、executionPath、planOwner、participants、candidateParticipants、defaultSelectedParticipants。
+AGENT_TURN 事件族 (Phase 5): AGENT_TURN_STARTED/CONTENT/FINISHED，带 agentName + turnIndex。
+action 续流: confirm endpoint 返回 JSON，执行在已有 SSE 连接上继续，不创建新流。
+```
+
 ## Completion checklist
 
 - [ ] No stale old-path instructions were introduced.
@@ -74,3 +85,5 @@ agents/**               legacy reference only
 - [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
 - [ ] Errors are sanitized and do not expose secrets or internal URLs.
 - [ ] Tests or a clear blocker are reported.
+- [ ] CANCEL_PLAN does not emit RUN_ERROR.
+- [ ] confirm_plan events follow the plan approval lifecycle.

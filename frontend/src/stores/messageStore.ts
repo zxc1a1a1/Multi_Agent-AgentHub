@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Message, AGUIEvent, CodeBlock, WebPreviewBlock } from '../types'
+import type { Message, AGUIEvent, CodeBlock, WebPreviewBlock, ActivitySnapshot } from '../types'
 import type { AgentName } from '../lib/agents'
 import * as api from '../services/api'
 import { runAgent, type AGUIChatRequest } from '../agui/client'
@@ -7,19 +7,32 @@ import { DEFAULT_AGENT_NAME, getAgentDisplayName, isConcreteAgentName, isSupport
 import type { OrchestrationInfo } from '../components/OrchestrationCard'
 import { useConversationStore } from './conversationStore'
 import { persistTitle } from '../lib/conversationTitles'
+import { useActivityStore } from './activityStore'
 
 interface SendMessageOptions {
   agentName?: AgentName
+  mentions?: string[]
+  selectedAgentNames?: string[]
 }
 
 export interface PendingConfirmation {
   runId: string
   actionId: string
+  planId?: string
+  revision?: number
+  executionPath?: string
+  planOwner?: {
+    type?: string
+    agentName?: string
+    isMainAgent?: boolean
+  }
   agentNames: string[]
+  participants?: Array<{ agentName: string; role?: string; required?: boolean; selected?: boolean }>
   tasks: Array<{ taskId?: string; agentName?: string; content?: string; dependsOn?: string[]; priority?: number; riskLevel?: string }>
   intentSummary?: string
   strategy?: string
-  status: 'pending' | 'confirmed' | 'rejected'
+  warnings?: string[]
+  status: 'pending' | 'confirmed' | 'rejected' | 'cancelled'
   error?: string
   rejectReason?: string
 }
@@ -36,7 +49,7 @@ interface MessageState {
   isStreaming: (conversationId: string) => boolean
   stopStreaming: (conversationId: string) => void
   getConfirmation: (conversationId: string) => PendingConfirmation | null
-  confirmPlan: (conversationId: string, runId: string, actionId: string, confirmed: boolean, reason?: string) => Promise<void>
+  confirmPlan: (conversationId: string, runId: string, actionId: string, confirmed: boolean, reason?: string, action?: string, feedback?: string, revision?: number, selectedParticipants?: string[]) => Promise<void>
   clearConfirmation: (conversationId: string) => void
 }
 
@@ -401,10 +414,15 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const request: AGUIChatRequest = {
       conversationId,
       message: content,
+      selectedAgentNames: options?.selectedAgentNames || [],
+      mentions: options?.mentions || [],
     }
     // Only pass agentName for concrete agents; "auto" lets orchestrator decide.
     if (options?.agentName && options.agentName !== 'auto') {
       request.agentName = options.agentName
+      if (!options.selectedAgentNames || options.selectedAgentNames.length === 0) {
+        request.selectedAgentNames = [options.agentName]
+      }
     }
 
     let agentMsgId = ''
@@ -885,6 +903,47 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             break
           }
 
+          case 'ACTIVITY_SNAPSHOT': {
+            const activity = event.activity
+            if (activity) {
+              useActivityStore.getState().setActivity(conversationId, activity)
+              if (activity.activityType === 'plan_approval') {
+                set((s) => ({
+                  confirmationByConversation: {
+                    ...s.confirmationByConversation,
+                    [conversationId]: {
+                      runId: event.runId || '',
+                      actionId: activity.planId,
+                      planId: activity.planId,
+                      revision: activity.revision,
+                      executionPath: activity.executionPath,
+                      planOwner: activity.planOwner as PendingConfirmation['planOwner'],
+                      agentNames: activity.participants?.map((p) => p.agentName) || [],
+                      participants: activity.participants?.map((p) => ({
+                        agentName: p.agentName,
+                        role: 'executor',
+                        required: p.required,
+                        selected: p.selected,
+                      })) || [],
+                      tasks: activity.tasks?.map((t) => ({
+                        taskId: t.taskId,
+                        agentName: t.agentName,
+                        content: t.content,
+                        priority: t.priority,
+                        riskLevel: t.riskLevel,
+                      })) || [],
+                      intentSummary: activity.summary || activity.title || '',
+                      strategy: '',
+                      warnings: activity.warnings || [],
+                      status: 'pending' as const,
+                    },
+                  },
+                }))
+              }
+            }
+            break
+          }
+
           case 'TOOL_CALL_START':
             if (event.id) {
               toolCallArgs[event.id] = ''
@@ -943,16 +1002,36 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                   : []
                 const confirmSummary = typeof parsed.intentSummary === 'string' ? parsed.intentSummary : ''
                 const confirmStrategy = typeof parsed.strategy === 'string' ? parsed.strategy : ''
+
+                // v1.2 plan approval fields
+                const confirmExecutionPath = typeof parsed.executionPath === 'string' ? parsed.executionPath : undefined
+                const confirmRevision = typeof parsed.revision === 'number' ? parsed.revision : undefined
+                const confirmPlanOwner = parsed.planOwner != null && typeof parsed.planOwner === 'object' && !Array.isArray(parsed.planOwner)
+                  ? parsed.planOwner as PendingConfirmation['planOwner']
+                  : undefined
+                const confirmParticipants = Array.isArray(parsed.participants)
+                  ? parsed.participants as PendingConfirmation['participants']
+                  : undefined
+                const confirmWarnings = Array.isArray(parsed.warnings)
+                  ? (parsed.warnings as string[])
+                  : undefined
+
                 set((s) => ({
                   confirmationByConversation: {
                     ...s.confirmationByConversation,
                     [conversationId]: {
                       runId: confirmRunId,
                       actionId: confirmPlanId,
+                      planId: confirmPlanId,
+                      revision: confirmRevision,
+                      executionPath: confirmExecutionPath,
+                      planOwner: confirmPlanOwner,
                       agentNames: confirmAgents,
+                      participants: confirmParticipants,
                       tasks: confirmTasks,
                       intentSummary: confirmSummary,
                       strategy: confirmStrategy,
+                      warnings: confirmWarnings,
                       status: 'pending',
                     },
                   },
@@ -1070,7 +1149,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     return confirmationByConversation[conversationId] || null
   },
 
-  confirmPlan: async (conversationId: string, runId: string, actionId: string, confirmed: boolean, reason?: string) => {
+  confirmPlan: async (conversationId: string, runId: string, actionId: string, confirmed: boolean, reason?: string, action?: string, feedback?: string, revision?: number, selectedParticipants?: string[]) => {
     const current = get().confirmationByConversation[conversationId]
     if (!current || current.status !== 'pending') {
       return
@@ -1079,15 +1158,20 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       await api.confirmHITL({
         runId: runId || current.runId,
         actionId: actionId || current.actionId,
+        action: action || (confirmed ? 'approve' : 'cancel'),
+        feedback: feedback || '',
+        revision: revision,
         confirmed,
         rejectReason: reason || '',
+        selectedParticipants: selectedParticipants && selectedParticipants.length > 0 ? selectedParticipants : undefined,
       })
+      const isRevise = action === 'revise'
       set((s) => ({
         confirmationByConversation: {
           ...s.confirmationByConversation,
           [conversationId]: {
             ...current,
-            status: confirmed ? 'confirmed' : 'rejected',
+            status: isRevise ? 'pending' : (confirmed ? 'confirmed' : 'cancelled'),
             rejectReason: reason || '',
           },
         },

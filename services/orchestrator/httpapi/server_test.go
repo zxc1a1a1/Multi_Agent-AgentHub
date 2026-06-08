@@ -465,3 +465,303 @@ func TestHITLConfirmTimedOutRejected(t *testing.T) {
 		t.Errorf("expected 'timed out' error, got %q", result["error"])
 	}
 }
+
+
+func TestIsPlanOnlyWhitelisted(t *testing.T) {
+	if !isPlanOnlyWhitelisted("code-agent") {
+		t.Error("code-agent should be whitelisted")
+	}
+	if !isPlanOnlyWhitelisted("web-agent") {
+		t.Error("web-agent should be whitelisted")
+	}
+	if !isPlanOnlyWhitelisted("Code-Agent") {
+		t.Error("Code-Agent (case-insensitive) should be whitelisted")
+	}
+	if isPlanOnlyWhitelisted("unknown-agent") {
+		t.Error("unknown-agent should not be whitelisted")
+	}
+	if isPlanOnlyWhitelisted("") {
+		t.Error("empty string should not be whitelisted")
+	}
+}
+
+func TestHITLCancelledStateReturnsConflict(t *testing.T) {
+	srv := NewServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	runID := "run-test-cancel"
+	p := &plan.OrchestrationPlan{
+		PlanID:   "plan-cancel",
+		RunID:    runID,
+		Strategy: plan.StrategySingle,
+	}
+	ch := srv.registerPending(runID, p)
+	defer srv.deregisterPending(runID)
+
+	// First request: cancel (confirmed=false).
+	body1 := `{"runId":"run-test-cancel","actionId":"plan-cancel","confirmed":false,"rejectReason":"cancelled by user"}`
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(body1))
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// Drain channel.
+	select {
+	case result := <-ch:
+		if result.Confirmed {
+			t.Error("expected Confirmed=false")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for result")
+	}
+
+	// Second request: already cancelled, should get 409 Conflict.
+	resp2, err := http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(body1))
+	if err != nil {
+		t.Fatalf("second POST failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 for confirm after cancellation, got %d", resp2.StatusCode)
+	}
+}
+
+func TestHITLConfirm_ReviseAction(t *testing.T) {
+	srv := NewServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	runID := "run-test-revise"
+	p := &plan.OrchestrationPlan{
+		PlanID:  "plan-revise",
+		RunID:   runID,
+		Strategy: plan.StrategySingle,
+	}
+	ch := srv.registerPending(runID, p)
+	defer srv.deregisterPending(runID)
+
+	body := `{"runId":"run-test-revise","actionId":"plan-revise","action":"revise","feedback":"简化步骤","revision":2}`
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["status"] != "acknowledged" {
+		t.Errorf("expected status=acknowledged, got %q", result["status"])
+	}
+
+	// Verify channel receives revise result with correct fields.
+	select {
+	case r := <-ch:
+		if r.Confirmed {
+			t.Error("revise should have Confirmed=false")
+		}
+		if r.Action != "revise" {
+			t.Errorf("expected Action=revise, got %q", r.Action)
+		}
+		if r.Feedback != "简化步骤" {
+			t.Errorf("expected Feedback='简化步骤', got %q", r.Feedback)
+		}
+		if r.Revision != 2 {
+			t.Errorf("expected Revision=2, got %d", r.Revision)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for revise result")
+	}
+}
+
+func TestHITLConfirm_ReviseEmptyFeedbackRejected(t *testing.T) {
+	srv := NewServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	runID := "run-test-revise-empty"
+	p := &plan.OrchestrationPlan{
+		PlanID:  "plan-revise-empty",
+		RunID:   runID,
+		Strategy: plan.StrategySingle,
+	}
+	_ = srv.registerPending(runID, p)
+	defer srv.deregisterPending(runID)
+
+	body := `{"runId":"run-test-revise-empty","actionId":"plan-revise-empty","action":"revise","feedback":""}`
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(result["error"], "REVISION_INPUT_REQUIRED") {
+		t.Errorf("expected REVISION_INPUT_REQUIRED error, got %q", result["error"])
+	}
+}
+
+func TestHITLConfirmStateAfterConfirmed(t *testing.T) {
+	srv := NewServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	runID := "run-test-confirmed"
+	p := &plan.OrchestrationPlan{
+		PlanID:   "plan-confirmed",
+		RunID:    runID,
+		Strategy: plan.StrategySingle,
+	}
+	ch := srv.registerPending(runID, p)
+	defer srv.deregisterPending(runID)
+
+	// Confirm the plan.
+	body := `{"runId":"run-test-confirmed","actionId":"plan-confirmed","confirmed":true,"rejectReason":""}`
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// Drain channel.
+	select {
+	case result := <-ch:
+		if !result.Confirmed {
+			t.Error("expected Confirmed=true")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for result")
+	}
+
+	// Second confirm should return 409 Conflict.
+	resp2, err := http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("second POST failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 for confirm after confirmed, got %d", resp2.StatusCode)
+	}
+}
+
+// TestIdempotencySameKey verifies that the same idempotencyKey + same payload
+// returns the cached 200 response on replay.
+func TestIdempotencySameKey(t *testing.T) {
+	srv := NewServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	runID := "run-idem-same"
+	p := &plan.OrchestrationPlan{
+		PlanID:   "plan-idem",
+		RunID:    runID,
+		Strategy: plan.StrategySingle,
+	}
+	ch := srv.registerPending(runID, p)
+	defer srv.deregisterPending(runID)
+
+	body := `{"runId":"run-idem-same","actionId":"plan-idem","action":"approve","idempotencyKey":"key-001"}`
+
+	// First request — should succeed (200).
+	resp1, err := http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("first POST failed: %v", err)
+	}
+	resp1.Body.Close()
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("first request: expected 200, got %d", resp1.StatusCode)
+	}
+
+	// Drain the channel so it doesn't block.
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal("timed out draining channel")
+	}
+
+	// Second request with same idempotencyKey — should return cached 200.
+	resp2, err := http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("second POST failed: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		var result map[string]string
+		json.NewDecoder(resp2.Body).Decode(&result)
+		t.Errorf("same key: expected 200 (cached), got %d: %v", resp2.StatusCode, result)
+	}
+}
+
+// TestIdempotencyKeyConflict verifies that the same idempotencyKey with
+// different payload returns 409 IDEMPOTENCY_KEY_CONFLICT.
+func TestIdempotencyKeyConflict(t *testing.T) {
+	srv := NewServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	runID := "run-idem-conflict"
+	p := &plan.OrchestrationPlan{
+		PlanID:   "plan-idem-conflict",
+		RunID:    runID,
+		Strategy: plan.StrategySingle,
+	}
+	ch := srv.registerPending(runID, p)
+	defer srv.deregisterPending(runID)
+
+	// First request — approve.
+	body1 := `{"runId":"run-idem-conflict","actionId":"plan-idem-conflict","action":"approve","idempotencyKey":"key-002"}`
+	resp1, err := http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(body1))
+	if err != nil {
+		t.Fatalf("first POST failed: %v", err)
+	}
+	resp1.Body.Close()
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("first request: expected 200, got %d", resp1.StatusCode)
+	}
+
+	// Drain channel.
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal("timed out draining channel")
+	}
+
+	// Second request — same idempotencyKey but different action (cancel vs approve).
+	body2 := `{"runId":"run-idem-conflict","actionId":"plan-idem-conflict","action":"cancel","idempotencyKey":"key-002"}`
+	resp2, err := http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(body2))
+	if err != nil {
+		t.Fatalf("second POST failed: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 IDEMPOTENCY_KEY_CONFLICT, got %d", resp2.StatusCode)
+	}
+
+	var result map[string]string
+	json.NewDecoder(resp2.Body).Decode(&result)
+	if !strings.Contains(result["error"], "IDEMPOTENCY_KEY_CONFLICT") {
+		t.Errorf("expected IDEMPOTENCY_KEY_CONFLICT error, got: %v", result)
+	}
+}

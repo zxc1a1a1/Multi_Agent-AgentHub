@@ -38,6 +38,7 @@ type RunRequest struct {
 	SessionID string  `json:"sessionId"`
 	Message   Message `json:"message"`
 	TraceID   string  `json:"traceId,omitempty"`
+	Mode      string  `json:"mode,omitempty"`
 }
 
 // ResponseError defines the minimal structured error payload.

@@ -22,6 +22,8 @@ type DispatchInput struct {
 	// TimeoutMs is the per-call timeout in milliseconds. Zero means use the
 	// dispatcher's configured default.
 	TimeoutMs int64
+	// Mode is the run mode: "" (default=full), "plan_only", or "execute".
+	Mode string
 }
 
 // DispatchResult carries the response from a remote agent.
@@ -108,6 +110,7 @@ func (d *A2ADispatcher) Dispatch(ctx context.Context, input DispatchInput) (*Dis
 			Content: msg,
 		},
 		TraceID: input.TraceID,
+		Mode:    input.Mode,
 	}
 
 	attempts := 1
@@ -204,6 +207,7 @@ func (d *A2ADispatcher) DispatchStream(ctx context.Context, input DispatchInput)
 				Content: msg,
 			},
 			TraceID: input.TraceID,
+			Mode:    input.Mode,
 		}
 
 		// Streaming uses the per-call timeout but does not retry: once chunks

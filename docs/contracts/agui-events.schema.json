@@ -12,12 +12,20 @@
         "RUN_FINISHED",
         "RUN_ERROR",
         "STATE_UPDATE",
+        "STATE_SNAPSHOT",
+        "STATE_DELTA",
         "TEXT_MESSAGE_START",
         "TEXT_MESSAGE_CONTENT",
         "TEXT_MESSAGE_END",
         "TOOL_CALL_START",
         "TOOL_CALL_ARGS",
-        "TOOL_CALL_END"
+        "TOOL_CALL_END",
+        "TOOL_ACTION_CONFIRM",
+        "TOOL_ACTION_RESPONSE",
+        "AGENT_TURN_STARTED",
+        "AGENT_TURN_CONTENT",
+        "AGENT_TURN_FINISHED",
+        "ACTIVITY_SNAPSHOT"
       ]
     },
     "runId": {
@@ -46,6 +54,71 @@
     },
     "metadata": {
       "type": "object"
+    },
+    "activity": {
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string" },
+        "activityType": {
+          "type": "string",
+          "enum": ["plan_approval", "agent_turn", "orchestration_progress"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["awaiting_confirmation", "revising_plan", "executing", "cancelled", "completed", "failed"]
+        },
+        "executionPath": {
+          "type": "string",
+          "enum": ["single_chat", "group_chat", "main_agent_orchestration"]
+        },
+        "planId": { "type": "string" },
+        "revision": { "type": "integer" },
+        "planOwner": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["agent", "group_coordinator", "main_agent"] },
+            "agentName": { "type": "string" },
+            "isMainAgent": { "type": "boolean" }
+          }
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "agentName": { "type": "string" },
+              "required": { "type": "boolean" },
+              "selected": { "type": "boolean" }
+            }
+          }
+        },
+        "candidateParticipants": { "type": "array", "items": { "type": "object" } },
+        "defaultSelectedParticipants": { "type": "array", "items": { "type": "object" } },
+        "requiredParticipants": { "type": "array", "items": { "type": "string" } },
+        "title": { "type": "string" },
+        "summary": { "type": "string" },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "taskId": { "type": "string" },
+              "agentName": { "type": "string" },
+              "content": { "type": "string" },
+              "priority": { "type": "integer" },
+              "riskLevel": { "type": "string" }
+            }
+          }
+        },
+        "allowedActions": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["approve", "revise", "cancel"] }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
     }
   },
   "additionalProperties": true

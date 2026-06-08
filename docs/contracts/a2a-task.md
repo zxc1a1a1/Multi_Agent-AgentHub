@@ -3,6 +3,7 @@
 **Status:** Active
 **Owner:** AgentHub
 **Primary source:** Module Separation & Runtime Redesign
+**Last updated:** 2026-06-08 (Phase 0.5 — added RunRequest.Mode for plan_only / execute / full)
 
 
 ## Authoritative source order
@@ -79,3 +80,40 @@ bracket one logical message; multiple `message_delta` may occur between them.
 A Child Agent that returns a buffered event array after completion is still
 valid (compatibility mode). The streaming SSE response is the preferred target
 for new agents because it removes head-of-line latency.
+
+## RunRequest execution modes (Phase 2 direction)
+
+This section defines the contract direction for Phase 2. **Not yet implemented.**
+
+### RunRequest extension
+
+```json
+{
+  "sessionId": "...",
+  "message": { "role": "user", "content": "..." },
+  "traceId": "...",
+  "mode": "full",
+  "approvedPlan": null
+}
+```
+
+### Mode values
+
+| Mode | Behavior | Use case |
+|---|---|---|
+| `full` | Generate and execute in one call. Default. | Current behavior; group_chat auto-execute. |
+| `plan_only` | Agent generates a plan/proposal but does NOT execute. Agent returns a plan response without side effects. | single_chat PLAN_PROPOSAL, revision re-plan. |
+| `execute` | Agent executes a previously approved plan. The `approvedPlan` field carries the plan. | single_chat after APPROVE_PLAN. |
+
+### Mode semantics
+
+- `plan_only`: The Agent MUST NOT invoke tools that have side effects. It MAY invoke read-only tools for context gathering. The response is a structured plan, not executed code.
+- `execute`: The Agent receives the approved plan and executes it step by step. The Agent SHOULD follow the plan structure but MAY adapt to runtime conditions within the plan's intent.
+- `full` (default): Backward-compatible with current behavior. Agent processes the message and may generate and execute in one pass.
+
+### Phase 2 scope
+
+- Implement `mode` field in `adk.GenerateRequest`, `a2a.RunRequest`, `dispatcher.DispatchInput`.
+- Implement `plan_only` and `execute` branches in `CodeAgent.Generate()` and `WebAgent.Generate()`.
+- Implement `approvedPlan` field in `a2a.RunRequest`.
+- **Phase 0.5 does NOT implement any of this.** This section documents the target contract only.

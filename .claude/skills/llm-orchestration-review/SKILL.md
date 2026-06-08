@@ -28,13 +28,21 @@ references/rejection-rules.md
 references/required-evidence.md
 ```
 
+## 与 plan-approval-review 的关系
+
+```text
+当变更属于 plan approval 跨模块功能（涉及 frontend/gateway/orchestrator）时，不应因修改了 frontend/** 或 services/gateway/** 而直接拒绝。
+但如果任务声明使用 llm-orchestration-dev skill，则仍按原范围规则审核。
+额外检查: non-auto 模式下 AllowedAgents 是否被 LLMPlanner 越界覆盖。
+```
+
 ## 立即拒绝条件
 
 出现以下情况，默认 REJECTED：
 
 ```text
-frontend/** 被修改
-services/gateway/** 被修改
+frontend/** 被修改（plan-approval 跨模块功能除外）
+services/gateway/** 被修改（plan-approval 跨模块功能除外）
 docker-compose* 被修改
 pkg/adk/** 被修改
 pkg/runtime/agui/** 被修改

@@ -179,3 +179,204 @@ func TestWriteEventSkipsThinking(t *testing.T) {
 		t.Fatalf("expected no output for thinking event, got: %q", rec.Body.String())
 	}
 }
+
+func TestAGUIOutput_ConfirmPlanToolEvents(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writer := NewWriter(rec)
+
+	// Step 1: TOOL_CALL_START
+	err := writer.WriteEvent(context.Background(), agui.Event{
+		Type:   "TOOL_CALL_START",
+		RunID:  "run-001",
+		ToolCall: &agui.ToolCall{
+			ID:   "plan-001",
+			Name: "confirm_plan",
+		},
+	})
+	if err != nil {
+		t.Fatalf("TOOL_CALL_START: %v", err)
+	}
+
+	// Step 2: TOOL_CALL_ARGS with confirm_plan payload
+	err = writer.WriteEvent(context.Background(), agui.Event{
+		Type:  "TOOL_CALL_ARGS",
+		RunID: "run-001",
+		ToolCall: &agui.ToolCall{
+			ID:   "plan-001",
+			Name: "confirm_plan",
+			Arguments: map[string]any{
+				"runId":         "run-001",
+				"planId":        "plan-001",
+				"revision":      1,
+				"executionPath": "single_chat",
+				"planOwner": map[string]any{
+					"type":      "agent",
+					"agentName": "code-agent",
+				},
+				"participants": []map[string]any{
+					{"agentName": "code-agent", "required": true},
+				},
+				"strategy":             "single",
+				"plannedAgents":        []string{"code-agent"},
+				"requiresConfirmation": true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("TOOL_CALL_ARGS: %v", err)
+	}
+
+	// Step 3: TOOL_CALL_END
+	err = writer.WriteEvent(context.Background(), agui.Event{
+		Type:   "TOOL_CALL_END",
+		RunID:  "run-001",
+		ToolCall: &agui.ToolCall{
+			ID:   "plan-001",
+			Name: "confirm_plan",
+		},
+	})
+	if err != nil {
+		t.Fatalf("TOOL_CALL_END: %v", err)
+	}
+
+	body := rec.Body.String()
+
+	// Each event must use SSE wire names mapped from UPPER_SNAKE AG-UI types
+	if !strings.Contains(body, "event: tool_call_start\n") {
+		t.Error("missing tool_call_start SSE event")
+	}
+	if !strings.Contains(body, "event: tool_call_args\n") {
+		t.Error("missing tool_call_args SSE event")
+	}
+	if !strings.Contains(body, "event: tool_call_end\n") {
+		t.Error("missing tool_call_end SSE event")
+	}
+
+	// JSON payload must contain AG-UI standard UPPER_SNAKE type names
+	if !strings.Contains(body, `"type":"TOOL_CALL_START"`) {
+		t.Error("JSON payload missing UPPER_SNAKE TOOL_CALL_START type")
+	}
+	if !strings.Contains(body, `"type":"TOOL_CALL_ARGS"`) {
+		t.Error("JSON payload missing UPPER_SNAKE TOOL_CALL_ARGS type")
+	}
+	if !strings.Contains(body, `"type":"TOOL_CALL_END"`) {
+		t.Error("JSON payload missing UPPER_SNAKE TOOL_CALL_END type")
+	}
+
+	// Confirm_plan args must contain required fields
+	if !strings.Contains(body, `"name":"confirm_plan"`) {
+		t.Error("confirm_plan tool name must appear in JSON payload")
+	}
+	if !strings.Contains(body, `"runId":"run-001"`) {
+		t.Error("confirm_plan args missing runId")
+	}
+	if !strings.Contains(body, `"planId":"plan-001"`) {
+		t.Error("confirm_plan args missing planId")
+	}
+	if !strings.Contains(body, `"revision":1`) {
+		t.Error("confirm_plan args missing revision")
+	}
+	if !strings.Contains(body, `"executionPath":"single_chat"`) {
+		t.Error("confirm_plan args missing executionPath")
+	}
+	if !strings.Contains(body, `"planOwner"`) {
+		t.Error("confirm_plan args missing planOwner")
+	}
+	if !strings.Contains(body, `"participants"`) {
+		t.Error("confirm_plan args missing participants")
+	}
+	if !strings.Contains(body, `"requiresConfirmation":true`) {
+		t.Error("confirm_plan args missing requiresConfirmation")
+	}
+}
+
+func TestAGUIOutput_StateUpdatePhases(t *testing.T) {
+	phases := []struct {
+		phase string
+		aguiType string
+	}{
+		{"awaiting_confirmation", "STATE_UPDATE"},
+		{"revising_plan", "STATE_UPDATE"},
+		{"executing", "STATE_UPDATE"},
+		{"cancelled", "STATE_UPDATE"},
+	}
+
+	for _, tc := range phases {
+		rec := httptest.NewRecorder()
+		writer := NewWriter(rec)
+
+		err := writer.WriteEvent(context.Background(), agui.Event{
+			Type:  tc.aguiType,
+			RunID: "run-phases-001",
+			State: map[string]any{"phase": tc.phase},
+		})
+		if err != nil {
+			t.Fatalf("STATE_UPDATE %s: %v", tc.phase, err)
+		}
+
+		body := rec.Body.String()
+
+		// SSE wire name must be state_update
+		if !strings.Contains(body, "event: state_update\n") {
+			t.Errorf("phase=%s: missing state_update SSE event name", tc.phase)
+		}
+
+		// JSON type must be UPPER_SNAKE STATE_UPDATE
+		if !strings.Contains(body, `"type":"STATE_UPDATE"`) {
+			t.Errorf("phase=%s: JSON missing STATE_UPDATE type", tc.phase)
+		}
+
+		// State must contain the correct phase
+		if !strings.Contains(body, `"phase":"`+tc.phase+`"`) {
+			t.Errorf("phase=%s: JSON state missing phase field", tc.phase)
+		}
+
+		// RunID must be present
+		if !strings.Contains(body, `"runId":"run-phases-001"`) {
+			t.Errorf("phase=%s: JSON missing runId", tc.phase)
+		}
+	}
+}
+
+func TestAGUIOutput_FormatterOutputsAGUIStandardTypes(t *testing.T) {
+	// Verify that all AG-UI standard type names (UPPER_SNAKE) are mapped
+	// to SSE wire names, and that the JSON payload carries the UPPER_SNAKE type.
+	// Also verify that unknown/internal types are NOT in the standard set.
+	aguiStandardTypes := []string{
+		"RUN_STARTED", "RUN_FINISHED", "RUN_ERROR",
+		"STATE_UPDATE",
+		"TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END",
+		"TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END",
+		"MESSAGE_START", "MESSAGE_DELTA", "MESSAGE_END",
+	}
+
+	for _, aguiType := range aguiStandardTypes {
+		rec := httptest.NewRecorder()
+		writer := NewWriter(rec)
+
+		err := writer.WriteEvent(context.Background(), agui.Event{
+			Type:  aguiType,
+			RunID: "run-std-001",
+		})
+		if err != nil {
+			t.Fatalf("WriteEvent(%q): %v", aguiType, err)
+		}
+
+		body := rec.Body.String()
+
+		// Every AG-UI standard type must produce a valid SSE event: line
+		if !strings.HasPrefix(body, "event: ") {
+			t.Errorf("type=%q: SSE output missing event: prefix, got: %q", aguiType, body)
+		}
+
+		// JSON payload must contain the UPPER_SNAKE type
+		if !strings.Contains(body, `"type":"`+aguiType+`"`) {
+			t.Errorf("type=%q: JSON payload must contain the type field", aguiType)
+		}
+
+		// Every event must include data: line
+		if !strings.Contains(body, "\ndata: ") {
+			t.Errorf("type=%q: SSE output missing data: line", aguiType)
+		}
+	}
+}

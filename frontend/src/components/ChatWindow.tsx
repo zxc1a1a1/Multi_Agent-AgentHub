@@ -6,7 +6,8 @@ import { useSendMessage } from '../agui/events'
 import MessageBubble from './MessageBubble'
 import MessageInput from './MessageInput'
 import OrchestrationCard from './OrchestrationCard'
-import { HITLConfirm } from './HITLConfirm'
+import ActivitySnapshotRenderer, { type PlanApprovalStatus } from './ActivitySnapshotRenderer'
+import { useActivityStore } from '../stores/activityStore'
 import { Bot } from 'lucide-react'
 import { normalizeAgentName, type AgentName } from '../lib/agents'
 
@@ -37,6 +38,7 @@ export default function ChatWindow({ conversationId }: Props) {
     normalizeAgentName(conversationAgentName || defaultAgentName()),
   )
   const [confirmError, setConfirmError] = useState<string | null>(null)
+  const [confirmStatus, setConfirmStatus] = useState<PlanApprovalStatus>('waiting')
 
   const selectedAgentOption = useMemo(
     () => findAgentOption(selectedAgentName),
@@ -64,34 +66,73 @@ export default function ChatWindow({ conversationId }: Props) {
     el.scrollIntoView({ behavior: streaming ? 'auto' : 'smooth', block: 'end' })
   }, [messages, streaming])
 
-  const handleSend = (content: string) => {
+  // Reset confirmStatus when confirmation transitions back to pending
+  // (e.g. new plan arrives after a revise).
+  useEffect(() => {
+    if (confirmation && confirmation.status === 'pending') {
+      setConfirmStatus('waiting')
+    }
+  }, [confirmation])
+
+  const handleSend = (content: string, mentions: string[]) => {
     setConfirmError(null)
-    sendMessage(conversationId, content, { agentName: selectedAgentName })
+    const agentNames = mentions.length > 0 ? mentions : (selectedAgentName !== 'auto' ? [selectedAgentName] : [])
+    sendMessage(conversationId, content, { agentName: selectedAgentName, mentions, selectedAgentNames: agentNames })
   }
 
   const handleConfirm = useCallback(
-    async (actionId: string) => {
+    async (selectedParticipants?: string[]) => {
       setConfirmError(null)
       const pending = getConfirmation(conversationId)
       if (!pending) return
+      setConfirmStatus('approving')
       try {
-        await confirmPlan(conversationId, pending.runId, actionId, true)
+        await confirmPlan(conversationId, pending.runId, pending.actionId, true, undefined, undefined, undefined, undefined, selectedParticipants)
       } catch (err) {
+        setConfirmStatus('waiting')
         setConfirmError(err instanceof Error ? err.message : 'Confirmation failed')
       }
     },
     [conversationId, getConfirmation, confirmPlan],
   )
 
-  const handleReject = useCallback(
+  const handleCancel = useCallback(
     async (actionId: string, reason: string) => {
       setConfirmError(null)
       const pending = getConfirmation(conversationId)
       if (!pending) return
+      setConfirmStatus('cancelling')
       try {
         await confirmPlan(conversationId, pending.runId, actionId, false, reason)
       } catch (err) {
-        setConfirmError(err instanceof Error ? err.message : 'Rejection failed')
+        setConfirmStatus('waiting')
+        setConfirmError(err instanceof Error ? err.message : 'Cancellation failed')
+      }
+    },
+    [conversationId, getConfirmation, confirmPlan],
+  )
+
+  const handleRevise = useCallback(
+    async (feedback: string, selectedParticipants?: string[]) => {
+      setConfirmError(null)
+      const pending = getConfirmation(conversationId)
+      if (!pending) return
+      setConfirmStatus('revising')
+      try {
+        await confirmPlan(
+          conversationId,
+          pending.runId,
+          pending.actionId,
+          false,
+          '',
+          'revise',
+          feedback,
+          pending.revision,
+          selectedParticipants,
+        )
+      } catch (err) {
+        setConfirmStatus('waiting')
+        setConfirmError(err instanceof Error ? err.message : 'Revision failed')
       }
     },
     [conversationId, getConfirmation, confirmPlan],
@@ -107,32 +148,22 @@ export default function ChatWindow({ conversationId }: Props) {
     [conversationId, getConfirmation, confirmPlan],
   )
 
-  // Build HITL description from plan info.
+  // Show plan approval UI when confirmation is pending.
+  // ActivitySnapshotRenderer reads from activityStore; confirmationByConversation
+  // tracks the lifecycle state. Both are populated by ACTIVITY_SNAPSHOT events.
   const pendingConfirmation = confirmation && confirmation.status === 'pending' ? confirmation : null
 
   return (
     <div className="flex flex-col h-full">
-      {/* HITL Plan Confirmation dialog */}
+      {/* Plan Approval Card (rendered via ActivitySnapshotRenderer) */}
       {pendingConfirmation && (
-        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200">
-          <HITLConfirm
-            runId={pendingConfirmation.runId}
-            actionId={pendingConfirmation.actionId}
-            riskLevel="medium"
-            actionName="Plan Confirmation"
-            description={
-              pendingConfirmation.intentSummary ||
-              `Orchestrate ${pendingConfirmation.agentNames.length} agent(s) with ${pendingConfirmation.tasks.length} task(s)`
-            }
-            parameters={pendingConfirmation.tasks.length > 0 ? {
-              agents: pendingConfirmation.agentNames,
-              strategy: pendingConfirmation.strategy,
-              tasks: pendingConfirmation.tasks,
-            } : undefined}
-            timeoutMs={120000}
-            onConfirm={handleConfirm}
-            onReject={handleReject}
-            onTimeout={handleTimeout}
+        <div className="px-4 py-2 bg-amber-50/30 border-b border-amber-200">
+          <ActivitySnapshotRenderer
+            conversationId={conversationId}
+            status={confirmStatus}
+            onApprove={(selectedParticipants) => handleConfirm(selectedParticipants)}
+            onCancel={() => handleCancel(pendingConfirmation.actionId, 'User cancelled')}
+            onRevise={(feedback, selectedParticipants) => handleRevise(feedback, selectedParticipants)}
           />
           {confirmError && (
             <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
@@ -163,6 +194,17 @@ export default function ChatWindow({ conversationId }: Props) {
       {confirmation && confirmation.status === 'rejected' && (
         <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-200 text-sm text-gray-600 text-center">
           Plan rejected{confirmation.rejectReason ? `: ${confirmation.rejectReason}` : ''}
+          <button
+            className="ml-2 underline text-gray-500 hover:text-gray-700"
+            onClick={() => clearConfirmation(conversationId)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+      {confirmation && confirmation.status === 'cancelled' && (
+        <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-200 text-sm text-gray-600 text-center">
+          Plan cancelled{confirmation.rejectReason ? `: ${confirmation.rejectReason}` : ''}
           <button
             className="ml-2 underline text-gray-500 hover:text-gray-700"
             onClick={() => clearConfirmation(conversationId)}
@@ -244,6 +286,7 @@ export default function ChatWindow({ conversationId }: Props) {
         onSend={handleSend}
         onStop={() => stopStreaming(conversationId)}
         streaming={streaming}
+        knownAgentNames={agentOptions.map((o) => o.name)}
       />
     </div>
   )

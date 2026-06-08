@@ -232,6 +232,23 @@ func (t *Translator) Translate(event adk.Event) []Event {
 			}
 			out = append(out, evt)
 
+		case "activity_snapshot":
+			evt := Event{
+				Type:   "ACTIVITY_SNAPSHOT",
+				RunID:  runID,
+				Sender: sender,
+				Author: event.Author,
+			}
+			if event.Actions != nil {
+				if raw, ok := event.Actions.StateDelta["activity"].(json.RawMessage); ok {
+					var activity ActivitySnapshot
+					if err := json.Unmarshal(raw, &activity); err == nil {
+						evt.Activity = &activity
+					}
+				}
+			}
+			out = append(out, evt)
+
 		case "tool_call_start":
 			toolCallID, _ := meta["toolCallId"].(string)
 			toolCallName, _ := meta["toolCallName"].(string)

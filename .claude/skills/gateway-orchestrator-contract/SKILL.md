@@ -54,6 +54,15 @@ bracket one logical message; multiple `message_delta` may occur between them.
 - `services/orchestrator`
 - `services/*/proto`
 
+## Plan Approval forwarding rules
+
+```text
+Gateway 仅透传: executionPath、selectedAgentNames、mentions、requestedPath → Orchestrator。
+Gateway 不做语义路由: 不根据 agentName/content 决定路由目标。
+Gateway 不生成 plan: 无 Planner、无 LLM 调用、无 Agent 调用。
+confirm endpoint (/api/runs/{runId}/confirm): Gateway 仅验证 + 转发 action 到 Orchestrator，不做任何 plan 处理。
+```
+
 ## Non-negotiable rules
 
 - Follow the redesign plan over old PDR/Sprint directory details.
@@ -63,6 +72,7 @@ bracket one logical message; multiple `message_delta` may occur between them.
 - Keep Gateway and Orchestrator as separate services.
 - Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
 - Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
+- Gateway must not generate plans, call Agents, or do semantic routing.
 
 ## Required workflow
 

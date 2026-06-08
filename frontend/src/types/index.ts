@@ -1,5 +1,45 @@
 import type { AgentName } from '../lib/agents'
 
+// ActivitySnapshot types for ACTIVITY_SNAPSHOT AG-UI events (v1.3).
+export interface ActivityPlanOwner {
+  type: string // "agent" | "group_coordinator" | "main_agent"
+  agentName: string
+  isMainAgent?: boolean
+}
+
+export interface ActivityParticipant {
+  agentName: string
+  required?: boolean
+  selected?: boolean
+}
+
+export interface ActivityTask {
+  taskId: string
+  agentName: string
+  content?: string
+  priority?: number
+  riskLevel?: string
+}
+
+export interface ActivitySnapshot {
+  activityId: string
+  activityType: string // "plan_approval" | "agent_turn" | "orchestration_progress"
+  status: string // "awaiting_confirmation" | "revising_plan" | "executing" | "completed" | "cancelled" | "failed"
+  executionPath: string // "single_chat" | "group_chat" | "main_agent_orchestration"
+  planId: string
+  revision: number
+  planOwner?: ActivityPlanOwner
+  participants: ActivityParticipant[]
+  candidateParticipants?: ActivityParticipant[]
+  defaultSelectedParticipants?: ActivityParticipant[]
+  requiredParticipants?: string[]
+  title?: string
+  summary?: string
+  tasks: ActivityTask[]
+  allowedActions: string[]
+  warnings?: string[]
+}
+
 export interface AGUIEvent {
   type: string
   id?: string
@@ -59,6 +99,8 @@ export interface AGUIEvent {
   // Snapshot rendering
   snapshotType?: string
   payload?: Record<string, unknown>
+  // ACTIVITY_SNAPSHOT v1.3
+  activity?: ActivitySnapshot
 }
 
 /**
@@ -67,8 +109,13 @@ export interface AGUIEvent {
 export interface HITLConfirmRequest {
   runId: string
   actionId: string
-  confirmed: boolean
-  rejectReason: string
+  confirmed?: boolean
+  action?: string
+  feedback?: string
+  revision?: number
+  rejectReason?: string
+  idempotencyKey?: string
+  selectedParticipants?: string[]
 }
 
 export interface Conversation {

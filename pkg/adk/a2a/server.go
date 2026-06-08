@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ type Server struct {
 type runRequest struct {
 	SessionID string           `json:"sessionId"`
 	Message   *runRequestEntry `json:"message"`
+	Mode      string           `json:"mode,omitempty"`
 }
 
 type runRequestEntry struct {
@@ -65,6 +67,22 @@ type partDTO struct {
 	CallID    string `json:"callId,omitempty"`
 	Content   string `json:"content,omitempty"`
 	IsError   bool   `json:"isError,omitempty"`
+}
+
+type ctxRunModeKey struct{}
+
+// ContextWithRunMode returns a child context carrying the run mode for plan_only / execute.
+func ContextWithRunMode(ctx context.Context, mode string) context.Context {
+	if mode == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, ctxRunModeKey{}, mode)
+}
+
+// RunModeFromContext extracts the run mode from context, or "" if not set.
+func RunModeFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(ctxRunModeKey{}).(string)
+	return v
 }
 
 // NewServer creates a minimal A2A server with default handlers.
@@ -173,13 +191,13 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	// When client accepts text/event-stream, stream each event as an SSE frame
 	// so the remote dispatcher receives partial output incrementally.
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-		s.handleRunSSE(w, r, reqPayload.SessionID, content)
+		s.handleRunSSE(ContextWithRunMode(r.Context(), reqPayload.Mode), w, r, reqPayload.SessionID, content)
 		return
 	}
 
 	// Buffered fallback: collect all events and return as single JSON response.
 	events := make([]eventDTO, 0)
-	for event, runErr := range s.runner.Run(r.Context(), reqPayload.SessionID, content) {
+	for event, runErr := range s.runner.Run(ContextWithRunMode(r.Context(), reqPayload.Mode), reqPayload.SessionID, content) {
 		if runErr != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", sanitizeError(runErr))
 			return
@@ -198,7 +216,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 // handleRunSSE streams agent events as SSE data frames. Each event from the
 // runner is serialized as a JSON frame and flushed immediately so the remote
 // dispatcher receives partial text chunks in real time.
-func (s *Server) handleRunSSE(w http.ResponseWriter, r *http.Request, sessionID string, content *adk.Content) {
+func (s *Server) handleRunSSE(ctx context.Context, w http.ResponseWriter, r *http.Request, sessionID string, content *adk.Content) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "internal_error", "streaming unsupported")
@@ -210,7 +228,7 @@ func (s *Server) handleRunSSE(w http.ResponseWriter, r *http.Request, sessionID 
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
-	for event, runErr := range s.runner.Run(r.Context(), sessionID, content) {
+	for event, runErr := range s.runner.Run(ctx, sessionID, content) {
 		if runErr != nil {
 			payload, _ := json.Marshal(runResponse{
 				Error: &responseError{
