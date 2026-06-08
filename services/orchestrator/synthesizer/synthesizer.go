@@ -43,15 +43,16 @@ func (s *StaticSynthesizer) Synthesize(_ context.Context, _ string, results []Ta
 	return sb.String(), nil
 }
 
-// LLMSynthesizer uses the PlannerLLM client to generate a coherent summary of
-// multi-agent outputs. It reuses the orchestrator's LLM configuration.
+// LLMSynthesizer uses the PlannerModel interface to generate a coherent summary
+// of multi-agent outputs. It works with any PlannerModel implementation
+// (ADKModelAdapter or mocks for testing).
 type LLMSynthesizer struct {
-	client *planner.PlannerLLM
+	client planner.PlannerModel
 	model  string
 }
 
-// NewLLMSynthesizer creates a synthesizer backed by the planner's LLM client.
-func NewLLMSynthesizer(client *planner.PlannerLLM, model string) *LLMSynthesizer {
+// NewLLMSynthesizer creates a synthesizer backed by a PlannerModel.
+func NewLLMSynthesizer(client planner.PlannerModel, model string) *LLMSynthesizer {
 	return &LLMSynthesizer{
 		client: client,
 		model:  model,

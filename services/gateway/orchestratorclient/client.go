@@ -92,6 +92,20 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 		}
 
 		agentName := runservice.AgentNameFromContext(ctx)
+		selectedAgentNames := runservice.SelectedAgentNamesFromContext(ctx)
+		mentions := runservice.MentionsFromContext(ctx)
+		planningMode := runservice.PlanningModeFromContext(ctx)
+		if planningMode == "" {
+			planningMode = runservice.PlanningModeAuto
+		}
+
+		// Ensure nil slices marshal as [] instead of null.
+		if selectedAgentNames == nil {
+			selectedAgentNames = []string{}
+		}
+		if mentions == nil {
+			mentions = []string{}
+		}
 
 		reqBody := map[string]any{
 			"conversationId":   conversationID,
@@ -99,8 +113,10 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 			"messages": []map[string]string{
 				{"role": "user", "text": userText},
 			},
-			"planningMode": "auto",
-			"agentName":    agentName,
+			"planningMode":      string(planningMode),
+			"agentName":         agentName,
+			"selectedAgentNames": selectedAgentNames,
+			"mentions":          mentions,
 		}
 
 		bodyBytes, err := json.Marshal(reqBody)

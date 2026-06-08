@@ -808,8 +808,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
               // Populate orchestration info for display.
               const orchInfo: OrchestrationInfo = {}
               let hasOrchInfo = false
-              if (typeof state.intent === 'string' && state.intent) {
-                orchInfo.intent = state.intent as string
+              const intentValue = pickText(
+                typeof state.intentSummary === 'string' ? state.intentSummary : undefined,
+                typeof state.intent === 'string' ? state.intent : undefined,
+              )
+              if (intentValue) {
+                orchInfo.intent = intentValue
                 hasOrchInfo = true
               }
               if (typeof state.reasoning === 'string' && state.reasoning) {

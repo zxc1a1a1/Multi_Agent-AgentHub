@@ -1122,3 +1122,343 @@ func TestDeleteConversationMethodNotAllowedOnMessages(t *testing.T) {
 		t.Fatalf("expected 405, got %d body=%q", rec.Code, rec.Body.String())
 	}
 }
+
+// TestDerivePlanningMode verifies the planningMode derivation logic for all four
+// modes and priority rules.
+func TestDerivePlanningMode(t *testing.T) {
+	tests := []struct {
+		name               string
+		agentName          string
+		selectedAgentNames []string
+		mentions           []string
+		want               runservice.PlanningMode
+	}{
+		// ── auto ──
+		{
+			name:      "no agentName, no selection → auto",
+			agentName: "",
+			want:      runservice.PlanningModeAuto,
+		},
+		{
+			name:      "agentName=auto → auto",
+			agentName: "auto",
+			want:      runservice.PlanningModeAuto,
+		},
+		{
+			name:      "agentName=auto with empty selection → auto",
+			agentName: "auto",
+			selectedAgentNames: []string{},
+			mentions:           []string{},
+			want:               runservice.PlanningModeAuto,
+		},
+
+		// ── direct (agentName) ──
+		{
+			name:      "agentName=code-agent → direct",
+			agentName: "code-agent",
+			want:      runservice.PlanningModeDirect,
+		},
+		{
+			name:      "agentName=web-agent → direct",
+			agentName: "web-agent",
+			want:      runservice.PlanningModeDirect,
+		},
+
+		// ── manual (multi-select) ──
+		{
+			name:               "selectedAgentNames with 2 → manual",
+			agentName:          "auto",
+			selectedAgentNames: []string{"code-agent", "web-agent"},
+			want:               runservice.PlanningModeManual,
+		},
+		{
+			name:               "selectedAgentNames with 3 → manual",
+			agentName:          "",
+			selectedAgentNames: []string{"code-agent", "web-agent", "document-agent"},
+			want:               runservice.PlanningModeManual,
+		},
+
+		// ── mention ──
+		{
+			name:     "mentions with 1 agent → mention",
+			mentions: []string{"code-agent"},
+			want:     runservice.PlanningModeMention,
+		},
+		{
+			name:     "mentions with 2 agents → mention",
+			mentions: []string{"code-agent", "web-agent"},
+			want:     runservice.PlanningModeMention,
+		},
+
+		// ── priority: selectedAgentNames multi > mentions > agentName > auto ──
+		{
+			name:               "multi-select wins over mentions",
+			agentName:          "code-agent",
+			selectedAgentNames: []string{"code-agent", "web-agent"},
+			mentions:           []string{"document-agent"},
+			want:               runservice.PlanningModeManual,
+		},
+		{
+			name:      "mentions win over agentName",
+			agentName: "code-agent",
+			mentions:  []string{"web-agent"},
+			want:      runservice.PlanningModeMention,
+		},
+		{
+			name:               "mentions win over agentName even with empty selection",
+			agentName:          "code-agent",
+			selectedAgentNames: []string{},
+			mentions:           []string{"web-agent"},
+			want:               runservice.PlanningModeMention,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := derivePlanningMode(tc.agentName, tc.selectedAgentNames, tc.mentions)
+			if got != tc.want {
+				t.Fatalf("derivePlanningMode(%q, %v, %v) = %q, want %q",
+					tc.agentName, tc.selectedAgentNames, tc.mentions, got, tc.want)
+			}
+		})
+	}
+}
+
+// contextCaptureRunner captures context values for assertions.
+type contextCaptureRunner struct {
+	seq        iter.Seq2[adk.Event, error]
+	capturedCtx context.Context
+}
+
+func (m *contextCaptureRunner) Run(ctx context.Context, conversationID string, userContent *adk.Content) iter.Seq2[adk.Event, error] {
+	m.capturedCtx = ctx
+	if m.seq == nil {
+		return func(yield func(adk.Event, error) bool) {}
+	}
+	return m.seq
+}
+
+func TestChat_PlanningModeAutoInContext(t *testing.T) {
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "auto")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	runner := &contextCaptureRunner{
+		seq: seqEvents(adk.Event{
+			ID:     "evt-1",
+			Author: "orchestrator",
+			Content: &adk.Content{
+				Role:  adk.RoleAssistant,
+				Parts: []adk.Part{adk.TextPart{Text: "ok"}},
+			},
+			Final: true,
+		}),
+	}
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	// Request without agentName → auto
+	body := `{"conversationId":"` + conv.ID + `","message":"hello"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if runner.capturedCtx == nil {
+		t.Fatal("expected context to be captured")
+	}
+
+	pm := runservice.PlanningModeFromContext(runner.capturedCtx)
+	if pm != runservice.PlanningModeAuto {
+		t.Fatalf("expected planningMode=auto, got %q", pm)
+	}
+	san := runservice.SelectedAgentNamesFromContext(runner.capturedCtx)
+	if len(san) != 0 {
+		t.Fatalf("expected empty selectedAgentNames, got %v", san)
+	}
+	m := runservice.MentionsFromContext(runner.capturedCtx)
+	if len(m) != 0 {
+		t.Fatalf("expected empty mentions, got %v", m)
+	}
+}
+
+func TestChat_PlanningModeDirectInContext(t *testing.T) {
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "auto")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	runner := &contextCaptureRunner{
+		seq: seqEvents(adk.Event{
+			ID:     "evt-2",
+			Author: "code-agent",
+			Content: &adk.Content{
+				Role:  adk.RoleAssistant,
+				Parts: []adk.Part{adk.TextPart{Text: "direct"}},
+			},
+			Final: true,
+		}),
+	}
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	// Request with agentName=code-agent → direct
+	body := `{"conversationId":"` + conv.ID + `","message":"hello","agentName":"code-agent"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if runner.capturedCtx == nil {
+		t.Fatal("expected context to be captured")
+	}
+
+	pm := runservice.PlanningModeFromContext(runner.capturedCtx)
+	if pm != runservice.PlanningModeDirect {
+		t.Fatalf("expected planningMode=direct, got %q", pm)
+	}
+	an := runservice.AgentNameFromContext(runner.capturedCtx)
+	if an != "code-agent" {
+		t.Fatalf("expected agentName=code-agent, got %q", an)
+	}
+}
+
+func TestChat_PlanningModeManualInContext(t *testing.T) {
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "auto")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	runner := &contextCaptureRunner{
+		seq: seqEvents(adk.Event{
+			ID:     "evt-3",
+			Author: "orchestrator",
+			Content: &adk.Content{
+				Role:  adk.RoleAssistant,
+				Parts: []adk.Part{adk.TextPart{Text: "manual"}},
+			},
+			Final: true,
+		}),
+	}
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	// Request with selectedAgentNames=[code-agent, web-agent] → manual
+	body := `{"conversationId":"` + conv.ID + `","message":"hello","selectedAgentNames":["code-agent","web-agent"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if runner.capturedCtx == nil {
+		t.Fatal("expected context to be captured")
+	}
+
+	pm := runservice.PlanningModeFromContext(runner.capturedCtx)
+	if pm != runservice.PlanningModeManual {
+		t.Fatalf("expected planningMode=manual, got %q", pm)
+	}
+	san := runservice.SelectedAgentNamesFromContext(runner.capturedCtx)
+	if len(san) != 2 || san[0] != "code-agent" || san[1] != "web-agent" {
+		t.Fatalf("expected selectedAgentNames=[code-agent web-agent], got %v", san)
+	}
+}
+
+func TestChat_PlanningModeMentionInContext(t *testing.T) {
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "auto")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	runner := &contextCaptureRunner{
+		seq: seqEvents(adk.Event{
+			ID:     "evt-4",
+			Author: "orchestrator",
+			Content: &adk.Content{
+				Role:  adk.RoleAssistant,
+				Parts: []adk.Part{adk.TextPart{Text: "mention"}},
+			},
+			Final: true,
+		}),
+	}
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	// Request with mentions=[code-agent] → mention
+	body := `{"conversationId":"` + conv.ID + `","message":"hello","mentions":["code-agent"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if runner.capturedCtx == nil {
+		t.Fatal("expected context to be captured")
+	}
+
+	pm := runservice.PlanningModeFromContext(runner.capturedCtx)
+	if pm != runservice.PlanningModeMention {
+		t.Fatalf("expected planningMode=mention, got %q", pm)
+	}
+	m := runservice.MentionsFromContext(runner.capturedCtx)
+	if len(m) != 1 || m[0] != "code-agent" {
+		t.Fatalf("expected mentions=[code-agent], got %v", m)
+	}
+}
+
+func TestChat_RequestPlanningModeAccepted(t *testing.T) {
+	// When the client explicitly sends planningMode, the request should be accepted
+	// (the field is parsed). Derivation still runs based on fields; the explicit
+	// field is passed through for forward compatibility.
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-1", "auto")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	runner := &contextCaptureRunner{
+		seq: seqEvents(adk.Event{
+			ID:     "evt-5",
+			Author: "orchestrator",
+			Content: &adk.Content{
+				Role:  adk.RoleAssistant,
+				Parts: []adk.Part{adk.TextPart{Text: "ok"}},
+			},
+			Final: true,
+		}),
+	}
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	// Explicit planningMode in request body should be accepted (no 400).
+	body := `{"conversationId":"` + conv.ID + `","message":"hello","planningMode":"auto"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for request with planningMode field, got %d body=%q", rec.Code, rec.Body.String())
+	}
+}

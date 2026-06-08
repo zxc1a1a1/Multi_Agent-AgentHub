@@ -302,9 +302,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ConversationID string `json:"conversationId"`
-		Message        string `json:"message"`
-		AgentName      string `json:"agentName,omitempty"`
+		ConversationID     string   `json:"conversationId"`
+		Message            string   `json:"message"`
+		AgentName          string   `json:"agentName,omitempty"`
+		SelectedAgentNames []string `json:"selectedAgentNames,omitempty"`
+		Mentions           []string `json:"mentions,omitempty"`
+		PlanningMode       string   `json:"planningMode,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid request body")
@@ -353,6 +356,16 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if req.AgentName != "" && req.AgentName != "auto" {
 		ctx = runservice.WithAgentName(ctx, req.AgentName)
 	}
+
+	// Derive planning mode from request fields (Phase 1 — fields wiring).
+	// planningMode is the user-requested orchestration routing mode
+	// (auto/direct/manual/mention), distinct from the server-side plannerMode
+	// (rule/llm/llm_with_rule_fallback).
+	planningMode := derivePlanningMode(req.AgentName, req.SelectedAgentNames, req.Mentions)
+	ctx = runservice.WithPlanningMode(ctx, planningMode)
+	ctx = runservice.WithSelectedAgentNames(ctx, req.SelectedAgentNames)
+	ctx = runservice.WithMentions(ctx, req.Mentions)
+
 	assistantText := strings.Builder{}
 
 	seq := s.runner.Run(ctx, req.ConversationID, &adk.Content{
@@ -651,4 +664,28 @@ func ensureAutoFirst(agents []AgentSummary) []AgentSummary {
 	}
 
 	return append([]AgentSummary{autoSummary}, filtered...)
+}
+
+// derivePlanningMode determines the user-requested orchestration routing mode
+// from the chat request fields. Priority:
+//
+//	selectedAgentNames.length > 1  → manual
+//	mentions.length > 0            → mention
+//	agentName != "" && != "auto"   → direct
+//	otherwise                      → auto
+//
+// This is the user-facing planningMode (auto/direct/manual/mention),
+// distinct from the server-side plannerMode (rule/llm/llm_with_rule_fallback).
+func derivePlanningMode(agentName string, selectedAgentNames, mentions []string) runservice.PlanningMode {
+	if len(selectedAgentNames) > 1 {
+		return runservice.PlanningModeManual
+	}
+	if len(mentions) > 0 {
+		return runservice.PlanningModeMention
+	}
+	trimmed := strings.TrimSpace(agentName)
+	if trimmed != "" && trimmed != "auto" {
+		return runservice.PlanningModeDirect
+	}
+	return runservice.PlanningModeAuto
 }

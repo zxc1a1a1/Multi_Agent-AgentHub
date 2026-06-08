@@ -215,6 +215,7 @@ func (d *A2ADispatcher) DispatchStream(ctx context.Context, input DispatchInput)
 			defer cancel()
 		}
 
+		var sentText strings.Builder
 		d.client.SendJSONRPCStream(callCtx, url, req)(func(c a2a.StreamChunk) bool {
 			if c.Err != nil {
 				return yield(DispatchChunk{Err: fmt.Errorf("agent dispatch failed: %w", c.Err)})
@@ -231,7 +232,19 @@ func (d *A2ADispatcher) DispatchStream(ctx context.Context, input DispatchInput)
 			if sb.Len() == 0 {
 				return true // non-text event (e.g. tool_call); skip without emitting
 			}
-			return yield(DispatchChunk{Text: sb.String()})
+			// Deduplicate: real agents may send a final consolidated event
+			// after progressive streaming deltas. Only yield the suffix not
+			// already forwarded so the frontend never sees duplicated text.
+			chunkText := sb.String()
+			already := sentText.String()
+			if already != "" && strings.HasPrefix(chunkText, already) {
+				chunkText = strings.TrimPrefix(chunkText, already)
+			}
+			if chunkText == "" {
+				return true
+			}
+			sentText.WriteString(chunkText)
+			return yield(DispatchChunk{Text: chunkText})
 		})
 	}
 }
