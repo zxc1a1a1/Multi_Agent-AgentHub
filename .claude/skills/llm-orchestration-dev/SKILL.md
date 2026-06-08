@@ -97,6 +97,14 @@ server/**
 agents/**
 ```
 
+## 与 plan-approval-dev 的关系
+
+```text
+当任务同时涉及 llm-orchestration-dev 和 plan-approval-dev 时，plan-approval-dev 的边界规则优先。
+non-auto executionPath 下，LLMPlanner 的 task.agentName 必须在 AllowedAgents 内，不得自行扩展。
+main_agent_orchestration 下，LLM 可列出 candidateParticipants 推荐，但不得将 candidateParticipants/defaultSelectedParticipants 当作最终 selectedParticipants 直接执行。
+```
+
 ## 最重要的禁止事项
 
 ```text

@@ -477,3 +477,75 @@ func hasPartType(events []testEvent, partType string) bool {
 	}
 	return false
 }
+
+func TestServer_RunModePlanOnly_PropagatesToContext(t *testing.T) {
+	var capturedMode string
+	agent := &mockServerAgent{
+		name: "mode-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			capturedMode = RunModeFromContext(ctx)
+			return &adk.GenerateResponse{
+				Parts:        []adk.Part{adk.TextPart{Text: "plan_only mode: " + capturedMode}},
+				FinishReason: adk.FinishStop,
+			}, nil
+		},
+	}
+	server, sessionID := newTestServer(t, defaultConfig("mode-agent"), agent)
+
+	body := `{"sessionId":"` + sessionID + `","message":{"role":"user","content":"plan this"},"mode":"plan_only"}`
+	resp, raw := doRequest(t, server, http.MethodPost, "/", body)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got=%d body=%s", resp.Code, string(raw))
+	}
+	if capturedMode != "plan_only" {
+		t.Errorf("expected mode=plan_only from RunModeFromContext(ctx), got=%q", capturedMode)
+	}
+}
+
+func TestServer_RunModeFull_DefaultWhenNotSet(t *testing.T) {
+	var capturedMode string
+	agent := &mockServerAgent{
+		name: "full-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			capturedMode = RunModeFromContext(ctx)
+			return &adk.GenerateResponse{
+				Parts:        []adk.Part{adk.TextPart{Text: "ok"}},
+				FinishReason: adk.FinishStop,
+			}, nil
+		},
+	}
+	server, sessionID := newTestServer(t, defaultConfig("full-agent"), agent)
+
+	body := `{"sessionId":"` + sessionID + `","message":{"role":"user","content":"do it"}}`
+	resp, raw := doRequest(t, server, http.MethodPost, "/", body)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got=%d body=%s", resp.Code, string(raw))
+	}
+	if capturedMode != "" {
+		t.Errorf("expected mode=empty (default/full) from RunModeFromContext(ctx), got=%q", capturedMode)
+	}
+}
+
+func TestServer_RunModePlanOnly_WithSendSubscribe(t *testing.T) {
+	var capturedMode string
+	agent := &mockServerAgent{
+		name: "rpc-mode-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			capturedMode = RunModeFromContext(ctx)
+			return &adk.GenerateResponse{
+				Parts:        []adk.Part{adk.TextPart{Text: "ok"}},
+				FinishReason: adk.FinishStop,
+			}, nil
+		},
+	}
+	server, sessionID := newTestServer(t, defaultConfig("rpc-mode-agent"), agent)
+
+	body := `{"jsonrpc":"2.0","id":"req-1","method":"tasks/sendSubscribe","params":{"sessionId":"` + sessionID + `","message":{"role":"user","content":"plan this"},"mode":"plan_only"}}`
+	resp, raw := doRequest(t, server, http.MethodPost, "/a2a/tasks/sendSubscribe", body)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got=%d body=%s", resp.Code, string(raw))
+	}
+	if capturedMode != "plan_only" {
+		t.Errorf("expected mode=plan_only via sendSubscribe, got=%q", capturedMode)
+	}
+}

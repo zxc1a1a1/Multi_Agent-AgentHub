@@ -27,8 +27,48 @@ paths:
     post:
       summary: Temporary compatibility wrapper over /agui/runs
       x-agenthub-status: temporary-compatibility
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
       responses:
         '200': { description: SSE stream }
+  /api/runs/{runId}/confirm:
+    post:
+      summary: Plan approval action (approve / revise / cancel)
+      operationId: confirmPlanAction
+      x-agenthub-status: active (v1.2 plan approval)
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanActionRequest'
+      responses:
+        '200':
+          description: Action acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanActionResponse'
+        '400':
+          description: Bad request (REVISION_INPUT_REQUIRED, REQUIRED_PARTICIPANT_MISSING, AGENT_SELECTION_CONFLICT)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No pending plan for this runId
+        '409':
+          description: Conflict (PLAN_REVISION_MISMATCH, IDEMPOTENCY_KEY_CONFLICT, PLAN_ALREADY_APPROVED, INVALID_RUN_STATE)
+        '410':
+          description: Plan expired
   /api/conversations:
     get:
       summary: List conversations
@@ -87,3 +127,57 @@ components:
         metadata:
           type: object
           additionalProperties: { type: string }
+    ChatRequest:
+      type: object
+      required: [conversationId, message]
+      properties:
+        conversationId: { type: string }
+        message: { type: string }
+        agentName: { type: string }
+        selectedAgentNames:
+          type: array
+          items: { type: string }
+        mentions:
+          type: array
+          items: { type: string }
+        requestedPath:
+          type: string
+          enum: [single_chat, group_chat, main_agent_orchestration]
+    PlanActionRequest:
+      type: object
+      description: >-
+        Plan approval action. action=approve accepts the current proposal as-is;
+        participant changes must use action=revise and produce a new PLAN_PROPOSAL.
+      required: [runId, action, planId, revision, idempotencyKey]
+      properties:
+        runId: { type: string }
+        action:
+          type: string
+          enum: [approve, revise, cancel]
+        planId: { type: string }
+        revision: { type: integer, minimum: 1 }
+        idempotencyKey:
+          type: string
+          format: uuid
+        feedback:
+          type: string
+          description: Required for revise unless selectedParticipants differs from the current proposal default/fixed set.
+        selectedParticipants:
+          type: array
+          description: >-
+            For approve, optional echo of the current default/fixed participants; if changed,
+            the server returns PARTICIPANT_CHANGE_REQUIRES_REVISION. For revise, requested
+            participant changes to be incorporated into revision+1.
+          items: { type: string }
+    PlanActionResponse:
+      type: object
+      properties:
+        status: { type: string }
+        planId: { type: string }
+        revision: { type: integer }
+    ErrorResponse:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
+        details: { type: object }

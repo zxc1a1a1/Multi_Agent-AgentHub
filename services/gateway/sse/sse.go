@@ -96,6 +96,8 @@ func sseEventName(aguiType string) string {
 		return "tool_call_end"
 	case "STATE_UPDATE":
 		return "state_update"
+	case "ACTIVITY_SNAPSHOT":
+		return "activity_snapshot"
 	default:
 		return aguiType
 	}

@@ -693,6 +693,74 @@ describe('plan confirmation via TOOL_CALL events', () => {
     expect(confirmation?.intentSummary).toBe('Build a full-stack login feature')
   })
 
+  it('confirm_plan TOOL_CALL_END with revision=2 overwrites revision=1', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-rev-overwrite', 'build feature')
+
+    // Round 1: revision=1, plan-v1
+    emit('conv-rev-overwrite', {
+      type: 'TOOL_CALL_START',
+      runId: 'run-rev-ow',
+      toolCallId: 'plan-v1',
+      toolName: 'confirm_plan',
+      toolCall: { id: 'plan-v1', name: 'confirm_plan' },
+    })
+    emit('conv-rev-overwrite', {
+      type: 'TOOL_CALL_ARGS',
+      runId: 'run-rev-ow',
+      toolCallId: 'plan-v1',
+      delta: JSON.stringify({
+        runId: 'run-rev-ow',
+        planId: 'plan-v1',
+        revision: 1,
+        strategy: 'single',
+        plannedAgents: ['code-agent'],
+        tasks: [{ taskId: 't1', agentName: 'code-agent', content: 'PLAN V1 - Write a Go HTTP server' }],
+        intentSummary: 'v1 plan',
+      }),
+    })
+    emit('conv-rev-overwrite', {
+      type: 'TOOL_CALL_END',
+      runId: 'run-rev-ow',
+      toolCallId: 'plan-v1',
+    })
+
+    // Round 2: revision=2, plan-v2 — should overwrite round 1
+    emit('conv-rev-overwrite', {
+      type: 'TOOL_CALL_START',
+      runId: 'run-rev-ow',
+      toolCallId: 'plan-v2',
+      toolName: 'confirm_plan',
+      toolCall: { id: 'plan-v2', name: 'confirm_plan' },
+    })
+    emit('conv-rev-overwrite', {
+      type: 'TOOL_CALL_ARGS',
+      runId: 'run-rev-ow',
+      toolCallId: 'plan-v2',
+      delta: JSON.stringify({
+        runId: 'run-rev-ow',
+        planId: 'plan-v2',
+        revision: 2,
+        strategy: 'single',
+        plannedAgents: ['code-agent'],
+        tasks: [{ taskId: 't1', agentName: 'code-agent', content: 'PLAN V2 - Write a simple Go HTTP server' }],
+        intentSummary: 'v2 revised plan',
+      }),
+    })
+    emit('conv-rev-overwrite', {
+      type: 'TOOL_CALL_END',
+      runId: 'run-rev-ow',
+      toolCallId: 'plan-v2',
+    })
+
+    const confirmation = useMessageStore.getState().getConfirmation('conv-rev-overwrite')
+    expect(confirmation).not.toBeNull()
+    expect(confirmation?.revision).toBe(2)
+    expect(confirmation?.planId).toBe('plan-v2')
+    expect(confirmation?.tasks[0].content).toContain('PLAN V2')
+    expect(confirmation?.status).toBe('pending')
+  })
+
   it('ignores TOOL_CALL_END for non-confirm_plan tools', () => {
     const { sendMessage } = useMessageStore.getState()
     sendMessage('conv-other-tool', 'write code')
@@ -859,6 +927,9 @@ describe('confirmPlan API integration', () => {
       runId: 'run-api-1',
       actionId: 'plan-api-1',
       confirmed: true,
+      action: 'approve',
+      feedback: '',
+      revision: undefined,
       rejectReason: '',
     })
 
@@ -889,11 +960,14 @@ describe('confirmPlan API integration', () => {
       runId: 'run-api-2',
       actionId: 'plan-api-2',
       confirmed: false,
+      action: 'cancel',
+      feedback: '',
+      revision: undefined,
       rejectReason: 'not needed right now',
     })
 
     const confirmation = useMessageStore.getState().getConfirmation('conv-api-2')
-    expect(confirmation?.status).toBe('rejected')
+    expect(confirmation?.status).toBe('cancelled')
     expect(confirmation?.rejectReason).toBe('not needed right now')
   })
 
@@ -951,6 +1025,59 @@ describe('confirmPlan API integration', () => {
   it('getConfirmation returns null for unknown conversation', () => {
     const confirmation = useMessageStore.getState().getConfirmation('nonexistent')
     expect(confirmation).toBeNull()
+  })
+
+  it('confirmPlan sends action=revise with feedback and revision', async () => {
+    const { confirmHITL } = await import('../services/api')
+
+    useMessageStore.setState({
+      confirmationByConversation: {
+        'conv-revise-api': {
+          runId: 'run-revise-api',
+          actionId: 'plan-revise-api',
+          agentNames: ['code-agent'],
+          tasks: [{ taskId: 't1', agentName: 'code-agent', content: 'Task' }],
+          strategy: 'single',
+          status: 'pending',
+          revision: 2,
+        },
+      },
+    })
+
+    const { confirmPlan } = useMessageStore.getState()
+    await confirmPlan('conv-revise-api', 'run-revise-api', 'plan-revise-api', false, '', 'revise', '简化步骤', 2)
+
+    expect(confirmHITL).toHaveBeenCalledWith({
+      runId: 'run-revise-api',
+      actionId: 'plan-revise-api',
+      confirmed: false,
+      action: 'revise',
+      feedback: '简化步骤',
+      revision: 2,
+      rejectReason: '',
+    })
+  })
+
+  it('confirmPlan keeps status pending on revise', async () => {
+    useMessageStore.setState({
+      confirmationByConversation: {
+        'conv-revise-status': {
+          runId: 'run-revise-status',
+          actionId: 'plan-revise-status',
+          agentNames: ['code-agent'],
+          tasks: [{ taskId: 't1', agentName: 'code-agent', content: 'Task' }],
+          strategy: 'single',
+          status: 'pending',
+          revision: 1,
+        },
+      },
+    })
+
+    const { confirmPlan } = useMessageStore.getState()
+    await confirmPlan('conv-revise-status', 'run-revise-status', 'plan-revise-status', false, '', 'revise', '更简单一些', 1)
+
+    const confirmation = useMessageStore.getState().getConfirmation('conv-revise-status')
+    expect(confirmation?.status).toBe('pending')
   })
 })
 
@@ -1166,7 +1293,7 @@ describe('Auto orchestration flow', () => {
     await confirmPlan('conv-api-reject', 'run-rej', 'plan-rej', false, 'plan too complex')
 
     const confirmation = useMessageStore.getState().getConfirmation('conv-api-reject')
-    expect(confirmation?.status).toBe('rejected')
+    expect(confirmation?.status).toBe('cancelled')
   })
 })
 

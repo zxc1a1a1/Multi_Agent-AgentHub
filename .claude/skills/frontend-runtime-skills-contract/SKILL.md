@@ -43,6 +43,15 @@ agents/**               legacy reference only
 
 - `frontend/src`
 
+## Plan Approval UI notes
+
+```text
+PlanApprovalCard 属于 plan-approval 功能，由 plan-approval-dev skill 管理。
+Phase 0.5-2 不实现 PlanApprovalCard UI。Phase 2 复用现有 HITLConfirm。
+Phase 3 才新增 PlanApprovalCard 组件。
+前端只调 Gateway (/api/chat、/api/runs/{runId}/confirm)，不直调 Orchestrator 或 Agent。
+```
+
 ## Non-negotiable rules
 
 - Follow the redesign plan over old PDR/Sprint directory details.

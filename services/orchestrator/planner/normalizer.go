@@ -28,8 +28,8 @@ func NewPlanNormalizer() *PlanNormalizer {
 }
 
 // Normalize converts a PlanSchema into an OrchestrationPlan.
-// runID, conversationID, and planningMode are carried through from the request.
-func (n *PlanNormalizer) Normalize(schema *PlanSchema, runID, conversationID, planningMode string) (*plan.OrchestrationPlan, error) {
+// runID, conversationID, planningMode, and executionPath are carried through from the request.
+func (n *PlanNormalizer) Normalize(schema *PlanSchema, runID, conversationID, planningMode, executionPath string) (*plan.OrchestrationPlan, error) {
 	if schema == nil {
 		return nil, fmt.Errorf("normalize: nil schema")
 	}
@@ -66,6 +66,7 @@ func (n *PlanNormalizer) Normalize(schema *PlanSchema, runID, conversationID, pl
 		RunID:          runID,
 		ConversationID: conversationID,
 		PlanningMode:   planningMode,
+		ExecutionPath:  executionPath,
 		Strategy:       strategy,
 		IntentSummary:  truncateToLength(strings.TrimSpace(schema.Intent), 120),
 		Tasks:          tasks,

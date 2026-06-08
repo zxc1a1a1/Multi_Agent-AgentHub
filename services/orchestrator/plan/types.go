@@ -15,7 +15,8 @@ type OrchestrationPlan struct {
 	PlanID         string      `json:"planId"`
 	RunID          string      `json:"runId"`
 	ConversationID string      `json:"conversationId"`
-	PlanningMode   string      `json:"planningMode"`
+	PlanningMode   string      `json:"planningMode"`   // legacy — prefer ExecutionPath
+	ExecutionPath  string      `json:"executionPath"`  // ChatExecutionPath used for this plan
 	Strategy       string      `json:"strategy"`
 	IntentSummary  string      `json:"intentSummary"`
 	Tasks          []TaskPlan  `json:"tasks"`
@@ -29,6 +30,42 @@ type OrchestrationPlan struct {
 	PlannerModel     string `json:"plannerModel,omitempty"`     // model name used
 	PlannerSource    string `json:"plannerSource,omitempty"`    // "llm" | "rule" | "fallback"
 	RepairCount      int    `json:"repairCount,omitempty"`      // number of repair attempts (max 1)
+
+	// AllowedAgents carries the participant boundary that was enforced at plan time.
+	AllowedAgents []string `json:"allowedAgents,omitempty"`
+
+	// Revision is the monotonic plan revision counter, starting at 1.
+	// Incremented on each REQUEST_PLAN_REVISION.
+	Revision int `json:"revision,omitempty"`
+
+	// PlanOwner identifies who generated this plan (agent or main_agent).
+	PlanOwner *PlanOwner `json:"planOwner,omitempty"`
+
+	// Participants is the list of agents involved in this plan.
+	Participants []PlanParticipant `json:"participants,omitempty"`
+
+	// CandidateParticipants lists all agents the MainAgent recommends as eligible.
+	// The user may select a subset. MainAgent orchestration only.
+	CandidateParticipants []PlanParticipant `json:"candidateParticipants,omitempty"`
+
+	// DefaultSelectedParticipants is the MainAgent's recommended default selection.
+	// MainAgent orchestration only.
+	DefaultSelectedParticipants []PlanParticipant `json:"defaultSelectedParticipants,omitempty"`
+}
+
+// PlanOwner identifies the plan author.
+type PlanOwner struct {
+	Type        string `json:"type"`        // "agent" | "main_agent"
+	AgentName   string `json:"agentName"`   // agent name (not code-agent for main_agent)
+	IsMainAgent bool   `json:"isMainAgent,omitempty"`
+}
+
+// PlanParticipant describes one agent participant in a plan.
+type PlanParticipant struct {
+	AgentName string `json:"agentName"`
+	Role      string `json:"role,omitempty"`
+	Required  bool   `json:"required,omitempty"`
+	Selected  bool   `json:"selected,omitempty"`
 }
 
 // TaskPlan is a single execution unit within an OrchestrationPlan.

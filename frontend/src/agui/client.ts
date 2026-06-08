@@ -5,6 +5,9 @@ export interface AGUIChatRequest {
   conversationId: string
   message: string
   agentName?: AgentName
+  selectedAgentNames?: string[]
+  mentions?: string[]
+  requestedPath?: string
 }
 
 function authHeaders(): Record<string, string> {

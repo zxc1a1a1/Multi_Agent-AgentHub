@@ -95,6 +95,7 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 		selectedAgentNames := runservice.SelectedAgentNamesFromContext(ctx)
 		mentions := runservice.MentionsFromContext(ctx)
 		planningMode := runservice.PlanningModeFromContext(ctx)
+	requestedPath := runservice.RequestedPathFromContext(ctx)
 		if planningMode == "" {
 			planningMode = runservice.PlanningModeAuto
 		}
@@ -117,6 +118,7 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 			"agentName":         agentName,
 			"selectedAgentNames": selectedAgentNames,
 			"mentions":          mentions,
+			"requestedPath":     requestedPath,
 		}
 
 		bodyBytes, err := json.Marshal(reqBody)
@@ -167,8 +169,9 @@ type orchestratorStreamEvent struct {
 	Delta        string         `json:"delta,omitempty"`
 	State        map[string]any `json:"state,omitempty"`
 	Error        *safeError     `json:"error,omitempty"`
-	ToolCallID   string         `json:"toolCallId,omitempty"`
-	ToolCallName string         `json:"toolCallName,omitempty"`
+	ToolCallID   string          `json:"toolCallId,omitempty"`
+	ToolCallName string          `json:"toolCallName,omitempty"`
+	Activity     json.RawMessage `json:"activity,omitempty"`
 }
 
 type eventSender struct {
@@ -370,6 +373,22 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
+		case "activity_snapshot":
+			adkEvent := adk.Event{
+				Author:   author,
+				Metadata: meta,
+			}
+			if ose.Activity != nil {
+				adkEvent.Actions = &adk.EventActions{
+					StateDelta: map[string]any{
+						"activity": ose.Activity,
+					},
+				}
+			}
+			if !yield(adkEvent, nil) {
+				return nil
+			}
+
 		default:
 			// Unknown event types: pass through with metadata for legacy handling
 			if !yield(adk.Event{
@@ -389,10 +408,14 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 
 // HITLConfirmRequest mirrors the Orchestrator HITL confirm payload.
 type HITLConfirmRequest struct {
-	RunID        string `json:"runId"`
-	ActionID     string `json:"actionId"`
-	Confirmed    bool   `json:"confirmed"`
-	RejectReason string `json:"rejectReason"`
+	RunID          string `json:"runId"`
+	ActionID       string `json:"actionId"`
+	Confirmed      *bool  `json:"confirmed,omitempty"`
+	Action         string `json:"action,omitempty"`
+	Feedback       string `json:"feedback,omitempty"`
+	Revision       int    `json:"revision,omitempty"`
+	RejectReason   string `json:"rejectReason,omitempty"`
+	IdempotencyKey string `json:"idempotencyKey,omitempty"`
 }
 
 // ConfirmRun sends a HITL confirmation to the remote Orchestrator.

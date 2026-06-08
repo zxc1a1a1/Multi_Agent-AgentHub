@@ -16,9 +16,16 @@ type PlannerInput struct {
 	AgentName          string
 	SelectedAgentNames []string
 	Mentions           []string
-	PlanningMode       string
+	PlanningMode       string // legacy — prefer ExecutionPath for new logic
+	ExecutionPath      string // ChatExecutionPath derived by the Orchestrator
+	AllowedAgents      []string // concrete agent list the Planner must respect (non-auto)
 	TraceID            string
 	AvailableAgents    []string
+
+	// Revision fields — populated during revise flow.
+	Feedback           string // user feedback for plan revision
+	PreviousPlanSummary string // IntentSummary of the previous plan for context
+	Revision           int    // target revision number (current+1)
 }
 
 // Planner produces an OrchestrationPlan from a PlannerInput.

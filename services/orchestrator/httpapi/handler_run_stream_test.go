@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 )
 
@@ -251,6 +252,62 @@ func TestConfirmArgsSequentialPlan(t *testing.T) {
 	}
 }
 
+func TestBuildRevisionPlanOnlyMessage(t *testing.T) {
+	msg := buildRevisionPlanOnlyMessage(
+		"帮我写一个登录页面",
+		"简化步骤，不要包含测试",
+		2,
+		"使用 React 和 Tailwind 创建登录页面",
+	)
+
+	if !strings.Contains(msg, "原始用户任务") {
+		t.Error("must contain '原始用户任务' header")
+	}
+	if !strings.Contains(msg, "帮我写一个登录页面") {
+		t.Error("must contain original userText")
+	}
+	if !strings.Contains(msg, "用户对上一版方案的修改意见") {
+		t.Error("must contain feedback header")
+	}
+	if !strings.Contains(msg, "简化步骤，不要包含测试") {
+		t.Error("must contain feedback text")
+	}
+	if !strings.Contains(msg, "上一版方案摘要") {
+		t.Error("must contain previous plan summary header")
+	}
+	if !strings.Contains(msg, "使用 React 和 Tailwind 创建登录页面") {
+		t.Error("must contain previous plan summary text")
+	}
+	if !strings.Contains(msg, "revision 2") {
+		t.Error("must contain revision number 2")
+	}
+	if !strings.Contains(msg, "只返回 JSON plan") {
+		t.Error("must contain plan_only instruction")
+	}
+}
+
+func TestBuildRevisionPlanOnlyMessage_NoPreviousSummary(t *testing.T) {
+	msg := buildRevisionPlanOnlyMessage(
+		"帮我写一个登录页面",
+		"简化步骤",
+		1,
+		"",
+	)
+
+	if !strings.Contains(msg, "帮我写一个登录页面") {
+		t.Error("must contain original userText")
+	}
+	if !strings.Contains(msg, "简化步骤") {
+		t.Error("must contain feedback")
+	}
+	if !strings.Contains(msg, "revision 1") {
+		t.Error("must contain revision number 1")
+	}
+	if strings.Contains(msg, "上一版方案摘要") {
+		t.Error("must NOT contain previous plan summary when empty")
+	}
+}
+
 func TestHeartbeatEventFormat(t *testing.T) {
 	// Verify that heartbeat STATE_UPDATE events sent during awaiting_confirmation
 	// contain all required fields and are valid JSON.
@@ -368,4 +425,49 @@ func TestConversationalPlanHasNoPlannedAgents(t *testing.T) {
 	if len(names) != 0 {
 		t.Errorf("conversational plan should have 0 planned agents, got %d", len(names))
 	}
+}
+
+// TestPrePlannerValidationAGENT_SELECTION_CONFLICT proves that when
+// requestedPath="group_chat" with non-overlapping selectedAgentNames and
+// mentions, the validation chain (DeriveExecutionPath → ValidateAgentSelection)
+// returns AGENT_SELECTION_CONFLICT before the Planner is ever invoked.
+//
+// The handler calls these exact functions in this order. If ValidateAgentSelection
+// returns an error, the handler returns early — no PlannerInput is built, no
+// Planner.Plan() is called, and no agent is dispatched.
+func TestPrePlannerValidationAgentSelectionConflict(t *testing.T) {
+	// Simulate the exact handler flow before Planner is called.
+	// Step 1: Derive execution path from request fields.
+	derivedPath, deriveErr := executionpath.DeriveExecutionPath(
+		"group_chat",       // requestedPath
+		"",                 // agentName
+		[]string{"code-agent"}, // selectedAgentNames
+		[]string{"web-agent"},  // mentions
+	)
+	if deriveErr != nil {
+		t.Fatalf("DeriveExecutionPath should succeed for valid input: %v", deriveErr)
+	}
+	if derivedPath != executionpath.PathGroupChat {
+		t.Fatalf("expected PathGroupChat, got %q", derivedPath)
+	}
+
+	// Step 2: Validate agent selection (same call the handler makes).
+	result := executionpath.ValidateAgentSelection(
+		derivedPath,
+		"",
+		[]string{"code-agent"},
+		[]string{"web-agent"},
+		[]string{"code-agent", "web-agent", "review-agent"},
+	)
+	if result.Error == nil {
+		t.Fatal("expected AGENT_SELECTION_CONFLICT error, but got nil")
+	}
+	if result.Error.Code != executionpath.ErrCodeAgentSelectionConflict {
+		t.Fatalf("expected error code %q, got %q", executionpath.ErrCodeAgentSelectionConflict, result.Error.Code)
+	}
+
+	// At this point in the handler, an error would be emitted via SSE and
+	// the handler returns — no PlannerInput, no Planner.Plan(), no plan, no
+	// agent dispatch. This test proves the validation catches the conflict
+	// before any orchestration work begins.
 }

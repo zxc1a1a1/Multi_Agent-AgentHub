@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
 )
 
 var _ adk.Agent = (*WebAgent)(nil)
@@ -342,3 +343,61 @@ func TestWebAgent_GenerateStream_FallsBackToMock(t *testing.T) {
 		t.Fatal("expected at least one chunk from mock streaming")
 	}
 }
+
+func TestWebAgent_GeneratePlanOnly_MockReturnsJSON(t *testing.T) {
+	agent := NewWebAgent(Config{})
+	ctx := a2a.ContextWithRunMode(context.Background(), "plan_only")
+	resp, err := agent.Generate(ctx, buildRequest("create a login page"))
+	if err != nil {
+		t.Fatalf("plan_only generate failed: %v", err)
+	}
+	textPart, ok := firstTextPart(resp.Parts)
+	if !ok {
+		t.Fatalf("expected text part, got=%+v", resp.Parts)
+	}
+	var plan struct {
+		Strategy      string `json:"strategy"`
+		IntentSummary string `json:"intentSummary"`
+		Tasks         []struct {
+			TaskID    string   `json:"taskId"`
+			AgentName string   `json:"agentName"`
+			Content   string   `json:"content"`
+			DependsOn []string `json:"dependsOn"`
+			Priority  int      `json:"priority"`
+			RiskLevel string   `json:"riskLevel"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal([]byte(textPart.Text), &plan); err != nil {
+		t.Fatalf("plan_only response is not valid JSON: %v\n%s", err, textPart.Text)
+	}
+	if plan.Strategy != "single" {
+		t.Errorf("expected strategy=single, got=%q", plan.Strategy)
+	}
+	if len(plan.Tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(plan.Tasks))
+	}
+	if plan.Tasks[0].AgentName != "web-agent" {
+		t.Errorf("expected agentName=web-agent, got=%q", plan.Tasks[0].AgentName)
+	}
+}
+
+func TestWebAgent_GeneratePlanOnly_NoSideEffects(t *testing.T) {
+	agent := NewWebAgent(Config{})
+	ctx := a2a.ContextWithRunMode(context.Background(), "plan_only")
+	resp, err := agent.Generate(ctx, buildRequest("create a login page"))
+	if err != nil {
+		t.Fatalf("plan_only generate failed: %v", err)
+	}
+	textPart, ok := firstTextPart(resp.Parts)
+	if !ok {
+		t.Fatalf("expected text part")
+	}
+	// plan_only must not return HTML or mock execution output.
+	if strings.Contains(textPart.Text, "mock response") {
+		t.Errorf("plan_only response should not contain mock execution text: %q", textPart.Text)
+	}
+	if strings.Contains(textPart.Text, "<section") {
+		t.Errorf("plan_only response should not contain HTML: %q", textPart.Text)
+	}
+}
+

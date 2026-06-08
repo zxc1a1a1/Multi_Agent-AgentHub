@@ -308,6 +308,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		SelectedAgentNames []string `json:"selectedAgentNames,omitempty"`
 		Mentions           []string `json:"mentions,omitempty"`
 		PlanningMode       string   `json:"planningMode,omitempty"`
+		RequestedPath      string   `json:"requestedPath,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid request body")
@@ -357,12 +358,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		ctx = runservice.WithAgentName(ctx, req.AgentName)
 	}
 
-	// Derive planning mode from request fields (Phase 1 — fields wiring).
-	// planningMode is the user-requested orchestration routing mode
-	// (auto/direct/manual/mention), distinct from the server-side plannerMode
-	// (rule/llm/llm_with_rule_fallback).
+	// Derive planning mode and execution path from request fields (Phase 1 — fields wiring).
+	// planningMode is the legacy user-requested routing mode (auto/direct/manual/mention).
+	// executionPath is the new structured path (single_chat/group_chat/main_agent_orchestration).
 	planningMode := derivePlanningMode(req.AgentName, req.SelectedAgentNames, req.Mentions)
 	ctx = runservice.WithPlanningMode(ctx, planningMode)
+	ctx = runservice.WithRequestedPath(ctx, req.RequestedPath)
 	ctx = runservice.WithSelectedAgentNames(ctx, req.SelectedAgentNames)
 	ctx = runservice.WithMentions(ctx, req.Mentions)
 

@@ -232,7 +232,7 @@ func (p *LLMPlanner) runPipeline(raw string, input PlannerInput) (*plan.Orchestr
 	// Normalize PlanSchema → OrchestrationPlan.
 	// Unknown agent names are preserved as-is; no fuzzyMatchAgent/defaultAgent.
 	normalizer := NewPlanNormalizer()
-	orchPlan, err := normalizer.Normalize(schema, input.RunID, input.ConversationID, input.PlanningMode)
+	orchPlan, err := normalizer.Normalize(schema, input.RunID, input.ConversationID, input.PlanningMode, input.ExecutionPath)
 	if err != nil {
 		return nil, []ValError{{Code: "normalize_error", Message: err.Error(), TaskIndex: -1}}
 	}

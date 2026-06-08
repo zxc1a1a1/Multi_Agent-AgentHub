@@ -20,7 +20,7 @@ func TestNormalize_ModeSingle(t *testing.T) {
 			{AgentName: "code-agent", Input: "write a function"},
 		},
 	}
-	orchPlan, err := n.Normalize(schema, "run_1", "conv_1", "auto")
+	orchPlan, err := n.Normalize(schema, "run_1", "conv_1", "auto", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestNormalize_ModeParallel_MapsToOrderedParallel(t *testing.T) {
 			{AgentName: "code-agent", Input: "build API"},
 		},
 	}
-	orchPlan, err := n.Normalize(schema, "run_2", "conv_2", "rule")
+	orchPlan, err := n.Normalize(schema, "run_2", "conv_2", "rule", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestNormalize_ModeSequential_MapsToSequentialForValidatorRejection(t *testi
 			{ID: "step-2", AgentName: "code-agent", Input: "step 2", DependsOn: []string{"step-1"}},
 		},
 	}
-	orchPlan, err := n.Normalize(schema, "run_seq", "conv_seq", "auto")
+	orchPlan, err := n.Normalize(schema, "run_seq", "conv_seq", "auto", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestNormalize_GeneratesStepIDs(t *testing.T) {
 			{AgentName: "code-agent", Input: "do tests"},
 		},
 	}
-	orchPlan, err := n.Normalize(schema, "r", "c", "auto")
+	orchPlan, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestNormalize_PreservesExplicitStepIDs(t *testing.T) {
 			{ID: "custom-id", AgentName: "code-agent", Input: "do it"},
 		},
 	}
-	orchPlan, err := n.Normalize(schema, "r", "c", "auto")
+	orchPlan, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestNormalize_NilDependsOnBecomesEmptySlice(t *testing.T) {
 			{AgentName: "code-agent", Input: "do it", DependsOn: nil},
 		},
 	}
-	orchPlan, err := n.Normalize(schema, "r", "c", "auto")
+	orchPlan, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestNormalize_TrimsFields(t *testing.T) {
 			{AgentName: "  code-agent  ", Input: "  do it  "},
 		},
 	}
-	orchPlan, err := n.Normalize(schema, "r", "c", "auto")
+	orchPlan, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestNormalize_UnknownAgentPreserved(t *testing.T) {
 			{AgentName: "gibberish-agent-xyz", Input: "do something"},
 		},
 	}
-	orchPlan, err := n.Normalize(schema, "r", "c", "auto")
+	orchPlan, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestNormalize_NoFuzzyMatch(t *testing.T) {
 			{AgentName: "codeagent", Input: "do it"},
 		},
 	}
-	orchPlan, err := n.Normalize(schema, "r", "c", "auto")
+	orchPlan, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestNormalize_ConfidenceInRange(t *testing.T) {
 		Confidence: 0.86,
 		Steps:      []PlanStep{{AgentName: "code-agent", Input: "do it"}},
 	}
-	_, err := n.Normalize(schema, "r", "c", "auto")
+	_, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err != nil {
 		t.Fatalf("unexpected error for in-range confidence: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestNormalize_ConfidenceNegative(t *testing.T) {
 		Confidence: -0.5,
 		Steps:      []PlanStep{{AgentName: "code-agent", Input: "do it"}},
 	}
-	_, err := n.Normalize(schema, "r", "c", "auto")
+	_, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err == nil {
 		t.Error("expected error for negative confidence")
 	}
@@ -255,7 +255,7 @@ func TestNormalize_ConfidenceTooHigh(t *testing.T) {
 		Confidence: 2.5,
 		Steps:      []PlanStep{{AgentName: "code-agent", Input: "do it"}},
 	}
-	_, err := n.Normalize(schema, "r", "c", "auto")
+	_, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err == nil {
 		t.Error("expected error for confidence > 1")
 	}
@@ -269,7 +269,7 @@ func TestNormalize_ConfidenceZero(t *testing.T) {
 		Confidence: 0,
 		Steps:      []PlanStep{{AgentName: "code-agent", Input: "do it"}},
 	}
-	_, err := n.Normalize(schema, "r", "c", "auto")
+	_, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err != nil {
 		t.Fatalf("unexpected error for confidence=0: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestNormalize_ConfidenceOne(t *testing.T) {
 		Confidence: 1.0,
 		Steps:      []PlanStep{{AgentName: "code-agent", Input: "do it"}},
 	}
-	_, err := n.Normalize(schema, "r", "c", "auto")
+	_, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err != nil {
 		t.Fatalf("unexpected error for confidence=1: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestNormalize_ConfidenceOne(t *testing.T) {
 
 func TestNormalize_NilSchema(t *testing.T) {
 	n := NewPlanNormalizer()
-	_, err := n.Normalize(nil, "r", "c", "auto")
+	_, err := n.Normalize(nil, "r", "c", "auto", "")
 	if err == nil {
 		t.Error("expected error for nil schema")
 	}
@@ -308,7 +308,7 @@ func TestNormalize_UnknownMode(t *testing.T) {
 		Mode:   "super_fast_mode",
 		Steps:  []PlanStep{{AgentName: "code-agent", Input: "do it"}},
 	}
-	_, err := n.Normalize(schema, "r", "c", "auto")
+	_, err := n.Normalize(schema, "r", "c", "auto", "")
 	if err == nil {
 		t.Error("expected error for unknown mode")
 	}
@@ -325,7 +325,7 @@ func TestNormalize_ValidationAlwaysFalse(t *testing.T) {
 		Mode:   "single",
 		Steps:  []PlanStep{{AgentName: "code-agent", Input: "do it"}},
 	}
-	orchPlan, _ := n.Normalize(schema, "r", "c", "auto")
+	orchPlan, _ := n.Normalize(schema, "r", "c", "auto", "")
 	if orchPlan.Validation.Validated {
 		t.Error("expected Validation.Validated=false from normalizer (only validator sets true)")
 	}
@@ -338,7 +338,7 @@ func TestNormalize_GeneratesPlanID(t *testing.T) {
 		Mode:   "single",
 		Steps:  []PlanStep{{AgentName: "code-agent", Input: "do it"}},
 	}
-	orchPlan, _ := n.Normalize(schema, "run_x", "conv_x", "auto")
+	orchPlan, _ := n.Normalize(schema, "run_x", "conv_x", "auto", "")
 	if orchPlan.PlanID == "" {
 		t.Error("expected non-empty PlanID")
 	}

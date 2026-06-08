@@ -2,7 +2,9 @@ package dispatcher
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -71,5 +73,71 @@ func TestDispatchStream_ValidatesInput(t *testing.T) {
 	}))
 	if err == nil {
 		t.Fatal("expected error for missing agent url")
+	}
+}
+
+
+
+
+func TestDispatchInput_Mode_PropagatesToRunRequest(t *testing.T) {
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "{\"taskId\":\"t1\",\"status\":\"completed\",\"events\":[{\"author\":\"a\",\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"text\":\"ok\"}]}]}")
+	}))
+	defer srv.Close()
+
+	d := NewA2ADispatcher()
+	_, err := d.Dispatch(context.Background(), DispatchInput{
+		AgentURL:       srv.URL,
+		AgentName:      "test-agent",
+		ConversationID: "conv-1",
+		Message:        "plan this",
+		Mode:           "plan_only",
+	})
+	if err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
+
+	var rpcReq struct {
+		Params struct {
+			Mode string `json:"mode"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(capturedBody, &rpcReq); err != nil {
+		t.Fatalf("failed to decode captured request: %v", err)
+	}
+	if rpcReq.Params.Mode != "plan_only" {
+		t.Errorf("expected RunRequest.Mode=plan_only, got=%q", rpcReq.Params.Mode)
+	}
+}
+
+func TestDispatchStream_ModeDefaultEmpty_DoesNotBreakOldExecution(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprint(w, "data: {\"author\":\"a\",\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}]}\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	d := NewA2ADispatcher()
+	texts, err := collectDispatchStream(d.DispatchStream(context.Background(), DispatchInput{
+		AgentURL:       srv.URL,
+		AgentName:      "a",
+		ConversationID: "conv-1",
+		Message:        "hi",
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error with default mode: %v", err)
+	}
+	if len(texts) == 0 {
+		t.Fatal("expected at least one text chunk")
 	}
 }

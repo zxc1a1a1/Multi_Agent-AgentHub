@@ -124,6 +124,52 @@ func PlanningModeFromContext(ctx context.Context) PlanningMode {
 	return mode
 }
 
+type requestedPathContextKey struct{}
+
+// WithRequestedPath stores the frontend-requested path into context.
+func WithRequestedPath(ctx context.Context, path string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, requestedPathContextKey{}, path)
+}
+
+// RequestedPathFromContext loads the frontend-requested path from context.
+func RequestedPathFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	raw := ctx.Value(requestedPathContextKey{})
+	path, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return path
+}
+
+type executionPathContextKey struct{}
+
+// WithExecutionPath stores the derived executionPath into context.
+func WithExecutionPath(ctx context.Context, path string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, executionPathContextKey{}, path)
+}
+
+// ExecutionPathFromContext loads the derived executionPath from context.
+func ExecutionPathFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	raw := ctx.Value(executionPathContextKey{})
+	path, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return path
+}
+
 // AgentNameSelector decides a target agentName for one run.
 type AgentNameSelector func(ctx context.Context, conversationID string, userContent *adk.Content) string
 

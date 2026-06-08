@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
 )
 
 var _ adk.Agent = (*CodeAgent)(nil)
@@ -294,5 +295,63 @@ func TestCodeAgent_GenerateStream_FallsBackToMock(t *testing.T) {
 
 	if chunkCount == 0 {
 		t.Fatal("expected at least one chunk from mock streaming")
+	}
+}
+
+func TestCodeAgent_GeneratePlanOnly_MockReturnsJSON(t *testing.T) {
+	agent := NewCodeAgent(Config{})
+	ctx := a2a.ContextWithRunMode(context.Background(), "plan_only")
+	resp, err := agent.Generate(ctx, buildRequest("写一个 Go HTTP 服务器"))
+	if err != nil {
+		t.Fatalf("plan_only generate failed: %v", err)
+	}
+	textPart, ok := firstTextPart(resp.Parts)
+	if !ok {
+		t.Fatalf("expected text part, got=%+v", resp.Parts)
+	}
+	var plan struct {
+		Strategy      string `json:"strategy"`
+		IntentSummary string `json:"intentSummary"`
+		Tasks         []struct {
+			TaskID    string   `json:"taskId"`
+			AgentName string   `json:"agentName"`
+			Content   string   `json:"content"`
+			DependsOn []string `json:"dependsOn"`
+			Priority  int      `json:"priority"`
+			RiskLevel string   `json:"riskLevel"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal([]byte(textPart.Text), &plan); err != nil {
+		t.Fatalf("plan_only response is not valid JSON: %v\n%s", err, textPart.Text)
+	}
+	if plan.Strategy != "single" {
+		t.Errorf("expected strategy=single, got=%q", plan.Strategy)
+	}
+	if len(plan.Tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(plan.Tasks))
+	}
+	if plan.Tasks[0].AgentName != "code-agent" {
+		t.Errorf("expected agentName=code-agent, got=%q", plan.Tasks[0].AgentName)
+	}
+}
+
+func TestCodeAgent_GeneratePlanOnly_NoSideEffects(t *testing.T) {
+	// plan_only must not return mock code or execution output.
+	agent := NewCodeAgent(Config{})
+	ctx := a2a.ContextWithRunMode(context.Background(), "plan_only")
+	resp, err := agent.Generate(ctx, buildRequest("写一个 Go HTTP 服务器"))
+	if err != nil {
+		t.Fatalf("plan_only generate failed: %v", err)
+	}
+	textPart, ok := firstTextPart(resp.Parts)
+	if !ok {
+		t.Fatalf("expected text part")
+	}
+	// Must be JSON (plan), not mock code or execution text.
+	if strings.Contains(textPart.Text, "package main") {
+		t.Errorf("plan_only response should not contain code: %q", textPart.Text)
+	}
+	if strings.Contains(textPart.Text, "mock response") {
+		t.Errorf("plan_only response should not contain mock execution text: %q", textPart.Text)
 	}
 }

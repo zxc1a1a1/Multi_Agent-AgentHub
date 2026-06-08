@@ -25,10 +25,15 @@ const (
 
 // HITLConfirmResult is the outcome of a HITL confirmation request.
 type HITLConfirmResult struct {
-	RunID        string
-	ActionID     string
-	Confirmed    bool
-	RejectReason string
+	RunID                string
+	ActionID             string
+	Confirmed            bool
+	Action               string // "approve" | "cancel" | "revise"
+	Feedback             string
+	Revision             int
+	RejectReason         string
+	IdempotencyKey       string
+	SelectedParticipants []string
 }
 
 // HITLState tracks the logical state of a HITL confirmation.
@@ -38,8 +43,17 @@ const (
 	HITLPending   HITLState = "pending"
 	HITLConfirmed HITLState = "confirmed"
 	HITLRejected  HITLState = "rejected"
+	HITLCancelled HITLState = "cancelled"
 	HITLTimedOut  HITLState = "timed_out"
+	HITLRevising  HITLState = "revising"
 )
+
+// idempotencyEntry stores a cached HITL confirm response for idempotency-key dedup.
+type idempotencyEntry struct {
+	payloadHash string
+	statusCode  int
+	response    map[string]string
+}
 
 // Server is the minimal Orchestrator HTTP server.
 type Server struct {
@@ -50,10 +64,11 @@ type Server struct {
 	planner      planner.Planner // nil means use default RulePlanner
 	plannerMode  PlannerMode
 	synthesizer  synthesizer.Synthesizer
-	hitlMu       sync.RWMutex                                  // protects pendingPlans, hitlChans, hitlStates
+	hitlMu       sync.RWMutex                                  // protects pendingPlans, hitlChans, hitlStates, idempotencyCache
 	pendingPlans map[string]*plan.OrchestrationPlan            // runID → validated plan awaiting confirmation
 	hitlChans    map[string]chan HITLConfirmResult             // runID → confirmation signal channel
 	hitlStates   map[string]HITLState                          // runID → logical confirmation state
+	idempotencyCache map[string]*idempotencyEntry              // runID+":"+key → cached response
 }
 
 // Option customizes Server behavior.
@@ -124,10 +139,11 @@ func WithSynthesizer(syn synthesizer.Synthesizer) Option {
 // NewServer returns a Server with routes registered.
 func NewServer(opts ...Option) *Server {
 	s := &Server{
-		mux:          http.NewServeMux(),
-		pendingPlans: make(map[string]*plan.OrchestrationPlan),
-		hitlChans:    make(map[string]chan HITLConfirmResult),
-		hitlStates:   make(map[string]HITLState),
+		mux:              http.NewServeMux(),
+		pendingPlans:     make(map[string]*plan.OrchestrationPlan),
+		hitlChans:        make(map[string]chan HITLConfirmResult),
+		hitlStates:       make(map[string]HITLState),
+		idempotencyCache: make(map[string]*idempotencyEntry),
 	}
 	for _, opt := range opts {
 		if opt == nil {

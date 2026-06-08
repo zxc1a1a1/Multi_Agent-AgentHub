@@ -39,6 +39,9 @@ type Event struct {
 	State      map[string]any `json:"state,omitempty"`
 	StateDelta map[string]any `json:"stateDelta,omitempty"`
 
+	// Activity field for ACTIVITY_SNAPSHOT events (v1.3 plan approval)
+	Activity *ActivitySnapshot `json:"activity,omitempty"`
+
 	// Error field (AG-UI v1.0 standard)
 	Error *SafeError `json:"error,omitempty"`
 
@@ -85,4 +88,48 @@ type Artifact struct {
 	Title    string            `json:"title,omitempty"`
 	Content  string            `json:"content,omitempty"`
 	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+// ActivitySnapshot is the AG-UI v1.3 DTO for plan approval and activity state.
+// Replaces the deprecated confirm_plan TOOL_CALL events.
+type ActivitySnapshot struct {
+	ActivityID                string            `json:"activityId"`
+	ActivityType              string            `json:"activityType"`
+	Status                    string            `json:"status"`
+	ExecutionPath             string            `json:"executionPath"`
+	PlanID                    string            `json:"planId"`
+	Revision                  int               `json:"revision"`
+	PlanOwner                 *PlanOwner        `json:"planOwner"`
+	Participants              []PlanParticipant `json:"participants"`
+	CandidateParticipants     []PlanParticipant `json:"candidateParticipants,omitempty"`
+	DefaultSelectedParticipants []PlanParticipant `json:"defaultSelectedParticipants,omitempty"`
+	RequiredParticipants      []string          `json:"requiredParticipants,omitempty"`
+	Title                     string            `json:"title,omitempty"`
+	Summary                   string            `json:"summary,omitempty"`
+	Tasks                     []TaskSummary     `json:"tasks"`
+	AllowedActions            []string          `json:"allowedActions"`
+	Warnings                  []string          `json:"warnings,omitempty"`
+}
+
+// PlanOwner identifies the owner of an orchestration plan.
+type PlanOwner struct {
+	Type        string `json:"type"`
+	AgentName   string `json:"agentName"`
+	IsMainAgent bool   `json:"isMainAgent"`
+}
+
+// PlanParticipant represents an agent participant in a plan.
+type PlanParticipant struct {
+	AgentName string `json:"agentName"`
+	Required  bool   `json:"required"`
+	Selected  bool   `json:"selected"`
+}
+
+// TaskSummary is a lightweight task entry carried in ACTIVITY_SNAPSHOT.
+type TaskSummary struct {
+	TaskID    string `json:"taskId"`
+	AgentName string `json:"agentName"`
+	Content   string `json:"content"`
+	Priority  int    `json:"priority"`
+	RiskLevel string `json:"riskLevel"`
 }
