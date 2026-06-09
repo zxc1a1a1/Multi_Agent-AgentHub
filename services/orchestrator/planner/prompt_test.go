@@ -253,3 +253,138 @@ func TestPrompt_UsesListerNotDefaults(t *testing.T) {
 		t.Error("expected prompt to use registry-provided outputModes, not agentDefaults()")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Execution path and boundary tests (P0 #5)
+// ---------------------------------------------------------------------------
+
+func TestMainAgentPromptContainsExecutionPathAndBoundary(t *testing.T) {
+	lister := &mockAgentLister{agents: testAgentInfos()}
+
+	t.Run("system prompt contains execution path", func(t *testing.T) {
+		pb := NewPromptBuilder(lister).
+			WithExecutionPath("single_chat").
+			WithAllowedAgents([]string{"code-agent"})
+		prompt := pb.BuildSystemPrompt()
+
+		if !strings.Contains(prompt, "Execution Context") {
+			t.Error("expected 'Execution Context' section in system prompt")
+		}
+		if !strings.Contains(prompt, "Execution path: single_chat") {
+			t.Error("expected 'Execution path: single_chat' in system prompt")
+		}
+		if !strings.Contains(prompt, "single_chat path") {
+			t.Error("expected path-specific instructions for single_chat")
+		}
+	})
+
+	t.Run("system prompt contains allowed agent boundary", func(t *testing.T) {
+		pb := NewPromptBuilder(lister).
+			WithExecutionPath("group_chat").
+			WithAllowedAgents([]string{"code-agent", "web-agent"})
+		prompt := pb.BuildSystemPrompt()
+
+		if !strings.Contains(prompt, "Allowed Agent Boundary") {
+			t.Error("expected 'Allowed Agent Boundary' section in system prompt")
+		}
+		if !strings.Contains(prompt, "code-agent") {
+			t.Error("expected 'code-agent' in boundary section")
+		}
+		if !strings.Contains(prompt, "web-agent") {
+			t.Error("expected 'web-agent' in boundary section")
+		}
+		if !strings.Contains(prompt, "MUST only select agents from this list") {
+			t.Error("expected boundary enforcement instruction")
+		}
+	})
+
+	t.Run("user prompt contains execution path", func(t *testing.T) {
+		pb := NewPromptBuilder(lister).
+			WithExecutionPath("main_agent_orchestration").
+			WithAllowedAgents([]string{"code-agent", "web-agent"})
+		prompt := pb.BuildUserPrompt("build a full-stack app", "")
+
+		if !strings.Contains(prompt, "Execution Path") {
+			t.Error("expected 'Execution Path' in user prompt")
+		}
+		if !strings.Contains(prompt, "main_agent_orchestration") {
+			t.Error("expected execution path value in user prompt")
+		}
+	})
+
+	t.Run("user prompt contains boundary constraint", func(t *testing.T) {
+		pb := NewPromptBuilder(lister).
+			WithExecutionPath("single_chat").
+			WithAllowedAgents([]string{"code-agent"})
+		prompt := pb.BuildUserPrompt("write code", "")
+
+		if !strings.Contains(prompt, "Boundary Constraint") {
+			t.Error("expected 'Boundary Constraint' in user prompt")
+		}
+		if !strings.Contains(prompt, "code-agent") {
+			t.Error("expected boundary agent in user prompt constraint")
+		}
+	})
+
+	t.Run("prompts without boundary omit sections", func(t *testing.T) {
+		pb := NewPromptBuilder(lister)
+		prompt := pb.BuildSystemPrompt()
+		// The boundary section header uses double hash; rule text may mention
+		// "Allowed Agent Boundary" inline, so check for the section header.
+		if strings.Contains(prompt, "## Allowed Agent Boundary") {
+			t.Error("should NOT have boundary section when no boundary is set")
+		}
+		if strings.Contains(prompt, "Execution path:") {
+			t.Error("should NOT have execution path when not set")
+		}
+	})
+}
+
+// TestPrompt_BoundaryOnlyReviewAgent_NoCodeAgentHint verifies that when the
+// boundary only contains "review-agent", the prompt does NOT hardcode hints
+// suggesting code-agent or web-agent must be used.
+func TestPrompt_BoundaryOnlyReviewAgent_NoCodeAgentHint(t *testing.T) {
+	lister := &mockAgentLister{agents: []AgentInfoLite{
+		{
+			Name:          "review-agent",
+			Description:   "Reviews code for security and style issues",
+			CapabilityIDs: []string{"code_review", "security_audit"},
+			OutputModes:   []string{"text"},
+		},
+	}}
+
+	pb := NewPromptBuilder(lister).
+		WithExecutionPath("single_chat").
+		WithAllowedAgents([]string{"review-agent"})
+
+	systemPrompt := pb.BuildSystemPrompt()
+	userPrompt := pb.BuildUserPrompt("review my code", "")
+
+	// The old hardcoded rule "If unsure, default to code-agent" must NOT appear.
+	if strings.Contains(systemPrompt, "default to code-agent") {
+		t.Error("prompt must NOT contain 'default to code-agent' — boundary is review-agent only")
+	}
+	// The old hardcoded rule "For code / backend / API → use code-agent" must NOT appear.
+	// (The new boundary-aware rule "Only use code-agent if it is listed..." may use
+	// "use code-agent" in a different form, which is fine — it references the boundary.)
+	if strings.Contains(systemPrompt, "For code / backend") {
+		t.Error("prompt must NOT contain old hardcoded 'For code requests → use code-agent' rule")
+	}
+	if strings.Contains(systemPrompt, "For web UI") {
+		t.Error("prompt must NOT contain old hardcoded 'For web UI → use web-agent' rule")
+	}
+	// Should contain the boundary-aware rule instead.
+	if !strings.Contains(systemPrompt, "best-fit agent is not in the boundary") {
+		t.Error("prompt must contain boundary-aware fallback rule")
+	}
+
+	// Boundary must list review-agent.
+	if !strings.Contains(systemPrompt, "review-agent") {
+		t.Error("prompt must contain review-agent in boundary and agent listing")
+	}
+
+	// User prompt must contain boundary constraint.
+	if !strings.Contains(userPrompt, "review-agent") {
+		t.Error("user prompt must mention review-agent in boundary constraint")
+	}
+}

@@ -73,6 +73,7 @@ func (n *PlanNormalizer) Normalize(schema *PlanSchema, runID, conversationID, pl
 		Aggregation:    aggregation,
 		Fallback:       plan.Fallback{Enabled: false},
 		Validation:     plan.Validation{Validated: false},
+		Warnings:       schema.Warnings,
 	}, nil
 }
 
@@ -109,6 +110,7 @@ func (n *PlanNormalizer) normalizeStep(s PlanStep, index int) plan.TaskPlan {
 		Priority:        priority,
 		TimeoutMs:       120000,
 		RiskLevel:       "low",
+		Reason:          strings.TrimSpace(s.Reason),
 	}
 }
 

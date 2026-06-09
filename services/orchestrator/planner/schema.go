@@ -21,6 +21,9 @@ type PlanSchema struct {
 	// UserVisibleSummary is a human-readable summary safe for display to users.
 	// It MUST NOT contain internal information such as URLs, keys, or raw prompts.
 	UserVisibleSummary string `json:"user_visible_summary,omitempty"`
+
+	// Warnings is an optional list of non-blocking plan-level warnings.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // PlanStep is a single execution step within a PlanSchema.

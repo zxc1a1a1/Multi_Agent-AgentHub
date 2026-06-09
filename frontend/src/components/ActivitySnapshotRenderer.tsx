@@ -42,6 +42,7 @@ export default function ActivitySnapshotRenderer({
     case 'main_agent_orchestration': {
       return (
         <MainAgentPlanCard
+          key={`${activity.planId}:${activity.revision}`}
           data={planData}
           candidateParticipants={activity.candidateParticipants || []}
           defaultSelectedParticipants={activity.defaultSelectedParticipants || []}

@@ -51,6 +51,13 @@ type OrchestrationPlan struct {
 	// DefaultSelectedParticipants is the MainAgent's recommended default selection.
 	// MainAgent orchestration only.
 	DefaultSelectedParticipants []PlanParticipant `json:"defaultSelectedParticipants,omitempty"`
+
+	// ConfirmedParticipantNames stores the user-confirmed agent names on approve.
+	// Used during dispatch to filter out unselected optional participants.
+	ConfirmedParticipantNames []string `json:"confirmedParticipantNames,omitempty"`
+
+	// Warnings carries non-blocking plan-level warnings (e.g. from LLM).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // PlanOwner identifies the plan author.
@@ -66,6 +73,7 @@ type PlanParticipant struct {
 	Role      string `json:"role,omitempty"`
 	Required  bool   `json:"required,omitempty"`
 	Selected  bool   `json:"selected,omitempty"`
+	Reason    string `json:"reason,omitempty"` // why this agent was selected (from LLM PlanStep.reason)
 }
 
 // TaskPlan is a single execution unit within an OrchestrationPlan.
@@ -79,6 +87,7 @@ type TaskPlan struct {
 	Priority        int      `json:"priority"`
 	TimeoutMs       int64    `json:"timeoutMs"`
 	RiskLevel       string   `json:"riskLevel"`
+	Reason          string   `json:"reason,omitempty"` // why this task/agent was selected (from LLM PlanStep.reason)
 }
 
 // Aggregation defines how task outputs should be combined.
