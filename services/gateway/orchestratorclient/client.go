@@ -95,7 +95,7 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 		selectedAgentNames := runservice.SelectedAgentNamesFromContext(ctx)
 		mentions := runservice.MentionsFromContext(ctx)
 		planningMode := runservice.PlanningModeFromContext(ctx)
-	requestedPath := runservice.RequestedPathFromContext(ctx)
+		requestedPath := runservice.RequestedPathFromContext(ctx)
 		if planningMode == "" {
 			planningMode = runservice.PlanningModeAuto
 		}
@@ -114,11 +114,11 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 			"messages": []map[string]string{
 				{"role": "user", "text": userText},
 			},
-			"planningMode":      string(planningMode),
-			"agentName":         agentName,
+			"planningMode":       string(planningMode),
+			"agentName":          agentName,
 			"selectedAgentNames": selectedAgentNames,
-			"mentions":          mentions,
-			"requestedPath":     requestedPath,
+			"mentions":           mentions,
+			"requestedPath":      requestedPath,
 		}
 
 		bodyBytes, err := json.Marshal(reqBody)
@@ -158,32 +158,6 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 	}
 }
 
-// orchestratorStreamEvent is a local type for decoding SSE data payloads.
-// This avoids importing the orchestrator package.
-type orchestratorStreamEvent struct {
-	Type         string         `json:"type"`
-	RunID        string         `json:"runId"`
-	MessageID    string         `json:"messageId,omitempty"`
-	TaskID       string         `json:"taskId,omitempty"`
-	Sender       *eventSender   `json:"sender,omitempty"`
-	Delta        string         `json:"delta,omitempty"`
-	State        map[string]any `json:"state,omitempty"`
-	Error        *safeError     `json:"error,omitempty"`
-	ToolCallID   string          `json:"toolCallId,omitempty"`
-	ToolCallName string          `json:"toolCallName,omitempty"`
-	Activity     json.RawMessage `json:"activity,omitempty"`
-}
-
-type eventSender struct {
-	Type string `json:"type"`
-	Name string `json:"name"`
-}
-
-type safeError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
 // parseSSEStream reads the SSE stream from the Orchestrator and yields adk.Event
 // values with Metadata carrying event type, runId, messageId, taskId, and sender.
 func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
@@ -206,7 +180,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 		}
 
 		data := strings.TrimPrefix(line, "data: ")
-		var ose orchestratorStreamEvent
+		var ose agui.InternalStreamEvent
 		if err := json.Unmarshal([]byte(data), &ose); err != nil {
 			return fmt.Errorf("parse orchestrator event: %w", err)
 		}
@@ -234,7 +208,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 		}
 
 		switch ose.Type {
-		case "run_started":
+		case agui.InternalTypeRunStarted:
 			adkEvent := adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -248,7 +222,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "run_finished":
+		case agui.InternalTypeRunFinished:
 			adkEvent := adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -263,7 +237,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "run_error":
+		case agui.InternalTypeRunError:
 			// run_error becomes an adk.Event with metadata so the translator
 			// can produce a proper RUN_ERROR AG-UI event. The Gateway handler
 			// stops processing after this event by checking for RUN_ERROR type.
@@ -286,7 +260,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 			// Don't continue processing after run_error
 			return nil
 
-		case "message_start":
+		case agui.InternalTypeMessageStart:
 			if !yield(adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -294,7 +268,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "message_delta":
+		case agui.InternalTypeMessageDelta:
 			if !yield(adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -309,7 +283,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "message_end":
+		case agui.InternalTypeMessageEnd:
 			if !yield(adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -324,7 +298,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "state_update":
+		case agui.InternalTypeStateUpdate:
 			adkEvent := adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -338,7 +312,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "tool_call_start":
+		case agui.InternalTypeToolCallStart:
 			meta["toolCallName"] = ose.ToolCallName
 			meta["toolCallId"] = ose.ToolCallID
 			if !yield(adk.Event{
@@ -348,7 +322,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "tool_call_args":
+		case agui.InternalTypeToolCallArgs:
 			meta["toolCallId"] = ose.ToolCallID
 			if !yield(adk.Event{
 				Author:   author,
@@ -364,7 +338,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "tool_call_end":
+		case agui.InternalTypeToolCallEnd:
 			if !yield(adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -373,19 +347,50 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "activity_snapshot":
+		case agui.InternalTypeActivitySnapshot:
 			adkEvent := adk.Event{
 				Author:   author,
 				Metadata: meta,
 			}
 			if ose.Activity != nil {
+				activityJSON, _ := json.Marshal(ose.Activity)
 				adkEvent.Actions = &adk.EventActions{
 					StateDelta: map[string]any{
-						"activity": ose.Activity,
+						"activity": json.RawMessage(activityJSON),
 					},
 				}
 			}
 			if !yield(adkEvent, nil) {
+				return nil
+			}
+
+		case agui.InternalTypeAgentTurnStarted:
+			meta["turnIndex"] = ose.TurnIndex
+			meta["stepId"] = ose.StepID
+			meta["agentName"] = ose.AgentName
+			if !yield(adk.Event{Author: author, Metadata: meta}, nil) {
+				return nil
+			}
+
+		case agui.InternalTypeAgentTurnContent:
+			meta["turnIndex"] = ose.TurnIndex
+			if !yield(adk.Event{
+				Author: author, Metadata: meta,
+				Content: &adk.Content{
+					Role:  adk.RoleAssistant,
+					Parts: []adk.Part{adk.TextPart{Text: ose.Delta}},
+				},
+				Partial: true,
+			}, nil) {
+				return nil
+			}
+
+		case agui.InternalTypeAgentTurnFinished:
+			meta["turnIndex"] = ose.TurnIndex
+			meta["agentName"] = ose.AgentName
+			meta["status"] = ose.Status
+			meta["summary"] = ose.Summary
+			if !yield(adk.Event{Author: author, Metadata: meta, Final: true}, nil) {
 				return nil
 			}
 

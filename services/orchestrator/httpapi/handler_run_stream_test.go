@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 )
@@ -167,24 +168,24 @@ func TestPlannedAgentNamesNil(t *testing.T) {
 
 func TestTaskSummaries(t *testing.T) {
 	p := testPlanSingle()
-	summaries := taskSummaries(p)
+	summaries := toAGUITaskSummaries(p.Tasks)
 	if len(summaries) != 1 {
 		t.Fatalf("expected 1 task summary, got %d", len(summaries))
 	}
 	s := summaries[0]
-	if s["taskId"] != "task_001" {
-		t.Errorf("expected taskId=task_001, got %v", s["taskId"])
+	if s.TaskID != "task_001" {
+		t.Errorf("expected taskId=task_001, got %v", s.TaskID)
 	}
-	if s["agentName"] != "code-agent" {
-		t.Errorf("expected agentName=code-agent, got %v", s["agentName"])
+	if s.AgentName != "code-agent" {
+		t.Errorf("expected agentName=code-agent, got %v", s.AgentName)
 	}
-	if s["priority"] != 1 {
-		t.Errorf("expected priority=1, got %v", s["priority"])
+	if s.Priority != 1 {
+		t.Errorf("expected priority=1, got %v", s.Priority)
 	}
 }
 
 func TestTaskSummariesNil(t *testing.T) {
-	if summaries := taskSummaries(nil); summaries != nil {
+	if summaries := toAGUITaskSummaries(nil); summaries != nil {
 		t.Errorf("expected nil from nil plan, got %v", summaries)
 	}
 }
@@ -209,7 +210,7 @@ func TestConfirmArgsJSON(t *testing.T) {
 		"planId":               p.PlanID,
 		"strategy":             p.Strategy,
 		"plannedAgents":        plannedAgentNames(p),
-		"tasks":                taskSummaries(p),
+		"tasks":                toAGUITaskSummaries(p.Tasks),
 		"intentSummary":        p.IntentSummary,
 		"requiresConfirmation": true,
 	}
@@ -236,7 +237,7 @@ func TestConfirmArgsSequentialPlan(t *testing.T) {
 		"planId":               p.PlanID,
 		"strategy":             p.Strategy,
 		"plannedAgents":        plannedAgentNames(p),
-		"tasks":                taskSummaries(p),
+		"tasks":                toAGUITaskSummaries(p.Tasks),
 		"intentSummary":        p.IntentSummary,
 		"requiresConfirmation": true,
 	}
@@ -311,7 +312,7 @@ func TestBuildRevisionPlanOnlyMessage_NoPreviousSummary(t *testing.T) {
 func TestHeartbeatEventFormat(t *testing.T) {
 	// Verify that heartbeat STATE_UPDATE events sent during awaiting_confirmation
 	// contain all required fields and are valid JSON.
-	heartbeatEvent := OrchestratorStreamEvent{
+	heartbeatEvent := agui.InternalStreamEvent{
 		Type:  "state_update",
 		RunID: "run_hb_001",
 		State: map[string]any{
@@ -327,7 +328,7 @@ func TestHeartbeatEventFormat(t *testing.T) {
 		t.Fatalf("heartbeat event must marshal to valid JSON: %v", err)
 	}
 
-	var parsed OrchestratorStreamEvent
+	var parsed agui.InternalStreamEvent
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("heartbeat event must round-trip: %v", err)
 	}
@@ -357,7 +358,7 @@ func TestHeartbeatEventFormat(t *testing.T) {
 func TestHeartbeatEventDoesNotChangeRunPhase(t *testing.T) {
 	// Heartbeat events must carry heartbeat=true so the frontend can
 	// distinguish them from phase transitions (e.g. awaiting_confirmation → executing).
-	heartbeatEvent := OrchestratorStreamEvent{
+	heartbeatEvent := agui.InternalStreamEvent{
 		Type:  "state_update",
 		RunID: "run_hb_002",
 		State: map[string]any{
@@ -393,7 +394,7 @@ func TestConfirmPlanEventCompleteness(t *testing.T) {
 		"planId":               p.PlanID,
 		"strategy":             p.Strategy,
 		"plannedAgents":        plannedAgentNames(p),
-		"tasks":                taskSummaries(p),
+		"tasks":                toAGUITaskSummaries(p.Tasks),
 		"intentSummary":        p.IntentSummary,
 		"requiresConfirmation": true,
 	}

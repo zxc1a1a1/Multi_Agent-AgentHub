@@ -1384,3 +1384,82 @@ describe('streaming delta no duplication', () => {
   })
 })
 
+
+describe('AGENT_TURN event rendering', () => {
+  beforeEach(() => {
+    streamByConversation.clear()
+    useMessageStore.setState({
+      messages: {},
+      streamingByConversation: {},
+      abortControllersByConversation: {},
+    })
+  })
+
+  it('renders each AGENT_TURN as a separate agent bubble keyed by messageId', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-turns', 'run group task')
+
+    emit('conv-turns', {
+      type: 'AGENT_TURN_STARTED',
+      runId: 'run-1',
+      messageId: 'turn-0',
+      turnIndex: 0,
+      stepId: 'task-code',
+      agentName: 'code-agent',
+      sender: { type: 'agent', name: 'code-agent' },
+    })
+    emit('conv-turns', {
+      type: 'AGENT_TURN_CONTENT',
+      runId: 'run-1',
+      messageId: 'turn-0',
+      turnIndex: 0,
+      delta: 'code output',
+    })
+    emit('conv-turns', {
+      type: 'AGENT_TURN_FINISHED',
+      runId: 'run-1',
+      messageId: 'turn-0',
+      turnIndex: 0,
+      agentName: 'code-agent',
+      status: 'completed',
+    })
+
+    emit('conv-turns', {
+      type: 'AGENT_TURN_STARTED',
+      runId: 'run-1',
+      messageId: 'turn-1',
+      turnIndex: 1,
+      stepId: 'task-review',
+      agentName: 'review-agent',
+      sender: { type: 'agent', name: 'review-agent' },
+    })
+    emit('conv-turns', {
+      type: 'AGENT_TURN_CONTENT',
+      runId: 'run-1',
+      messageId: 'turn-1',
+      turnIndex: 1,
+      delta: 'review output',
+    })
+    emit('conv-turns', {
+      type: 'AGENT_TURN_FINISHED',
+      runId: 'run-1',
+      messageId: 'turn-1',
+      turnIndex: 1,
+      agentName: 'review-agent',
+      status: 'completed',
+    })
+
+    const messages = useMessageStore.getState().messages['conv-turns'] || []
+    const agentMessages = messages.filter((msg) => msg.senderType === 'agent')
+
+    expect(agentMessages).toHaveLength(2)
+    expect(agentMessages[0].id).toBe('turn-0')
+    expect(agentMessages[0].agentName).toBe('code-agent')
+    expect(agentMessages[0].content).toBe('code output')
+    expect(agentMessages[0].status).toBe('sent')
+    expect(agentMessages[1].id).toBe('turn-1')
+    expect(agentMessages[1].agentName).toBe('review-agent')
+    expect(agentMessages[1].content).toBe('review output')
+    expect(agentMessages[1].status).toBe('sent')
+  })
+})

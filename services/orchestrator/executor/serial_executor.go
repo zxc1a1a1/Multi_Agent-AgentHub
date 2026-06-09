@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
@@ -63,7 +64,7 @@ func (e *SerialExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 	}
 	if len(p.Tasks) == 0 {
 		emit(ExecutionEvent{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{Code: "ORCHESTRATOR_BAD_REQUEST", Message: "plan has no tasks"},
 		})
@@ -79,7 +80,7 @@ func (e *SerialExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 		}
 
 		taskMsgID := fmt.Sprintf("%s_%d", msgID, i)
-		result, ok := e.streamOneTask(ctx, p, task, taskMsgID, emit)
+		result, ok := e.streamOneTask(ctx, p, task, taskMsgID, i, emit)
 		if !ok {
 			allSucceeded = false
 			continue
@@ -94,13 +95,13 @@ func (e *SerialExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 		if !synthesizeIfNeeded(ctx, p, msgID, taskResults, e.synthesizer, emit) {
 			summaryMsgID := msgID + "_summary"
 			summary := buildSummary(taskResults)
-			if !emit(ExecutionEvent{Type: "message_start", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
+			if !emit(ExecutionEvent{Type: agui.InternalTypeMessageStart, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
 				return nil
 			}
-			if !emit(ExecutionEvent{Type: "message_delta", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator", Delta: summary}) {
+			if !emit(ExecutionEvent{Type: agui.InternalTypeMessageDelta, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator", Delta: summary}) {
 				return nil
 			}
-			if !emit(ExecutionEvent{Type: "message_end", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
+			if !emit(ExecutionEvent{Type: agui.InternalTypeMessageEnd, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
 				return nil
 			}
 		}
@@ -111,7 +112,7 @@ func (e *SerialExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 		status = "partial_failure"
 	}
 	emit(ExecutionEvent{
-		Type:  "run_finished",
+		Type:  agui.InternalTypeRunFinished,
 		RunID: p.RunID,
 		State: map[string]any{"status": status, "taskCount": len(p.Tasks)},
 	})
@@ -119,13 +120,13 @@ func (e *SerialExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 }
 
 // streamOneTask dispatches a single task in streaming mode.
-func (e *SerialExecutor) streamOneTask(ctx context.Context, p *plan.OrchestrationPlan, task plan.TaskPlan, msgID string, emit EventSink) (*taskResult, bool) {
+func (e *SerialExecutor) streamOneTask(ctx context.Context, p *plan.OrchestrationPlan, task plan.TaskPlan, msgID string, turnIndex int, emit EventSink) (*taskResult, bool) {
 	agentName := task.AgentName
 
 	endpoint, ok := e.registry.Get(agentName)
 	if !ok {
 		emit(ExecutionEvent{
-			Type:   "run_error",
+			Type:   agui.InternalTypeRunError,
 			RunID:  p.RunID,
 			TaskID: task.TaskID,
 			Error: &ExecutionError{
@@ -136,7 +137,7 @@ func (e *SerialExecutor) streamOneTask(ctx context.Context, p *plan.Orchestratio
 		return nil, false
 	}
 
-	if !emit(ExecutionEvent{Type: "message_start", RunID: p.RunID, MessageID: msgID, TaskID: task.TaskID, AgentName: agentName}) {
+	if !emit(taskStartedEvent(p, task, msgID, turnIndex)) {
 		return nil, false
 	}
 
@@ -161,19 +162,12 @@ func (e *SerialExecutor) streamOneTask(ctx context.Context, p *plan.Orchestratio
 			return true
 		}
 		sb.WriteString(c.Text)
-		return emit(ExecutionEvent{
-			Type:      "message_delta",
-			RunID:     p.RunID,
-			MessageID: msgID,
-			TaskID:    task.TaskID,
-			AgentName: agentName,
-			Delta:     c.Text,
-		})
+		return emit(taskContentEvent(p, task, msgID, turnIndex, c.Text))
 	})
 
 	if dispatchErr != nil {
 		emit(ExecutionEvent{
-			Type:   "run_error",
+			Type:   agui.InternalTypeRunError,
 			RunID:  p.RunID,
 			TaskID: task.TaskID,
 			Error: &ExecutionError{
@@ -184,7 +178,7 @@ func (e *SerialExecutor) streamOneTask(ctx context.Context, p *plan.Orchestratio
 		return nil, false
 	}
 
-	emit(ExecutionEvent{Type: "message_end", RunID: p.RunID, MessageID: msgID, TaskID: task.TaskID, AgentName: agentName})
+	emit(taskFinishedEvent(p, task, msgID, turnIndex, sb.String(), "completed"))
 
 	return &taskResult{TaskID: task.TaskID, AgentName: agentName, Text: sb.String()}, true
 }

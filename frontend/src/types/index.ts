@@ -54,6 +54,10 @@ export interface AGUIEvent {
   author?: string
   senderName?: string
   agentName?: string
+  turnIndex?: number
+  stepId?: string
+  status?: string
+  summary?: string
   // AG-UI v1.0 sender object
   sender?: {
     type?: string
@@ -133,6 +137,8 @@ export interface Message {
   senderType: 'user' | 'agent'
   senderName?: string
   agentName?: string
+  turnIndex?: number
+  summary?: string
   content: string
   status: 'sending' | 'streaming' | 'sent' | 'failed'
   codeBlocks?: CodeBlock[]

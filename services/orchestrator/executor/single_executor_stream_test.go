@@ -80,3 +80,46 @@ func TestSingleExecutorStream_EmitsPerChunkDeltas(t *testing.T) {
 		t.Fatalf("unexpected concatenated delta text: %v", deltas)
 	}
 }
+
+func TestSingleExecutorStream_MainAgentPathEmitsAgentTurnEvents(t *testing.T) {
+	disp := &streamStubDispatcher{chunks: []string{"alpha", "beta"}}
+	e := NewSingleExecutor(newStubRegistry(), disp)
+	p := validSinglePlan()
+	p.ExecutionPath = executionPathMainAgentOrchestration
+
+	events := collectStreamEvents(t, e, p, "msg_1")
+
+	want := []string{"agent_turn_started", "agent_turn_content", "agent_turn_content", "agent_turn_finished", "run_finished"}
+	if len(events) < len(want) {
+		t.Fatalf("expected at least %d events, got %d: %+v", len(want), len(events), events)
+	}
+	for i, typ := range want {
+		if events[i].Type != typ {
+			t.Fatalf("event %d type = %q, want %q; all=%+v", i, events[i].Type, typ, events)
+		}
+	}
+	if events[0].TurnIndex != 0 || events[0].StepID != "task_001" || events[0].AgentName != "code-agent" {
+		t.Fatalf("bad started fields: %+v", events[0])
+	}
+	if events[3].Status != "completed" || events[3].Summary != "alphabeta" {
+		t.Fatalf("bad finished fields: %+v", events[3])
+	}
+}
+
+func TestSingleExecutorStream_SingleChatKeepsTextMessageEvents(t *testing.T) {
+	disp := &streamStubDispatcher{chunks: []string{"alpha"}}
+	e := NewSingleExecutor(newStubRegistry(), disp)
+	p := validSinglePlan()
+	p.ExecutionPath = "single_chat"
+
+	events := collectStreamEvents(t, e, p, "msg_1")
+
+	for _, ev := range events {
+		if strings.HasPrefix(ev.Type, "agent_turn_") {
+			t.Fatalf("single_chat should not emit AGENT_TURN events: %+v", events)
+		}
+	}
+	if events[0].Type != "message_start" || events[1].Type != "message_delta" || events[2].Type != "message_end" {
+		t.Fatalf("single_chat text lifecycle mismatch: %+v", events[:3])
+	}
+}
