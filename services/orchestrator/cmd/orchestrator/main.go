@@ -251,6 +251,26 @@ func run() error {
 				}
 				serverOpts = append(serverOpts, httpapi.WithPlanner(llmPlanner))
 
+				// Wire MainAgent with the same PlannerModel for path-aware LLM planning
+				// across ALL execution paths (single_chat, group_chat, main_agent_orchestration).
+				//
+				// MainAgent runtime behavior depends on PlannerModel availability:
+				//   LLM mode (ORCHESTRATOR_PLANNER_MODE=llm or llm_with_rule_fallback + API key):
+				//     MainAgent.Plan() → LLM pipeline (PromptBuilder → model.Generate →
+				//     Parser → Normalizer → Validator). This is the production path.
+				//   rule / no-key mode (default):
+				//     MainAgent.Plan() → keyword-based fallback with "[FALLBACK]" marker.
+				//     This is for dev/test only — plans are deterministic but coarse.
+				//
+				// To verify LLM MainAgent in integration testing, set:
+				//   ORCHESTRATOR_PLANNER_MODE=llm (or llm_with_rule_fallback)
+				//   ORCHESTRATOR_LLM_PROVIDER=anthropic (or openai)
+				//   ORCHESTRATOR_LLM_MODEL=<model-name>
+				//   ORCHESTRATOR_LLM_API_KEY=<key>
+				mainAgent := planner.NewMainAgent(llmClient, modelName, adapter)
+				serverOpts = append(serverOpts, httpapi.WithMainAgentPlanner(mainAgent))
+				log.Printf("orchestrator: MainAgent wired with PlannerModel (model=%s)", modelName)
+
 				// Wire LLM synthesizer for multi-agent result aggregation.
 				syn := synthesizer.NewLLMSynthesizer(llmClient, modelName)
 				serverOpts = append(serverOpts, httpapi.WithSynthesizer(syn))

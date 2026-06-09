@@ -109,6 +109,7 @@ export interface AGUIEvent {
 export interface HITLConfirmRequest {
   runId: string
   actionId: string
+  planId?: string
   confirmed?: boolean
   action?: string
   feedback?: string

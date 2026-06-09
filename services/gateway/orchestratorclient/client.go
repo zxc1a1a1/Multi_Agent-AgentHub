@@ -408,14 +408,16 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 
 // HITLConfirmRequest mirrors the Orchestrator HITL confirm payload.
 type HITLConfirmRequest struct {
-	RunID          string `json:"runId"`
-	ActionID       string `json:"actionId"`
-	Confirmed      *bool  `json:"confirmed,omitempty"`
-	Action         string `json:"action,omitempty"`
-	Feedback       string `json:"feedback,omitempty"`
-	Revision       int    `json:"revision,omitempty"`
-	RejectReason   string `json:"rejectReason,omitempty"`
-	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+	RunID                string   `json:"runId"`
+	ActionID             string   `json:"actionId"`
+	PlanID               string   `json:"planId,omitempty"`
+	Confirmed            *bool    `json:"confirmed,omitempty"`
+	Action               string   `json:"action,omitempty"`
+	Feedback             string   `json:"feedback,omitempty"`
+	Revision             int      `json:"revision,omitempty"`
+	RejectReason         string   `json:"rejectReason,omitempty"`
+	IdempotencyKey       string   `json:"idempotencyKey,omitempty"`
+	SelectedParticipants []string `json:"selectedParticipants,omitempty"`
 }
 
 // ConfirmRun sends a HITL confirmation to the remote Orchestrator.
@@ -448,9 +450,28 @@ func (s *OrchestratorRunService) ConfirmRun(ctx context.Context, req HITLConfirm
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("orchestrator confirm returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return &HTTPError{
+			StatusCode:  resp.StatusCode,
+			Body:        strings.TrimSpace(string(body)),
+			ContentType: resp.Header.Get("Content-Type"),
+		}
 	}
 	return nil
+}
+
+// HTTPError represents an error response from the Orchestrator that should be
+// transparently forwarded to the caller (preserving status code, body, and Content-Type).
+type HTTPError struct {
+	StatusCode  int
+	Body        string
+	ContentType string
+}
+
+func (e *HTTPError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Body
 }
 
 func extractUserText(content *adk.Content) (string, error) {

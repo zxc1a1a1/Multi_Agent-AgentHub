@@ -331,6 +331,80 @@ func TestNormalize_ValidationAlwaysFalse(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Warnings and participant reasons (P0 #6)
+// ---------------------------------------------------------------------------
+
+func TestMainAgentSchemaCarriesParticipantReasonsOrWarnings(t *testing.T) {
+	n := NewPlanNormalizer()
+
+	schema := &PlanSchema{
+		Intent: "build a full-stack app",
+		Mode:   "parallel",
+		Steps: []PlanStep{
+			{ID: "step-1", AgentName: "code-agent", Input: "write API", Reason: "code-agent handles backend logic"},
+			{ID: "step-2", AgentName: "web-agent", Input: "build UI", Reason: "web-agent handles frontend rendering"},
+		},
+		Warnings: []string{"confidence below recommended threshold", "code-agent load may be high"},
+	}
+
+	orchPlan, err := n.Normalize(schema, "run_warn", "conv_warn", "auto", "main_agent_orchestration")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Warnings must be carried through.
+	if len(orchPlan.Warnings) != 2 {
+		t.Fatalf("expected 2 warnings, got %d", len(orchPlan.Warnings))
+	}
+	if orchPlan.Warnings[0] != "confidence below recommended threshold" {
+		t.Errorf("unexpected warning[0]: %q", orchPlan.Warnings[0])
+	}
+	if orchPlan.Warnings[1] != "code-agent load may be high" {
+		t.Errorf("unexpected warning[1]: %q", orchPlan.Warnings[1])
+	}
+
+	// Step reasons must be carried to tasks.
+	if orchPlan.Tasks[0].Reason != "code-agent handles backend logic" {
+		t.Errorf("expected task[0].Reason='code-agent handles backend logic', got %q", orchPlan.Tasks[0].Reason)
+	}
+	if orchPlan.Tasks[1].Reason != "web-agent handles frontend rendering" {
+		t.Errorf("expected task[1].Reason='web-agent handles frontend rendering', got %q", orchPlan.Tasks[1].Reason)
+	}
+}
+
+func TestMainAgentSchema_WarningsEmptyWhenOmitted(t *testing.T) {
+	n := NewPlanNormalizer()
+	schema := &PlanSchema{
+		Intent: "simple task",
+		Mode:   "single",
+		Steps:  []PlanStep{{AgentName: "code-agent", Input: "write a function"}},
+	}
+	orchPlan, err := n.Normalize(schema, "run_no_warn", "conv_no_warn", "auto", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if orchPlan.Warnings != nil {
+		t.Errorf("expected nil Warnings when schema has none, got %v", orchPlan.Warnings)
+	}
+}
+
+func TestMainAgentSchema_ReasonEmptyWhenOmitted(t *testing.T) {
+	n := NewPlanNormalizer()
+	schema := &PlanSchema{
+		Intent: "simple task",
+		Mode:   "single",
+		Steps:  []PlanStep{{AgentName: "code-agent", Input: "write a function"}},
+	}
+	orchPlan, err := n.Normalize(schema, "run_no_reason", "conv_no_reason", "auto", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if orchPlan.Tasks[0].Reason != "" {
+		t.Errorf("expected empty Reason, got %q", orchPlan.Tasks[0].Reason)
+	}
+}
+
 func TestNormalize_GeneratesPlanID(t *testing.T) {
 	n := NewPlanNormalizer()
 	schema := &PlanSchema{

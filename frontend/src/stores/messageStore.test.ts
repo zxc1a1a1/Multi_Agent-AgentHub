@@ -926,11 +926,13 @@ describe('confirmPlan API integration', () => {
     expect(confirmHITL).toHaveBeenCalledWith({
       runId: 'run-api-1',
       actionId: 'plan-api-1',
+      planId: undefined,
       confirmed: true,
       action: 'approve',
       feedback: '',
       revision: undefined,
       rejectReason: '',
+      idempotencyKey: expect.any(String) as string,
     })
 
     const confirmation = useMessageStore.getState().getConfirmation('conv-api-1')
@@ -959,11 +961,13 @@ describe('confirmPlan API integration', () => {
     expect(confirmHITL).toHaveBeenCalledWith({
       runId: 'run-api-2',
       actionId: 'plan-api-2',
+      planId: undefined,
       confirmed: false,
       action: 'cancel',
       feedback: '',
       revision: undefined,
       rejectReason: 'not needed right now',
+      idempotencyKey: expect.any(String) as string,
     })
 
     const confirmation = useMessageStore.getState().getConfirmation('conv-api-2')
@@ -1050,11 +1054,14 @@ describe('confirmPlan API integration', () => {
     expect(confirmHITL).toHaveBeenCalledWith({
       runId: 'run-revise-api',
       actionId: 'plan-revise-api',
+      planId: undefined,
       confirmed: false,
       action: 'revise',
       feedback: '简化步骤',
       revision: 2,
       rejectReason: '',
+      idempotencyKey: expect.any(String) as string,
+      selectedParticipants: undefined,
     })
   })
 

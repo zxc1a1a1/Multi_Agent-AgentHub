@@ -3,7 +3,7 @@
 **Status:** Active
 **Owner:** AgentHub
 **Primary source:** Module Separation & Runtime Redesign
-**Last updated:** 2026-06-08 (Phase 0.5 — added plan approval forwarding, executionPath passthrough)
+**Last updated:** 2026-06-09 (Phase 4 — HITL confirm error passthrough)
 
 
 ## Authoritative source order
@@ -55,10 +55,19 @@ services/gateway  --gRPC streaming-->  services/orchestrator
 
 Gateway forwards `POST /api/runs/{runId}/confirm` requests to Orchestrator's `POST /internal/orchestrator/hitl/confirm`:
 - Gateway validates the request shape (required fields).
-- Gateway passes all fields (`action`, `planId`, `revision`, `idempotencyKey`, `feedback`, `selectedParticipants`) unchanged.
+- Gateway passes all fields (`runId`, `actionId`, `planId`, `action`, `confirmed`, `feedback`, `revision`, `rejectReason`, `idempotencyKey`, `selectedParticipants`) unchanged.
 - Gateway returns the Orchestrator's JSON response to the frontend.
 - Gateway **MUST NOT** interpret the action or make planning decisions.
 - The original `POST /api/chat` SSE stream carries the post-action events; Gateway does not create a new stream.
+
+### Error passthrough
+
+Gateway MUST preserve the Orchestrator's HTTP response when confirm fails:
+- **Status code**: Forward the Orchestrator's status code (not replace with generic 502).
+- **Response body**: Forward the Orchestrator's error body unchanged.
+- **Content-Type**: Forward the Orchestrator's Content-Type header.
+
+Only if the Orchestrator is unreachable (connection error, not an HTTP response) does Gateway return a generic `502 Bad Gateway`.
 
 ## Required gRPC operations
 

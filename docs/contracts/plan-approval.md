@@ -3,7 +3,7 @@
 **Status:** Active
 **Owner:** AgentHub
 **Primary source:** Multi-Path Plan Confirmation Design
-**Last updated:** 2026-06-08 (Phase 0.5 — contract baseline)
+**Last updated:** 2026-06-09 (Phase 4 — complete approval lifecycle)
 
 
 ## Authoritative source order
@@ -60,8 +60,7 @@ A PendingPlan represents an execution plan that has been proposed but not yet ap
 
 | Value | Description |
 |---|---|
-| `planning` | Orchestrator / Agent / Main-agent is generating the plan |
-| `waiting_user_approval` | PLAN_PROPOSAL emitted, waiting for user action |
+| `awaiting_confirmation` | PLAN_PROPOSAL emitted, waiting for user action |
 | `revising_plan` | User requested revision, new plan being generated |
 | `executing` | Plan approved, execution in progress |
 | `completed` | Execution finished successfully |
@@ -72,12 +71,12 @@ A PendingPlan represents an execution plan that has been proposed but not yet ap
 ## Plan lifecycle
 
 ```
-planning ──> waiting_user_approval ──┬──> executing ──> completed
-                 │    ↑              │
-                 │    │              ├──> cancelled
-                 │    └── revise ────┘
-                 │                   │
-                 └──> expired        └──> failed
+awaiting_confirmation ──┬──> executing ──> completed
+       │    ↑              │
+       │    │              ├──> cancelled
+       │    └── revise ────┘
+       │                   │
+       └──> expired        └──> failed
 ```
 
 ### Lifecycle rules
@@ -190,7 +189,7 @@ POST /api/runs/{runId}/confirm
 - For `group_chat`, `selectedParticipants` may be omitted or must equal the fixed participant set from the current proposal.
 - For `main_agent_orchestration`, `selectedParticipants` may be omitted; when omitted, the server uses `defaultSelectedParticipants`. If provided, it MUST equal `defaultSelectedParticipants` for the current proposal.
 - Any participant add/remove/change in `main_agent_orchestration` MUST be sent as `REQUEST_PLAN_REVISION`, not `APPROVE_PLAN`.
-- If `APPROVE_PLAN` carries a changed participant set, the backend MUST return `409 PARTICIPANT_CHANGE_REQUIRES_REVISION` and keep the plan in `waiting_user_approval`.
+- If `APPROVE_PLAN` carries a changed participant set, the backend MUST return `409 PARTICIPANT_CHANGE_REQUIRES_REVISION` and keep the plan in `awaiting_confirmation`.
 
 ### Response
 
@@ -216,28 +215,36 @@ RUN_FINISHED { status: "completed" }
 
 ### Validation
 
-- `planId` MUST match the current PendingPlan.
-- `revision` MUST match the current PendingPlan revision.
-- `idempotencyKey` MUST be a valid UUID.
-- `selectedParticipants` MUST NOT remove any `required: true` participant.
-- `selectedParticipants` MUST be a subset of `participants` (or `candidateParticipants` for auto).
-- For `main_agent_orchestration`, `APPROVE_PLAN.selectedParticipants`, if present, MUST equal the current proposal's `defaultSelectedParticipants`. Differences require `REQUEST_PLAN_REVISION`.
-- For non-auto paths, `APPROVE_PLAN.selectedParticipants`, if present, MUST equal the current fixed participants.
-- Plan status MUST be `waiting_user_approval`.
+1. `runId` MUST reference an existing PendingPlan → `404 PLAN_NOT_FOUND`
+2. `planId` MUST match the current PendingPlan → `409 PLAN_NOT_FOUND`
+3. `revision` MUST match the current PendingPlan revision → `409 PLAN_REVISION_MISMATCH`
+4. Plan status MUST be `awaiting_confirmation` → `409 INVALID_RUN_STATE`
+5. `idempotencyKey` MUST be present and non-empty → `400 IDEMPOTENCY_KEY_REQUIRED`
+6. Idempotency: same key + same hash + status=processing → `409 CONFIRMATION_IN_PROGRESS`
+7. Idempotency: same key + same hash + status=completed → `200` (cached response)
+8. Idempotency: same key + different hash → `409 IDEMPOTENCY_CONFLICT`
+9. `selectedParticipants` MUST be a subset of `participants` → `409 AGENT_BOUNDARY_VIOLATION`
+10. `selectedParticipants` MUST include all `required: true` participants → `400 REQUIRED_PARTICIPANT_MISSING`
+11. `selectedParticipants` MUST be a subset of the available boundary (`availableBoundary`) → `409 AGENT_BOUNDARY_VIOLATION`
+12. For `single_chat`: `selectedParticipants` MUST contain exactly the single agent → `409 AGENT_BOUNDARY_VIOLATION`
+13. For `group_chat`: `selectedParticipants` MUST be a subset of the available boundary → `409 AGENT_BOUNDARY_VIOLATION`
+14. For `main_agent_orchestration`: `selectedParticipants`, if present, MUST equal the current proposal's `defaultSelectedParticipants`. Any difference → `409 PARTICIPANT_CHANGE_REQUIRES_REVISION`
 
 ### Error responses
 
 | Status | Error code | Condition |
 |---|---|---|
-| 400 | `REVISION_INPUT_REQUIRED` | action=revise but both feedback and participant changes are empty |
+| 400 | `IDEMPOTENCY_KEY_REQUIRED` | idempotencyKey is missing or empty |
 | 400 | `REQUIRED_PARTICIPANT_MISSING` | A required participant was removed |
-| 404 | `NO_PENDING_PLAN` | No plan is awaiting approval for this runId |
+| 400 | `REVISION_INPUT_REQUIRED` | action=revise but feedback is empty |
+| 404 | `PLAN_NOT_FOUND` | No plan is awaiting approval for this runId |
+| 409 | `PLAN_NOT_FOUND` | planId doesn't match current PendingPlan (plan was replaced) |
 | 409 | `PLAN_REVISION_MISMATCH` | Revision in request doesn't match current revision |
-| 409 | `IDEMPOTENCY_KEY_CONFLICT` | Same idempotencyKey with different payload |
-| 409 | `PLAN_ALREADY_APPROVED` | Plan has already been approved or is executing |
-| 409 | `INVALID_RUN_STATE` | Run is in a state that doesn't allow this action |
+| 409 | `INVALID_RUN_STATE` | Plan is not in `awaiting_confirmation` status (cancelled/executing/completed/etc.) |
+| 409 | `IDEMPOTENCY_CONFLICT` | Same idempotencyKey with different payload |
+| 409 | `CONFIRMATION_IN_PROGRESS` | A confirmation with this idempotencyKey is already being processed |
+| 409 | `AGENT_BOUNDARY_VIOLATION` | selectedParticipants contains agents outside participants/boundary |
 | 409 | `PARTICIPANT_CHANGE_REQUIRES_REVISION` | APPROVE_PLAN attempted to change selectedParticipants |
-| 410 | `PLAN_EXPIRED` | Approval window expired |
 
 ## REQUEST_PLAN_REVISION
 
@@ -280,17 +287,16 @@ REVISION MUST be handled by the **original planOwner**, not a generic planner:
 After the revision plan is generated:
 1. New `planId` is assigned.
 2. `revision` is incremented by 1.
-3. A new `confirm_plan` tool event sequence is emitted on the **same SSE stream**.
+3. A new `ACTIVITY_SNAPSHOT` event with the revised plan is emitted on the **same SSE stream**.
 4. The frontend replaces the old plan card with the new plan (revision updated).
-5. The plan returns to `waiting_user_approval` status.
+5. The plan returns to `awaiting_confirmation` status.
 
 ### Validation
 
-- `feedback` MUST be non-empty OR `selectedParticipants` must differ from the current proposal default/fixed set.
-- Whitespace-only feedback is treated as empty.
-- If both feedback and participant changes are empty, return `REVISION_INPUT_REQUIRED`.
-- `revision` MUST match the current PendingPlan revision.
-- Plan status MUST be `waiting_user_approval`.
+- `feedback` MUST be non-empty (whitespace-only is treated as empty).
+- If feedback is empty, return `400 REVISION_INPUT_REQUIRED`.
+- `runId`, `planId`, `revision`, `idempotencyKey`, and status validations are shared with APPROVE (see shared validation helpers).
+- Plan status MUST be `awaiting_confirmation`.
 - `selectedParticipants`, if provided, MUST still include all `required: true` participants.
 
 ## CANCEL_PLAN
@@ -356,12 +362,12 @@ Idempotency keys SHOULD be client-generated UUIDs. The server MUST store the `(i
 
 This contract extends and replaces the existing `REQUIRE_PLAN_CONFIRMATION=true` HITL flow:
 
-| Aspect | Current HITL | Plan Approval (target) |
+| Aspect | Status | Description |
 |---|---|---|
-| Confirmation trigger | Only when `agentName` is empty/auto | All execution paths, including explicit agent |
-| User actions | Approve / Reject only | Approve / Revise / Cancel |
-| Reject behavior | `run_error` + `run_finished(cancelled)` | Cancel: `STATE_UPDATE(cancelled)` + `RUN_FINISHED(cancelled)` |
-| Revision | Not supported | Full revision loop with feedback |
-| Idempotency | Not enforced | Enforced per idempotencyKey |
-| Participant selection | Not supported | Supported through revise-before-approve in `main_agent_orchestration` |
-| Candidate vs selected | Not distinguished | Explicitly distinguished |
+| Confirmation trigger | **Implemented** | All execution paths (`single_chat`, `group_chat`, `main_agent_orchestration`) |
+| User actions | **Implemented** | Approve / Revise / Cancel |
+| Cancel behavior | **Implemented** | `STATE_UPDATE(cancelled)` + `RUN_FINISHED(cancelled)` -- no `RUN_ERROR` |
+| Revision | **Implemented** | Full revision loop with feedback + feedbackHistory recording |
+| Idempotency | **Implemented** | Enforced per idempotencyKey; processing record created before channel send |
+| Participant selection | **Implemented** | Optional participants can be unchecked directly in approve; no revision required |
+| Tombstone | **Implemented** | Terminal PendingPlan preserved after cancel/complete; channel closed |

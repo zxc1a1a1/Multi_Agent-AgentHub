@@ -27,6 +27,7 @@ const (
 type HITLConfirmResult struct {
 	RunID                string
 	ActionID             string
+	PlanID               string
 	Confirmed            bool
 	Action               string // "approve" | "cancel" | "revise"
 	Feedback             string
@@ -57,18 +58,25 @@ type idempotencyEntry struct {
 
 // Server is the minimal Orchestrator HTTP server.
 type Server struct {
-	mux          *http.ServeMux
-	token        string
-	registry     *registry.StaticAgentRegistry
-	dispatcher   *dispatcher.A2ADispatcher
-	planner      planner.Planner // nil means use default RulePlanner
-	plannerMode  PlannerMode
-	synthesizer  synthesizer.Synthesizer
-	hitlMu       sync.RWMutex                                  // protects pendingPlans, hitlChans, hitlStates, idempotencyCache
-	pendingPlans map[string]*plan.OrchestrationPlan            // runID → validated plan awaiting confirmation
-	hitlChans    map[string]chan HITLConfirmResult             // runID → confirmation signal channel
-	hitlStates   map[string]HITLState                          // runID → logical confirmation state
-	idempotencyCache map[string]*idempotencyEntry              // runID+":"+key → cached response
+	mux              *http.ServeMux
+	token            string
+	registry         *registry.StaticAgentRegistry
+	dispatcher       *dispatcher.A2ADispatcher
+	planner          planner.Planner // legacy LLMPlanner — superseded by mainAgentPlanner
+	plannerMode      PlannerMode
+	// mainAgentPlanner is the primary Planner for ALL execution paths.
+	// Production default: planner.NewMainAgent(model, modelName, lister) — *planner.MainAgent.
+	// Tests: FakeMainAgent (implements planner.Planner, lives in _test.go files).
+	// NEVER inject RulePlanner or LLMPlanner here — they are NOT path-aware and
+	// would silently break single_chat/group_chat boundary enforcement.
+	mainAgentPlanner planner.Planner
+	synthesizer      synthesizer.Synthesizer
+	hitlMu           sync.RWMutex                                  // protects pendingPlans, hitlChans, hitlStates, idempotencyCache
+	pendingPlans     map[string]*plan.OrchestrationPlan            // runID → validated plan awaiting confirmation (legacy, migrating to pendingPlanStates)
+	hitlChans        map[string]chan HITLConfirmResult             // runID → confirmation signal channel
+	hitlStates       map[string]HITLState                          // runID → logical confirmation state (legacy, migrating to PendingPlan.Status)
+	idempotencyCache map[string]*idempotencyEntry                  // runID+":"+key → cached response (legacy, migrating to PendingPlan.IdempotencyRecords)
+	pendingPlanStates map[string]*PendingPlan                      // runID → full lifecycle state (Phase 4, coexists with legacy maps during migration)
 }
 
 // Option customizes Server behavior.
@@ -136,6 +144,18 @@ func WithSynthesizer(syn synthesizer.Synthesizer) Option {
 	}
 }
 
+// WithMainAgentPlanner injects a MainAgent Planner instance.
+// When set, all execution paths (single_chat, group_chat, main_agent_orchestration)
+// use this planner for plan generation.
+func WithMainAgentPlanner(p planner.Planner) Option {
+	return func(s *Server) {
+		if s == nil || p == nil {
+			return
+		}
+		s.mainAgentPlanner = p
+	}
+}
+
 // NewServer returns a Server with routes registered.
 func NewServer(opts ...Option) *Server {
 	s := &Server{
@@ -144,6 +164,7 @@ func NewServer(opts ...Option) *Server {
 		hitlChans:        make(map[string]chan HITLConfirmResult),
 		hitlStates:       make(map[string]HITLState),
 		idempotencyCache: make(map[string]*idempotencyEntry),
+		pendingPlanStates: make(map[string]*PendingPlan),
 	}
 	for _, opt := range opts {
 		if opt == nil {
@@ -206,4 +227,30 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 // DefaultConfig exposes the config package default for callers.
 func DefaultConfig() config.Config {
 	return config.DefaultConfig()
+}
+
+// registryAgentLister adapts the registry to planner.AgentLister.
+type registryAgentLister struct {
+	reg *registry.StaticAgentRegistry
+}
+
+func (r *registryAgentLister) List() []planner.AgentInfoLite {
+	if r == nil || r.reg == nil {
+		return nil
+	}
+	eps := r.reg.List()
+	agents := make([]planner.AgentInfoLite, len(eps))
+	for i, ep := range eps {
+		agents[i] = planner.AgentInfoLite{
+			Name:          ep.Name,
+			Description:   ep.Description,
+			CapabilityIDs: ep.CapabilityIDs,
+			OutputModes:   ep.OutputModes,
+		}
+	}
+	return agents
+}
+
+func newRegistryAgentLister(reg *registry.StaticAgentRegistry) planner.AgentLister {
+	return &registryAgentLister{reg: reg}
 }

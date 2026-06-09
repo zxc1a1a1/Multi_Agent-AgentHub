@@ -124,5 +124,18 @@ export async function confirmHITL(request: HITLConfirmRequest): Promise<void> {
     headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(request),
   })
-  if (!res.ok) throw new Error('Failed to confirm HITL action')
+  if (!res.ok) {
+    let errorCode = `HTTP ${res.status}`
+    try {
+      const body = await res.json()
+      if (body.error) {
+        errorCode = body.error
+      } else if (body.code) {
+        errorCode = body.code
+      }
+    } catch {
+      // If JSON parsing fails, fall back to HTTP status code.
+    }
+    throw new Error(errorCode)
+  }
 }

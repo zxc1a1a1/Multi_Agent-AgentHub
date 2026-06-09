@@ -15,6 +15,8 @@ import (
 type PromptBuilder struct {
 	agents           []AgentInfoLite
 	conversationType string
+	executionPath    string
+	allowedAgents    []string
 }
 
 // NewPromptBuilder creates a PromptBuilder backed by the given agent lister.
@@ -36,6 +38,18 @@ func (b *PromptBuilder) WithConversationType(ct string) *PromptBuilder {
 	return b
 }
 
+// WithExecutionPath sets the execution path for path-aware prompt construction.
+func (b *PromptBuilder) WithExecutionPath(path string) *PromptBuilder {
+	b.executionPath = path
+	return b
+}
+
+// WithAllowedAgents sets the allowed agent boundary for path-aware prompt construction.
+func (b *PromptBuilder) WithAllowedAgents(agents []string) *PromptBuilder {
+	b.allowedAgents = agents
+	return b
+}
+
 // BuildSystemPrompt constructs the system prompt instructing the LLM how to
 // act as an intent orchestrator. Agent information comes from the AgentLister
 // provided at construction time.
@@ -44,7 +58,34 @@ func (b *PromptBuilder) BuildSystemPrompt() string {
 
 	buf.WriteString(`You are an intent orchestrator for a multi-agent platform. Your job is to analyze the user's request and create an execution plan.
 
-## Available Agents
+## Execution Context
+`)
+
+	// Include execution path context for path-aware planning.
+	if b.executionPath != "" {
+		fmt.Fprintf(&buf, "- Execution path: %s\n", b.executionPath)
+		switch b.executionPath {
+		case "single_chat":
+			buf.WriteString("  This is a single_chat path — you MUST assign exactly one agent that is within the allowed boundary below.\n")
+		case "group_chat":
+			buf.WriteString("  This is a group_chat path — you may assign multiple agents, but ALL must be within the allowed boundary below.\n")
+		case "main_agent_orchestration":
+			buf.WriteString("  This is the auto-orchestration path — you may select any available agents listed below.\n")
+		}
+		buf.WriteString("\n")
+	}
+
+	// Include allowed boundary for path-aware enforcement.
+	if len(b.allowedAgents) > 0 {
+		buf.WriteString("## Allowed Agent Boundary\n")
+		buf.WriteString("You MUST only select agents from this list for tasks and participants:\n")
+		for _, a := range b.allowedAgents {
+			fmt.Fprintf(&buf, "  - %s\n", a)
+		}
+		buf.WriteString("\n")
+	}
+
+	buf.WriteString(`## Available Agents
 `)
 
 	// Primary source: real agent info from the registry/lister.
@@ -62,15 +103,15 @@ func (b *PromptBuilder) BuildSystemPrompt() string {
 - "sequential": agents execute in dependency order (each step depends on previous results)
 
 ## Rules
-1. For code / backend / API / algorithm requests → use code-agent
-2. For web UI / frontend / page / HTML / CSS requests → use web-agent
-3. If the request needs BOTH frontend UI AND backend code → use "parallel" with both agents
-4. Each step's agent_name MUST be one of the agent names listed under "Available Agents" above
-5. taskContent (the "input" field) should rephrase the user's request specifically for the target agent
-6. If the user explicitly names an agent, always use "single" mode with that agent
-7. If unsure, default to code-agent with mode "single"
-8. Set "confidence" between 0.0 and 1.0 to indicate how sure you are about this plan
-9. "user_visible_summary" should be a short, friendly message like "I will ask code-agent to generate the server."
+1. Only use code-agent if it is listed in the Allowed Agent Boundary or Available Agents above.
+2. Only use web-agent if it is listed in the Allowed Agent Boundary or Available Agents above.
+3. Only use document-agent if it is listed in the Allowed Agent Boundary or Available Agents above.
+4. Each step's agent_name MUST be one of the agent names listed under "Available Agents" above.
+5. taskContent (the "input" field) should rephrase the user's request specifically for the target agent.
+6. If the user explicitly names an agent, always use "single" mode with that agent.
+7. If the best-fit agent is not in the boundary, do not add it; write a warning instead.
+8. Set "confidence" between 0.0 and 1.0 to indicate how sure you are about this plan.
+9. "user_visible_summary" should be a short, friendly message like "I will use the best-fit agent for your task."
    Do NOT include internal configuration in user_visible_summary.
 
 ## Output Format
@@ -120,6 +161,16 @@ func (b *PromptBuilder) BuildUserPrompt(userMessage string, agentName string) st
 	if strings.TrimSpace(agentName) != "" {
 		buf.WriteString("\n\n## Hint\n")
 		buf.WriteString(fmt.Sprintf("The user selected agent: %s. Use this as a strong preference.", agentName))
+	}
+
+	// Include execution path context in user prompt for reinforcement.
+	if b.executionPath != "" {
+		buf.WriteString(fmt.Sprintf("\n\n## Execution Path\nCurrent execution path: %s.", b.executionPath))
+	}
+
+	// Include boundary reminder.
+	if len(b.allowedAgents) > 0 {
+		buf.WriteString(fmt.Sprintf("\n\n## Boundary Constraint\nOnly select agents from: %s.", strings.Join(b.allowedAgents, ", ")))
 	}
 
 	if b.conversationType == "group" {

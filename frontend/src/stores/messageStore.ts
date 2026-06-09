@@ -1158,11 +1158,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       await api.confirmHITL({
         runId: runId || current.runId,
         actionId: actionId || current.actionId,
+        planId: current.planId,
         action: action || (confirmed ? 'approve' : 'cancel'),
         feedback: feedback || '',
-        revision: revision,
+        revision: revision ?? current.revision,
         confirmed,
         rejectReason: reason || '',
+        idempotencyKey: crypto.randomUUID(),
         selectedParticipants: selectedParticipants && selectedParticipants.length > 0 ? selectedParticipants : undefined,
       })
       const isRevise = action === 'revise'
