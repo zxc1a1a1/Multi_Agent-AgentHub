@@ -987,68 +987,14 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           case 'TOOL_CALL_END': {
             let toolName = ''
             let toolArgs = ''
-            let toolId = ''
             if (event.id) {
               toolName = event.toolCall?.name || toolCallNames[event.id] || ''
               toolArgs = toolCallArgs[event.id] || ''
-              toolId = event.id
             } else if (event.toolCallId) {
               toolName = event.toolName || toolCallNames[event.toolCallId] || ''
               toolArgs = toolCallArgs[event.toolCallId] || ''
-              toolId = event.toolCallId
             }
-            // Handle confirm_plan: set up pending HITL confirmation state.
-            if (toolName === 'confirm_plan') {
-              const parsed = normalizeToolArguments(toolArgs)
-              if (parsed) {
-                const confirmRunId = (typeof parsed.runId === 'string' ? parsed.runId : '') || ''
-                const confirmPlanId = (typeof parsed.planId === 'string' ? parsed.planId : '') || toolId
-                const confirmAgents: string[] = Array.isArray(parsed.plannedAgents)
-                  ? (parsed.plannedAgents as string[])
-                  : []
-                const confirmTasks = Array.isArray(parsed.tasks)
-                  ? (parsed.tasks as PendingConfirmation['tasks'])
-                  : []
-                const confirmSummary = typeof parsed.intentSummary === 'string' ? parsed.intentSummary : ''
-                const confirmStrategy = typeof parsed.strategy === 'string' ? parsed.strategy : ''
-
-                // v1.2 plan approval fields
-                const confirmExecutionPath = typeof parsed.executionPath === 'string' ? parsed.executionPath : undefined
-                const confirmRevision = typeof parsed.revision === 'number' ? parsed.revision : undefined
-                const confirmPlanOwner = parsed.planOwner != null && typeof parsed.planOwner === 'object' && !Array.isArray(parsed.planOwner)
-                  ? parsed.planOwner as PendingConfirmation['planOwner']
-                  : undefined
-                const confirmParticipants = Array.isArray(parsed.participants)
-                  ? parsed.participants as PendingConfirmation['participants']
-                  : undefined
-                const confirmWarnings = Array.isArray(parsed.warnings)
-                  ? (parsed.warnings as string[])
-                  : undefined
-
-                set((s) => ({
-                  confirmationByConversation: {
-                    ...s.confirmationByConversation,
-                    [conversationId]: {
-                      runId: confirmRunId,
-                      actionId: confirmPlanId,
-                      planId: confirmPlanId,
-                      revision: confirmRevision,
-                      executionPath: confirmExecutionPath,
-                      planOwner: confirmPlanOwner,
-                      agentNames: confirmAgents,
-                      participants: confirmParticipants,
-                      tasks: confirmTasks,
-                      intentSummary: confirmSummary,
-                      strategy: confirmStrategy,
-                      warnings: confirmWarnings,
-                      status: 'pending',
-                    },
-                  },
-                }))
-              }
-            } else {
-              handleToolPayload(toolName, toolArgs)
-            }
+            handleToolPayload(toolName, toolArgs)
             break
           }
 

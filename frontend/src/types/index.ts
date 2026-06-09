@@ -7,6 +7,13 @@ export interface ActivityPlanOwner {
   isMainAgent?: boolean
 }
 
+export interface ActivityExecutionOwner {
+  type: string // "agent" | "group" | "main_agent_orchestration"
+  agentName?: string
+  agentNames?: string[]
+  selectedParticipants?: string[]
+}
+
 export interface ActivityParticipant {
   agentName: string
   required?: boolean
@@ -29,6 +36,7 @@ export interface ActivitySnapshot {
   planId: string
   revision: number
   planOwner?: ActivityPlanOwner
+  executionOwner?: ActivityExecutionOwner
   participants: ActivityParticipant[]
   candidateParticipants?: ActivityParticipant[]
   defaultSelectedParticipants?: ActivityParticipant[]

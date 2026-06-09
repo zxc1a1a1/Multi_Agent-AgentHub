@@ -135,6 +135,14 @@ export default function MainAgentPlanCard({
             <span className="font-medium text-gray-700">Main Agent</span>
           </span>
         )}
+        {data.executionOwner && data.executionOwner.selectedParticipants && data.executionOwner.selectedParticipants.length > 0 && (
+          <span className="text-xs text-gray-400 shrink-0">
+            · execute{' '}
+            <span className="font-medium text-gray-600">
+              {data.executionOwner.selectedParticipants.join(', ')}
+            </span>
+          </span>
+        )}
       </div>
 
       {/* Summary */}

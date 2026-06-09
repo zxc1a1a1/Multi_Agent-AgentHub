@@ -130,6 +130,7 @@ type ActivitySnapshot struct {
 	PlanID                      string            `json:"planId"`
 	Revision                    int               `json:"revision"`
 	PlanOwner                   *PlanOwner        `json:"planOwner"`
+	ExecutionOwner              *ExecutionOwner   `json:"executionOwner,omitempty"`
 	Participants                []PlanParticipant `json:"participants"`
 	CandidateParticipants       []PlanParticipant `json:"candidateParticipants,omitempty"`
 	DefaultSelectedParticipants []PlanParticipant `json:"defaultSelectedParticipants,omitempty"`
@@ -146,6 +147,19 @@ type PlanOwner struct {
 	Type        string `json:"type"`
 	AgentName   string `json:"agentName"`
 	IsMainAgent bool   `json:"isMainAgent"`
+}
+
+// ExecutionOwner identifies who will execute the plan, determined by executionPath.
+//
+// Mapping:
+//   single_chat              → {type: "agent", agentName: <selectedAgent>}
+//   group_chat               → {type: "group", agentNames: <allowedAgents>}
+//   main_agent_orchestration → {type: "main_agent_orchestration", selectedParticipants: [...]}
+type ExecutionOwner struct {
+	Type                 string   `json:"type"` // "agent" | "group" | "main_agent_orchestration"
+	AgentName            string   `json:"agentName,omitempty"`
+	AgentNames           []string `json:"agentNames,omitempty"`
+	SelectedParticipants []string `json:"selectedParticipants,omitempty"`
 }
 
 // PlanParticipant represents an agent participant in a plan.

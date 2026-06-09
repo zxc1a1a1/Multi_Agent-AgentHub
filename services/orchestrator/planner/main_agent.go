@@ -81,6 +81,7 @@ func (m *MainAgent) Plan(ctx context.Context, input PlannerInput) (*plan.Orchest
 			}
 			orchPlan.ExecutionPath = input.ExecutionPath
 			orchPlan.AllowedAgents = input.AllowedAgents
+			orchPlan.ExecutionOwner = deriveExecutionOwner(input.ExecutionPath, input.AllowedAgents)
 			if orchPlan.Revision < 1 {
 				orchPlan.Revision = 1
 			}
@@ -106,6 +107,25 @@ func (m *MainAgent) Plan(ctx context.Context, input PlannerInput) (*plan.Orchest
 
 	// Fallback: keyword-based capability matching (not silent).
 	return m.fallbackKeywordPlan(input, isNonAuto), nil
+}
+
+// deriveExecutionOwner builds the ExecutionOwner from executionPath and allowedAgents.
+// Called by Plan() and all fallback paths so every plan carries an execution owner.
+func deriveExecutionOwner(executionPath string, allowedAgents []string) *plan.ExecutionOwner {
+	switch executionPath {
+	case "single_chat":
+		agentName := ""
+		if len(allowedAgents) > 0 {
+			agentName = allowedAgents[0]
+		}
+		return &plan.ExecutionOwner{Type: "agent", AgentName: agentName}
+	case "group_chat":
+		return &plan.ExecutionOwner{Type: "group", AgentNames: allowedAgents}
+	case "main_agent_orchestration":
+		return &plan.ExecutionOwner{Type: "main_agent_orchestration", AgentName: "main-agent", SelectedParticipants: allowedAgents}
+	default:
+		return nil
+	}
 }
 
 // buildPromptAgents returns the AgentInfoLite list to include in the LLM prompt,
@@ -311,6 +331,7 @@ func (m *MainAgent) fallbackKeywordPlan(input PlannerInput, isNonAuto bool) *pla
 		RunID:                       input.RunID,
 		ConversationID:              input.ConversationID,
 		ExecutionPath:               input.ExecutionPath,
+		ExecutionOwner:              deriveExecutionOwner(input.ExecutionPath, input.AllowedAgents),
 		Strategy:                    strategy,
 		IntentSummary:               fmt.Sprintf("Keyword-based plan with %d agent(s) [FALLBACK]", len(tasks)),
 		Tasks:                       tasks,
@@ -368,6 +389,7 @@ func (m *MainAgent) planWithFixedAgents(input PlannerInput) *plan.OrchestrationP
 		RunID:                       input.RunID,
 		ConversationID:              input.ConversationID,
 		ExecutionPath:               input.ExecutionPath,
+		ExecutionOwner:              deriveExecutionOwner(input.ExecutionPath, input.AllowedAgents),
 		Strategy:                    strategy,
 		IntentSummary:               fmt.Sprintf("Fixed-agent plan with %d agent(s) [FALLBACK]", len(agents)),
 		Tasks:                       tasks,
@@ -400,6 +422,7 @@ func (m *MainAgent) fallbackPlan(input PlannerInput) *plan.OrchestrationPlan {
 		RunID:           input.RunID,
 		ConversationID:  input.ConversationID,
 		ExecutionPath:   input.ExecutionPath,
+		ExecutionOwner:  deriveExecutionOwner(input.ExecutionPath, input.AllowedAgents),
 		Strategy:        plan.StrategyConversational,
 		IntentSummary:   "General assistance [FALLBACK] — specify your task for better agent matching",
 		Tasks:           nil,

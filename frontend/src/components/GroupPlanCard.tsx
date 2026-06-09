@@ -98,6 +98,14 @@ export default function GroupPlanCard({
         <span className="text-xs text-gray-500 shrink-0">
           by <span className="font-medium text-gray-700">Group Coordinator</span>
         </span>
+        {data.executionOwner && data.executionOwner.agentNames && data.executionOwner.agentNames.length > 0 && (
+          <span className="text-xs text-gray-400 shrink-0">
+            · execute{' '}
+            <span className="font-medium text-gray-600">
+              {data.executionOwner.agentNames.join(', ')}
+            </span>
+          </span>
+        )}
       </div>
 
       {/* Summary */}
