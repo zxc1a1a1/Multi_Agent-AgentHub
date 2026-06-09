@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"net/http"
 	"strings"
@@ -23,6 +24,20 @@ type Store = store.Store
 // RunService is the injected runtime execution contract.
 type RunService interface {
 	Run(ctx context.Context, conversationID string, userContent *adk.Content) iter.Seq2[adk.Event, error]
+}
+
+// AgentManagementProxy is the contract for proxying agent CRUD requests to the
+// Orchestrator. When nil (not injected), /api/agents falls back to static
+// AgentSummary (legacy behavior).
+type AgentManagementProxy interface {
+	ProxyAgentManagement(
+		ctx context.Context,
+		method string,
+		pathSuffix string, // extracted from /api/agents suffix, starts with "/" or ""
+		rawQuery string, // r.URL.RawQuery, preserved as-is (may be "")
+		body io.Reader, // request body for POST/PATCH, nil for GET/DELETE
+		contentType string, // request Content-Type, "" when no body
+	) (*http.Response, error)
 }
 
 // AgentSummary is the frontend-facing agent list projection.
@@ -46,12 +61,25 @@ func WithTranslator(t *agui.Translator) Option {
 }
 
 // WithAgents overrides frontend-facing agent summaries for /api/agents.
+// Only used when AgentManagementProxy is nil (static fallback mode).
 func WithAgents(agents []AgentSummary) Option {
 	return func(s *Server) {
 		if s == nil {
 			return
 		}
 		s.agents = sanitizeAgentSummaries(agents)
+	}
+}
+
+// WithAgentProxy injects an Orchestrator-backed agent management proxy.
+// When set, /api/agents* requests are proxied to the Orchestrator.
+// When nil (default), /api/agents uses the legacy static AgentSummary list.
+func WithAgentProxy(p AgentManagementProxy) Option {
+	return func(s *Server) {
+		if s == nil {
+			return
+		}
+		s.agentProxy = p
 	}
 }
 
@@ -83,6 +111,7 @@ type Server struct {
 	runner            RunService
 	translator        *agui.Translator
 	agents            []AgentSummary
+	agentProxy        AgentManagementProxy
 	mux               *http.ServeMux
 	persistenceWriter *PersistenceWriter
 	persistenceStore  *sqlite.Store
@@ -131,7 +160,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/api/conversations", s.handleConversations)
 	s.mux.HandleFunc("/api/conversations/", s.handleConversationByID)
-	s.mux.HandleFunc("/api/agents", s.handleListAgents)
+	s.mux.HandleFunc("/api/agents", s.handleAgents)
+	s.mux.HandleFunc("/api/agents/", s.handleAgentsByName)
 	s.mux.HandleFunc("/api/chat", s.handleChat)
 	s.mux.HandleFunc("/api/runs/", s.handleRuns)
 }
@@ -201,13 +231,86 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, conversations)
 }
 
-func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
+// handleAgents routes exact /api/agents requests.
+// When agentProxy is set, all methods are proxied to the Orchestrator.
+// When agentProxy is nil, GET returns static AgentSummary (legacy), others return 405.
+func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
+	if s.agentProxy != nil {
+		s.proxyAgentManagement(w, r, "", r.URL.RawQuery)
+		return
+	}
+	// Legacy static fallback.
 	if r.Method != http.MethodGet {
 		writeMethodNotAllowed(w, http.MethodGet)
 		return
 	}
 	agents := ensureAutoFirst(s.agents)
 	writeJSON(w, http.StatusOK, agents)
+}
+
+// handleAgentsByName routes /api/agents/{name}... sub-paths.
+// When agentProxy is set, all sub-paths are proxied to the Orchestrator.
+// When agentProxy is nil, returns 404 (legacy: no static sub-path endpoints).
+func (s *Server) handleAgentsByName(w http.ResponseWriter, r *http.Request) {
+	if s.agentProxy == nil {
+		writeJSONError(w, http.StatusNotFound, "agent management not available")
+		return
+	}
+
+	// Extract path suffix from /api/agents prefix.
+	pathSuffix := strings.TrimPrefix(r.URL.Path, "/api/agents")
+
+	// Validate pathSuffix.
+	if pathSuffix == "" || pathSuffix == "/" {
+		writeJSONError(w, http.StatusNotFound, "agent name required")
+		return
+	}
+	if !strings.HasPrefix(pathSuffix, "/") {
+		writeJSONError(w, http.StatusBadRequest, "invalid agent path")
+		return
+	}
+	if strings.Contains(pathSuffix, "..") {
+		writeJSONError(w, http.StatusBadRequest, "invalid agent path")
+		return
+	}
+	if strings.Contains(pathSuffix, "?") {
+		writeJSONError(w, http.StatusBadRequest, "invalid agent path")
+		return
+	}
+
+	s.proxyAgentManagement(w, r, pathSuffix, r.URL.RawQuery)
+}
+
+// proxyAgentManagement forwards the request to the Orchestrator via agentProxy
+// and writes the response back to the caller. Orchestrator status codes and body
+// are preserved. On proxy call failure, returns 502 with a sanitized message.
+func (s *Server) proxyAgentManagement(
+	w http.ResponseWriter, r *http.Request,
+	pathSuffix, rawQuery string,
+) {
+	resp, err := s.agentProxy.ProxyAgentManagement(
+		r.Context(), r.Method, pathSuffix, rawQuery,
+		r.Body, r.Header.Get("Content-Type"),
+	)
+	if err != nil {
+		writeJSONError(w, http.StatusBadGateway, "orchestrator communication error")
+		return
+	}
+	defer resp.Body.Close()
+
+	// Pass through Orchestrator response.
+	copyHeader(w.Header(), resp.Header)
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
+// copyHeader copies HTTP headers from src to dst.
+func copyHeader(dst, src http.Header) {
+	for k, vs := range src {
+		for _, v := range vs {
+			dst.Add(k, v)
+		}
+	}
 }
 
 func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request) {

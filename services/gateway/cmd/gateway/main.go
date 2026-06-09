@@ -21,20 +21,20 @@ import (
 )
 
 const (
-	defaultGatewayAddr        = ":8080"
-	defaultCodeAgentURL       = "http://127.0.0.1:8081"
-	defaultWebAgentURL        = "http://127.0.0.1:8082"
-	defaultDocumentAgentURL   = "http://127.0.0.1:8083"
-	defaultVisionAgentURL     = "http://127.0.0.1:8084"
-	defaultContextAgentURL    = "http://127.0.0.1:8085"
-	defaultTestAgentURL       = "http://127.0.0.1:8086"
-	defaultReviewAgentURL     = "http://127.0.0.1:8087"
-	defaultSecurityAgentURL   = "http://127.0.0.1:8088"
-	defaultDeployAgentURL     = "http://127.0.0.1:8089"
-	defaultDiffAgentURL       = "http://127.0.0.1:8091"
-	defaultAgentName          = "code-agent"
-	defaultGatewayShutdown    = 10 * time.Second
-	defaultAllowedOrigins     = "http://localhost:3000,http://127.0.0.1:3000"
+	defaultGatewayAddr      = ":8080"
+	defaultCodeAgentURL     = "http://127.0.0.1:8081"
+	defaultWebAgentURL      = "http://127.0.0.1:8082"
+	defaultDocumentAgentURL = "http://127.0.0.1:8083"
+	defaultVisionAgentURL   = "http://127.0.0.1:8084"
+	defaultContextAgentURL  = "http://127.0.0.1:8085"
+	defaultTestAgentURL     = "http://127.0.0.1:8086"
+	defaultReviewAgentURL   = "http://127.0.0.1:8087"
+	defaultSecurityAgentURL = "http://127.0.0.1:8088"
+	defaultDeployAgentURL   = "http://127.0.0.1:8089"
+	defaultDiffAgentURL     = "http://127.0.0.1:8091"
+	defaultAgentName        = "code-agent"
+	defaultGatewayShutdown  = 10 * time.Second
+	defaultAllowedOrigins   = "http://localhost:3000,http://127.0.0.1:3000"
 )
 
 type runtimeConfig struct {
@@ -79,13 +79,16 @@ func run() error {
 
 	if cfg.OrchestratorURL != "" {
 		log.Printf("using orchestrator at %s", cfg.OrchestratorURL)
-		runner, err = orchestratorclient.NewOrchestratorRunService(
+		orchSvc, err := orchestratorclient.NewOrchestratorRunService(
 			cfg.OrchestratorURL,
 			cfg.OrchestratorToken,
 		)
 		if err != nil {
 			return err
 		}
+		runner = orchSvc
+		// Same instance acts as AgentManagementProxy for /api/agents* proxy.
+		opts = append(opts, httpapi.WithAgentProxy(orchSvc))
 	} else {
 		log.Printf("orchestrator URL not set, falling back to static routing")
 		registry, err := runservice.NewStaticAgentRegistry(cfg.AgentEndpoints)
@@ -178,21 +181,37 @@ func loadRuntimeConfigFromEnv() (runtimeConfig, error) {
 		webURL = defaultWebAgentURL
 	}
 	documentURL := strings.TrimSpace(os.Getenv("DOCUMENT_AGENT_URL"))
-	if documentURL == "" { documentURL = defaultDocumentAgentURL }
+	if documentURL == "" {
+		documentURL = defaultDocumentAgentURL
+	}
 	visionURL := strings.TrimSpace(os.Getenv("VISION_AGENT_URL"))
-	if visionURL == "" { visionURL = defaultVisionAgentURL }
+	if visionURL == "" {
+		visionURL = defaultVisionAgentURL
+	}
 	contextURL := strings.TrimSpace(os.Getenv("CONTEXT_AGENT_URL"))
-	if contextURL == "" { contextURL = defaultContextAgentURL }
+	if contextURL == "" {
+		contextURL = defaultContextAgentURL
+	}
 	testURL := strings.TrimSpace(os.Getenv("TEST_AGENT_URL"))
-	if testURL == "" { testURL = defaultTestAgentURL }
+	if testURL == "" {
+		testURL = defaultTestAgentURL
+	}
 	reviewURL := strings.TrimSpace(os.Getenv("REVIEW_AGENT_URL"))
-	if reviewURL == "" { reviewURL = defaultReviewAgentURL }
+	if reviewURL == "" {
+		reviewURL = defaultReviewAgentURL
+	}
 	securityURL := strings.TrimSpace(os.Getenv("SECURITY_AGENT_URL"))
-	if securityURL == "" { securityURL = defaultSecurityAgentURL }
+	if securityURL == "" {
+		securityURL = defaultSecurityAgentURL
+	}
 	deployURL := strings.TrimSpace(os.Getenv("DEPLOY_AGENT_URL"))
-	if deployURL == "" { deployURL = defaultDeployAgentURL }
+	if deployURL == "" {
+		deployURL = defaultDeployAgentURL
+	}
 	diffURL := strings.TrimSpace(os.Getenv("DIFF_AGENT_URL"))
-	if diffURL == "" { diffURL = defaultDiffAgentURL }
+	if diffURL == "" {
+		diffURL = defaultDiffAgentURL
+	}
 
 	defaultName := strings.TrimSpace(os.Getenv("GATEWAY_DEFAULT_AGENT_NAME"))
 	if defaultName == "" {
