@@ -96,6 +96,8 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 		mentions := runservice.MentionsFromContext(ctx)
 		planningMode := runservice.PlanningModeFromContext(ctx)
 		requestedPath := runservice.RequestedPathFromContext(ctx)
+		replyTo := runservice.ReplyToFromContext(ctx)
+		quote := runservice.QuoteFromContext(ctx)
 		if planningMode == "" {
 			planningMode = runservice.PlanningModeAuto
 		}
@@ -119,6 +121,12 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 			"selectedAgentNames": selectedAgentNames,
 			"mentions":           mentions,
 			"requestedPath":      requestedPath,
+		}
+		if replyTo != nil {
+			reqBody["replyTo"] = replyTo
+		}
+		if quote != nil {
+			reqBody["quote"] = quote
 		}
 
 		bodyBytes, err := json.Marshal(reqBody)

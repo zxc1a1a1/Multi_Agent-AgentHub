@@ -48,6 +48,23 @@ type AgentSummary struct {
 	OutputModes []string `json:"outputModes,omitempty"`
 }
 
+// ReplyTo carries reply context from frontend ChatRequest through to Orchestrator.
+type ReplyTo struct {
+	ID             string `json:"id"`
+	Author         string `json:"author"`
+	SenderType     string `json:"senderType"`
+	ContentPreview string `json:"contentPreview"`
+}
+
+// Quote carries text quote context from frontend ChatRequest through to Orchestrator.
+type Quote struct {
+	MessageID   string `json:"messageId"`
+	Author      string `json:"author"`
+	Text        string `json:"text"`
+	StartOffset *int   `json:"startOffset,omitempty"`
+	EndOffset   *int   `json:"endOffset,omitempty"`
+}
+
 type Option func(*Server)
 
 // WithTranslator overrides the default AG-UI translator.
@@ -323,6 +340,15 @@ func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request) 
 		writeMethodNotAllowed(w, http.MethodGet)
 		return
 	}
+	// PATCH /api/conversations/{id}/pin
+	if strings.HasSuffix(r.URL.Path, "/pin") {
+		if r.Method == http.MethodPatch {
+			s.handlePinConversation(w, r)
+			return
+		}
+		writeMethodNotAllowed(w, http.MethodPatch)
+		return
+	}
 	// DELETE /api/conversations/{id}
 	if r.Method == http.MethodDelete {
 		s.handleDeleteConversation(w, r)
@@ -333,7 +359,7 @@ func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusNotFound, "use /api/conversations/{id}/messages")
 		return
 	}
-	writeMethodNotAllowed(w, http.MethodGet, http.MethodDelete)
+	writeMethodNotAllowed(w, http.MethodGet, http.MethodDelete, http.MethodPatch)
 }
 
 func (s *Server) handleDeleteConversation(w http.ResponseWriter, r *http.Request) {
@@ -358,6 +384,58 @@ func (s *Server) handleDeleteConversation(w http.ResponseWriter, r *http.Request
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handlePinConversation(w http.ResponseWriter, r *http.Request) {
+	conversationID, ok := extractConversationIDForPin(r.URL.Path)
+	if !ok {
+		writeJSONError(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+
+	var req struct {
+		Pinned bool `json:"pinned"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body: expected {\"pinned\": true/false}")
+		return
+	}
+
+	conv, err := s.store.UpdateConversationPin(r.Context(), conversationID, req.Pinned)
+	if err != nil {
+		if errors.Is(err, store.ErrConversationNotFound) {
+			writeJSONError(w, http.StatusNotFound, "conversation not found")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "failed to update conversation pin")
+		return
+	}
+
+	// Also persist to SQLite when configured.
+	if s.persistenceStore != nil {
+		_ = s.persistenceStore.UpdateConversation(r.Context(), conversationID, sqlite.ConversationPatch{
+			Pinned: &req.Pinned,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(conv)
+}
+
+// extractConversationIDForPin extracts conversation ID from paths like
+// /api/conversations/{id}/pin
+func extractConversationIDForPin(path string) (string, bool) {
+	const prefix = "/api/conversations/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", false
+	}
+	id := strings.TrimPrefix(path, prefix)
+	id = strings.TrimSuffix(id, "/pin")
+	id = strings.Trim(id, "/")
+	if id == "" || strings.Contains(id, "/") {
+		return "", false
+	}
+	return id, true
 }
 
 func (s *Server) handleConversationMessages(w http.ResponseWriter, r *http.Request) {
@@ -412,6 +490,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		Mentions           []string `json:"mentions,omitempty"`
 		PlanningMode       string   `json:"planningMode,omitempty"`
 		RequestedPath      string   `json:"requestedPath,omitempty"`
+		ReplyTo            *ReplyTo `json:"replyTo,omitempty"`
+		Quote              *Quote   `json:"quote,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid request body")
@@ -469,6 +549,28 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	ctx = runservice.WithRequestedPath(ctx, req.RequestedPath)
 	ctx = runservice.WithSelectedAgentNames(ctx, req.SelectedAgentNames)
 	ctx = runservice.WithMentions(ctx, req.Mentions)
+	if req.ReplyTo != nil {
+		ctx = runservice.WithReplyTo(ctx, map[string]any{
+			"id":             req.ReplyTo.ID,
+			"author":         req.ReplyTo.Author,
+			"senderType":     req.ReplyTo.SenderType,
+			"contentPreview": req.ReplyTo.ContentPreview,
+		})
+	}
+	if req.Quote != nil {
+		quoteMap := map[string]any{
+			"messageId": req.Quote.MessageID,
+			"author":    req.Quote.Author,
+			"text":      req.Quote.Text,
+		}
+		if req.Quote.StartOffset != nil {
+			quoteMap["startOffset"] = *req.Quote.StartOffset
+		}
+		if req.Quote.EndOffset != nil {
+			quoteMap["endOffset"] = *req.Quote.EndOffset
+		}
+		ctx = runservice.WithQuote(ctx, quoteMap)
+	}
 
 	assistantText := strings.Builder{}
 

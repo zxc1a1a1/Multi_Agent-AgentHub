@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Message, AGUIEvent, CodeBlock, WebPreviewBlock, ActivitySnapshot } from '../types'
+import type { Message, AGUIEvent, CodeBlock, WebPreviewBlock, SkillCardData, OrchestrationSummaryData, ActivitySnapshot } from '../types'
 import type { AgentName } from '../lib/agents'
 import * as api from '../services/api'
 import { runAgent, type AGUIChatRequest } from '../agui/client'
@@ -13,6 +13,8 @@ interface SendMessageOptions {
   agentName?: AgentName
   mentions?: string[]
   selectedAgentNames?: string[]
+  replyTo?: import('../types').ReplyTo
+  quote?: import('../types').Quote
 }
 
 export interface PendingConfirmation {
@@ -391,6 +393,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       senderType: 'user',
       content,
       status: 'sent',
+      replyTo: options?.replyTo,
+      quote: options?.quote,
       createdAt: new Date().toISOString(),
     }
 
@@ -416,6 +420,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       message: content,
       selectedAgentNames: options?.selectedAgentNames || [],
       mentions: options?.mentions || [],
+      replyTo: options?.replyTo,
+      quote: options?.quote,
     }
     // Only pass agentName for concrete agents; "auto" lets orchestrator decide.
     if (options?.agentName && options.agentName !== 'auto') {
@@ -431,6 +437,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     let currentSenderName = fallbackSenderName
     let codeBlocks: CodeBlock[] = []
     let webPreviews: WebPreviewBlock[] = []
+    let skillCards: SkillCardData[] = []
+    let orchestrationSummary: OrchestrationSummaryData | undefined = undefined
     // Track whether web-related artifact/tool evidence was seen during streaming.
     // Used to gate content-based Web Preview extraction when agentName is 'auto'.
     let hasWebArtifactEvidence = false
@@ -547,6 +555,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         ...message,
         codeBlocks: codeBlocks.length > 0 ? [...codeBlocks] : undefined,
         webPreviews: webPreviews.length > 0 ? [...webPreviews] : undefined,
+        skillCards: skillCards.length > 0 ? [...skillCards] : undefined,
+        orchestrationSummary,
       }))
     }
 
@@ -622,11 +632,99 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       }
       if (toolName === 'code_preview') {
         appendCodePreview(args)
+        return
       }
       if (toolName === 'web_preview' || toolName === 'generate_html_snippet') {
         hasWebArtifactEvidence = true
         appendWebPreview(args)
+        return
       }
+
+      // Phase 6E: map tool names to skill cards
+      if (toolName === 'terminal_output') {
+        skillCards.push({
+          type: 'terminal_output',
+          command: getStringField(args, 'command') || undefined,
+          stdout: getStringField(args, 'stdout') || undefined,
+          stderr: getStringField(args, 'stderr') || undefined,
+          exitCode: typeof args.exitCode === 'number' ? args.exitCode : undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'diff_preview') {
+        skillCards.push({
+          type: 'diff_preview',
+          diffText: getStringField(args, 'diff') || getStringField(args, 'diffText') || getStringField(args, 'content') || '',
+          filename: getStringField(args, 'filename') || undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'deploy_status') {
+        skillCards.push({
+          type: 'deploy_status',
+          environment: getStringField(args, 'environment') || undefined,
+          version: getStringField(args, 'version') || undefined,
+          status: getStringField(args, 'status') || undefined,
+          timestamp: getStringField(args, 'timestamp') || undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'chart_render') {
+        const rawData = args.data
+        const data: Array<{ label?: string; value: number }> = Array.isArray(rawData)
+          ? rawData.map((d: unknown) => {
+              if (d && typeof d === 'object') {
+                const obj = d as Record<string, unknown>
+                return {
+                  label: typeof obj.label === 'string' ? obj.label : undefined,
+                  value: typeof obj.value === 'number' ? obj.value : 0,
+                }
+              }
+              return { value: 0 }
+            })
+          : []
+        skillCards.push({
+          type: 'chart_render',
+          chartType: (getStringField(args, 'chartType') as 'bar' | 'line' | 'pie') || 'bar',
+          data,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'file_download') {
+        const sizeVal = args.size
+        const size: number | string | undefined =
+          typeof sizeVal === 'number' ? sizeVal : typeof sizeVal === 'string' ? sizeVal : undefined
+        skillCards.push({
+          type: 'file_download',
+          filename: getStringField(args, 'filename') || undefined,
+          size,
+          mimeType: getStringField(args, 'mimeType') || undefined,
+          createdAt: getStringField(args, 'createdAt') || undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'image_preview') {
+        skillCards.push({
+          type: 'image_preview',
+          url: getStringField(args, 'url') || getStringField(args, 'src') || undefined,
+          alt: getStringField(args, 'alt') || getStringField(args, 'title') || undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+
+      // Unknown tool → fallback card
+      skillCards.push({
+        type: 'unknown_skill',
+        toolName: toolName || undefined,
+        args,
+      })
+      syncPreviewBlocks()
     }
 
     // Progressive WebPreview: update preview HTML as tool args stream in.
@@ -718,7 +816,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     const finishStreamingMessage = () => {
       appendWebPreviewFromMessageContent()
-      updateAgentMessage((message) => ({ ...message, status: 'sent' }))
+      updateAgentMessage((message) => ({
+        ...message,
+        status: 'sent',
+        skillCards: skillCards.length > 0 ? [...skillCards] : undefined,
+        orchestrationSummary,
+      }))
     }
 
     const failStreamingMessage = (errorText: string) => {
@@ -1012,6 +1115,39 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             break
 
           case 'RUN_FINISHED':
+            // Capture orchestration summary from state before finishing
+            if (event.state && typeof event.state === 'object') {
+              const state = event.state as Record<string, unknown>
+              const summaryAgents = Array.isArray(state.agents)
+                ? state.agents.map((a: unknown) => String(a))
+                : undefined
+              const summaryTasks: OrchestrationSummaryData['tasks'] = Array.isArray(state.tasks)
+                ? state.tasks.map((t: unknown) => {
+                    if (t && typeof t === 'object') {
+                      const task = t as Record<string, unknown>
+                      const taskStatus = typeof task.status === 'string' ? task.status : 'pending'
+                      const validStatus = ['completed', 'failed', 'running', 'pending', 'skipped'].includes(taskStatus)
+                        ? (taskStatus as 'completed' | 'failed' | 'running' | 'pending' | 'skipped')
+                        : ('pending' as const)
+                      return {
+                        agentName: String(task.agentName || ''),
+                        taskId: typeof task.taskId === 'string' ? task.taskId : undefined,
+                        status: validStatus,
+                        content: typeof task.content === 'string' ? task.content : undefined,
+                        duration: typeof task.duration === 'string' ? task.duration : undefined,
+                      }
+                    }
+                    return { agentName: '', status: 'pending' as const }
+                  })
+                : undefined
+              orchestrationSummary = {
+                agents: summaryAgents,
+                tasks: summaryTasks,
+                runStatus: typeof state.status === 'string' ? state.status : 'completed',
+                duration: typeof state.duration === 'string' ? state.duration : undefined,
+                artifactCount: typeof state.artifactCount === 'number' ? state.artifactCount : undefined,
+              }
+            }
             finishStreamingMessage()
             set((s) => ({
               ...setConversationStreaming(s, conversationId, false),

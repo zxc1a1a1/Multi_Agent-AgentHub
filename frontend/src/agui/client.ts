@@ -1,4 +1,4 @@
-import type { AGUIEvent } from '../types'
+import type { AGUIEvent, ReplyTo, Quote } from '../types'
 import type { AgentName } from '../lib/agents'
 
 export interface AGUIChatRequest {
@@ -8,6 +8,8 @@ export interface AGUIChatRequest {
   selectedAgentNames?: string[]
   mentions?: string[]
   requestedPath?: string
+  replyTo?: ReplyTo
+  quote?: Quote
 }
 
 function authHeaders(): Record<string, string> {

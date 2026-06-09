@@ -1,0 +1,2 @@
+ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE conversations ADD COLUMN pinned_at TEXT;

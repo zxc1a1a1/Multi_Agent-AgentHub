@@ -170,6 +170,52 @@ func ExecutionPathFromContext(ctx context.Context) string {
 	return path
 }
 
+type replyToContextKey struct{}
+
+// WithReplyTo stores reply-to metadata into context.
+func WithReplyTo(ctx context.Context, replyTo map[string]any) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, replyToContextKey{}, replyTo)
+}
+
+// ReplyToFromContext loads reply-to metadata from context.
+func ReplyToFromContext(ctx context.Context) map[string]any {
+	if ctx == nil {
+		return nil
+	}
+	raw := ctx.Value(replyToContextKey{})
+	val, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return val
+}
+
+type quoteContextKey struct{}
+
+// WithQuote stores text quote metadata into context.
+func WithQuote(ctx context.Context, quote map[string]any) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, quoteContextKey{}, quote)
+}
+
+// QuoteFromContext loads text quote metadata from context.
+func QuoteFromContext(ctx context.Context) map[string]any {
+	if ctx == nil {
+		return nil
+	}
+	raw := ctx.Value(quoteContextKey{})
+	val, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return val
+}
+
 // AgentNameSelector decides a target agentName for one run.
 type AgentNameSelector func(ctx context.Context, conversationID string, userContent *adk.Content) string
 
