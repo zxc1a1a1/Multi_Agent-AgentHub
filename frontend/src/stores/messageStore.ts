@@ -509,6 +509,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                       ...message,
                       senderName: message.senderName || currentSenderName,
                       agentName: message.agentName || currentAgentName,
+                      runId: message.runId || event.runId,
+                      stepId: message.stepId || event.stepId || event.taskId,
+                      sseMessageId: message.sseMessageId || event.messageId,
                     }
                   : message,
               ),
@@ -528,6 +531,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                 agentName: currentAgentName,
                 content: '',
                 status: 'streaming',
+                runId: event.runId,
+                stepId: event.stepId || event.taskId,
+                sseMessageId: event.messageId,
                 createdAt: new Date().toISOString(),
               },
             ],
@@ -727,7 +733,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       request,
       (event: AGUIEvent) => {
         switch (event.type) {
-          case 'TEXT_MESSAGE_START': {
+          case 'TEXT_MESSAGE_START':
+          case 'AGENT_TURN_STARTED': {
             agentMsgId = event.messageId || event.id || `agent-${Date.now()}`
             agentContent = ''
             codeBlocks = []
@@ -737,6 +744,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           }
 
           case 'TEXT_MESSAGE_CONTENT':
+          case 'AGENT_TURN_CONTENT':
           case 'message':
           case 'message.delta': {
             ensureAgentMessage(event)
@@ -762,6 +770,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           }
 
           case 'TEXT_MESSAGE_END':
+          case 'AGENT_TURN_FINISHED':
           case 'message.end': {
             // If TEXT_MESSAGE_END carries full content, use the more complete
             // version to avoid losing content from partial deltas.

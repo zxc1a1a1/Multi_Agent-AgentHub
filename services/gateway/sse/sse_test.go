@@ -39,9 +39,9 @@ func TestWriteEventWritesEventData(t *testing.T) {
 	writer := NewWriter(rec)
 
 	event := agui.Event{
-		Type: "TEXT_MESSAGE_CONTENT",
-		ID:   "evt-1",
-		Text: "hello",
+		Type:  "TEXT_MESSAGE_CONTENT",
+		ID:    "evt-1",
+		Text:  "hello",
 		Delta: "hello",
 	}
 	if err := writer.WriteEvent(context.Background(), event); err != nil {
@@ -73,6 +73,48 @@ func TestWriteEventWritesEventData(t *testing.T) {
 	}
 }
 
+func TestSSEEventNameMapsAllPublicTypes(t *testing.T) {
+	// Verify that EVERY PublicType constant in agui maps to a non-empty
+	// SSE wire name (i.e., no constant is missing from the sseEventName switch).
+	publicTypes := []string{
+		agui.PublicTypeRunStarted,
+		agui.PublicTypeRunFinished,
+		agui.PublicTypeRunError,
+		agui.PublicTypeTextMessageStart,
+		agui.PublicTypeTextMessageContent,
+		agui.PublicTypeTextMessageEnd,
+		agui.PublicTypeToolCallStart,
+		agui.PublicTypeToolCallArgs,
+		agui.PublicTypeToolCallEnd,
+		agui.PublicTypeStateUpdate,
+		agui.PublicTypeActivitySnapshot,
+		agui.PublicTypeAgentTurnStarted,
+		agui.PublicTypeAgentTurnContent,
+		agui.PublicTypeAgentTurnFinished,
+	}
+
+	for _, pt := range publicTypes {
+		name := sseEventName(pt)
+		if name == "" {
+			t.Errorf("PublicType %q maps to empty SSE event name", pt)
+		}
+		// SSE wire names should be lowercase; known types must not pass through unchanged.
+		if name == pt {
+			t.Errorf("PublicType %q passed through unchanged (no explicit mapping in sseEventName)", pt)
+		}
+	}
+
+	// Also verify that every value returned for known types is unique (no collisions).
+	seen := make(map[string]string)
+	for _, pt := range publicTypes {
+		name := sseEventName(pt)
+		if existing, ok := seen[name]; ok {
+			t.Errorf("duplicate SSE event name %q for %q and %q", name, existing, pt)
+		}
+		seen[name] = pt
+	}
+}
+
 func TestSseEventNameMapping(t *testing.T) {
 	tests := []struct {
 		aguiType string
@@ -88,7 +130,7 @@ func TestSseEventNameMapping(t *testing.T) {
 		{"TOOL_CALL_ARGS", "tool_call_args"},
 		{"TOOL_CALL_END", "tool_call_end"},
 		{"STATE_UPDATE", "state_update"},
-		{"message", "message"},           // legacy fallthrough
+		{"message", "message"},             // legacy fallthrough
 		{"message.delta", "message.delta"}, // legacy fallthrough
 	}
 	for _, tt := range tests {
@@ -186,8 +228,8 @@ func TestAGUIOutput_ConfirmPlanToolEvents(t *testing.T) {
 
 	// Step 1: TOOL_CALL_START
 	err := writer.WriteEvent(context.Background(), agui.Event{
-		Type:   "TOOL_CALL_START",
-		RunID:  "run-001",
+		Type:  "TOOL_CALL_START",
+		RunID: "run-001",
 		ToolCall: &agui.ToolCall{
 			ID:   "plan-001",
 			Name: "confirm_plan",
@@ -228,8 +270,8 @@ func TestAGUIOutput_ConfirmPlanToolEvents(t *testing.T) {
 
 	// Step 3: TOOL_CALL_END
 	err = writer.WriteEvent(context.Background(), agui.Event{
-		Type:   "TOOL_CALL_END",
-		RunID:  "run-001",
+		Type:  "TOOL_CALL_END",
+		RunID: "run-001",
 		ToolCall: &agui.ToolCall{
 			ID:   "plan-001",
 			Name: "confirm_plan",
@@ -292,7 +334,7 @@ func TestAGUIOutput_ConfirmPlanToolEvents(t *testing.T) {
 
 func TestAGUIOutput_StateUpdatePhases(t *testing.T) {
 	phases := []struct {
-		phase string
+		phase    string
 		aguiType string
 	}{
 		{"awaiting_confirmation", "STATE_UPDATE"},

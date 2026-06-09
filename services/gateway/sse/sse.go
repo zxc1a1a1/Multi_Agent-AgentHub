@@ -76,28 +76,34 @@ func (wr *Writer) WriteEvent(ctx context.Context, event agui.Event) error {
 // smoke scripts and legacy SSE clients.
 func sseEventName(aguiType string) string {
 	switch aguiType {
-	case "RUN_STARTED":
+	case agui.PublicTypeRunStarted:
 		return "run_started"
-	case "RUN_FINISHED":
+	case agui.PublicTypeRunFinished:
 		return "run_finished"
-	case "RUN_ERROR":
+	case agui.PublicTypeRunError:
 		return "error"
-	case "TEXT_MESSAGE_START":
+	case agui.PublicTypeTextMessageStart:
 		return "message_start"
-	case "TEXT_MESSAGE_CONTENT":
+	case agui.PublicTypeTextMessageContent:
 		return "message"
-	case "TEXT_MESSAGE_END":
+	case agui.PublicTypeTextMessageEnd:
 		return "message_end"
-	case "TOOL_CALL_START":
+	case agui.PublicTypeToolCallStart:
 		return "tool_call_start"
-	case "TOOL_CALL_ARGS":
+	case agui.PublicTypeToolCallArgs:
 		return "tool_call_args"
-	case "TOOL_CALL_END":
+	case agui.PublicTypeToolCallEnd:
 		return "tool_call_end"
-	case "STATE_UPDATE":
+	case agui.PublicTypeStateUpdate:
 		return "state_update"
-	case "ACTIVITY_SNAPSHOT":
+	case agui.PublicTypeActivitySnapshot:
 		return "activity_snapshot"
+	case agui.PublicTypeAgentTurnStarted:
+		return "agent_turn_started"
+	case agui.PublicTypeAgentTurnContent:
+		return "agent_turn_content"
+	case agui.PublicTypeAgentTurnFinished:
+		return "agent_turn_finished"
 	default:
 		return aguiType
 	}

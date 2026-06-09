@@ -728,3 +728,102 @@ func TestTranslator_NilContent(t *testing.T) {
 		t.Fatalf("expected empty events for nil content and nil actions, got %#v", empty)
 	}
 }
+
+func TestTranslatorAgentTurnTopLevelFields(t *testing.T) {
+	tr := NewTranslator()
+
+	// AgentTurnStarted — turnIndex/stepId/agentName must be top-level
+	events := tr.Translate(adk.Event{
+		Author: "code-agent",
+		Metadata: map[string]any{
+			MetaEventType:  InternalTypeAgentTurnStarted,
+			MetaRunID:      "run-001",
+			MetaMessageID:  "msg-001",
+			MetaSenderType: "agent",
+			MetaSenderName: "code-agent",
+			"turnIndex":    2,
+			"stepId":       "step_1",
+			"agentName":    "code-agent",
+		},
+	})
+	if len(events) != 1 {
+		t.Fatalf("AgentTurnStarted: expected 1 event, got %d", len(events))
+	}
+	e := events[0]
+	if e.Type != PublicTypeAgentTurnStarted {
+		t.Errorf("expected type=%s, got %s", PublicTypeAgentTurnStarted, e.Type)
+	}
+	if e.TurnIndex != 2 {
+		t.Errorf("expected TurnIndex=2, got %d", e.TurnIndex)
+	}
+	if e.StepID != "step_1" {
+		t.Errorf("expected StepID=step_1, got %s", e.StepID)
+	}
+	if e.AgentName != "code-agent" {
+		t.Errorf("expected AgentName=code-agent, got %s", e.AgentName)
+	}
+
+	// AgentTurnContent — turnIndex + delta must be top-level
+	events = tr.Translate(adk.Event{
+		Author: "code-agent",
+		Metadata: map[string]any{
+			MetaEventType: InternalTypeAgentTurnContent,
+			MetaRunID:     "run-001",
+			MetaMessageID: "msg-001",
+			"turnIndex":   1,
+		},
+		Content: &adk.Content{
+			Role:  adk.RoleAssistant,
+			Parts: []adk.Part{adk.TextPart{Text: "Here is some code"}},
+		},
+	})
+	if len(events) != 1 {
+		t.Fatalf("AgentTurnContent: expected 1 event, got %d", len(events))
+	}
+	e = events[0]
+	if e.Type != PublicTypeAgentTurnContent {
+		t.Errorf("expected type=%s, got %s", PublicTypeAgentTurnContent, e.Type)
+	}
+	if e.TurnIndex != 1 {
+		t.Errorf("expected TurnIndex=1, got %d", e.TurnIndex)
+	}
+	if e.Delta != "Here is some code" {
+		t.Errorf("expected Delta, got %s", e.Delta)
+	}
+
+	// AgentTurnFinished — turnIndex/agentName/status must be top-level
+	events = tr.Translate(adk.Event{
+		Author: "code-agent",
+		Metadata: map[string]any{
+			MetaEventType: InternalTypeAgentTurnFinished,
+			MetaRunID:     "run-001",
+			MetaMessageID: "msg-001",
+			"turnIndex":   0,
+			"agentName":   "code-agent",
+			"status":      "completed",
+			"summary":     "Generated code",
+		},
+	})
+	if len(events) != 1 {
+		t.Fatalf("AgentTurnFinished: expected 1 event, got %d", len(events))
+	}
+	e = events[0]
+	if e.Type != PublicTypeAgentTurnFinished {
+		t.Errorf("expected type=%s, got %s", PublicTypeAgentTurnFinished, e.Type)
+	}
+	if e.TurnIndex != 0 {
+		t.Errorf("expected TurnIndex=0, got %d", e.TurnIndex)
+	}
+	if e.AgentName != "code-agent" {
+		t.Errorf("expected AgentName=code-agent, got %s", e.AgentName)
+	}
+	if e.Status != "completed" {
+		t.Errorf("expected Status=completed, got %s", e.Status)
+	}
+	if e.Summary != "Generated code" {
+		t.Errorf("expected Summary=Generated code, got %s", e.Summary)
+	}
+	if !e.Final {
+		t.Error("AgentTurnFinished must be Final")
+	}
+}

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
@@ -49,8 +51,12 @@ type ExecutionEvent struct {
 	RunID     string
 	MessageID string
 	TaskID    string
+	StepID    string
 	AgentName string
+	TurnIndex int
 	Delta     string
+	Status    string
+	Summary   string
 	Error     *ExecutionError
 	State     map[string]any
 }
@@ -108,13 +114,13 @@ func synthesizeIfNeeded(ctx context.Context, p *plan.OrchestrationPlan, msgID st
 		summary, _ = static.Synthesize(ctx, p.IntentSummary, outputs)
 	}
 
-	if !emit(ExecutionEvent{Type: "message_start", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
+	if !emit(ExecutionEvent{Type: agui.InternalTypeMessageStart, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
 		return false
 	}
-	if !emit(ExecutionEvent{Type: "message_delta", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator", Delta: summary}) {
+	if !emit(ExecutionEvent{Type: agui.InternalTypeMessageDelta, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator", Delta: summary}) {
 		return false
 	}
-	if !emit(ExecutionEvent{Type: "message_end", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
+	if !emit(ExecutionEvent{Type: agui.InternalTypeMessageEnd, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
 		return false
 	}
 	return true

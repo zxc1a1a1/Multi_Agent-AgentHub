@@ -3,7 +3,9 @@ package executor
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
@@ -13,9 +15,9 @@ import (
 // It only supports StrategySingle plans with exactly one task.
 // It MUST only execute validated plans (Validation.Validated == true).
 type SingleExecutor struct {
-	registry     AgentRegistry
-	dispatcher   AgentDispatcher
-	synthesizer  synthesizer.Synthesizer
+	registry    AgentRegistry
+	dispatcher  AgentDispatcher
+	synthesizer synthesizer.Synthesizer
 }
 
 // SingleExecutorOption customizes a SingleExecutor.
@@ -63,7 +65,7 @@ func (e *SingleExecutor) Execute(ctx context.Context, p *plan.OrchestrationPlan,
 
 	if p.Strategy != plan.StrategySingle {
 		return []ExecutionEvent{{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_NOT_IMPLEMENTED",
@@ -74,7 +76,7 @@ func (e *SingleExecutor) Execute(ctx context.Context, p *plan.OrchestrationPlan,
 
 	if len(p.Tasks) == 0 {
 		return []ExecutionEvent{{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_BAD_REQUEST",
@@ -90,7 +92,7 @@ func (e *SingleExecutor) Execute(ctx context.Context, p *plan.OrchestrationPlan,
 	endpoint, ok := e.registry.Get(agentName)
 	if !ok {
 		return []ExecutionEvent{{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_AGENT_UNAVAILABLE",
@@ -101,14 +103,7 @@ func (e *SingleExecutor) Execute(ctx context.Context, p *plan.OrchestrationPlan,
 
 	var events []ExecutionEvent
 
-	// message_start
-	events = append(events, ExecutionEvent{
-		Type:      "message_start",
-		RunID:     p.RunID,
-		MessageID: msgID,
-		TaskID:    task.TaskID,
-		AgentName: agentName,
-	})
+	events = append(events, taskStartedEvent(p, task, msgID, 0))
 
 	// Dispatch to the remote agent.
 	input := dispatcher.DispatchInput{
@@ -122,7 +117,7 @@ func (e *SingleExecutor) Execute(ctx context.Context, p *plan.OrchestrationPlan,
 	result, err := e.dispatcher.Dispatch(ctx, input)
 	if err != nil {
 		events = append(events, ExecutionEvent{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_AGENT_FAILED",
@@ -134,28 +129,14 @@ func (e *SingleExecutor) Execute(ctx context.Context, p *plan.OrchestrationPlan,
 
 	// message_delta with response text.
 	if result != nil && result.Text != "" {
-		events = append(events, ExecutionEvent{
-			Type:      "message_delta",
-			RunID:     p.RunID,
-			MessageID: msgID,
-			TaskID:    task.TaskID,
-			AgentName: agentName,
-			Delta:     result.Text,
-		})
+		events = append(events, taskContentEvent(p, task, msgID, 0, result.Text))
 	}
 
-	// message_end
-	events = append(events, ExecutionEvent{
-		Type:      "message_end",
-		RunID:     p.RunID,
-		MessageID: msgID,
-		TaskID:    task.TaskID,
-		AgentName: agentName,
-	})
+	events = append(events, taskFinishedEvent(p, task, msgID, 0, resultText(result), "completed"))
 
 	// run_finished
 	events = append(events, ExecutionEvent{
-		Type:  "run_finished",
+		Type:  agui.InternalTypeRunFinished,
 		RunID: p.RunID,
 		State: map[string]any{"status": "completed"},
 	})
@@ -182,7 +163,7 @@ func (e *SingleExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 
 	if p.Strategy != plan.StrategySingle {
 		emit(ExecutionEvent{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_NOT_IMPLEMENTED",
@@ -193,7 +174,7 @@ func (e *SingleExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 	}
 	if len(p.Tasks) == 0 {
 		emit(ExecutionEvent{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{Code: "ORCHESTRATOR_BAD_REQUEST", Message: "plan has no tasks"},
 		})
@@ -206,7 +187,7 @@ func (e *SingleExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 	endpoint, ok := e.registry.Get(agentName)
 	if !ok {
 		emit(ExecutionEvent{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_AGENT_UNAVAILABLE",
@@ -216,13 +197,7 @@ func (e *SingleExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 		return nil
 	}
 
-	if !emit(ExecutionEvent{
-		Type:      "message_start",
-		RunID:     p.RunID,
-		MessageID: msgID,
-		TaskID:    task.TaskID,
-		AgentName: agentName,
-	}) {
+	if !emit(taskStartedEvent(p, task, msgID, 0)) {
 		return nil
 	}
 
@@ -236,6 +211,7 @@ func (e *SingleExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 		TraceID:        p.TraceID,
 	}
 
+	var sb strings.Builder
 	var dispatchErr error
 	e.dispatcher.DispatchStream(ctx, input)(func(c dispatcher.DispatchChunk) bool {
 		if c.Err != nil {
@@ -245,19 +221,13 @@ func (e *SingleExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 		if c.Text == "" {
 			return true
 		}
-		return emit(ExecutionEvent{
-			Type:      "message_delta",
-			RunID:     p.RunID,
-			MessageID: msgID,
-			TaskID:    task.TaskID,
-			AgentName: agentName,
-			Delta:     c.Text,
-		})
+		sb.WriteString(c.Text)
+		return emit(taskContentEvent(p, task, msgID, 0, c.Text))
 	})
 
 	if dispatchErr != nil {
 		emit(ExecutionEvent{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_AGENT_FAILED",
@@ -267,21 +237,15 @@ func (e *SingleExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 		return nil
 	}
 
-	if !emit(ExecutionEvent{
-		Type:      "message_end",
-		RunID:     p.RunID,
-		MessageID: msgID,
-		TaskID:    task.TaskID,
-		AgentName: agentName,
-	}) {
+	if !emit(taskFinishedEvent(p, task, msgID, 0, sb.String(), "completed")) {
 		return nil
 	}
 
 	// Synthesize if the plan requests aggregation.
-	synthesizeIfNeeded(ctx, p, msgID, []taskResult{{TaskID: task.TaskID, AgentName: agentName, Text: ""}}, e.synthesizer, emit)
+	synthesizeIfNeeded(ctx, p, msgID, []taskResult{{TaskID: task.TaskID, AgentName: agentName, Text: sb.String()}}, e.synthesizer, emit)
 
 	emit(ExecutionEvent{
-		Type:  "run_finished",
+		Type:  agui.InternalTypeRunFinished,
 		RunID: p.RunID,
 		State: map[string]any{"status": "completed"},
 	})
