@@ -224,7 +224,7 @@ func run() error {
 	// Phase 5: Wire DynamicAgentRegistry with JSON file store for agent management API.
 	storePath := strings.TrimSpace(os.Getenv("ORCHESTRATOR_AGENT_STORE_PATH"))
 	if storePath == "" {
-		storePath = ".data/orchestrator/agents.json"
+		storePath = "/tmp/agenthub-orchestrator/agents.json"
 	}
 	jsonStore, err := registry.NewJSONStore(storePath)
 	if err != nil {
