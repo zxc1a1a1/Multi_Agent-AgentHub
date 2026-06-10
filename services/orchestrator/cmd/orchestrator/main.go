@@ -27,18 +27,18 @@ import (
 )
 
 const (
-	defaultAddr              = ":8080"
-	defaultCodeAgentURL      = "http://127.0.0.1:8081"
-	defaultWebAgentURL       = "http://127.0.0.1:8082"
-	defaultDocumentAgentURL  = "http://127.0.0.1:8083"
-	defaultVisionAgentURL    = "http://127.0.0.1:8084"
-	defaultContextAgentURL   = "http://127.0.0.1:8085"
-	defaultTestAgentURL      = "http://127.0.0.1:8086"
-	defaultReviewAgentURL    = "http://127.0.0.1:8087"
-	defaultSecurityAgentURL  = "http://127.0.0.1:8088"
-	defaultDeployAgentURL    = "http://127.0.0.1:8089"
-	defaultDiffAgentURL      = "http://127.0.0.1:8090"
-	defaultShutdown          = 10 * time.Second
+	defaultAddr             = ":8080"
+	defaultCodeAgentURL     = "http://127.0.0.1:8081"
+	defaultWebAgentURL      = "http://127.0.0.1:8082"
+	defaultDocumentAgentURL = "http://127.0.0.1:8083"
+	defaultVisionAgentURL   = "http://127.0.0.1:8084"
+	defaultContextAgentURL  = "http://127.0.0.1:8085"
+	defaultTestAgentURL     = "http://127.0.0.1:8086"
+	defaultReviewAgentURL   = "http://127.0.0.1:8087"
+	defaultSecurityAgentURL = "http://127.0.0.1:8088"
+	defaultDeployAgentURL   = "http://127.0.0.1:8089"
+	defaultDiffAgentURL     = "http://127.0.0.1:8090"
+	defaultShutdown         = 10 * time.Second
 )
 
 func main() {
@@ -56,34 +56,54 @@ func run() error {
 	internalToken := strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
 
 	codeAgentURL := strings.TrimSpace(os.Getenv("CODE_AGENT_URL"))
-	if codeAgentURL == "" { codeAgentURL = defaultCodeAgentURL }
+	if codeAgentURL == "" {
+		codeAgentURL = defaultCodeAgentURL
+	}
 
 	webAgentURL := strings.TrimSpace(os.Getenv("WEB_AGENT_URL"))
-	if webAgentURL == "" { webAgentURL = defaultWebAgentURL }
+	if webAgentURL == "" {
+		webAgentURL = defaultWebAgentURL
+	}
 
 	documentAgentURL := strings.TrimSpace(os.Getenv("DOCUMENT_AGENT_URL"))
-	if documentAgentURL == "" { documentAgentURL = defaultDocumentAgentURL }
+	if documentAgentURL == "" {
+		documentAgentURL = defaultDocumentAgentURL
+	}
 
 	visionAgentURL := strings.TrimSpace(os.Getenv("VISION_AGENT_URL"))
-	if visionAgentURL == "" { visionAgentURL = defaultVisionAgentURL }
+	if visionAgentURL == "" {
+		visionAgentURL = defaultVisionAgentURL
+	}
 
 	contextAgentURL := strings.TrimSpace(os.Getenv("CONTEXT_AGENT_URL"))
-	if contextAgentURL == "" { contextAgentURL = defaultContextAgentURL }
+	if contextAgentURL == "" {
+		contextAgentURL = defaultContextAgentURL
+	}
 
 	testAgentURL := strings.TrimSpace(os.Getenv("TEST_AGENT_URL"))
-	if testAgentURL == "" { testAgentURL = defaultTestAgentURL }
+	if testAgentURL == "" {
+		testAgentURL = defaultTestAgentURL
+	}
 
 	reviewAgentURL := strings.TrimSpace(os.Getenv("REVIEW_AGENT_URL"))
-	if reviewAgentURL == "" { reviewAgentURL = defaultReviewAgentURL }
+	if reviewAgentURL == "" {
+		reviewAgentURL = defaultReviewAgentURL
+	}
 
 	securityAgentURL := strings.TrimSpace(os.Getenv("SECURITY_AGENT_URL"))
-	if securityAgentURL == "" { securityAgentURL = defaultSecurityAgentURL }
+	if securityAgentURL == "" {
+		securityAgentURL = defaultSecurityAgentURL
+	}
 
 	deployAgentURL := strings.TrimSpace(os.Getenv("DEPLOY_AGENT_URL"))
-	if deployAgentURL == "" { deployAgentURL = defaultDeployAgentURL }
+	if deployAgentURL == "" {
+		deployAgentURL = defaultDeployAgentURL
+	}
 
 	diffAgentURL := strings.TrimSpace(os.Getenv("DIFF_AGENT_URL"))
-	if diffAgentURL == "" { diffAgentURL = defaultDiffAgentURL }
+	if diffAgentURL == "" {
+		diffAgentURL = defaultDiffAgentURL
+	}
 
 	cfg := config.Config{
 		Addr:          addr,
@@ -200,6 +220,19 @@ func run() error {
 		httpapi.WithRegistry(agentRegistry),
 		httpapi.WithDispatcher(a2aDispatcher),
 	}
+
+	// Phase 5: Wire DynamicAgentRegistry with JSON file store for agent management API.
+	storePath := strings.TrimSpace(os.Getenv("ORCHESTRATOR_AGENT_STORE_PATH"))
+	if storePath == "" {
+		storePath = ".data/orchestrator/agents.json"
+	}
+	jsonStore, err := registry.NewJSONStore(storePath)
+	if err != nil {
+		return fmt.Errorf("create agent JSON store: %w", err)
+	}
+	dynamicReg := registry.NewDynamicAgentRegistry(agentRegistry, jsonStore)
+	serverOpts = append(serverOpts, httpapi.WithDynamicRegistry(dynamicReg))
+	log.Printf("orchestrator: dynamic agent registry wired (store=%s)", storePath)
 
 	// Planner mode via ORCHESTRATOR_PLANNER_MODE:
 	//   rule (default):     deterministic RulePlanner only, ignores API key

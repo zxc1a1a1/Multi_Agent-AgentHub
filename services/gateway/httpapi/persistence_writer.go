@@ -57,17 +57,17 @@ func (w *PersistenceWriter) HandleEvent(ctx context.Context, conversationID stri
 	defer w.mu.Unlock()
 
 	switch evt.Type {
-	case "RUN_STARTED":
+	case agui.PublicTypeRunStarted:
 		w.handleRunStarted(ctx, conversationID, evt)
-	case "TEXT_MESSAGE_START":
+	case agui.PublicTypeTextMessageStart:
 		w.handleTextMessageStart(ctx, conversationID, evt)
-	case "TEXT_MESSAGE_CONTENT":
+	case agui.PublicTypeTextMessageContent:
 		w.handleTextMessageContent(evt)
-	case "TEXT_MESSAGE_END":
+	case agui.PublicTypeTextMessageEnd:
 		w.handleTextMessageEnd(ctx, evt)
-	case "RUN_ERROR":
+	case agui.PublicTypeRunError:
 		w.handleRunError(ctx, evt)
-	case "RUN_FINISHED":
+	case agui.PublicTypeRunFinished:
 		w.handleRunFinished(ctx)
 	}
 }

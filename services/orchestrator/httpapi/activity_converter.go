@@ -20,6 +20,7 @@ func toAGUIActivitySnapshot(orchPlan *plan.OrchestrationPlan, status string) agu
 		PlanID:         orchPlan.PlanID,
 		Revision:       orchPlan.Revision,
 		PlanOwner:      toAGUIPlanOwner(orchPlan.PlanOwner),
+		ExecutionOwner: toAGUIExecutionOwner(orchPlan.ExecutionOwner),
 		Participants:   toAGUIParticipants(orchPlan.Participants),
 		Title:          orchPlan.IntentSummary,
 		Summary:        orchPlan.IntentSummary,
@@ -59,6 +60,19 @@ func toAGUIPlanOwner(owner *plan.PlanOwner) *agui.PlanOwner {
 		Type:        owner.Type,
 		AgentName:   owner.AgentName,
 		IsMainAgent: owner.IsMainAgent,
+	}
+}
+
+// toAGUIExecutionOwner converts plan.ExecutionOwner to agui.ExecutionOwner.
+func toAGUIExecutionOwner(owner *plan.ExecutionOwner) *agui.ExecutionOwner {
+	if owner == nil {
+		return nil
+	}
+	return &agui.ExecutionOwner{
+		Type:                 owner.Type,
+		AgentName:            owner.AgentName,
+		AgentNames:           owner.AgentNames,
+		SelectedParticipants: owner.SelectedParticipants,
 	}
 }
 

@@ -100,6 +100,11 @@ export default function PlanApprovalCard({
             </span>
           </span>
         )}
+        {data.executionOwner && data.executionOwner.type === 'agent' && data.executionOwner.agentName && (
+          <span className="text-xs text-gray-400 shrink-0">
+            · execute <span className="font-medium text-gray-600">{data.executionOwner.agentName}</span>
+          </span>
+        )}
       </div>
 
       {/* Summary */}

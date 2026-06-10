@@ -41,6 +41,12 @@ type OrchestrationPlan struct {
 	// PlanOwner identifies who generated this plan (agent or main_agent).
 	PlanOwner *PlanOwner `json:"planOwner,omitempty"`
 
+	// ExecutionOwner identifies who will execute the plan, derived from executionPath.
+	// single_chat → {type:"agent", agentName:<selected>}
+	// group_chat  → {type:"group", agentNames:<allowed>}
+	// main_agent_orchestration → {type:"main_agent_orchestration", selectedParticipants:[...]}
+	ExecutionOwner *ExecutionOwner `json:"executionOwner,omitempty"`
+
 	// Participants is the list of agents involved in this plan.
 	Participants []PlanParticipant `json:"participants,omitempty"`
 
@@ -65,6 +71,15 @@ type PlanOwner struct {
 	Type        string `json:"type"`        // "agent" | "main_agent"
 	AgentName   string `json:"agentName"`   // agent name (not code-agent for main_agent)
 	IsMainAgent bool   `json:"isMainAgent,omitempty"`
+}
+
+// ExecutionOwner identifies who will execute the plan.
+// Derived from executionPath at plan time.
+type ExecutionOwner struct {
+	Type                 string   `json:"type"` // "agent" | "group" | "main_agent_orchestration"
+	AgentName            string   `json:"agentName,omitempty"`
+	AgentNames           []string `json:"agentNames,omitempty"`
+	SelectedParticipants []string `json:"selectedParticipants,omitempty"`
 }
 
 // PlanParticipant describes one agent participant in a plan.

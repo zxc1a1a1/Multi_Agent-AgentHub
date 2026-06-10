@@ -39,6 +39,14 @@ export function normalizeActivityToPlanData(
           isMainAgent: activity.planOwner.isMainAgent,
         }
       : undefined,
+    executionOwner: activity.executionOwner
+      ? {
+          type: activity.executionOwner.type,
+          agentName: activity.executionOwner.agentName,
+          agentNames: activity.executionOwner.agentNames,
+          selectedParticipants: activity.executionOwner.selectedParticipants,
+        }
+      : undefined,
     tasks,
     participants,
     strategy: undefined,
