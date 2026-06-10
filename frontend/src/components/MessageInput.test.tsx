@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeAll } from 'vitest'
 import MessageInput from './MessageInput'
 
@@ -88,8 +88,9 @@ describe('MessageInput — @mention extraction', () => {
     const textarea = screen.getByPlaceholderText(/Use @agent-name to mention/)
     fireEvent.change(textarea, { target: { value: 'Hello @code-agent' } })
 
-    expect(screen.getByText('Mentioning:')).toBeInTheDocument()
-    expect(screen.getByText('@code-agent')).toBeInTheDocument()
+    const indicator = screen.getByTestId('mentioning-indicator')
+    expect(within(indicator).getByText('Mentioning:')).toBeInTheDocument()
+    expect(within(indicator).getByText('@code-agent')).toBeInTheDocument()
   })
 
   it('does not submit empty message', () => {

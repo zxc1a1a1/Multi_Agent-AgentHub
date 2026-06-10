@@ -718,6 +718,66 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         return
       }
 
+      // confirm_plan: legacy TOOL_CALL path for plan confirmation
+      // (ACTIVITY_SNAPSHOT with activityType=plan_approval is the primary path)
+      if (toolName === 'confirm_plan') {
+        const confirmRunId = getStringField(args, 'runId') || ''
+        const confirmPlanId = getStringField(args, 'planId') || ''
+        const confirmPlannedAgents: string[] = Array.isArray(args.plannedAgents)
+          ? args.plannedAgents.map((a: unknown) => String(a))
+          : []
+        const confirmParticipants: PendingConfirmation['participants'] = Array.isArray(args.participants)
+          ? args.participants.map((p: unknown) => {
+              if (p && typeof p === 'object') {
+                const obj = p as Record<string, unknown>
+                return {
+                  agentName: String(obj.agentName || ''),
+                  role: typeof obj.role === 'string' ? obj.role : 'executor',
+                  required: typeof obj.required === 'boolean' ? obj.required : undefined,
+                  selected: typeof obj.selected === 'boolean' ? obj.selected : undefined,
+                }
+              }
+              return { agentName: '', role: 'executor' as const }
+            })
+          : undefined
+        const confirmTasks: PendingConfirmation['tasks'] = Array.isArray(args.tasks)
+          ? args.tasks.map((t: unknown) => {
+              if (t && typeof t === 'object') {
+                const task = t as Record<string, unknown>
+                return {
+                  taskId: getStringField(task, 'taskId') || undefined,
+                  agentName: getStringField(task, 'agentName') || '',
+                  content: getStringField(task, 'content') || undefined,
+                  dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn.map((d: unknown) => String(d)) : undefined,
+                  priority: typeof task.priority === 'number' ? task.priority : undefined,
+                  riskLevel: getStringField(task, 'riskLevel') || undefined,
+                }
+              }
+              return { agentName: '' }
+            })
+          : []
+        set((s) => ({
+          confirmationByConversation: {
+            ...s.confirmationByConversation,
+            [conversationId]: {
+              runId: confirmRunId,
+              actionId: confirmPlanId,
+              planId: confirmPlanId,
+              revision: typeof args.revision === 'number' ? args.revision : undefined,
+              executionPath: getStringField(args, 'executionPath') || undefined,
+              agentNames: confirmPlannedAgents,
+              participants: confirmParticipants,
+              tasks: confirmTasks,
+              intentSummary: getStringField(args, 'intentSummary') || getStringField(args, 'summary') || undefined,
+              strategy: getStringField(args, 'strategy') || undefined,
+              warnings: Array.isArray(args.warnings) ? args.warnings.map((w: unknown) => String(w)) : undefined,
+              status: 'pending' as const,
+            },
+          },
+        }))
+        return
+      }
+
       // Unknown tool → fallback card
       skillCards.push({
         type: 'unknown_skill',

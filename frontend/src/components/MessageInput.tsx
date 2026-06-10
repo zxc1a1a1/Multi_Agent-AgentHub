@@ -247,7 +247,7 @@ export default function MessageInput({
         )}
       </div>
       {mentions.length > 0 && (
-        <div className="max-w-3xl mx-auto mt-1.5 flex items-center gap-1.5 text-xs text-indigo-600">
+        <div data-testid="mentioning-indicator" className="max-w-3xl mx-auto mt-1.5 flex items-center gap-1.5 text-xs text-indigo-600">
           <AtSign className="w-3 h-3" />
           <span>Mentioning:</span>
           {mentions.map((m) => (
