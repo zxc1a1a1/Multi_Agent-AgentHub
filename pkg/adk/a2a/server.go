@@ -15,9 +15,10 @@ import (
 
 // Server is a minimal A2A HTTP server backed by ADK Runner.
 type Server struct {
-	config *AgentConfig
-	runner *adk.Runner
-	mux    *http.ServeMux
+	config    *AgentConfig
+	runner    *adk.Runner
+	mux       *http.ServeMux
+	taskStore *TaskStore
 }
 
 type runRequest struct {
@@ -86,14 +87,35 @@ func RunModeFromContext(ctx context.Context) string {
 }
 
 // NewServer creates a minimal A2A server with default handlers.
-func NewServer(config *AgentConfig, runner *adk.Runner) *Server {
+func NewServer(config *AgentConfig, runner *adk.Runner, opts ...ServerOption) *Server {
 	s := &Server{
-		config: config,
-		runner: runner,
-		mux:    http.NewServeMux(),
+		config:    config,
+		runner:    runner,
+		mux:       http.NewServeMux(),
+		taskStore: NewTaskStore(),
+	}
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		opt(s)
 	}
 	s.routes()
 	return s
+}
+
+// ServerOption customizes Server behavior.
+type ServerOption func(*Server)
+
+// WithTaskStore injects a TaskStore for task lifecycle management.
+// When nil, task lifecycle endpoints (get/cancel) return 501 Not Implemented.
+func WithTaskStore(ts *TaskStore) ServerOption {
+	return func(s *Server) {
+		if s == nil || ts == nil {
+			return
+		}
+		s.taskStore = ts
+	}
 }
 
 // Handler returns the configured HTTP handler.
@@ -114,6 +136,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/.well-known/agent.json", s.handleAgentCard)
 	s.mux.HandleFunc("/", s.handleRunRoot)
 	s.mux.HandleFunc("/a2a/tasks/sendSubscribe", s.handleRunSendSubscribe)
+	s.mux.HandleFunc("/a2a/tasks/get", s.handleTaskGet)
+	s.mux.HandleFunc("/a2a/tasks/cancel", s.handleTaskCancel)
+	s.mux.HandleFunc("/a2a/tasks/message", s.handleTaskMessage)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -188,25 +213,50 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
+	taskID := buildTaskID(reqPayload.SessionID)
+
+	// Create a cancellable context and register the task in TaskStore.
+	// This is done after validation so early returns don't leak the context.
+	runCtx, cancel := context.WithCancel(r.Context())
+	defer cancel() // Always clean up the context; TaskStore.Cancel also calls it.
+
+	if s.taskStore != nil {
+		s.taskStore.Create(taskID, reqPayload.SessionID, cancel)
+	}
+
 	// When client accepts text/event-stream, stream each event as an SSE frame
 	// so the remote dispatcher receives partial output incrementally.
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-		s.handleRunSSE(ContextWithRunMode(r.Context(), reqPayload.Mode), w, r, reqPayload.SessionID, content)
+		w.Header().Set("X-A2A-Task-ID", taskID)
+		s.handleRunSSE(ContextWithRunMode(runCtx, reqPayload.Mode), w, reqPayload.SessionID, content, taskID)
 		return
 	}
 
 	// Buffered fallback: collect all events and return as single JSON response.
 	events := make([]eventDTO, 0)
-	for event, runErr := range s.runner.Run(ContextWithRunMode(r.Context(), reqPayload.Mode), reqPayload.SessionID, content) {
-		if runErr != nil {
-			writeError(w, http.StatusInternalServerError, "internal_error", sanitizeError(runErr))
-			return
+	var runErr error
+	for event, evErr := range s.runner.Run(ContextWithRunMode(runCtx, reqPayload.Mode), reqPayload.SessionID, content) {
+		if evErr != nil {
+			runErr = evErr
+			break
 		}
 		events = append(events, toEventDTO(event))
 	}
 
+	if runErr != nil {
+		if s.taskStore != nil {
+			s.taskStore.Fail(taskID, runErr)
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", sanitizeError(runErr))
+		return
+	}
+
+	if s.taskStore != nil {
+		s.taskStore.Complete(taskID)
+	}
+
 	resp := runResponse{
-		TaskID: buildTaskID(reqPayload.SessionID),
+		TaskID: taskID,
 		Status: "completed",
 		Events: events,
 	}
@@ -216,9 +266,12 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 // handleRunSSE streams agent events as SSE data frames. Each event from the
 // runner is serialized as a JSON frame and flushed immediately so the remote
 // dispatcher receives partial text chunks in real time.
-func (s *Server) handleRunSSE(ctx context.Context, w http.ResponseWriter, r *http.Request, sessionID string, content *adk.Content) {
+func (s *Server) handleRunSSE(ctx context.Context, w http.ResponseWriter, sessionID string, content *adk.Content, taskID string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		if s.taskStore != nil {
+			s.taskStore.Fail(taskID, fmt.Errorf("streaming unsupported"))
+		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "streaming unsupported")
 		return
 	}
@@ -227,18 +280,13 @@ func (s *Server) handleRunSSE(ctx context.Context, w http.ResponseWriter, r *htt
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
 
-	for event, runErr := range s.runner.Run(ctx, sessionID, content) {
-		if runErr != nil {
-			payload, _ := json.Marshal(runResponse{
-				Error: &responseError{
-					Code:    "internal_error",
-					Message: sanitizeError(runErr),
-				},
-			})
-			fmt.Fprintf(w, "data: %s\n\n", payload)
-			flusher.Flush()
-			return
+	var runErr error
+	for event, evErr := range s.runner.Run(ctx, sessionID, content) {
+		if evErr != nil {
+			runErr = evErr
+			break
 		}
 		dto := toEventDTO(event)
 		payload, err := json.Marshal(dto)
@@ -249,8 +297,235 @@ func (s *Server) handleRunSSE(ctx context.Context, w http.ResponseWriter, r *htt
 		flusher.Flush()
 	}
 
+	if runErr != nil {
+		if s.taskStore != nil {
+			s.taskStore.Fail(taskID, runErr)
+		}
+		payload, _ := json.Marshal(runResponse{
+			Error: &responseError{
+				Code:    "internal_error",
+				Message: sanitizeError(runErr),
+			},
+		})
+		fmt.Fprintf(w, "data: %s\n\n", payload)
+		flusher.Flush()
+		return
+	}
+
+	if s.taskStore != nil {
+		s.taskStore.Complete(taskID)
+	}
+
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
+}
+
+// handleTaskGet handles POST /a2a/tasks/get — returns the current task state.
+func (s *Server) handleTaskGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if s.taskStore == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "task store not available")
+		return
+	}
+
+	taskID, err := decodeTaskIDRequest(r, "tasks/get")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+
+	task, ok := s.taskStore.Get(taskID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found", "task not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+// handleTaskCancel handles POST /a2a/tasks/cancel — cancels a running task.
+func (s *Server) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if s.taskStore == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "task store not available")
+		return
+	}
+
+	taskID, err := decodeTaskIDRequest(r, "tasks/cancel")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+
+	task, ok := s.taskStore.Cancel(taskID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found", "task not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+// handleTaskMessage handles POST /a2a/tasks/message — attaches a follow-up
+// tool message to an existing task/session without creating a new task. The
+// minimal A2A server records the task/session association and returns an event
+// echoing the tool message so callers can assert the message reached the same
+// task.
+func (s *Server) handleTaskMessage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if s.taskStore == nil {
+		writeError(w, http.StatusNotImplemented, "not_implemented", "task store not available")
+		return
+	}
+
+	req, err := decodeTaskMessageRequest(r, "tasks/message")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	task, ok := s.taskStore.Get(req.TaskID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found", "task not found")
+		return
+	}
+	if isTerminalTaskStatus(task.Status) {
+		writeError(w, http.StatusConflict, "task_terminal", "task is already terminal")
+		return
+	}
+
+	role := strings.TrimSpace(req.Message.Role)
+	if role == "" {
+		role = string(adk.RoleTool)
+	}
+	if _, err := parseRole(role); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	content := strings.TrimSpace(req.Message.Content)
+	if content == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "message.content is required")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, runResponse{
+		TaskID: req.TaskID,
+		Status: string(task.Status),
+		Events: []eventDTO{{
+			Author: "tool",
+			Role:   role,
+			Parts: []partDTO{{
+				Type: "tool_result",
+				Text: content,
+			}},
+			Final: true,
+		}},
+	})
+}
+
+// decodeTaskIDRequest parses a task ID request body, supporting both direct
+// {"taskId":"..."} and JSON-RPC {"jsonrpc":"2.0","method":"tasks/get","params":{"taskId":"..."}}
+// formats. expectedMethod is used to validate the JSON-RPC method field.
+func decodeTaskIDRequest(r *http.Request, expectedMethod string) (taskID string, err error) {
+	if r == nil || r.Body == nil {
+		return "", fmt.Errorf("invalid json request")
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		return "", fmt.Errorf("invalid json request")
+	}
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return "", fmt.Errorf("invalid json request")
+	}
+
+	// Try direct format: {"taskId": "..."}
+	var direct taskIDRequest
+	if decodeErr := decodeStrictJSON(body, &direct); decodeErr == nil {
+		if taskID := strings.TrimSpace(direct.TaskID); taskID != "" {
+			return taskID, nil
+		}
+	}
+
+	// Try JSON-RPC format: {"jsonrpc":"2.0","method":"tasks/get","params":{"taskId":"..."}}
+	var rpc rpcRequest
+	if decodeErr := decodeStrictJSON(body, &rpc); decodeErr != nil {
+		return "", fmt.Errorf("invalid json request")
+	}
+	if method := strings.TrimSpace(rpc.Method); method != expectedMethod {
+		return "", fmt.Errorf("unsupported method")
+	}
+	if len(bytes.TrimSpace(rpc.Params)) == 0 {
+		return "", fmt.Errorf("params is required")
+	}
+
+	var params taskIDRequest
+	if decodeErr := decodeStrictJSON(rpc.Params, &params); decodeErr != nil {
+		return "", fmt.Errorf("invalid json request")
+	}
+	taskID = strings.TrimSpace(params.TaskID)
+	if taskID == "" {
+		return "", fmt.Errorf("taskId is required")
+	}
+	return taskID, nil
+}
+
+func decodeTaskMessageRequest(r *http.Request, expectedMethod string) (*taskMessageRequest, error) {
+	if r == nil || r.Body == nil {
+		return nil, fmt.Errorf("invalid json request")
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("invalid json request")
+	}
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return nil, fmt.Errorf("invalid json request")
+	}
+	var direct taskMessageRequest
+	if decodeErr := decodeStrictJSON(body, &direct); decodeErr == nil {
+		direct.TaskID = strings.TrimSpace(direct.TaskID)
+		if direct.TaskID != "" && direct.Message != nil {
+			direct.Message.Content = strings.TrimSpace(direct.Message.Content)
+			if direct.Message.Content == "" {
+				return nil, fmt.Errorf("message.content is required")
+			}
+			return &direct, nil
+		}
+	}
+	var rpc rpcRequest
+	if decodeErr := decodeStrictJSON(body, &rpc); decodeErr != nil {
+		return nil, fmt.Errorf("invalid json request")
+	}
+	if method := strings.TrimSpace(rpc.Method); method != expectedMethod {
+		return nil, fmt.Errorf("unsupported method")
+	}
+	if len(bytes.TrimSpace(rpc.Params)) == 0 {
+		return nil, fmt.Errorf("params is required")
+	}
+	var params taskMessageRequest
+	if decodeErr := decodeStrictJSON(rpc.Params, &params); decodeErr != nil {
+		return nil, fmt.Errorf("invalid json request")
+	}
+	params.TaskID = strings.TrimSpace(params.TaskID)
+	if params.TaskID == "" {
+		return nil, fmt.Errorf("taskId is required")
+	}
+	if params.Message == nil {
+		return nil, fmt.Errorf("message is required")
+	}
+	params.Message.Content = strings.TrimSpace(params.Message.Content)
+	if params.Message.Content == "" {
+		return nil, fmt.Errorf("message.content is required")
+	}
+	return &params, nil
 }
 
 func decodeRunRequest(r *http.Request) (*runRequest, error) {

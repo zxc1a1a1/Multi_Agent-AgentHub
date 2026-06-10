@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/validator"
 )
 
@@ -105,7 +107,11 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// --- Phase 1: executionPath derivation + agent selection validation ---
-	availableAgentNames := s.registry.Names()
+	availableAgentNames, err := s.dispatchResolver().Names(r.Context())
+	if err != nil {
+		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_INTERNAL", "failed to list available agents")
+		return
+	}
 
 	// The Orchestrator is the authoritative source for executionPath derivation.
 	// We always derive locally from req.RequestedPath / req.AgentName /
@@ -167,7 +173,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure mainAgentPlanner has a production default.
 	if s.mainAgentPlanner == nil {
-		s.mainAgentPlanner = planner.NewMainAgent(nil, "", newRegistryAgentLister(s.registry))
+		s.mainAgentPlanner = planner.NewMainAgent(nil, "", newResolverAgentLister(s.dispatchResolver()))
 	}
 
 	orchPlan, planErr := s.mainAgentPlanner.Plan(r.Context(), plannerInput)
@@ -176,6 +182,10 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 			"MainAgent failed to generate plan")
 		return
 	}
+
+	// Normalize: the request runID is authoritative. Ensures RunTaskRegistry
+	// operations (RegisterRun, RegisterTask, GetTasks, CancelRun) use the same key.
+	orchPlan.RunID = runID
 
 	if orchPlan.Strategy == plan.StrategySingle && len(orchPlan.Tasks) == 0 {
 		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED", "Orchestration plan has no tasks")
@@ -196,7 +206,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate the plan before execution.
-	planValidator := validator.New(s.registry)
+	planValidator := validator.New(&validatorRegistryAdapter{resolver: s.dispatchResolver()})
 	validationResult := planValidator.Validate(orchPlan)
 	if !validationResult.Valid {
 		details := make([]map[string]string, 0, len(validationResult.Errors))
@@ -587,17 +597,27 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		orchPlan = &execPlan
 	}
 
+	// Register a cancellable local run context. Real remote A2A task IDs are
+	// registered later when the dispatcher receives them from child agents. Do
+	// not pre-register plan.TaskID as a remote A2A task ID.
+	execCtx, execCancel := context.WithCancel(r.Context())
+	if s.runTaskRegistry != nil {
+		s.runTaskRegistry.RegisterRun(runID, execCancel)
+		defer s.runTaskRegistry.RemoveRun(runID)
+	}
+	r = r.WithContext(execCtx)
+
 	switch orchPlan.Strategy {
 	case plan.StrategyConversational:
 		s.handleConversational(w, flusher, runID, msgID)
 	case plan.StrategySingle:
 		s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
-			executor.NewSingleExecutor(s.registry, s.dispatcher,
+			executor.NewSingleExecutor(s.dispatchResolver(), s.dispatcher,
 				executor.WithSingleSynthesizer(s.synthesizer)))
 	case plan.StrategyOrderedParallel, plan.StrategySequential:
 		// All strategies execute serially in original plan.Tasks order.
 		s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
-			executor.NewSerialExecutor(s.registry, s.dispatcher,
+			executor.NewSerialExecutor(s.dispatchResolver(), s.dispatcher,
 				executor.WithSerialSynthesizer(s.synthesizer)))
 	}
 
@@ -686,9 +706,44 @@ func conversationalResponse() string {
 // execution event into an SSE event the moment it is produced, flushing after
 // each one so the client receives partial output without head-of-line latency.
 func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http.Flusher, r *http.Request, orchPlan *plan.OrchestrationPlan, msgID string, exec executor.StreamingExecutor) {
+	cancelledEmitted := false
+	emitCancelled := func() {
+		if cancelledEmitted {
+			return
+		}
+		cancelledEmitted = true
+		s.emitEvent(w, flusher, agui.InternalStreamEvent{
+			Type:  agui.InternalTypeStateUpdate,
+			RunID: orchPlan.RunID,
+			State: map[string]any{"phase": "cancelled"},
+		})
+		s.emitEvent(w, flusher, agui.InternalStreamEvent{
+			Type:  agui.InternalTypeRunFinished,
+			RunID: orchPlan.RunID,
+			State: map[string]any{"status": "cancelled"},
+		})
+	}
+
 	emit := func(evt executor.ExecutionEvent) bool {
+		if evt.Type == executor.InternalTypeTaskRefRegistered {
+			if s.runTaskRegistry != nil && evt.RemoteTaskID != "" {
+				s.runTaskRegistry.RegisterTask(orchPlan.RunID, registry.TaskRef{
+					TaskID:    evt.RemoteTaskID,
+					AgentName: evt.AgentName,
+					AgentURL:  evt.AgentURL,
+				})
+			}
+			return true
+		}
+		if evt.Type == agui.InternalTypeRunError && s.runTaskRegistry != nil && s.runTaskRegistry.IsCancelled(orchPlan.RunID) {
+			emitCancelled()
+			return false
+		}
 		if err := r.Context().Err(); err != nil {
-			return false // client disconnected; stop the executor
+			if s.runTaskRegistry != nil && s.runTaskRegistry.IsCancelled(orchPlan.RunID) {
+				emitCancelled()
+			}
+			return false // client disconnected or run cancelled; stop the executor
 		}
 		sse := agui.InternalStreamEvent{
 			Type:      evt.Type,
@@ -714,6 +769,10 @@ func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http
 	}
 
 	if err := exec.ExecuteStream(r.Context(), orchPlan, msgID, emit); err != nil {
+		if s.runTaskRegistry != nil && s.runTaskRegistry.IsCancelled(orchPlan.RunID) {
+			emitCancelled()
+			return
+		}
 		s.emitEvent(w, flusher, agui.InternalStreamEvent{
 			Type:  agui.InternalTypeRunError,
 			RunID: orchPlan.RunID,
@@ -729,6 +788,15 @@ func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http
 		}
 		s.hitlMu.Unlock()
 	} else {
+		if s.runTaskRegistry != nil && s.runTaskRegistry.IsCancelled(orchPlan.RunID) {
+			emitCancelled()
+			s.hitlMu.Lock()
+			if pp, ok := s.pendingPlanStates[orchPlan.RunID]; ok {
+				pp.Status = PlanStatusCancelled
+			}
+			s.hitlMu.Unlock()
+			return
+		}
 		// Mark PendingPlan as completed on success.
 		s.hitlMu.Lock()
 		if pp, ok := s.pendingPlanStates[orchPlan.RunID]; ok {
@@ -947,7 +1015,12 @@ func buildRevisionPlanOnlyMessage(originalUserText, feedback string, nextRevisio
 // closed loop for Phase 2. The agent generates a plan (not the Planner), the user approves
 // or cancels, and on approval the same agent executes on the same SSE stream.
 func (s *Server) handlePlanOnlySingleChat(w http.ResponseWriter, flusher http.Flusher, r *http.Request, runID, convID, msgID, userText string, req OrchestratorRequest, selResult executionpath.AgentSelectionResult, planOnlyAgent string) {
-	ep, ok := s.registry.Get(planOnlyAgent)
+	agentURL, ok, err := s.dispatchResolver().ResolveURL(r.Context(), planOnlyAgent)
+	if err != nil {
+		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_INTERNAL",
+			"failed to resolve agent: "+planOnlyAgent)
+		return
+	}
 	if !ok {
 		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_AGENT_NOT_FOUND",
 			"agent not found in registry: "+planOnlyAgent)
@@ -955,7 +1028,7 @@ func (s *Server) handlePlanOnlySingleChat(w http.ResponseWriter, flusher http.Fl
 	}
 
 	planResult, err := s.dispatcher.Dispatch(r.Context(), dispatcher.DispatchInput{
-		AgentURL:       ep.URL,
+		AgentURL:       agentURL,
 		AgentName:      planOnlyAgent,
 		ConversationID: convID,
 		RunID:          runID,
@@ -1063,7 +1136,7 @@ func (s *Server) handlePlanOnlySingleChat(w http.ResponseWriter, flusher http.Fl
 	}
 
 	// Run through plan validator.
-	planValidator := validator.New(s.registry)
+	planValidator := validator.New(&validatorRegistryAdapter{resolver: s.dispatchResolver()})
 	validationResult := planValidator.Validate(orchPlan)
 	if !validationResult.Valid {
 		details := make([]map[string]string, 0, len(validationResult.Errors))
@@ -1170,7 +1243,7 @@ confirmLoop:
 					orchPlan.IntentSummary,
 				)
 				planResult, err := s.dispatcher.Dispatch(r.Context(), dispatcher.DispatchInput{
-					AgentURL:       ep.URL,
+					AgentURL:       agentURL,
 					AgentName:      planOnlyAgent,
 					ConversationID: convID,
 					RunID:          runID,
@@ -1505,7 +1578,8 @@ confirmLoop:
 	if len(execPlan.Tasks) > 0 {
 		execPlan.Tasks[0].TaskContent = executeUserText
 	}
+	s.registerRunTasks(r.Context(), execPlan)
 	s.executeViaStreamingExecutor(w, flusher, r, execPlan, msgID,
-		executor.NewSingleExecutor(s.registry, s.dispatcher,
+		executor.NewSingleExecutor(s.dispatchResolver(), s.dispatcher,
 			executor.WithSingleSynthesizer(s.synthesizer)))
 }

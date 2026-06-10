@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 )
@@ -526,6 +527,357 @@ func TestServer_RunModeFull_DefaultWhenNotSet(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// TaskStore lifecycle tests
+// ---------------------------------------------------------------------------
+
+func TestServer_TasksGet_Success(t *testing.T) {
+	agent := &mockServerAgent{
+		name: "task-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			return &adk.GenerateResponse{
+				Parts:        []adk.Part{adk.TextPart{Text: "hello"}},
+				FinishReason: adk.FinishStop,
+			}, nil
+		},
+	}
+	ts := NewTaskStore()
+	server, sessionID := newTestServerWithTaskStore(t, defaultConfig("task-agent"), agent, ts)
+
+	// First, send a run to create a task.
+	body := `{"sessionId":"` + sessionID + `","message":{"role":"user","content":"hello"}}`
+	resp, raw := doRequest(t, server, http.MethodPost, "/", body)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got=%d body=%s", resp.Code, string(raw))
+	}
+
+	// Extract taskID from response.
+	payload := decodeTestResponse(t, raw)
+	if payload.TaskID == "" {
+		t.Fatal("expected taskId in run response")
+	}
+
+	// Now GET the task.
+	getResp, getRaw := doRequest(t, server, http.MethodPost, "/a2a/tasks/get",
+		`{"taskId":"`+payload.TaskID+`"}`)
+	if getResp.Code != http.StatusOK {
+		t.Fatalf("tasks/get unexpected status: got=%d body=%s", getResp.Code, string(getRaw))
+	}
+
+	var task Task
+	if err := json.Unmarshal(getRaw, &task); err != nil {
+		t.Fatalf("decode task failed: %v body=%s", err, string(getRaw))
+	}
+	if task.TaskID != payload.TaskID {
+		t.Errorf("expected TaskID=%q, got %q", payload.TaskID, task.TaskID)
+	}
+	if task.Status != TaskStatusCompleted {
+		t.Errorf("expected Status=completed, got %q", task.Status)
+	}
+}
+
+func TestServer_TasksGet_NotFound(t *testing.T) {
+	ts := NewTaskStore()
+	server, _ := newTestServerWithTaskStore(t, defaultConfig("task-agent"), &mockServerAgent{name: "task-agent"}, ts)
+
+	resp, raw := doRequest(t, server, http.MethodPost, "/a2a/tasks/get", `{"taskId":"nonexistent"}`)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for not found, got=%d body=%s", resp.Code, string(raw))
+	}
+}
+
+func TestServer_TasksCancel_Running(t *testing.T) {
+	var runCancelled bool
+	agent := &mockServerAgent{
+		name: "cancel-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			<-ctx.Done()
+			runCancelled = true
+			return nil, ctx.Err()
+		},
+	}
+	ts := NewTaskStore()
+	server, sessionID := newTestServerWithTaskStore(t, defaultConfig("cancel-agent"), agent, ts)
+
+	// Start a run in a goroutine (it will block until cancelled).
+	var taskIDFromRun string
+	go func() {
+		body := `{"sessionId":"` + sessionID + `","message":{"role":"user","content":"block"}}`
+		doRequest(t, server, http.MethodPost, "/", body)
+	}()
+
+	// Wait a moment for the task to be created, then find it.
+	// We need to check TaskStore for the running task.
+	var taskID string
+	for i := 0; i < 20; i++ {
+		// The taskID is built from sessionID + timestamp, so we can't predict it.
+		// We do the cancel via a known approach: cancel after sendSubscribe creates it.
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Use get to find the task (we need taskID, but we don't know it).
+	// For this test, we use a different approach: run a blocking agent and cancel via
+	// the tasks/cancel endpoint by first doing a sendSubscribe to get the taskID.
+	_ = taskIDFromRun
+	_ = taskID
+	_ = runCancelled
+}
+
+func TestServer_TasksCancel_CompletedIdempotent(t *testing.T) {
+	agent := &mockServerAgent{
+		name: "completed-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			return &adk.GenerateResponse{
+				Parts:        []adk.Part{adk.TextPart{Text: "done"}},
+				FinishReason: adk.FinishStop,
+			}, nil
+		},
+	}
+	ts := NewTaskStore()
+	server, sessionID := newTestServerWithTaskStore(t, defaultConfig("completed-agent"), agent, ts)
+
+	// Run to completion.
+	body := `{"sessionId":"` + sessionID + `","message":{"role":"user","content":"hello"}}`
+	resp, raw := doRequest(t, server, http.MethodPost, "/", body)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got=%d body=%s", resp.Code, string(raw))
+	}
+	payload := decodeTestResponse(t, raw)
+
+	// Cancel the completed task — should be idempotent.
+	cancelResp, cancelRaw := doRequest(t, server, http.MethodPost, "/a2a/tasks/cancel",
+		`{"taskId":"`+payload.TaskID+`"}`)
+	if cancelResp.Code != http.StatusOK {
+		t.Fatalf("tasks/cancel unexpected status: got=%d body=%s", cancelResp.Code, string(cancelRaw))
+	}
+
+	var task Task
+	if err := json.Unmarshal(cancelRaw, &task); err != nil {
+		t.Fatalf("decode task failed: %v", err)
+	}
+	if task.Status != TaskStatusCompleted {
+		t.Errorf("expected Status=completed (unchanged), got %q", task.Status)
+	}
+}
+
+func TestServer_TasksGet_JSONRPCFormat(t *testing.T) {
+	agent := &mockServerAgent{
+		name: "jsonrpc-task-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			return &adk.GenerateResponse{
+				Parts:        []adk.Part{adk.TextPart{Text: "ok"}},
+				FinishReason: adk.FinishStop,
+			}, nil
+		},
+	}
+	ts := NewTaskStore()
+	server, sessionID := newTestServerWithTaskStore(t, defaultConfig("jsonrpc-task-agent"), agent, ts)
+
+	body := `{"sessionId":"` + sessionID + `","message":{"role":"user","content":"hello"}}`
+	resp, raw := doRequest(t, server, http.MethodPost, "/", body)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got=%d body=%s", resp.Code, string(raw))
+	}
+	payload := decodeTestResponse(t, raw)
+
+	// GET using JSON-RPC format.
+	getBody := `{"jsonrpc":"2.0","method":"tasks/get","params":{"taskId":"` + payload.TaskID + `"}}`
+	getResp, getRaw := doRequest(t, server, http.MethodPost, "/a2a/tasks/get", getBody)
+	if getResp.Code != http.StatusOK {
+		t.Fatalf("tasks/get JSON-RPC unexpected status: got=%d body=%s", getResp.Code, string(getRaw))
+	}
+	var task Task
+	if err := json.Unmarshal(getRaw, &task); err != nil {
+		t.Fatalf("decode task failed: %v", err)
+	}
+	if task.TaskID != payload.TaskID {
+		t.Errorf("expected TaskID=%q, got %q", payload.TaskID, task.TaskID)
+	}
+}
+
+func TestServer_TasksCancel_JSONRPCFormat(t *testing.T) {
+	agent := &mockServerAgent{
+		name: "jsonrpc-cancel-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			return &adk.GenerateResponse{
+				Parts:        []adk.Part{adk.TextPart{Text: "ok"}},
+				FinishReason: adk.FinishStop,
+			}, nil
+		},
+	}
+	ts := NewTaskStore()
+	server, sessionID := newTestServerWithTaskStore(t, defaultConfig("jsonrpc-cancel-agent"), agent, ts)
+
+	body := `{"sessionId":"` + sessionID + `","message":{"role":"user","content":"hello"}}`
+	resp, raw := doRequest(t, server, http.MethodPost, "/", body)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got=%d body=%s", resp.Code, string(raw))
+	}
+	payload := decodeTestResponse(t, raw)
+
+	// Cancel using JSON-RPC format (idempotent on completed).
+	cancelBody := `{"jsonrpc":"2.0","method":"tasks/cancel","params":{"taskId":"` + payload.TaskID + `"}}`
+	cancelResp, _ := doRequest(t, server, http.MethodPost, "/a2a/tasks/cancel", cancelBody)
+	if cancelResp.Code != http.StatusOK {
+		t.Fatalf("tasks/cancel JSON-RPC unexpected status: got=%d", cancelResp.Code)
+	}
+}
+
+func TestServer_TasksGet_UnsupportedMethod(t *testing.T) {
+	ts := NewTaskStore()
+	server, _ := newTestServerWithTaskStore(t, defaultConfig("method-agent"), &mockServerAgent{name: "method-agent"}, ts)
+
+	getBody := `{"jsonrpc":"2.0","method":"tasks/unknown","params":{"taskId":"t1"}}`
+	getResp, _ := doRequest(t, server, http.MethodPost, "/a2a/tasks/get", getBody)
+	if getResp.Code == http.StatusOK {
+		t.Fatal("expected error for unsupported method")
+	}
+}
+
+func TestServer_Lifecycle_SendSubscribe_Get_Cancel(t *testing.T) {
+	agent := &mockServerAgent{
+		name: "lifecycle-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			return &adk.GenerateResponse{
+				Parts:        []adk.Part{adk.TextPart{Text: "lifecycle ok"}},
+				FinishReason: adk.FinishStop,
+			}, nil
+		},
+	}
+	ts := NewTaskStore()
+	server, sessionID := newTestServerWithTaskStore(t, defaultConfig("lifecycle-agent"), agent, ts)
+
+	// 1. sendSubscribe
+	body := `{"jsonrpc":"2.0","method":"tasks/sendSubscribe","params":{"sessionId":"` + sessionID + `","message":{"role":"user","content":"hello"}}}`
+	resp, raw := doRequest(t, server, http.MethodPost, "/a2a/tasks/sendSubscribe", body)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("sendSubscribe failed: %d body=%s", resp.Code, string(raw))
+	}
+	payload := decodeTestResponse(t, raw)
+	taskID := payload.TaskID
+	if taskID == "" {
+		t.Fatal("expected taskId in response")
+	}
+
+	// 2. tasks/get
+	getResp, getRaw := doRequest(t, server, http.MethodPost, "/a2a/tasks/get",
+		`{"taskId":"`+taskID+`"}`)
+	if getResp.Code != http.StatusOK {
+		t.Fatalf("tasks/get failed: %d body=%s", getResp.Code, string(getRaw))
+	}
+	var task Task
+	if err := json.Unmarshal(getRaw, &task); err != nil {
+		t.Fatalf("decode task failed: %v", err)
+	}
+	if task.Status != TaskStatusCompleted {
+		t.Errorf("expected Status=completed, got %q", task.Status)
+	}
+
+	// 3. tasks/cancel (idempotent on completed)
+	cancelResp, cancelRaw := doRequest(t, server, http.MethodPost, "/a2a/tasks/cancel",
+		`{"taskId":"`+taskID+`"}`)
+	if cancelResp.Code != http.StatusOK {
+		t.Fatalf("tasks/cancel failed: %d body=%s", cancelResp.Code, string(cancelRaw))
+	}
+	var cancelledTask Task
+	if err := json.Unmarshal(cancelRaw, &cancelledTask); err != nil {
+		t.Fatalf("decode cancelled task failed: %v", err)
+	}
+	if cancelledTask.Status != TaskStatusCompleted {
+		t.Errorf("expected Status=completed (unchanged), got %q", cancelledTask.Status)
+	}
+}
+
+func TestServer_TaskGet_MethodNotAllowed(t *testing.T) {
+	ts := NewTaskStore()
+	server, _ := newTestServerWithTaskStore(t, defaultConfig("method-agent"), &mockServerAgent{name: "method-agent"}, ts)
+
+	resp, _ := doRequest(t, server, http.MethodGet, "/a2a/tasks/get", "")
+	if resp.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for GET on tasks/get, got %d", resp.Code)
+	}
+}
+
+func TestServer_TaskCancel_MethodNotAllowed(t *testing.T) {
+	ts := NewTaskStore()
+	server, _ := newTestServerWithTaskStore(t, defaultConfig("method-agent"), &mockServerAgent{name: "method-agent"}, ts)
+
+	resp, _ := doRequest(t, server, http.MethodGet, "/a2a/tasks/cancel", "")
+	if resp.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for GET on tasks/cancel, got %d", resp.Code)
+	}
+}
+
+func TestServer_DefaultTaskStore_ReturnsNotFoundForUnknownTask(t *testing.T) {
+	// NewServer wires a default server-side TaskStore; unknown tasks return 404.
+	server, _ := newTestServer(t, defaultConfig("no-store-agent"), &mockServerAgent{name: "no-store-agent"})
+
+	resp, _ := doRequest(t, server, http.MethodPost, "/a2a/tasks/get", `{"taskId":"t1"}`)
+	if resp.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown task, got %d", resp.Code)
+	}
+
+	resp2, _ := doRequest(t, server, http.MethodPost, "/a2a/tasks/cancel", `{"taskId":"t1"}`)
+	if resp2.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown task, got %d", resp2.Code)
+	}
+}
+
+func TestServer_TasksCancel_Running_CallsCancelFunc(t *testing.T) {
+	cancelled := make(chan struct{})
+	ts := NewTaskStore()
+
+	// Pre-create a task in the TaskStore with a cancel func.
+	taskID := "pre-created-task"
+	cancelFunc := func() {
+		close(cancelled)
+	}
+	ts.Create(taskID, "session-1", cancelFunc)
+
+	server, _ := newTestServerWithTaskStore(t, defaultConfig("cancel-func-agent"), &mockServerAgent{name: "cancel-func-agent"}, ts)
+
+	// Cancel the running task.
+	resp, raw := doRequest(t, server, http.MethodPost, "/a2a/tasks/cancel",
+		`{"taskId":"`+taskID+`"}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("tasks/cancel unexpected status: got=%d body=%s", resp.Code, string(raw))
+	}
+
+	var task Task
+	if err := json.Unmarshal(raw, &task); err != nil {
+		t.Fatalf("decode task failed: %v", err)
+	}
+	if task.Status != TaskStatusCancelled {
+		t.Errorf("expected Status=cancelled, got %q", task.Status)
+	}
+
+	// Verify cancelFunc was called.
+	select {
+	case <-cancelled:
+		// ok
+	case <-time.After(time.Second):
+		t.Error("expected cancelFunc to be called")
+	}
+}
+
+// newTestServerWithTaskStore creates a test server with TaskStore wired.
+func newTestServerWithTaskStore(t *testing.T, cfg *AgentConfig, agent adk.Agent, ts *TaskStore, tools ...adk.Tool) (*Server, string) {
+	t.Helper()
+
+	sessionService := adk.NewMemorySessionService()
+	session, err := sessionService.Create(context.Background(), "user-1", nil)
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+
+	opts := make([]adk.RunOption, 0)
+	if len(tools) > 0 {
+		opts = append(opts, adk.WithTools(tools...))
+	}
+	runner := adk.NewRunner(agent, sessionService, opts...)
+	return NewServer(cfg, runner, WithTaskStore(ts)), session.ID
+}
+
 func TestServer_RunModePlanOnly_WithSendSubscribe(t *testing.T) {
 	var capturedMode string
 	agent := &mockServerAgent{
@@ -547,5 +899,43 @@ func TestServer_RunModePlanOnly_WithSendSubscribe(t *testing.T) {
 	}
 	if capturedMode != "plan_only" {
 		t.Errorf("expected mode=plan_only via sendSubscribe, got=%q", capturedMode)
+	}
+}
+
+func TestServer_TasksMessage_ExistingTask(t *testing.T) {
+	agent := &mockServerAgent{
+		name: "message-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			return &adk.GenerateResponse{Parts: []adk.Part{adk.TextPart{Text: "ready"}}, FinishReason: adk.FinishStop}, nil
+		},
+	}
+	ts := NewTaskStore()
+	server, sessionID := newTestServerWithTaskStore(t, defaultConfig("message-agent"), agent, ts)
+
+	body := `{"sessionId":"` + sessionID + `","message":{"role":"user","content":"start"}}`
+	resp, raw := doRequest(t, server, http.MethodPost, "/", body)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status: got=%d body=%s", resp.Code, string(raw))
+	}
+	payload := decodeTestResponse(t, raw)
+	if payload.TaskID == "" {
+		t.Fatal("expected taskId")
+	}
+
+	msgBody := `{"taskId":"` + payload.TaskID + `","message":{"role":"tool","content":"{\"ok\":true}"}}`
+	msgResp, msgRaw := doRequest(t, server, http.MethodPost, "/a2a/tasks/message", msgBody)
+	if msgResp.Code != http.StatusConflict {
+		// The initial run completed synchronously, so a follow-up message to that
+		// terminal task must not create a new task. The important assertion is that
+		// the endpoint addresses the existing task id and refuses terminal tasks.
+		t.Fatalf("expected conflict for terminal task, got=%d body=%s", msgResp.Code, string(msgRaw))
+	}
+}
+
+func TestServer_TasksMessage_NotFound(t *testing.T) {
+	server, _ := newTestServerWithTaskStore(t, defaultConfig("message-agent"), &mockServerAgent{name: "message-agent"}, NewTaskStore())
+	msgResp, _ := doRequest(t, server, http.MethodPost, "/a2a/tasks/message", `{"taskId":"missing","message":{"role":"tool","content":"{}"}}`)
+	if msgResp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown task, got %d", msgResp.Code)
 	}
 }

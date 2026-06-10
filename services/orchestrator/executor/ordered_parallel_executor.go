@@ -262,7 +262,19 @@ func (e *OrderedParallelExecutor) ExecuteStream(ctx context.Context, p *plan.Orc
 func (e *OrderedParallelExecutor) streamOneTask(ctx context.Context, p *plan.OrchestrationPlan, task plan.TaskPlan, msgID string, turnIndex int, emit EventSink) (*taskResult, bool) {
 	agentName := task.AgentName
 
-	endpoint, ok := e.registry.Get(agentName)
+	agentURL, ok, err := e.registry.ResolveURL(ctx, agentName)
+	if err != nil {
+		emit(ExecutionEvent{
+			Type:   agui.InternalTypeRunError,
+			RunID:  p.RunID,
+			TaskID: task.TaskID,
+			Error: &ExecutionError{
+				Code:    "ORCHESTRATOR_INTERNAL",
+				Message: "Failed to resolve agent " + agentName,
+			},
+		})
+		return nil, false
+	}
 	if !ok {
 		emit(ExecutionEvent{
 			Type:   agui.InternalTypeRunError,
@@ -281,7 +293,7 @@ func (e *OrderedParallelExecutor) streamOneTask(ctx context.Context, p *plan.Orc
 	}
 
 	input := dispatcher.DispatchInput{
-		AgentURL:       endpoint.URL,
+		AgentURL:       agentURL,
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,
@@ -293,6 +305,18 @@ func (e *OrderedParallelExecutor) streamOneTask(ctx context.Context, p *plan.Orc
 	var sb strings.Builder
 	var dispatchErr error
 	e.dispatcher.DispatchStream(ctx, input)(func(c dispatcher.DispatchChunk) bool {
+		if c.TaskID != "" {
+			if !emit(ExecutionEvent{
+				Type:         InternalTypeTaskRefRegistered,
+				RunID:        p.RunID,
+				TaskID:       task.TaskID,
+				AgentName:    agentName,
+				RemoteTaskID: c.TaskID,
+				AgentURL:     agentURL,
+			}) {
+				return false
+			}
+		}
 		if c.Err != nil {
 			dispatchErr = c.Err
 			return false
@@ -326,7 +350,18 @@ func (e *OrderedParallelExecutor) streamOneTask(ctx context.Context, p *plan.Orc
 func (e *OrderedParallelExecutor) executeOneTask(ctx context.Context, p *plan.OrchestrationPlan, task plan.TaskPlan, msgID string, turnIndex int) ([]ExecutionEvent, *taskResult, error) {
 	agentName := task.AgentName
 
-	endpoint, ok := e.registry.Get(agentName)
+	agentURL, ok, err := e.registry.ResolveURL(ctx, agentName)
+	if err != nil {
+		return []ExecutionEvent{{
+			Type:   agui.InternalTypeRunError,
+			RunID:  p.RunID,
+			TaskID: task.TaskID,
+			Error: &ExecutionError{
+				Code:    "ORCHESTRATOR_INTERNAL",
+				Message: "Failed to resolve agent " + agentName,
+			},
+		}}, nil, fmt.Errorf("resolve agent %s: %w", agentName, err)
+	}
 	if !ok {
 		return []ExecutionEvent{{
 			Type:   agui.InternalTypeRunError,
@@ -344,7 +379,7 @@ func (e *OrderedParallelExecutor) executeOneTask(ctx context.Context, p *plan.Or
 	events = append(events, taskStartedEvent(p, task, msgID, turnIndex))
 
 	input := dispatcher.DispatchInput{
-		AgentURL:       endpoint.URL,
+		AgentURL:       agentURL,
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,

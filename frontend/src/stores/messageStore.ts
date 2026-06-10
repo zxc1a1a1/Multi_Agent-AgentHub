@@ -1284,14 +1284,32 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   stopStreaming: (conversationId: string) => {
-    const { abortControllersByConversation } = get()
+    const { abortControllersByConversation, confirmationByConversation, messages } = get()
     const abortController = abortControllersByConversation[conversationId]
-    if (abortController) {
-      abortController.abort()
-      set((s) => ({
-        ...setConversationStreaming(s, conversationId, false),
-        ...setConversationAbortController(s, conversationId, null),
-      }))
+    if (!abortController) return
+
+    abortController.abort()
+    set((s) => ({
+      ...setConversationStreaming(s, conversationId, false),
+      ...setConversationAbortController(s, conversationId, null),
+    }))
+
+    // Resolve runId to cancel on the backend: prefer confirmation state,
+    // then fall back to the last agent message with a runId.
+    let runId = confirmationByConversation[conversationId]?.runId || ''
+    if (!runId) {
+      const convMessages = messages[conversationId] || []
+      for (let i = convMessages.length - 1; i >= 0; i--) {
+        if (convMessages[i].runId) {
+          runId = convMessages[i].runId!
+          break
+        }
+      }
+    }
+    if (runId) {
+      api.cancelRun(runId).catch(() => {
+        // Best-effort; the SSE abort already stops the frontend stream.
+      })
     }
   },
 

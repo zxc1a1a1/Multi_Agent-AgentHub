@@ -28,14 +28,18 @@ type DispatchInput struct {
 
 // DispatchResult carries the response from a remote agent.
 type DispatchResult struct {
-	Text string
+	Text   string
+	TaskID string
 }
 
 // DispatchChunk is one streamed text chunk from DispatchStream. When Err != nil
 // the stream is finished with an error and no further chunks follow.
 type DispatchChunk struct {
-	Text string
-	Err  error
+	// TaskID carries the real remote A2A task id returned by the child agent.
+	// It may appear before any text chunk and is metadata-only.
+	TaskID string
+	Text   string
+	Err    error
 }
 
 // A2ADispatcher is a minimal A2A dispatcher that calls one remote agent.
@@ -169,7 +173,8 @@ func (d *A2ADispatcher) dispatchOnce(ctx context.Context, url string, req a2a.Ru
 	}
 
 	return &DispatchResult{
-		Text: strings.Join(texts, "\n"),
+		Text:   strings.Join(texts, "\n"),
+		TaskID: strings.TrimSpace(resp.TaskID),
 	}, nil
 }
 
@@ -223,6 +228,11 @@ func (d *A2ADispatcher) DispatchStream(ctx context.Context, input DispatchInput)
 		d.client.SendJSONRPCStream(callCtx, url, req)(func(c a2a.StreamChunk) bool {
 			if c.Err != nil {
 				return yield(DispatchChunk{Err: fmt.Errorf("agent dispatch failed: %w", c.Err)})
+			}
+			if taskID := strings.TrimSpace(c.TaskID); taskID != "" {
+				if !yield(DispatchChunk{TaskID: taskID}) {
+					return false
+				}
 			}
 			var sb strings.Builder
 			for _, part := range c.Event.Parts {

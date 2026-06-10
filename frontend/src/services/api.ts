@@ -163,6 +163,47 @@ export async function pinConversation(id: string, pinned: boolean): Promise<Conv
 }
 
 /**
+ * Cancel an active run via the Gateway.
+ */
+export async function cancelRun(runId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/runs/${runId}/cancel`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to cancel run: HTTP ${res.status}`)
+  }
+}
+
+/**
+ * Send a tool result back to the Gateway/Orchestrator for an active tool call
+ * that requires human input (confirmation, form, file selection, etc.).
+ */
+export async function sendToolResult(request: {
+  runId: string
+  taskId?: string
+  toolCallId: string
+  status: 'success' | 'cancelled' | 'failed'
+  contentType?: string
+  data?: unknown
+  error?: { code: string; message: string }
+}): Promise<void> {
+  const res = await fetch(`${API_BASE}/runs/${request.runId}/tool-result`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  })
+  if (!res.ok) {
+    let message = `Failed to send tool result: HTTP ${res.status}`
+    try {
+      const body = await res.json()
+      if (body.error) message = body.error
+    } catch { /* fall through */ }
+    throw new Error(message)
+  }
+}
+
+/**
  * Send a HITL confirmation response to the Gateway.
  */
 export async function confirmHITL(request: HITLConfirmRequest): Promise<void> {

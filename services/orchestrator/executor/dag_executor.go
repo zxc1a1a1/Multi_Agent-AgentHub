@@ -221,7 +221,21 @@ func (e *DAGExecutor) ExecuteStream(ctx context.Context, p *plan.OrchestrationPl
 func (e *DAGExecutor) streamOneTask(ctx context.Context, p *plan.OrchestrationPlan, task plan.TaskPlan, taskContent string, msgID string, emit EventSink, mu *sync.Mutex) (*taskResult, bool) {
 	agentName := task.AgentName
 
-	endpoint, ok := e.registry.Get(agentName)
+	agentURL, ok, err := e.registry.ResolveURL(ctx, agentName)
+	if err != nil {
+		mu.Lock()
+		emit(ExecutionEvent{
+			Type:   "run_error",
+			RunID:  p.RunID,
+			TaskID: task.TaskID,
+			Error: &ExecutionError{
+				Code:    "ORCHESTRATOR_INTERNAL",
+				Message: "Failed to resolve agent " + agentName,
+			},
+		})
+		mu.Unlock()
+		return nil, false
+	}
 	if !ok {
 		mu.Lock()
 		emit(ExecutionEvent{
@@ -245,7 +259,7 @@ func (e *DAGExecutor) streamOneTask(ctx context.Context, p *plan.OrchestrationPl
 	mu.Unlock()
 
 	input := dispatcher.DispatchInput{
-		AgentURL:       endpoint.URL,
+		AgentURL:       agentURL,
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,
@@ -257,6 +271,18 @@ func (e *DAGExecutor) streamOneTask(ctx context.Context, p *plan.OrchestrationPl
 	var sb strings.Builder
 	var dispatchErr error
 	e.dispatcher.DispatchStream(ctx, input)(func(c dispatcher.DispatchChunk) bool {
+		if c.TaskID != "" {
+			if !emit(ExecutionEvent{
+				Type:         InternalTypeTaskRefRegistered,
+				RunID:        p.RunID,
+				TaskID:       task.TaskID,
+				AgentName:    agentName,
+				RemoteTaskID: c.TaskID,
+				AgentURL:     agentURL,
+			}) {
+				return false
+			}
+		}
 		if c.Err != nil {
 			dispatchErr = c.Err
 			return false

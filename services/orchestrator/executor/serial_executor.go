@@ -123,7 +123,19 @@ func (e *SerialExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 func (e *SerialExecutor) streamOneTask(ctx context.Context, p *plan.OrchestrationPlan, task plan.TaskPlan, msgID string, turnIndex int, emit EventSink) (*taskResult, bool) {
 	agentName := task.AgentName
 
-	endpoint, ok := e.registry.Get(agentName)
+	agentURL, ok, err := e.registry.ResolveURL(ctx, agentName)
+	if err != nil {
+		emit(ExecutionEvent{
+			Type:   agui.InternalTypeRunError,
+			RunID:  p.RunID,
+			TaskID: task.TaskID,
+			Error: &ExecutionError{
+				Code:    "ORCHESTRATOR_INTERNAL",
+				Message: "Failed to resolve agent " + agentName,
+			},
+		})
+		return nil, false
+	}
 	if !ok {
 		emit(ExecutionEvent{
 			Type:   agui.InternalTypeRunError,
@@ -142,7 +154,7 @@ func (e *SerialExecutor) streamOneTask(ctx context.Context, p *plan.Orchestratio
 	}
 
 	input := dispatcher.DispatchInput{
-		AgentURL:       endpoint.URL,
+		AgentURL:       agentURL,
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,
@@ -154,6 +166,18 @@ func (e *SerialExecutor) streamOneTask(ctx context.Context, p *plan.Orchestratio
 	var sb strings.Builder
 	var dispatchErr error
 	e.dispatcher.DispatchStream(ctx, input)(func(c dispatcher.DispatchChunk) bool {
+		if c.TaskID != "" {
+			if !emit(ExecutionEvent{
+				Type:         InternalTypeTaskRefRegistered,
+				RunID:        p.RunID,
+				TaskID:       task.TaskID,
+				AgentName:    agentName,
+				RemoteTaskID: c.TaskID,
+				AgentURL:     agentURL,
+			}) {
+				return false
+			}
+		}
 		if c.Err != nil {
 			dispatchErr = c.Err
 			return false

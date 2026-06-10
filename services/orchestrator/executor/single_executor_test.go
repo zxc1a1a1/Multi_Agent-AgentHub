@@ -24,9 +24,12 @@ func newStubRegistry() *stubRegistry {
 	}
 }
 
-func (s *stubRegistry) Get(name string) (registry.AgentEndpoint, bool) {
+func (s *stubRegistry) ResolveURL(_ context.Context, name string) (string, bool, error) {
 	ep, ok := s.agents[name]
-	return ep, ok
+	if !ok {
+		return "", false, nil
+	}
+	return ep.URL, true, nil
 }
 
 // stubDispatcher implements AgentDispatcher for tests.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/bridge"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/persistence/sqlite"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/sse"
@@ -24,6 +25,18 @@ type Store = store.Store
 // RunService is the injected runtime execution contract.
 type RunService interface {
 	Run(ctx context.Context, conversationID string, userContent *adk.Content) iter.Seq2[adk.Event, error]
+}
+
+// RunCancelService is an optional interface that RunService implementations
+// may also satisfy for cancelling a running orchestration.
+type RunCancelService interface {
+	CancelRun(ctx context.Context, runID string) error
+}
+
+// RunToolResultService is an optional interface that RunService implementations
+// may also satisfy for forwarding tool results back to the Orchestrator.
+type RunToolResultService interface {
+	SendToolResult(ctx context.Context, runID, taskID, toolCallID, status, contentType string, data any, errDetail *bridge.ToolResultError) error
 }
 
 // AgentManagementProxy is the contract for proxying agent CRUD requests to the
@@ -189,7 +202,124 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		s.handleRunsConfirm(w, r)
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/cancel") {
+		s.handleRunsCancel(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/tool-result") {
+		s.handleRunsToolResult(w, r)
+		return
+	}
 	http.NotFound(w, r)
+}
+
+// handleRunsCancel handles POST /api/runs/{runId}/cancel
+func (s *Server) handleRunsCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// Extract runId from path: /api/runs/{runId}/cancel
+	const prefix = "/api/runs/"
+	const suffix = "/cancel"
+	path := r.URL.Path
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		http.NotFound(w, r)
+		return
+	}
+	runID := strings.TrimPrefix(path, prefix)
+	runID = strings.TrimSuffix(runID, suffix)
+	runID = strings.Trim(runID, "/")
+	if runID == "" || strings.Contains(runID, "/") {
+		http.NotFound(w, r)
+		return
+	}
+
+	cancelRunner, ok := s.runner.(RunCancelService)
+	if !ok {
+		writeJSONError(w, http.StatusNotImplemented, "run cancellation not supported by configured runner")
+		return
+	}
+
+	if err := cancelRunner.CancelRun(r.Context(), runID); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to cancel run")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"runId":  runID,
+		"status": "cancelled",
+	})
+}
+
+// handleRunsToolResult handles POST /api/runs/{runId}/tool-result
+func (s *Server) handleRunsToolResult(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// Extract runId from path: /api/runs/{runId}/tool-result
+	const prefix = "/api/runs/"
+	const suffix = "/tool-result"
+	path := r.URL.Path
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		http.NotFound(w, r)
+		return
+	}
+	runID := strings.TrimPrefix(path, prefix)
+	runID = strings.TrimSuffix(runID, suffix)
+	runID = strings.Trim(runID, "/")
+	if runID == "" || strings.Contains(runID, "/") {
+		http.NotFound(w, r)
+		return
+	}
+
+	tr, ok := s.runner.(RunToolResultService)
+	if !ok {
+		writeJSONError(w, http.StatusNotImplemented, "tool result forwarding not supported")
+		return
+	}
+
+	var req struct {
+		TaskID      string                  `json:"taskId,omitempty"`
+		ToolCallID  string                  `json:"toolCallId"`
+		Status      string                  `json:"status"`
+		ContentType string                  `json:"contentType,omitempty"`
+		Data        any                     `json:"data,omitempty"`
+		Error       *bridge.ToolResultError `json:"error,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if strings.TrimSpace(req.ToolCallID) == "" {
+		writeJSONError(w, http.StatusBadRequest, "toolCallId is required")
+		return
+	}
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = "success"
+	}
+	if status != "success" && status != "cancelled" && status != "failed" {
+		writeJSONError(w, http.StatusBadRequest, "status must be success, cancelled, or failed")
+		return
+	}
+
+	if err := tr.SendToolResult(r.Context(), runID, req.TaskID, req.ToolCallID, status, req.ContentType, req.Data, req.Error); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to forward tool result")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"runId":      runID,
+		"toolCallId": req.ToolCallID,
+		"status":     "processed",
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

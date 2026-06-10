@@ -375,6 +375,197 @@ func TestClient_ContextCanceled(t *testing.T) {
 	}
 }
 
+func TestClient_GetTask_Success(t *testing.T) {
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/a2a/tasks/get" {
+			t.Fatalf("expected /a2a/tasks/get, got %s", r.URL.Path)
+		}
+		writeJSON(w, http.StatusOK, Task{
+			TaskID:    "task-get-1",
+			Status:    TaskStatusRunning,
+			SessionID: "session-1",
+		})
+	}))
+	defer httpServer.Close()
+
+	client := NewClient()
+	task, err := client.GetTask(context.Background(), httpServer.URL, "task-get-1")
+	if err != nil {
+		t.Fatalf("GetTask failed: %v", err)
+	}
+	if task.TaskID != "task-get-1" {
+		t.Errorf("expected TaskID=task-get-1, got %q", task.TaskID)
+	}
+	if task.Status != TaskStatusRunning {
+		t.Errorf("expected Status=running, got %q", task.Status)
+	}
+}
+
+func TestClient_GetTask_NotFound(t *testing.T) {
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusNotFound, runResponse{
+			Error: &responseError{Code: "not_found", Message: "task not found"},
+		})
+	}))
+	defer httpServer.Close()
+
+	client := NewClient()
+	_, err := client.GetTask(context.Background(), httpServer.URL, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for not found")
+	}
+}
+
+func TestClient_CancelTask_Running(t *testing.T) {
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/a2a/tasks/cancel" {
+			t.Fatalf("expected /a2a/tasks/cancel, got %s", r.URL.Path)
+		}
+		writeJSON(w, http.StatusOK, Task{
+			TaskID: "task-cancel-1",
+			Status: TaskStatusCancelled,
+		})
+	}))
+	defer httpServer.Close()
+
+	client := NewClient()
+	task, err := client.CancelTask(context.Background(), httpServer.URL, "task-cancel-1")
+	if err != nil {
+		t.Fatalf("CancelTask failed: %v", err)
+	}
+	if task.Status != TaskStatusCancelled {
+		t.Errorf("expected Status=cancelled, got %q", task.Status)
+	}
+}
+
+func TestClient_CancelTask_CompletedIdempotent(t *testing.T) {
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, Task{
+			TaskID: "task-completed-1",
+			Status: TaskStatusCompleted,
+		})
+	}))
+	defer httpServer.Close()
+
+	client := NewClient()
+	task, err := client.CancelTask(context.Background(), httpServer.URL, "task-completed-1")
+	if err != nil {
+		t.Fatalf("CancelTask failed: %v", err)
+	}
+	if task.Status != TaskStatusCompleted {
+		t.Errorf("expected Status=completed (unchanged), got %q", task.Status)
+	}
+}
+
+func TestClient_CancelTask_NotFound(t *testing.T) {
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusNotFound, runResponse{
+			Error: &responseError{Code: "not_found", Message: "task not found"},
+		})
+	}))
+	defer httpServer.Close()
+
+	client := NewClient()
+	_, err := client.CancelTask(context.Background(), httpServer.URL, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for not found")
+	}
+}
+
+func TestClient_TaskEndpoints_AcceptExplicitEndpointURL(t *testing.T) {
+	var paths []string
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/a2a/tasks/get":
+			writeJSON(w, http.StatusOK, Task{TaskID: "task-1", Status: TaskStatusRunning})
+		case "/a2a/tasks/cancel":
+			writeJSON(w, http.StatusOK, Task{TaskID: "task-1", Status: TaskStatusCancelled})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer httpServer.Close()
+
+	client := NewClient()
+	if _, err := client.GetTask(context.Background(), httpServer.URL+"/a2a/tasks/get", "task-1"); err != nil {
+		t.Fatalf("GetTask explicit endpoint failed: %v", err)
+	}
+	if _, err := client.CancelTask(context.Background(), httpServer.URL+"/a2a/tasks/cancel", "task-1"); err != nil {
+		t.Fatalf("CancelTask explicit endpoint failed: %v", err)
+	}
+	if got := strings.Join(paths, ","); got != "/a2a/tasks/get,/a2a/tasks/cancel" {
+		t.Fatalf("unexpected paths: %s", got)
+	}
+}
+
+func TestClient_GetTask_EmptyTaskID(t *testing.T) {
+	client := NewClient()
+	_, err := client.GetTask(context.Background(), "http://localhost:8080", "  ")
+	if err == nil {
+		t.Fatal("expected error for empty taskId")
+	}
+}
+
+func TestClient_CancelTask_EmptyTaskID(t *testing.T) {
+	client := NewClient()
+	_, err := client.CancelTask(context.Background(), "http://localhost:8080", "  ")
+	if err == nil {
+		t.Fatal("expected error for empty taskId")
+	}
+}
+
+func TestClient_ExistingSignaturesStillWork(t *testing.T) {
+	// Verify Send, SendJSONRPC, SendJSONRPCStream signatures compile unchanged.
+	agent := &mockServerAgent{
+		name: "sig-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			return &adk.GenerateResponse{
+				Parts:        []adk.Part{adk.TextPart{Text: "ok"}},
+				FinishReason: adk.FinishStop,
+			}, nil
+		},
+	}
+	server, sessionID := newTestServer(t, defaultConfig("sig-agent"), agent)
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	client := NewClient()
+
+	// Send (direct)
+	resp, err := client.Send(context.Background(), httpServer.URL, RunRequest{
+		SessionID: sessionID,
+		Message:   Message{Role: "user", Content: "hello"},
+	})
+	if err != nil || resp == nil {
+		t.Fatalf("Send signature test failed: err=%v", err)
+	}
+
+	// SendJSONRPC
+	resp2, err := client.SendJSONRPC(context.Background(), httpServer.URL+"/a2a/tasks/sendSubscribe", RunRequest{
+		SessionID: sessionID,
+		Message:   Message{Role: "user", Content: "hello"},
+	})
+	if err != nil || resp2 == nil {
+		t.Fatalf("SendJSONRPC signature test failed: err=%v", err)
+	}
+
+	// SendJSONRPCStream
+	streamCalled := false
+	for chunk := range client.SendJSONRPCStream(context.Background(), httpServer.URL+"/a2a/tasks/sendSubscribe", RunRequest{
+		SessionID: sessionID,
+		Message:   Message{Role: "user", Content: "hello"},
+	}) {
+		if chunk.Err != nil {
+			t.Fatalf("SendJSONRPCStream signature test failed: err=%v", chunk.Err)
+		}
+		streamCalled = true
+	}
+	if !streamCalled {
+		t.Fatal("expected at least one stream chunk")
+	}
+}
+
 func hasPartTypeInDTO(events []EventDTO, partType string) bool {
 	_, ok := findPartByType(events, partType)
 	return ok

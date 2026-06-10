@@ -16,6 +16,7 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/bridge"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 )
 
@@ -472,6 +473,48 @@ func (s *OrchestratorRunService) ConfirmRun(ctx context.Context, req HITLConfirm
 	return nil
 }
 
+// CancelRun sends a cancel request for a run to the remote Orchestrator.
+// POST /internal/orchestrator/runs/cancel
+func (s *OrchestratorRunService) CancelRun(ctx context.Context, runID string) error {
+	if s == nil {
+		return errors.New("orchestrator run service is nil")
+	}
+	if strings.TrimSpace(runID) == "" {
+		return errors.New("runId is required")
+	}
+
+	bodyBytes, err := json.Marshal(map[string]string{"runId": runID})
+	if err != nil {
+		return fmt.Errorf("marshal cancel request: %w", err)
+	}
+
+	url := s.baseURL + "/internal/orchestrator/runs/cancel"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("create cancel request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if s.internalToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+s.internalToken)
+	}
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("orchestrator cancel request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return &HTTPError{
+			StatusCode:  resp.StatusCode,
+			Body:        strings.TrimSpace(string(body)),
+			ContentType: resp.Header.Get("Content-Type"),
+		}
+	}
+	return nil
+}
+
 // HTTPError represents an error response from the Orchestrator that should be
 // transparently forwarded to the caller (preserving status code, body, and Content-Type).
 type HTTPError struct {
@@ -485,6 +528,73 @@ func (e *HTTPError) Error() string {
 		return ""
 	}
 	return e.Body
+}
+
+// SendToolResult forwards a tool result from the frontend through the Gateway
+// to the Orchestrator so it can relay it to the appropriate child agent.
+// POST /internal/orchestrator/runs/tool-result
+func (s *OrchestratorRunService) SendToolResult(ctx context.Context, runID, taskID, toolCallID, status, contentType string, data any, errDetail *bridge.ToolResultError) error {
+	if s == nil {
+		return errors.New("orchestrator run service is nil")
+	}
+	if strings.TrimSpace(runID) == "" {
+		return errors.New("runId is required")
+	}
+	if strings.TrimSpace(toolCallID) == "" {
+		return errors.New("toolCallId is required")
+	}
+
+	reqBody := map[string]any{
+		"runId":      runID,
+		"toolCallId": toolCallID,
+		"status":     status,
+	}
+	if strings.TrimSpace(taskID) != "" {
+		reqBody["taskId"] = taskID
+	}
+	if strings.TrimSpace(contentType) != "" {
+		reqBody["contentType"] = contentType
+	}
+	if data != nil {
+		reqBody["data"] = data
+	}
+	if errDetail != nil {
+		reqBody["error"] = map[string]string{
+			"code":    errDetail.Code,
+			"message": errDetail.Message,
+		}
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("marshal tool result request: %w", err)
+	}
+
+	url := s.baseURL + "/internal/orchestrator/runs/tool-result"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("create tool result request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if s.internalToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+s.internalToken)
+	}
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("orchestrator tool result request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return &HTTPError{
+			StatusCode:  resp.StatusCode,
+			Body:        strings.TrimSpace(string(body)),
+			ContentType: resp.Header.Get("Content-Type"),
+		}
+	}
+	return nil
 }
 
 func extractUserText(content *adk.Content) (string, error) {

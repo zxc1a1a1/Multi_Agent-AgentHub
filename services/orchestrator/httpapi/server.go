@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/bridge"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
@@ -82,6 +85,7 @@ type Server struct {
 	hitlStates        map[string]HITLState               // runID → logical confirmation state (legacy, migrating to PendingPlan.Status)
 	idempotencyCache  map[string]*idempotencyEntry       // runID+":"+key → cached response (legacy, migrating to PendingPlan.IdempotencyRecords)
 	pendingPlanStates map[string]*PendingPlan            // runID → full lifecycle state (Phase 4, coexists with legacy maps during migration)
+	runTaskRegistry   *registry.RunTaskRegistry          // runID → child task refs for cancel path
 }
 
 // Option customizes Server behavior.
@@ -160,6 +164,17 @@ func WithSynthesizer(syn synthesizer.Synthesizer) Option {
 	}
 }
 
+// WithRunTaskRegistry injects a RunTaskRegistry for tracking dispatched tasks
+// across a run so the cancel handler can cancel child agent tasks.
+func WithRunTaskRegistry(rtr *registry.RunTaskRegistry) Option {
+	return func(s *Server) {
+		if s == nil || rtr == nil {
+			return
+		}
+		s.runTaskRegistry = rtr
+	}
+}
+
 // WithMainAgentPlanner injects a MainAgent Planner instance.
 // When set, all execution paths (single_chat, group_chat, main_agent_orchestration)
 // use this planner for plan generation.
@@ -181,6 +196,7 @@ func NewServer(opts ...Option) *Server {
 		hitlStates:        make(map[string]HITLState),
 		idempotencyCache:  make(map[string]*idempotencyEntry),
 		pendingPlanStates: make(map[string]*PendingPlan),
+		runTaskRegistry:   registry.NewRunTaskRegistry(),
 	}
 	for _, opt := range opts {
 		if opt == nil {
@@ -206,6 +222,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/internal/orchestrator/hitl/confirm", s.handleHITLConfirm)
 	s.mux.HandleFunc("/internal/orchestrator/agents", s.handleAgents)
 	s.mux.HandleFunc("/internal/orchestrator/agents/", s.handleAgentsByName)
+	s.mux.HandleFunc("/internal/orchestrator/runs/cancel", s.handleRunCancel)
+	s.mux.HandleFunc("/internal/orchestrator/runs/tool-result", s.handleRunToolResult)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -272,6 +290,75 @@ func (r *registryAgentLister) List() []planner.AgentInfoLite {
 func newRegistryAgentLister(reg *registry.StaticAgentRegistry) planner.AgentLister {
 	return &registryAgentLister{reg: reg}
 }
+
+// resolverAgentLister adapts a DispatchResolver to planner.AgentLister,
+// including both static and dynamic agents.
+type resolverAgentLister struct {
+	resolver *registry.DispatchResolver
+}
+
+func (r *resolverAgentLister) List() []planner.AgentInfoLite {
+	if r == nil || r.resolver == nil {
+		return nil
+	}
+	infos, err := r.resolver.AgentInfos(context.Background())
+	if err != nil {
+		return []planner.AgentInfoLite{}
+	}
+	return infos
+}
+
+func newResolverAgentLister(resolver *registry.DispatchResolver) planner.AgentLister {
+	return &resolverAgentLister{resolver: resolver}
+}
+
+// dispatchResolver returns a DispatchResolver that combines static and dynamic
+// registries for unified agent name → URL resolution.
+func (s *Server) dispatchResolver() *registry.DispatchResolver {
+	if s == nil {
+		return nil
+	}
+	return registry.NewDispatchResolver(s.registry, s.dynamicRegistry)
+}
+
+// validatorRegistryAdapter wraps a DispatchResolver to satisfy validator.Registry,
+// enabling the validator to recognize both static and dynamic agents.
+type validatorRegistryAdapter struct {
+	resolver *registry.DispatchResolver
+}
+
+func (a *validatorRegistryAdapter) Get(name string) (registry.AgentEndpoint, bool) {
+	if a == nil || a.resolver == nil {
+		return registry.AgentEndpoint{}, false
+	}
+	url, ok, _ := a.resolver.ResolveURL(context.Background(), name)
+	if !ok {
+		return registry.AgentEndpoint{}, false
+	}
+	return registry.AgentEndpoint{Name: name, URL: url}, true
+}
+
+func (a *validatorRegistryAdapter) Names() []string {
+	if a == nil || a.resolver == nil {
+		return nil
+	}
+	names, _ := a.resolver.Names(context.Background())
+	return names
+}
+
+func (a *validatorRegistryAdapter) IsHealthy(name string) bool {
+	if a == nil || a.resolver == nil {
+		return false
+	}
+	// DispatchResolver only returns enabled+healthy agents from ResolveURL.
+	_, ok, _ := a.resolver.ResolveURL(context.Background(), name)
+	return ok
+}
+
+// registerRunTasks is intentionally disabled. Remote A2A task IDs must be
+// registered only after the child agent returns the real taskId through the
+// dispatcher stream metadata; plan.TaskID is not a valid A2A task id.
+func (s *Server) registerRunTasks(ctx context.Context, p *plan.OrchestrationPlan) {}
 
 // staticEndpointToRegistered converts a static AgentEndpoint into a
 // RegisteredAgent for unified List/Get output. This is a local httpapi
@@ -653,4 +740,170 @@ func (s *Server) handleAgentCheck(w http.ResponseWriter, r *http.Request, name s
 	item := s.registeredToPublic(*agent)
 	item.LastError = sanitizeAgentLastError(agent.LastError)
 	writeJSON(w, http.StatusOK, item)
+}
+
+// handleRunCancel handles POST /internal/orchestrator/runs/cancel.
+// It looks up all dispatched child TaskRefs for the given run and sends
+// CancelTask to each agent. Cancelling an already-completed task is
+// idempotent — the agent returns the current state without error.
+func (s *Server) handleRunCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, http.MethodPost)
+		return
+	}
+
+	if !s.checkServiceAuth(r) {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		RunID string `json:"runId"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	runID := strings.TrimSpace(req.RunID)
+	if runID == "" {
+		writeJSONError(w, http.StatusBadRequest, "runId is required")
+		return
+	}
+
+	if s.runTaskRegistry == nil {
+		writeJSONError(w, http.StatusNotImplemented, "task registry not available")
+		return
+	}
+
+	refs, ok := s.runTaskRegistry.CancelRun(runID)
+	if !ok {
+		writeJSONError(w, http.StatusNotFound, "run not found")
+		return
+	}
+
+	client := a2a.NewClient()
+	type cancelResult struct {
+		TaskID    string `json:"taskId"`
+		AgentName string `json:"agentName"`
+		Status    string `json:"status"`
+		Error     string `json:"error,omitempty"`
+	}
+
+	results := make([]cancelResult, 0, len(refs))
+	for _, ref := range refs {
+		task, err := client.CancelTask(r.Context(), ref.AgentURL, ref.TaskID)
+		cr := cancelResult{
+			TaskID:    ref.TaskID,
+			AgentName: ref.AgentName,
+		}
+		if err != nil {
+			cr.Status = "error"
+			cr.Error = err.Error()
+		} else if task != nil {
+			cr.Status = string(task.Status)
+		}
+		results = append(results, cr)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"runId":   runID,
+		"status":  "cancelled",
+		"results": results,
+	})
+}
+
+// handleRunToolResult handles POST /internal/orchestrator/runs/tool-result.
+// It receives a tool result from the Gateway, looks up the dispatched tasks
+// for the run, and forwards the result as a message to the child agent via A2A.
+func (s *Server) handleRunToolResult(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, http.MethodPost)
+		return
+	}
+
+	if !s.checkServiceAuth(r) {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req bridge.ToolResultRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	runID := strings.TrimSpace(req.RunID)
+	if runID == "" {
+		writeJSONError(w, http.StatusBadRequest, "runId is required")
+		return
+	}
+	toolCallID := strings.TrimSpace(req.ToolCallID)
+	if toolCallID == "" {
+		writeJSONError(w, http.StatusBadRequest, "toolCallId is required")
+		return
+	}
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = "success"
+	}
+
+	// Look up dispatched tasks for this run.
+	if s.runTaskRegistry == nil {
+		writeJSONError(w, http.StatusNotImplemented, "task registry not available")
+		return
+	}
+	refs, ok := s.runTaskRegistry.GetTasks(runID)
+	if !ok || len(refs) == 0 {
+		writeJSONError(w, http.StatusNotFound, "run not found or no dispatched tasks")
+		return
+	}
+
+	mapping, err := bridge.MapToolResult(bridge.ToolResultInput{
+		RunID:       runID,
+		TaskID:      req.TaskID,
+		ToolCallID:  toolCallID,
+		Status:      status,
+		ContentType: req.ContentType,
+		Data:        req.Data,
+		Error:       req.Error,
+	})
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if mapping == nil || mapping.Message == nil {
+		writeJSON(w, http.StatusOK, bridge.ToolResultResponse{
+			RunID:      runID,
+			ToolCallID: toolCallID,
+			Status:     "processed",
+			Message:    "tool result mapped to artifact reference; no inline message forwarded",
+		})
+		return
+	}
+
+	client := a2a.NewClient()
+	forwarded := 0
+	for _, ref := range refs {
+		if req.TaskID != "" && ref.TaskID != req.TaskID {
+			continue
+		}
+		_, err := client.SendMessage(r.Context(), ref.AgentURL, ref.TaskID, mapping.Message.Content)
+		if err != nil {
+			// Best-effort: try next agent if one fails.
+			continue
+		}
+		forwarded++
+	}
+
+	if forwarded == 0 {
+		writeJSONError(w, http.StatusInternalServerError, "failed to forward tool result to any agent")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, bridge.ToolResultResponse{
+		RunID:      runID,
+		ToolCallID: toolCallID,
+		Status:     "forwarded",
+		Forwarded:  forwarded,
+	})
 }
