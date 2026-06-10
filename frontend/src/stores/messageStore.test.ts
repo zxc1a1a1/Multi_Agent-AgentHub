@@ -7,6 +7,7 @@ import * as api from '../services/api'
 vi.mock('../services/api', () => ({
   listMessages: vi.fn().mockResolvedValue([]),
   confirmHITL: vi.fn().mockResolvedValue(undefined),
+  regenerateMessage: vi.fn(),
 }))
 
 type StreamHarness = {
@@ -926,11 +927,13 @@ describe('confirmPlan API integration', () => {
     expect(confirmHITL).toHaveBeenCalledWith({
       runId: 'run-api-1',
       actionId: 'plan-api-1',
+      planId: undefined,
       confirmed: true,
       action: 'approve',
       feedback: '',
       revision: undefined,
       rejectReason: '',
+      idempotencyKey: expect.any(String) as string,
     })
 
     const confirmation = useMessageStore.getState().getConfirmation('conv-api-1')
@@ -959,11 +962,13 @@ describe('confirmPlan API integration', () => {
     expect(confirmHITL).toHaveBeenCalledWith({
       runId: 'run-api-2',
       actionId: 'plan-api-2',
+      planId: undefined,
       confirmed: false,
       action: 'cancel',
       feedback: '',
       revision: undefined,
       rejectReason: 'not needed right now',
+      idempotencyKey: expect.any(String) as string,
     })
 
     const confirmation = useMessageStore.getState().getConfirmation('conv-api-2')
@@ -1050,11 +1055,14 @@ describe('confirmPlan API integration', () => {
     expect(confirmHITL).toHaveBeenCalledWith({
       runId: 'run-revise-api',
       actionId: 'plan-revise-api',
+      planId: undefined,
       confirmed: false,
       action: 'revise',
       feedback: '简化步骤',
       revision: 2,
       rejectReason: '',
+      idempotencyKey: expect.any(String) as string,
+      selectedParticipants: undefined,
     })
   })
 
@@ -1377,3 +1385,329 @@ describe('streaming delta no duplication', () => {
   })
 })
 
+
+describe('AGENT_TURN event rendering', () => {
+  beforeEach(() => {
+    streamByConversation.clear()
+    useMessageStore.setState({
+      messages: {},
+      streamingByConversation: {},
+      abortControllersByConversation: {},
+    })
+  })
+
+  it('renders each AGENT_TURN as a separate agent bubble keyed by messageId', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-turns', 'run group task')
+
+    emit('conv-turns', {
+      type: 'AGENT_TURN_STARTED',
+      runId: 'run-1',
+      messageId: 'turn-0',
+      turnIndex: 0,
+      stepId: 'task-code',
+      agentName: 'code-agent',
+      sender: { type: 'agent', name: 'code-agent' },
+    })
+    emit('conv-turns', {
+      type: 'AGENT_TURN_CONTENT',
+      runId: 'run-1',
+      messageId: 'turn-0',
+      turnIndex: 0,
+      delta: 'code output',
+    })
+    emit('conv-turns', {
+      type: 'AGENT_TURN_FINISHED',
+      runId: 'run-1',
+      messageId: 'turn-0',
+      turnIndex: 0,
+      agentName: 'code-agent',
+      status: 'completed',
+    })
+
+    emit('conv-turns', {
+      type: 'AGENT_TURN_STARTED',
+      runId: 'run-1',
+      messageId: 'turn-1',
+      turnIndex: 1,
+      stepId: 'task-review',
+      agentName: 'review-agent',
+      sender: { type: 'agent', name: 'review-agent' },
+    })
+    emit('conv-turns', {
+      type: 'AGENT_TURN_CONTENT',
+      runId: 'run-1',
+      messageId: 'turn-1',
+      turnIndex: 1,
+      delta: 'review output',
+    })
+    emit('conv-turns', {
+      type: 'AGENT_TURN_FINISHED',
+      runId: 'run-1',
+      messageId: 'turn-1',
+      turnIndex: 1,
+      agentName: 'review-agent',
+      status: 'completed',
+    })
+
+    const messages = useMessageStore.getState().messages['conv-turns'] || []
+    const agentMessages = messages.filter((msg) => msg.senderType === 'agent')
+
+    expect(agentMessages).toHaveLength(2)
+    expect(agentMessages[0].id).toBe('turn-0')
+    expect(agentMessages[0].agentName).toBe('code-agent')
+    expect(agentMessages[0].content).toBe('code output')
+    expect(agentMessages[0].status).toBe('sent')
+    expect(agentMessages[1].id).toBe('turn-1')
+    expect(agentMessages[1].agentName).toBe('review-agent')
+    expect(agentMessages[1].content).toBe('review output')
+    expect(agentMessages[1].status).toBe('sent')
+  })
+})
+
+describe('regenerateMessage with truncated context', () => {
+  beforeEach(async () => {
+    streamByConversation.clear()
+    vi.clearAllMocks()
+    useMessageStore.setState({
+      messages: {},
+      streamingByConversation: {},
+      abortControllersByConversation: {},
+      pinnedMessageIdsByConversation: {},
+    })
+  })
+
+  it('uses nearest previous user from regenResp.context, not latest conversation user', async () => {
+    const { regenerateMessage } = await import('../services/api')
+    const mockRegen = vi.mocked(regenerateMessage)
+
+    // Simulate a conversation with multiple turns:
+    // msg-1: user "first question"
+    // msg-2: assistant "first answer"
+    // msg-3: user "second question"
+    // msg-4: assistant "second answer" (target for regenerate)
+    useMessageStore.setState({
+      messages: {
+        'conv-regen': [
+          { id: 'msg-1', conversationId: 'conv-regen', senderType: 'user', content: 'first question', status: 'sent', createdAt: new Date().toISOString() },
+          { id: 'msg-2', conversationId: 'conv-regen', senderType: 'agent', senderName: 'Code Agent', agentName: 'code-agent', content: 'first answer', status: 'sent', runId: 'run-1', createdAt: new Date().toISOString() },
+          { id: 'msg-3', conversationId: 'conv-regen', senderType: 'user', content: 'second question', status: 'sent', createdAt: new Date().toISOString() },
+          { id: 'msg-4', conversationId: 'conv-regen', senderType: 'agent', senderName: 'Code Agent', agentName: 'code-agent', content: 'second answer', status: 'sent', runId: 'run-2', createdAt: new Date().toISOString() },
+        ],
+      },
+    })
+
+    // Backend returns truncated context up to before msg-4:
+    // only msg-1 and msg-2 (the nearest user before target is msg-1, NOT msg-3)
+    mockRegen.mockResolvedValueOnce({
+      messageId: 'msg-4',
+      status: 'ready',
+      preserveOriginal: true,
+      context: [
+        { id: 'msg-1', role: 'user', text: 'first question' },
+        { id: 'msg-2', role: 'assistant', text: 'first answer' },
+      ],
+    })
+
+    const { regenerateMessage: doRegenerate } = useMessageStore.getState()
+    await doRegenerate('conv-regen', 'msg-4')
+
+    // sendMessage should be called with the nearest user from truncated context ("first question"),
+    // NOT the latest conversation user ("second question")
+    const harness = streamByConversation.get('conv-regen')
+    expect(harness).toBeDefined()
+    expect(harness!.request.message).toBe('first question')
+  })
+
+  it('passes regenResp.context into sendMessage request as contextMessages', async () => {
+    const { regenerateMessage } = await import('../services/api')
+    const mockRegen = vi.mocked(regenerateMessage)
+
+    useMessageStore.setState({
+      messages: {
+        'conv-regen-ctx': [
+          { id: 'msg-a', conversationId: 'conv-regen-ctx', senderType: 'user', content: 'hello', status: 'sent', createdAt: new Date().toISOString() },
+          { id: 'msg-b', conversationId: 'conv-regen-ctx', senderType: 'agent', senderName: 'Bot', agentName: 'code-agent', content: 'hi there', status: 'sent', runId: 'run-x', createdAt: new Date().toISOString() },
+        ],
+      },
+    })
+
+    const truncatedCtx = [
+      { id: 'msg-a', role: 'user', text: 'hello' },
+    ]
+
+    mockRegen.mockResolvedValueOnce({
+      messageId: 'msg-b',
+      status: 'ready',
+      preserveOriginal: true,
+      context: truncatedCtx,
+    })
+
+    const { regenerateMessage: doRegenerate } = useMessageStore.getState()
+    await doRegenerate('conv-regen-ctx', 'msg-b')
+
+    const harness = streamByConversation.get('conv-regen-ctx')
+    expect(harness).toBeDefined()
+    // contextMessages should be the truncated context from backend, not the full conversation
+    expect(harness!.request.contextMessages).toEqual(truncatedCtx)
+    expect(harness!.request.contextMessages!.length).toBe(1)
+    expect(harness!.request.contextMessages![0].id).toBe('msg-a')
+  })
+
+  it('missing user in regenResp.context returns stable error', async () => {
+    const { regenerateMessage } = await import('../services/api')
+    const mockRegen = vi.mocked(regenerateMessage)
+
+    useMessageStore.setState({
+      messages: {
+        'conv-regen-nouser': [
+          { id: 'msg-x', conversationId: 'conv-regen-nouser', senderType: 'user', content: 'hi', status: 'sent', createdAt: new Date().toISOString() },
+          { id: 'msg-y', conversationId: 'conv-regen-nouser', senderType: 'agent', senderName: 'Bot', agentName: 'code-agent', content: 'response', status: 'sent', runId: 'run-y', createdAt: new Date().toISOString() },
+        ],
+      },
+    })
+
+    // Backend returns context with NO user message
+    mockRegen.mockResolvedValueOnce({
+      messageId: 'msg-y',
+      status: 'ready',
+      preserveOriginal: true,
+      context: [
+        { id: 'msg-y', role: 'assistant', text: 'response' },
+      ],
+    })
+
+    const { regenerateMessage: doRegenerate } = useMessageStore.getState()
+    await expect(doRegenerate('conv-regen-nouser', 'msg-y')).rejects.toThrow(
+      'no user message found in truncated context',
+    )
+  })
+
+  it('empty regenResp.context returns stable error', async () => {
+    const { regenerateMessage } = await import('../services/api')
+    const mockRegen = vi.mocked(regenerateMessage)
+
+    useMessageStore.setState({
+      messages: {
+        'conv-regen-empty': [
+          { id: 'msg-1', conversationId: 'conv-regen-empty', senderType: 'user', content: 'hi', status: 'sent', createdAt: new Date().toISOString() },
+          { id: 'msg-2', conversationId: 'conv-regen-empty', senderType: 'agent', senderName: 'Bot', agentName: 'code-agent', content: 'resp', status: 'sent', runId: 'run-z', createdAt: new Date().toISOString() },
+        ],
+      },
+    })
+
+    mockRegen.mockResolvedValueOnce({
+      messageId: 'msg-2',
+      status: 'ready',
+      preserveOriginal: true,
+      context: [],
+    })
+
+    const { regenerateMessage: doRegenerate } = useMessageStore.getState()
+    await expect(doRegenerate('conv-regen-empty', 'msg-2')).rejects.toThrow(
+      'backend returned empty context',
+    )
+  })
+})
+
+describe('artifact.delta event produces artifact_card skillCards', () => {
+  beforeEach(() => {
+    streamByConversation.clear()
+    useMessageStore.setState({
+      messages: {},
+      streamingByConversation: {},
+      abortControllersByConversation: {},
+    })
+  })
+
+  it('artifact.delta with non-code non-webpage type creates artifact_card skillCard', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-artifact', 'generate a report')
+
+    emit('conv-artifact', { type: 'TEXT_MESSAGE_START', messageId: 'msg-art' })
+    emit('conv-artifact', {
+      type: 'artifact.delta',
+      messageId: 'msg-art',
+      runId: 'run-art',
+      taskId: 'task-1',
+      artifact: {
+        type: 'report',
+        title: 'quarterly-report.pdf',
+        metadata: {
+          id: 'art-001',
+          mimeType: 'application/pdf',
+          size: '2048000',
+          sourceAgent: 'document-agent',
+        },
+      },
+    })
+    emit('conv-artifact', { type: 'TEXT_MESSAGE_END', messageId: 'msg-art' })
+
+    const messages = useMessageStore.getState().messages['conv-artifact'] || []
+    const agentMsg = messages.find((m) => m.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    expect(agentMsg?.skillCards).toBeDefined()
+    expect(agentMsg?.skillCards!.length).toBe(1)
+    const card = agentMsg!.skillCards![0]
+    expect(card.type).toBe('artifact_card')
+    if (card.type === 'artifact_card') {
+      expect(card.name).toBe('quarterly-report.pdf')
+      expect(card.kind).toBe('report')
+      expect(card.mimeType).toBe('application/pdf')
+      expect(card.sourceAgent).toBe('document-agent')
+    }
+  })
+
+  it('artifact.delta with code type creates codeBlocks', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-art-code', 'show code')
+
+    emit('conv-art-code', { type: 'TEXT_MESSAGE_START', messageId: 'msg-code' })
+    emit('conv-art-code', {
+      type: 'artifact.delta',
+      messageId: 'msg-code',
+      artifact: {
+        type: 'code',
+        title: 'main.go',
+        content: 'package main',
+        metadata: { language: 'go' },
+      },
+    })
+    emit('conv-art-code', { type: 'TEXT_MESSAGE_END', messageId: 'msg-code' })
+
+    const messages = useMessageStore.getState().messages['conv-art-code'] || []
+    const agentMsg = messages.find((m) => m.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    expect(agentMsg?.codeBlocks).toBeDefined()
+    expect(agentMsg?.codeBlocks!.length).toBe(1)
+  })
+
+  it('artifact.delta with missing metadata fields still creates artifact_card', () => {
+    const { sendMessage } = useMessageStore.getState()
+    sendMessage('conv-art-minimal', 'create something')
+
+    emit('conv-art-minimal', { type: 'TEXT_MESSAGE_START', messageId: 'msg-min' })
+    emit('conv-art-minimal', {
+      type: 'artifact.delta',
+      messageId: 'msg-min',
+      artifact: {
+        type: 'unknown',
+        title: 'output.bin',
+      },
+    })
+    emit('conv-art-minimal', { type: 'TEXT_MESSAGE_END', messageId: 'msg-min' })
+
+    const messages = useMessageStore.getState().messages['conv-art-minimal'] || []
+    const agentMsg = messages.find((m) => m.senderType === 'agent')
+    expect(agentMsg).toBeDefined()
+    expect(agentMsg?.skillCards).toBeDefined()
+    const card = agentMsg!.skillCards![0]
+    expect(card.type).toBe('artifact_card')
+    if (card.type === 'artifact_card') {
+      expect(card.name).toBe('output.bin')
+      expect(card.kind).toBe('unknown')
+      expect(card.mimeType).toBeUndefined()
+      expect(card.sourceAgent).toBeUndefined()
+    }
+  })
+})

@@ -8,24 +8,38 @@ interface ConversationState {
   conversations: Conversation[]
   activeId: string | null
   loading: boolean
+  searchQuery: string
 
   load: () => Promise<void>
   create: (agentName: AgentName) => Promise<Conversation>
   setActive: (id: string) => void
   updateTitle: (id: string, title: string) => void
   delete: (id: string) => Promise<void>
+  pinConversation: (id: string, pinned: boolean) => Promise<void>
+  setSearchQuery: (query: string) => void
+}
+
+function sortConversations(conversations: Conversation[]): Conversation[] {
+  return [...conversations].sort((a, b) => {
+    // Pinned first
+    if (a.pinned && !b.pinned) return -1
+    if (!a.pinned && b.pinned) return 1
+    // Then by updatedAt DESC
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  })
 }
 
 export const useConversationStore = create<ConversationState>((set) => ({
   conversations: [],
   activeId: null,
   loading: false,
+  searchQuery: '',
 
   load: async () => {
     set({ loading: true })
     try {
       const rawConversations = await api.listConversations()
-      const conversations = overlayLocalTitles(rawConversations)
+      const conversations = sortConversations(overlayLocalTitles(rawConversations))
       set({ conversations, loading: false })
     } catch {
       set({ loading: false })
@@ -35,7 +49,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
   create: async (agentName: AgentName) => {
     const conv = await api.createConversation(agentName)
     set((s) => ({
-      conversations: [conv, ...s.conversations],
+      conversations: sortConversations([conv, ...s.conversations]),
       activeId: conv.id,
     }))
     return conv
@@ -47,8 +61,10 @@ export const useConversationStore = create<ConversationState>((set) => ({
 
   updateTitle: (id: string, title: string) => {
     set((s) => ({
-      conversations: s.conversations.map((conv) =>
-        conv.id === id ? { ...conv, title, updatedAt: new Date().toISOString() } : conv,
+      conversations: sortConversations(
+        s.conversations.map((conv) =>
+          conv.id === id ? { ...conv, title, updatedAt: new Date().toISOString() } : conv,
+        ),
       ),
     }))
   },
@@ -66,5 +82,22 @@ export const useConversationStore = create<ConversationState>((set) => ({
         activeId: nextActiveId,
       }
     })
+  },
+
+  pinConversation: async (id: string, pinned: boolean) => {
+    const updated = await api.pinConversation(id, pinned)
+    set((s) => ({
+      conversations: sortConversations(
+        s.conversations.map((conv) =>
+          conv.id === id
+            ? { ...updated, updatedAt: new Date().toISOString() }
+            : conv,
+        ),
+      ),
+    }))
+  },
+
+  setSearchQuery: (query: string) => {
+    set({ searchQuery: query })
   },
 }))

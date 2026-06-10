@@ -2,13 +2,17 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 )
 
 func TestHealth(t *testing.T) {
@@ -83,8 +87,8 @@ func TestHITLConfirmAccepted(t *testing.T) {
 	runID := "run-test-1"
 	// Register a pending plan so the orchestrator has a channel waiting.
 	p := &plan.OrchestrationPlan{
-		PlanID:  "plan-1",
-		RunID:   runID,
+		PlanID:   "plan-1",
+		RunID:    runID,
 		Strategy: plan.StrategySingle,
 	}
 	_ = srv.registerPending(runID, p)
@@ -117,8 +121,8 @@ func TestHITLConfirmRejected(t *testing.T) {
 
 	runID := "run-test-2"
 	p := &plan.OrchestrationPlan{
-		PlanID:  "plan-2",
-		RunID:   runID,
+		PlanID:   "plan-2",
+		RunID:    runID,
 		Strategy: plan.StrategySingle,
 	}
 	_ = srv.registerPending(runID, p)
@@ -181,8 +185,8 @@ func TestHITLConfirmRepeated(t *testing.T) {
 
 	runID := "run-test-repeat"
 	p := &plan.OrchestrationPlan{
-		PlanID:  "plan-repeat",
-		RunID:   runID,
+		PlanID:   "plan-repeat",
+		RunID:    runID,
 		Strategy: plan.StrategySingle,
 	}
 	ch := srv.registerPending(runID, p)
@@ -303,8 +307,8 @@ func TestHITLConfirmAuthorized(t *testing.T) {
 
 	runID := "run-test-auth"
 	p := &plan.OrchestrationPlan{
-		PlanID:  "plan-auth",
-		RunID:   runID,
+		PlanID:   "plan-auth",
+		RunID:    runID,
 		Strategy: plan.StrategySingle,
 	}
 	_ = srv.registerPending(runID, p)
@@ -339,8 +343,8 @@ func TestHITLConfirmAfterDrainStillAccepted(t *testing.T) {
 
 	runID := "run-test-redrain"
 	p := &plan.OrchestrationPlan{
-		PlanID:  "plan-redrain",
-		RunID:   runID,
+		PlanID:   "plan-redrain",
+		RunID:    runID,
 		Strategy: plan.StrategySingle,
 	}
 	ch := srv.registerPending(runID, p)
@@ -387,8 +391,8 @@ func TestHITLConfirmStateAfterRejected(t *testing.T) {
 
 	runID := "run-test-reject-once"
 	p := &plan.OrchestrationPlan{
-		PlanID:  "plan-reject",
-		RunID:   runID,
+		PlanID:   "plan-reject",
+		RunID:    runID,
 		Strategy: plan.StrategySingle,
 	}
 	ch := srv.registerPending(runID, p)
@@ -435,8 +439,8 @@ func TestHITLConfirmTimedOutRejected(t *testing.T) {
 
 	runID := "run-test-timeout"
 	p := &plan.OrchestrationPlan{
-		PlanID:  "plan-timeout",
-		RunID:   runID,
+		PlanID:   "plan-timeout",
+		RunID:    runID,
 		Strategy: plan.StrategySingle,
 	}
 	_ = srv.registerPending(runID, p)
@@ -465,7 +469,6 @@ func TestHITLConfirmTimedOutRejected(t *testing.T) {
 		t.Errorf("expected 'timed out' error, got %q", result["error"])
 	}
 }
-
 
 func TestIsPlanOnlyWhitelisted(t *testing.T) {
 	if !isPlanOnlyWhitelisted("code-agent") {
@@ -538,8 +541,8 @@ func TestHITLConfirm_ReviseAction(t *testing.T) {
 
 	runID := "run-test-revise"
 	p := &plan.OrchestrationPlan{
-		PlanID:  "plan-revise",
-		RunID:   runID,
+		PlanID:   "plan-revise",
+		RunID:    runID,
 		Strategy: plan.StrategySingle,
 	}
 	ch := srv.registerPending(runID, p)
@@ -591,8 +594,8 @@ func TestHITLConfirm_ReviseEmptyFeedbackRejected(t *testing.T) {
 
 	runID := "run-test-revise-empty"
 	p := &plan.OrchestrationPlan{
-		PlanID:  "plan-revise-empty",
-		RunID:   runID,
+		PlanID:   "plan-revise-empty",
+		RunID:    runID,
 		Strategy: plan.StrategySingle,
 	}
 	_ = srv.registerPending(runID, p)
@@ -763,5 +766,1005 @@ func TestIdempotencyKeyConflict(t *testing.T) {
 	json.NewDecoder(resp2.Body).Decode(&result)
 	if !strings.Contains(result["error"], "IDEMPOTENCY_KEY_CONFLICT") {
 		t.Errorf("expected IDEMPOTENCY_KEY_CONFLICT error, got: %v", result)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Agent Management API tests
+// ---------------------------------------------------------------------------
+
+// testAgentStore creates a JSONStore backed by a temp file for testing.
+func testAgentStore(t *testing.T) (registry.AgentStore, func()) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents.json")
+	store, err := registry.NewJSONStore(path)
+	if err != nil {
+		t.Fatalf("create test JSON store: %v", err)
+	}
+	return store, func() {}
+}
+
+// testServerWithDynamicRegistry creates a test server with both static and
+// dynamic registries wired. When staticEndpoints is empty, a minimal set is used.
+func testServerWithDynamicRegistry(t *testing.T, staticEndpoints []registry.AgentEndpoint, store registry.AgentStore) *Server {
+	t.Helper()
+	if len(staticEndpoints) == 0 {
+		staticEndpoints = []registry.AgentEndpoint{
+			{Name: "code-agent", URL: "http://127.0.0.1:8081", Description: "Generates and explains code", OutputModes: []string{"text", "code"}, CapabilityIDs: []string{"code_generation"}},
+			{Name: "web-agent", URL: "http://127.0.0.1:8082", Description: "Generates webpages", OutputModes: []string{"text", "webpage"}, CapabilityIDs: []string{"web_generation"}},
+		}
+	}
+	staticReg, err := registry.NewStaticAgentRegistry(staticEndpoints)
+	if err != nil {
+		t.Fatalf("create static registry: %v", err)
+	}
+	dr := registry.NewDynamicAgentRegistry(staticReg, store)
+	return NewServer(WithRegistry(staticReg), WithDynamicRegistry(dr))
+}
+
+// ---------------------------------------------------------------------------
+// List / Get
+// ---------------------------------------------------------------------------
+
+func TestAgentListEmpty(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/internal/orchestrator/agents")
+	if err != nil {
+		t.Fatalf("GET /agents: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var agents []publicAgentItem
+	if err := json.NewDecoder(resp.Body).Decode(&agents); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	// Should have static agents (code-agent, web-agent).
+	if len(agents) < 2 {
+		t.Fatalf("expected at least 2 static agents, got %d", len(agents))
+	}
+	// Verify static agents have description and outputModes.
+	foundCode := false
+	for _, a := range agents {
+		if a.Name == "code-agent" {
+			foundCode = true
+			if a.Description == "" {
+				t.Error("static code-agent missing description")
+			}
+			if len(a.OutputModes) == 0 {
+				t.Error("static code-agent missing outputModes")
+			}
+			if a.Source != "static" {
+				t.Errorf("expected source=static, got %q", a.Source)
+			}
+		}
+	}
+	if !foundCode {
+		t.Error("expected code-agent in list")
+	}
+}
+
+func TestAgentGetFound(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/internal/orchestrator/agents/code-agent")
+	if err != nil {
+		t.Fatalf("GET /agents/code-agent: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var agent publicAgentItem
+	if err := json.NewDecoder(resp.Body).Decode(&agent); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if agent.Name != "code-agent" {
+		t.Errorf("expected name=code-agent, got %q", agent.Name)
+	}
+	if agent.Description != "Generates and explains code" {
+		t.Errorf("expected description, got %q", agent.Description)
+	}
+}
+
+func TestAgentGetNotFound(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/internal/orchestrator/agents/nonexistent")
+	if err != nil {
+		t.Fatalf("GET /agents/nonexistent: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Register
+// ---------------------------------------------------------------------------
+
+func TestAgentRegisterInvalidBody(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents", "application/json", strings.NewReader(`{invalid}`))
+	if err != nil {
+		t.Fatalf("POST /agents: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestAgentRegisterEmptyURL(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents", "application/json", strings.NewReader(`{"url":""}`))
+	if err != nil {
+		t.Fatalf("POST /agents: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty URL, got %d", resp.StatusCode)
+	}
+}
+
+func TestAgentRegisterSuccess(t *testing.T) {
+	// Mock a simple agent card server.
+	mockAgent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/agent.json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"name":                "test-agent",
+				"description":         "A test agent",
+				"version":             "1.0.0",
+				"url":                 r.Host,
+				"inputModes":          []string{"text"},
+				"outputModes":         []string{"text"},
+				"skills":              []map[string]string{{"id": "testing"}},
+				"supportedInterfaces": []map[string]string{{"type": "JSONRPC", "url": "http://" + r.Host + "/a2a/tasks"}},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockAgent.Close()
+
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := fmt.Sprintf(`{"url":%q}`, mockAgent.URL)
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /agents: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var agent publicAgentItem
+	if err := json.NewDecoder(resp.Body).Decode(&agent); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if agent.Name != "test-agent" {
+		t.Errorf("expected name=test-agent, got %q", agent.Name)
+	}
+	if agent.Source != "dynamic" {
+		t.Errorf("expected source=dynamic, got %q", agent.Source)
+	}
+	if !agent.Enabled {
+		t.Error("expected enabled=true")
+	}
+	if agent.Description != "A test agent" {
+		t.Errorf("expected description from card, got %q", agent.Description)
+	}
+	if len(agent.OutputModes) == 0 || agent.OutputModes[0] != "text" {
+		t.Errorf("expected outputModes from card, got %v", agent.OutputModes)
+	}
+}
+
+func TestAgentRegisterStaticNameConflict(t *testing.T) {
+	// Registering an agent named "code-agent" must conflict with the static code-agent.
+	mockAgent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/agent.json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"name":                "code-agent",
+				"description":         "test",
+				"version":             "1.0.0",
+				"url":                 r.Host,
+				"inputModes":          []string{"text"},
+				"outputModes":         []string{"text"},
+				"skills":              []map[string]string{{"id": "code"}},
+				"supportedInterfaces": []map[string]string{{"type": "JSONRPC", "url": "http://" + r.Host + "/a2a/tasks"}},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockAgent.Close()
+
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := fmt.Sprintf(`{"url":%q}`, mockAgent.URL)
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /agents: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409, got %d", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Delete / Unregister
+// ---------------------------------------------------------------------------
+
+func TestAgentDeleteStaticAgent(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/internal/orchestrator/agents/code-agent", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE /agents/code-agent: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for static agent, got %d", resp.StatusCode)
+	}
+}
+
+func TestAgentDeleteNotFound(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/internal/orchestrator/agents/nonexistent", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE /agents/nonexistent: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Enable / Disable
+// ---------------------------------------------------------------------------
+
+func TestAgentEnableStaticAgent(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents/code-agent/enable", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /agents/code-agent/enable: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for static agent, got %d", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Refresh
+// ---------------------------------------------------------------------------
+
+func TestAgentRefreshStaticAgent(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents/code-agent/refresh", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /agents/code-agent/refresh: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for static agent, got %d", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Check
+// ---------------------------------------------------------------------------
+
+func TestAgentCheckStaticAgent(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents/code-agent/check", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /agents/code-agent/check: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for static agent, got %d", resp.StatusCode)
+	}
+}
+
+func TestAgentCheckNotFound(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents/nonexistent/check", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /agents/nonexistent/check: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// method not allowed
+// ---------------------------------------------------------------------------
+
+func TestAgentMethodNotAllowed(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// PUT is not allowed on /agents
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/internal/orchestrator/agents", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT /agents: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	if allow := resp.Header.Get("Allow"); allow == "" {
+		t.Error("expected Allow header")
+	}
+}
+
+func TestAgentGetMethodNotAllowed(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// POST is not allowed on /agents/code-agent (exact name, no action)
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents/code-agent", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("POST /agents/code-agent: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 (no matching action), got %d", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// lastError sanitization
+// ---------------------------------------------------------------------------
+
+func TestSanitizeAgentLastError(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", ""},
+		{"  ", ""},
+		{"dial tcp 10.0.0.1:8081: connection refused", "agent health check failed"},
+		{"lookup code-agent on 10.96.0.10:53: no such host", "agent health check failed"},
+		{"Get \"http://127.0.0.1:8081/.well-known/agent.json\": dial tcp: connect: connection refused", "agent health check failed"},
+		{"request timeout", "agent health check failed"},
+		{"agent card name mismatch", "agent card name mismatch"},
+		{"something benign", "something benign"},
+	}
+
+	for _, tc := range tests {
+		got := sanitizeAgentLastError(tc.input)
+		if got != tc.want {
+			t.Errorf("sanitizeAgentLastError(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic registry nil — graceful fallback
+// ---------------------------------------------------------------------------
+
+func TestAgentListNilDynamicRegistry(t *testing.T) {
+	// When no dynamic registry is wired, List should still return static agents.
+	staticReg, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{
+		{Name: "code-agent", URL: "http://127.0.0.1:8081", Description: "Code Agent", OutputModes: []string{"text"}},
+	})
+	if err != nil {
+		t.Fatalf("create static registry: %v", err)
+	}
+	srv := NewServer(WithRegistry(staticReg))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/internal/orchestrator/agents")
+	if err != nil {
+		t.Fatalf("GET /agents: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var agents []publicAgentItem
+	json.NewDecoder(resp.Body).Decode(&agents)
+	if len(agents) < 1 {
+		t.Error("expected at least 1 static agent")
+	}
+}
+
+func TestAgentRegisterNilDynamicRegistry(t *testing.T) {
+	srv := NewServer() // no dynamic registry
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents", "application/json", strings.NewReader(`{"url":"http://example.com"}`))
+	if err != nil {
+		t.Fatalf("POST /agents: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Decoded agent name in path
+// ---------------------------------------------------------------------------
+
+func TestAgentGetEncodedName(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+
+	mockAgent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/agent.json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"name":                "test agent",
+				"description":         "test",
+				"version":             "1.0.0",
+				"url":                 r.Host,
+				"inputModes":          []string{"text"},
+				"outputModes":         []string{"text"},
+				"skills":              []map[string]string{{"id": "test"}},
+				"supportedInterfaces": []map[string]string{{"type": "JSONRPC", "url": "http://" + r.Host + "/a2a/tasks"}},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockAgent.Close()
+
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	// Register a dynamic agent with space in name.
+	body := fmt.Sprintf(`{"url":%q}`, mockAgent.URL)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, _ := http.Post(ts.URL+"/internal/orchestrator/agents", "application/json", strings.NewReader(body))
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 for register, got %d", resp.StatusCode)
+	}
+
+	// Get with encoded name.
+	encodedName := url.PathEscape("test agent")
+	resp2, err := http.Get(ts.URL + "/internal/orchestrator/agents/" + encodedName)
+	if err != nil {
+		t.Fatalf("GET /agents/%s: %v", encodedName, err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp2.StatusCode, readBody(resp2))
+	}
+}
+
+func readBody(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return ""
+	}
+	var buf strings.Builder
+	json.NewDecoder(resp.Body).Decode(&struct{}{})
+	return buf.String()
+}
+
+// ---------------------------------------------------------------------------
+// Frontend compatibility: response shape
+// ---------------------------------------------------------------------------
+
+func TestAgentResponseShapeBackwardCompatible(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/internal/orchestrator/agents")
+	if err != nil {
+		t.Fatalf("GET /agents: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var agents []map[string]any
+	json.NewDecoder(resp.Body).Decode(&agents)
+
+	if len(agents) == 0 {
+		t.Fatal("expected non-empty agent list")
+	}
+
+	// Every agent must have the 4 frontend-compatible fields (camelCase).
+	for i, a := range agents {
+		if _, ok := a["name"]; !ok {
+			t.Errorf("agent[%d] missing 'name' field", i)
+		}
+		if _, ok := a["displayName"]; !ok {
+			t.Errorf("agent[%d] missing 'displayName' field", i)
+		}
+		if _, ok := a["description"]; !ok {
+			t.Errorf("agent[%d] missing 'description' field", i)
+		}
+		if _, ok := a["outputModes"]; !ok {
+			t.Errorf("agent[%d] missing 'outputModes' field", i)
+		}
+	}
+
+	// Verify no lastError in list response.
+	for i, a := range agents {
+		if _, ok := a["lastError"]; ok {
+			t.Errorf("agent[%d] should not have 'lastError' in list response", i)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PATCH update
+// ---------------------------------------------------------------------------
+
+func TestAgentUpdateNotFound(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/internal/orchestrator/agents/nonexistent", strings.NewReader(`{"displayName":"X"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// store unavailable error
+// ---------------------------------------------------------------------------
+
+func TestAgentRegisterStoreUnavailable(t *testing.T) {
+	dr := registry.NewDynamicAgentRegistry(nil, nil)
+	srv := NewServer(WithDynamicRegistry(dr))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents", "application/json", strings.NewReader(`{"url":"http://127.0.0.1:9999"}`))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Path safety: .. traversal and bad paths
+// ---------------------------------------------------------------------------
+
+func TestAgentPathTraversalRejected(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// ../.. in path should be rejected (defense-in-depth; Go cleanPath also handles this).
+	resp, err := http.Get(ts.URL + "/internal/orchestrator/agents/..%2F..%2Fhealth")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Go cleanPath resolves this before routing, so it won't match /agents/
+	// and returns 404 from the mux. Either 404 or 400 is acceptable.
+	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 404 or 400 for traversal, got %d", resp.StatusCode)
+	}
+}
+
+func TestAgentInvalidPathReturnsNotFound(t *testing.T) {
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/internal/orchestrator/agents/a/b/c")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Extra path segments not matching a known action → 404
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown sub-path, got %d", resp.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle: PATCH update, DELETE, enable/disable success
+// ---------------------------------------------------------------------------
+
+func TestAgentLifecycle(t *testing.T) {
+	mockAgent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/agent.json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"name":                "lifecycle-agent",
+				"description":         "Lifecycle test agent",
+				"version":             "1.0.0",
+				"url":                 r.Host,
+				"inputModes":          []string{"text"},
+				"outputModes":         []string{"text", "code"},
+				"skills":              []map[string]string{{"id": "test"}},
+				"supportedInterfaces": []map[string]string{{"type": "JSONRPC", "url": "http://" + r.Host + "/a2a/tasks"}},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockAgent.Close()
+
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// 1. Register a dynamic agent.
+	body := fmt.Sprintf(`{"url":%q}`, mockAgent.URL)
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	// 2. PATCH update displayName.
+	patchBody := `{"displayName":"Lifecycle Agent Updated"}`
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/internal/orchestrator/agents/lifecycle-agent", strings.NewReader(patchBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+
+	// 3. Disable.
+	resp3, err := http.Post(ts.URL+"/internal/orchestrator/agents/lifecycle-agent/disable", "application/json", nil)
+	if err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	resp3.Body.Close()
+	if resp3.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp3.StatusCode)
+	}
+
+	// 4. Enable.
+	resp4, err := http.Post(ts.URL+"/internal/orchestrator/agents/lifecycle-agent/enable", "application/json", nil)
+	if err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	resp4.Body.Close()
+	if resp4.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp4.StatusCode)
+	}
+
+	// 5. Refresh.
+	resp5, err := http.Post(ts.URL+"/internal/orchestrator/agents/lifecycle-agent/refresh", "application/json", nil)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	defer resp5.Body.Close()
+	if resp5.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp5.StatusCode)
+	}
+	var refreshed publicAgentItem
+	json.NewDecoder(resp5.Body).Decode(&refreshed)
+	if refreshed.Name != "lifecycle-agent" {
+		t.Errorf("expected name=lifecycle-agent, got %q", refreshed.Name)
+	}
+
+	// 6. Check healthy.
+	resp6, err := http.Post(ts.URL+"/internal/orchestrator/agents/lifecycle-agent/check", "application/json", nil)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	defer resp6.Body.Close()
+	if resp6.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp6.StatusCode)
+	}
+	var checked publicAgentItem
+	json.NewDecoder(resp6.Body).Decode(&checked)
+	if !checked.Healthy {
+		t.Error("expected healthy=true")
+	}
+	if checked.LastError != "" {
+		t.Errorf("expected empty LastError, got %q", checked.LastError)
+	}
+
+	// 7. DELETE.
+	req7, _ := http.NewRequest(http.MethodDelete, ts.URL+"/internal/orchestrator/agents/lifecycle-agent", nil)
+	resp7, err := http.DefaultClient.Do(req7)
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	resp7.Body.Close()
+	if resp7.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp7.StatusCode)
+	}
+
+	// 8. After DELETE, agent should 404.
+	resp8, err := http.Get(ts.URL + "/internal/orchestrator/agents/lifecycle-agent")
+	if err != nil {
+		t.Fatalf("get after delete: %v", err)
+	}
+	defer resp8.Body.Close()
+	if resp8.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 after delete, got %d", resp8.StatusCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Check with upstream error → sanitized lastError
+// ---------------------------------------------------------------------------
+
+func TestAgentCheckFetchFailure(t *testing.T) {
+	// Use a mock that serves agent.json on register but fails on re-fetch.
+	callCount := 0
+	flakeAgent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if r.URL.Path == "/.well-known/agent.json" {
+			if callCount > 1 {
+				// Fail on subsequent fetches (check).
+				w.WriteHeader(http.StatusBadGateway)
+				w.Write([]byte("connection refused"))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"name":                "flake-agent",
+				"description":         "test",
+				"version":             "1.0.0",
+				"url":                 r.Host,
+				"inputModes":          []string{"text"},
+				"outputModes":         []string{"text"},
+				"skills":              []map[string]string{{"id": "test"}},
+				"supportedInterfaces": []map[string]string{{"type": "JSONRPC", "url": "http://" + r.Host + "/a2a/tasks"}},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer flakeAgent.Close()
+
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Register.
+	body := fmt.Sprintf(`{"url":%q}`, flakeAgent.URL)
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	// Check — should fail on re-fetch, healthy=false, lastError sanitized.
+	resp2, err := http.Post(ts.URL+"/internal/orchestrator/agents/flake-agent/check", "application/json", nil)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+
+	var checked publicAgentItem
+	json.NewDecoder(resp2.Body).Decode(&checked)
+	if checked.Healthy {
+		t.Error("expected healthy=false on fetch failure")
+	}
+	if checked.LastError == "" {
+		t.Error("expected non-empty LastError")
+	}
+	if strings.Contains(checked.LastError, "connection refused") {
+		t.Errorf("expected sanitized LastError, got %q", checked.LastError)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Check with name mismatch → lastError safe
+// ---------------------------------------------------------------------------
+
+func TestAgentCheckNameMismatch(t *testing.T) {
+	callCount := 0
+	mismatchAgent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if r.URL.Path == "/.well-known/agent.json" {
+			if callCount > 1 {
+				// On re-fetch, return a different name.
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{
+					"name":                "wrong-name",
+					"description":         "test",
+					"version":             "1.0.0",
+					"url":                 r.Host,
+					"inputModes":          []string{"text"},
+					"outputModes":         []string{"text"},
+					"skills":              []map[string]string{{"id": "test"}},
+					"supportedInterfaces": []map[string]string{{"type": "JSONRPC", "url": "http://" + r.Host + "/a2a/tasks"}},
+				})
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"name":                "mismatch-agent",
+				"description":         "test",
+				"version":             "1.0.0",
+				"url":                 r.Host,
+				"inputModes":          []string{"text"},
+				"outputModes":         []string{"text"},
+				"skills":              []map[string]string{{"id": "test"}},
+				"supportedInterfaces": []map[string]string{{"type": "JSONRPC", "url": "http://" + r.Host + "/a2a/tasks"}},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mismatchAgent.Close()
+
+	store, cleanup := testAgentStore(t)
+	defer cleanup()
+	srv := testServerWithDynamicRegistry(t, nil, store)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Register.
+	body := fmt.Sprintf(`{"url":%q}`, mismatchAgent.URL)
+	resp, err := http.Post(ts.URL+"/internal/orchestrator/agents", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	// Check — name mismatch should set healthy=false with safe error.
+	resp2, err := http.Post(ts.URL+"/internal/orchestrator/agents/mismatch-agent/check", "application/json", nil)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp2.StatusCode, readBody(resp2))
+	}
+
+	var checked publicAgentItem
+	json.NewDecoder(resp2.Body).Decode(&checked)
+	if checked.Healthy {
+		t.Error("expected healthy=false on name mismatch")
+	}
+	if checked.LastError == "" {
+		t.Error("expected non-empty LastError on name mismatch")
+	}
+	// LastError should be safe — no URLs.
+	if strings.Contains(checked.LastError, "://") {
+		t.Errorf("expected safe LastError, got %q", checked.LastError)
 	}
 }

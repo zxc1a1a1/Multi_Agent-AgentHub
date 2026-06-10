@@ -332,3 +332,92 @@ func max(a, b int) int {
 	}
 	return b
 }
+
+// KeepPinnedWindowPruner keeps head/tail context plus explicit pinned indexes.
+// It is intentionally index-based because adk.Content does not carry message IDs.
+// Callers that build GenerateRequest should map pinnedMessageIds to indexes before
+// invoking this pruner. If HardLimit is positive and the pinned+window selection
+// exceeds it, Prune returns a deterministic error instead of silently dropping a
+// pinned message.
+type KeepPinnedWindowPruner struct {
+	Head          int
+	Tail          int
+	PinnedIndexes map[int]bool
+	HardLimit     int
+}
+
+// NewKeepPinnedWindowPruner creates a pruner that preserves pinned content.
+func NewKeepPinnedWindowPruner(head, tail int, pinnedIndexes map[int]bool, hardLimit int) *KeepPinnedWindowPruner {
+	cloned := make(map[int]bool, len(pinnedIndexes))
+	for idx, keep := range pinnedIndexes {
+		if keep {
+			cloned[idx] = true
+		}
+	}
+	return &KeepPinnedWindowPruner{Head: head, Tail: tail, PinnedIndexes: cloned, HardLimit: hardLimit}
+}
+
+func (p *KeepPinnedWindowPruner) Prune(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateRequest, error) {
+	ctx = ensureContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if req == nil {
+		return nil, errNilGenerateRequest
+	}
+
+	out := cloneGenerateRequest(req)
+	total := len(out.Contents)
+	if total == 0 {
+		return out, nil
+	}
+
+	head, tail := 0, 0
+	hardLimit := 0
+	pinned := map[int]bool{}
+	if p != nil {
+		head = p.Head
+		tail = p.Tail
+		hardLimit = p.HardLimit
+		for idx, keep := range p.PinnedIndexes {
+			if keep && idx >= 0 && idx < total {
+				pinned[idx] = true
+			}
+		}
+	}
+
+	keep := make([]bool, total)
+	for i := 0; i < min(total, head); i++ {
+		keep[i] = true
+	}
+	for i := max(0, total-tail); i < total; i++ {
+		keep[i] = true
+	}
+	for i, content := range out.Contents {
+		if content != nil && content.Role == adk.RoleSystem {
+			keep[i] = true
+		}
+	}
+	for idx := range pinned {
+		keep[idx] = true
+	}
+
+	keptCount := 0
+	for _, v := range keep {
+		if v {
+			keptCount++
+		}
+	}
+	if hardLimit > 0 && keptCount > hardLimit {
+		return nil, errors.New("pinned context exceeds hard limit")
+	}
+
+	pruned := make([]*adk.Content, 0, keptCount)
+	for i, content := range out.Contents {
+		if keep[i] {
+			pruned = append(pruned, content)
+		}
+	}
+	out.Contents = pruned
+	return out, nil
+}

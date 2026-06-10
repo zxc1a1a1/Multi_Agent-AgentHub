@@ -93,9 +93,9 @@ func (t *Translator) Translate(event adk.Event) []Event {
 	// ── AG-UI v1.0 path: metadata-driven event type mapping ──
 	if eventType != "" {
 		switch eventType {
-		case "run_started":
+		case InternalTypeRunStarted:
 			evt := Event{
-				Type:   "RUN_STARTED",
+				Type:   PublicTypeRunStarted,
 				RunID:  runID,
 				Sender: sender,
 				Author: event.Author,
@@ -106,9 +106,9 @@ func (t *Translator) Translate(event adk.Event) []Event {
 			}
 			out = append(out, evt)
 
-		case "run_finished":
+		case InternalTypeRunFinished:
 			evt := Event{
-				Type:   "RUN_FINISHED",
+				Type:   PublicTypeRunFinished,
 				RunID:  runID,
 				Sender: sender,
 				Author: event.Author,
@@ -120,9 +120,9 @@ func (t *Translator) Translate(event adk.Event) []Event {
 			}
 			out = append(out, evt)
 
-		case "run_error":
+		case InternalTypeRunError:
 			evt := Event{
-				Type:   "RUN_ERROR",
+				Type:   PublicTypeRunError,
 				RunID:  runID,
 				Author: event.Author,
 				Final:  true,
@@ -139,9 +139,9 @@ func (t *Translator) Translate(event adk.Event) []Event {
 			}
 			out = append(out, evt)
 
-		case "message_start":
+		case InternalTypeMessageStart:
 			evt := Event{
-				Type:      "TEXT_MESSAGE_START",
+				Type:      PublicTypeTextMessageStart,
 				RunID:     runID,
 				MessageID: messageID,
 				TaskID:    taskID,
@@ -151,7 +151,7 @@ func (t *Translator) Translate(event adk.Event) []Event {
 			}
 			out = append(out, evt)
 
-		case "message_delta":
+		case InternalTypeMessageDelta:
 			// Flush content parts as TEXT_MESSAGE_CONTENT
 			if event.Content != nil {
 				for _, part := range event.Content.Parts {
@@ -160,7 +160,7 @@ func (t *Translator) Translate(event adk.Event) []Event {
 						continue
 					}
 					out = append(out, Event{
-						Type:      "TEXT_MESSAGE_CONTENT",
+						Type:      PublicTypeTextMessageContent,
 						RunID:     runID,
 						MessageID: messageID,
 						TaskID:    taskID,
@@ -183,7 +183,7 @@ func (t *Translator) Translate(event adk.Event) []Event {
 					}
 					argsStr := t.formatArgs(tc.Arguments)
 					out = append(out, Event{
-						Type:      "TOOL_CALL_START",
+						Type:      PublicTypeToolCallStart,
 						RunID:     runID,
 						MessageID: messageID,
 						ID:        tc.ID,
@@ -194,24 +194,24 @@ func (t *Translator) Translate(event adk.Event) []Event {
 					})
 					if argsStr != "" {
 						out = append(out, Event{
-							Type:   "TOOL_CALL_ARGS",
-							RunID:  runID,
-							ID:     tc.ID,
-							Delta:  argsStr,
+							Type:    PublicTypeToolCallArgs,
+							RunID:   runID,
+							ID:      tc.ID,
+							Delta:   argsStr,
 							Content: argsStr, // backward compat
 						})
 					}
 					out = append(out, Event{
-						Type:   "TOOL_CALL_END",
-						RunID:  runID,
-						ID:     tc.ID,
+						Type:  PublicTypeToolCallEnd,
+						RunID: runID,
+						ID:    tc.ID,
 					})
 				}
 			}
 
-		case "message_end":
+		case InternalTypeMessageEnd:
 			out = append(out, Event{
-				Type:      "TEXT_MESSAGE_END",
+				Type:      PublicTypeTextMessageEnd,
 				RunID:     runID,
 				MessageID: messageID,
 				TaskID:    taskID,
@@ -220,9 +220,9 @@ func (t *Translator) Translate(event adk.Event) []Event {
 				Role:      role,
 			})
 
-		case "state_update":
+		case InternalTypeStateUpdate:
 			evt := Event{
-				Type:   "STATE_UPDATE",
+				Type:   PublicTypeStateUpdate,
 				RunID:  runID,
 				Author: event.Author,
 			}
@@ -232,9 +232,9 @@ func (t *Translator) Translate(event adk.Event) []Event {
 			}
 			out = append(out, evt)
 
-		case "activity_snapshot":
+		case InternalTypeActivitySnapshot:
 			evt := Event{
-				Type:   "ACTIVITY_SNAPSHOT",
+				Type:   PublicTypeActivitySnapshot,
 				RunID:  runID,
 				Sender: sender,
 				Author: event.Author,
@@ -249,11 +249,11 @@ func (t *Translator) Translate(event adk.Event) []Event {
 			}
 			out = append(out, evt)
 
-		case "tool_call_start":
+		case InternalTypeToolCallStart:
 			toolCallID, _ := meta["toolCallId"].(string)
 			toolCallName, _ := meta["toolCallName"].(string)
 			out = append(out, Event{
-				Type:      "TOOL_CALL_START",
+				Type:      PublicTypeToolCallStart,
 				RunID:     runID,
 				MessageID: messageID,
 				ID:        toolCallID,
@@ -266,7 +266,7 @@ func (t *Translator) Translate(event adk.Event) []Event {
 				},
 			})
 
-		case "tool_call_args":
+		case InternalTypeToolCallArgs:
 			toolCallID, _ := meta["toolCallId"].(string)
 			delta := ""
 			if event.Content != nil {
@@ -279,7 +279,7 @@ func (t *Translator) Translate(event adk.Event) []Event {
 			}
 			if delta != "" {
 				out = append(out, Event{
-					Type:    "TOOL_CALL_ARGS",
+					Type:    PublicTypeToolCallArgs,
 					RunID:   runID,
 					ID:      toolCallID,
 					Delta:   delta,
@@ -287,12 +287,64 @@ func (t *Translator) Translate(event adk.Event) []Event {
 				})
 			}
 
-		case "tool_call_end":
+		case InternalTypeToolCallEnd:
 			toolCallID, _ := meta["toolCallId"].(string)
 			out = append(out, Event{
-				Type:  "TOOL_CALL_END",
+				Type:  PublicTypeToolCallEnd,
 				RunID: runID,
 				ID:    toolCallID,
+			})
+
+		case InternalTypeAgentTurnStarted:
+			turnIndex := metaInt(meta, "turnIndex")
+			stepID, _ := meta["stepId"].(string)
+			agentName, _ := meta["agentName"].(string)
+			out = append(out, Event{
+				Type:      PublicTypeAgentTurnStarted,
+				RunID:     runID,
+				MessageID: messageID,
+				TurnIndex: turnIndex,
+				StepID:    stepID,
+				AgentName: agentName,
+				Sender:    sender,
+			})
+
+		case InternalTypeAgentTurnContent:
+			turnIndex := metaInt(meta, "turnIndex")
+			delta := ""
+			if event.Content != nil {
+				for _, part := range event.Content.Parts {
+					text := t.extractText(part)
+					if text != "" {
+						delta += text
+					}
+				}
+			}
+			if delta != "" {
+				out = append(out, Event{
+					Type:      PublicTypeAgentTurnContent,
+					RunID:     runID,
+					MessageID: messageID,
+					TurnIndex: turnIndex,
+					Delta:     delta,
+					Partial:   true,
+				})
+			}
+
+		case InternalTypeAgentTurnFinished:
+			turnIndex := metaInt(meta, "turnIndex")
+			agentName, _ := meta["agentName"].(string)
+			status, _ := meta["status"].(string)
+			summary, _ := meta["summary"].(string)
+			out = append(out, Event{
+				Type:      PublicTypeAgentTurnFinished,
+				RunID:     runID,
+				MessageID: messageID,
+				TurnIndex: turnIndex,
+				AgentName: agentName,
+				Status:    status,
+				Summary:   summary,
+				Final:     true,
 			})
 
 		default:
@@ -310,7 +362,7 @@ func (t *Translator) Translate(event adk.Event) []Event {
 					toolName = "web_preview"
 				}
 				out = append(out, Event{
-					Type:      "TOOL_CALL_START",
+					Type:      PublicTypeToolCallStart,
 					RunID:     runID,
 					MessageID: messageID,
 					ID:        "artifact_" + item.Type,
@@ -326,14 +378,14 @@ func (t *Translator) Translate(event adk.Event) []Event {
 					"metadata": t.sanitizeMetadata(item.Metadata),
 				})
 				out = append(out, Event{
-					Type:    "TOOL_CALL_ARGS",
+					Type:    PublicTypeToolCallArgs,
 					RunID:   runID,
 					ID:      "artifact_" + item.Type,
 					Delta:   string(raw),
 					Content: string(raw),
 				})
 				out = append(out, Event{
-					Type:  "TOOL_CALL_END",
+					Type:  PublicTypeToolCallEnd,
 					RunID: runID,
 					ID:    "artifact_" + item.Type,
 				})
@@ -648,6 +700,23 @@ func (t *Translator) sanitizeAny(in any) any {
 		return out
 	default:
 		return in
+	}
+}
+
+// metaInt extracts an int value from metadata map handling all numeric JSON types.
+func metaInt(meta map[string]any, key string) int {
+	switch v := meta[key].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return int(n)
+	default:
+		return 0
 	}
 }
 

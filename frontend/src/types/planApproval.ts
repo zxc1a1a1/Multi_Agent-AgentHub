@@ -31,6 +31,13 @@ export interface PlanApprovalData {
     isMainAgent?: boolean
   }
 
+  executionOwner?: {
+    type?: string
+    agentName?: string
+    agentNames?: string[]
+    selectedParticipants?: string[]
+  }
+
   tasks: PlanApprovalTask[]
 
   participants: PlanApprovalParticipant[]

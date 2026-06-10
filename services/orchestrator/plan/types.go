@@ -41,6 +41,12 @@ type OrchestrationPlan struct {
 	// PlanOwner identifies who generated this plan (agent or main_agent).
 	PlanOwner *PlanOwner `json:"planOwner,omitempty"`
 
+	// ExecutionOwner identifies who will execute the plan, derived from executionPath.
+	// single_chat → {type:"agent", agentName:<selected>}
+	// group_chat  → {type:"group", agentNames:<allowed>}
+	// main_agent_orchestration → {type:"main_agent_orchestration", selectedParticipants:[...]}
+	ExecutionOwner *ExecutionOwner `json:"executionOwner,omitempty"`
+
 	// Participants is the list of agents involved in this plan.
 	Participants []PlanParticipant `json:"participants,omitempty"`
 
@@ -51,6 +57,13 @@ type OrchestrationPlan struct {
 	// DefaultSelectedParticipants is the MainAgent's recommended default selection.
 	// MainAgent orchestration only.
 	DefaultSelectedParticipants []PlanParticipant `json:"defaultSelectedParticipants,omitempty"`
+
+	// ConfirmedParticipantNames stores the user-confirmed agent names on approve.
+	// Used during dispatch to filter out unselected optional participants.
+	ConfirmedParticipantNames []string `json:"confirmedParticipantNames,omitempty"`
+
+	// Warnings carries non-blocking plan-level warnings (e.g. from LLM).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // PlanOwner identifies the plan author.
@@ -60,12 +73,22 @@ type PlanOwner struct {
 	IsMainAgent bool   `json:"isMainAgent,omitempty"`
 }
 
+// ExecutionOwner identifies who will execute the plan.
+// Derived from executionPath at plan time.
+type ExecutionOwner struct {
+	Type                 string   `json:"type"` // "agent" | "group" | "main_agent_orchestration"
+	AgentName            string   `json:"agentName,omitempty"`
+	AgentNames           []string `json:"agentNames,omitempty"`
+	SelectedParticipants []string `json:"selectedParticipants,omitempty"`
+}
+
 // PlanParticipant describes one agent participant in a plan.
 type PlanParticipant struct {
 	AgentName string `json:"agentName"`
 	Role      string `json:"role,omitempty"`
 	Required  bool   `json:"required,omitempty"`
 	Selected  bool   `json:"selected,omitempty"`
+	Reason    string `json:"reason,omitempty"` // why this agent was selected (from LLM PlanStep.reason)
 }
 
 // TaskPlan is a single execution unit within an OrchestrationPlan.
@@ -79,6 +102,7 @@ type TaskPlan struct {
 	Priority        int      `json:"priority"`
 	TimeoutMs       int64    `json:"timeoutMs"`
 	RiskLevel       string   `json:"riskLevel"`
+	Reason          string   `json:"reason,omitempty"` // why this task/agent was selected (from LLM PlanStep.reason)
 }
 
 // Aggregation defines how task outputs should be combined.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/bridge"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 )
 
@@ -95,7 +96,11 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 		selectedAgentNames := runservice.SelectedAgentNamesFromContext(ctx)
 		mentions := runservice.MentionsFromContext(ctx)
 		planningMode := runservice.PlanningModeFromContext(ctx)
-	requestedPath := runservice.RequestedPathFromContext(ctx)
+		requestedPath := runservice.RequestedPathFromContext(ctx)
+		replyTo := runservice.ReplyToFromContext(ctx)
+		quote := runservice.QuoteFromContext(ctx)
+		pinnedMessageIDs := runservice.PinnedMessageIDsFromContext(ctx)
+		contextMessages := runservice.ContextMessagesFromContext(ctx)
 		if planningMode == "" {
 			planningMode = runservice.PlanningModeAuto
 		}
@@ -108,17 +113,41 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 			mentions = []string{}
 		}
 
+		// Build messages array: if contextMessages were forwarded from the
+		// frontend, pass them through with IDs so the Orchestrator can resolve
+		// pinnedMessageIds. Otherwise fall back to the current message only.
+		var messages []map[string]string
+		if len(contextMessages) > 0 {
+			messages = make([]map[string]string, 0, len(contextMessages))
+			for _, cm := range contextMessages {
+				m := map[string]string{"role": cm.Role, "text": cm.Text}
+				if cm.ID != "" {
+					m["id"] = cm.ID
+				}
+				messages = append(messages, m)
+			}
+		} else {
+			messages = []map[string]string{
+				{"role": "user", "text": userText},
+			}
+		}
+
 		reqBody := map[string]any{
 			"conversationId":   conversationID,
 			"conversationType": "single",
-			"messages": []map[string]string{
-				{"role": "user", "text": userText},
-			},
-			"planningMode":      string(planningMode),
-			"agentName":         agentName,
+			"messages":         messages,
+			"planningMode":     string(planningMode),
+			"agentName":          agentName,
 			"selectedAgentNames": selectedAgentNames,
-			"mentions":          mentions,
-			"requestedPath":     requestedPath,
+			"mentions":           mentions,
+			"requestedPath":      requestedPath,
+			"pinnedMessageIds":   pinnedMessageIDs,
+		}
+		if replyTo != nil {
+			reqBody["replyTo"] = replyTo
+		}
+		if quote != nil {
+			reqBody["quote"] = quote
 		}
 
 		bodyBytes, err := json.Marshal(reqBody)
@@ -158,32 +187,6 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 	}
 }
 
-// orchestratorStreamEvent is a local type for decoding SSE data payloads.
-// This avoids importing the orchestrator package.
-type orchestratorStreamEvent struct {
-	Type         string         `json:"type"`
-	RunID        string         `json:"runId"`
-	MessageID    string         `json:"messageId,omitempty"`
-	TaskID       string         `json:"taskId,omitempty"`
-	Sender       *eventSender   `json:"sender,omitempty"`
-	Delta        string         `json:"delta,omitempty"`
-	State        map[string]any `json:"state,omitempty"`
-	Error        *safeError     `json:"error,omitempty"`
-	ToolCallID   string          `json:"toolCallId,omitempty"`
-	ToolCallName string          `json:"toolCallName,omitempty"`
-	Activity     json.RawMessage `json:"activity,omitempty"`
-}
-
-type eventSender struct {
-	Type string `json:"type"`
-	Name string `json:"name"`
-}
-
-type safeError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
 // parseSSEStream reads the SSE stream from the Orchestrator and yields adk.Event
 // values with Metadata carrying event type, runId, messageId, taskId, and sender.
 func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
@@ -206,7 +209,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 		}
 
 		data := strings.TrimPrefix(line, "data: ")
-		var ose orchestratorStreamEvent
+		var ose agui.InternalStreamEvent
 		if err := json.Unmarshal([]byte(data), &ose); err != nil {
 			return fmt.Errorf("parse orchestrator event: %w", err)
 		}
@@ -234,7 +237,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 		}
 
 		switch ose.Type {
-		case "run_started":
+		case agui.InternalTypeRunStarted:
 			adkEvent := adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -248,7 +251,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "run_finished":
+		case agui.InternalTypeRunFinished:
 			adkEvent := adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -263,7 +266,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "run_error":
+		case agui.InternalTypeRunError:
 			// run_error becomes an adk.Event with metadata so the translator
 			// can produce a proper RUN_ERROR AG-UI event. The Gateway handler
 			// stops processing after this event by checking for RUN_ERROR type.
@@ -286,7 +289,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 			// Don't continue processing after run_error
 			return nil
 
-		case "message_start":
+		case agui.InternalTypeMessageStart:
 			if !yield(adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -294,7 +297,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "message_delta":
+		case agui.InternalTypeMessageDelta:
 			if !yield(adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -309,7 +312,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "message_end":
+		case agui.InternalTypeMessageEnd:
 			if !yield(adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -324,7 +327,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "state_update":
+		case agui.InternalTypeStateUpdate:
 			adkEvent := adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -338,7 +341,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "tool_call_start":
+		case agui.InternalTypeToolCallStart:
 			meta["toolCallName"] = ose.ToolCallName
 			meta["toolCallId"] = ose.ToolCallID
 			if !yield(adk.Event{
@@ -348,7 +351,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "tool_call_args":
+		case agui.InternalTypeToolCallArgs:
 			meta["toolCallId"] = ose.ToolCallID
 			if !yield(adk.Event{
 				Author:   author,
@@ -364,7 +367,7 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "tool_call_end":
+		case agui.InternalTypeToolCallEnd:
 			if !yield(adk.Event{
 				Author:   author,
 				Metadata: meta,
@@ -373,19 +376,50 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 				return nil
 			}
 
-		case "activity_snapshot":
+		case agui.InternalTypeActivitySnapshot:
 			adkEvent := adk.Event{
 				Author:   author,
 				Metadata: meta,
 			}
 			if ose.Activity != nil {
+				activityJSON, _ := json.Marshal(ose.Activity)
 				adkEvent.Actions = &adk.EventActions{
 					StateDelta: map[string]any{
-						"activity": ose.Activity,
+						"activity": json.RawMessage(activityJSON),
 					},
 				}
 			}
 			if !yield(adkEvent, nil) {
+				return nil
+			}
+
+		case agui.InternalTypeAgentTurnStarted:
+			meta["turnIndex"] = ose.TurnIndex
+			meta["stepId"] = ose.StepID
+			meta["agentName"] = ose.AgentName
+			if !yield(adk.Event{Author: author, Metadata: meta}, nil) {
+				return nil
+			}
+
+		case agui.InternalTypeAgentTurnContent:
+			meta["turnIndex"] = ose.TurnIndex
+			if !yield(adk.Event{
+				Author: author, Metadata: meta,
+				Content: &adk.Content{
+					Role:  adk.RoleAssistant,
+					Parts: []adk.Part{adk.TextPart{Text: ose.Delta}},
+				},
+				Partial: true,
+			}, nil) {
+				return nil
+			}
+
+		case agui.InternalTypeAgentTurnFinished:
+			meta["turnIndex"] = ose.TurnIndex
+			meta["agentName"] = ose.AgentName
+			meta["status"] = ose.Status
+			meta["summary"] = ose.Summary
+			if !yield(adk.Event{Author: author, Metadata: meta, Final: true}, nil) {
 				return nil
 			}
 
@@ -408,14 +442,16 @@ func parseSSEStream(body io.Reader, yield func(adk.Event, error) bool) error {
 
 // HITLConfirmRequest mirrors the Orchestrator HITL confirm payload.
 type HITLConfirmRequest struct {
-	RunID          string `json:"runId"`
-	ActionID       string `json:"actionId"`
-	Confirmed      *bool  `json:"confirmed,omitempty"`
-	Action         string `json:"action,omitempty"`
-	Feedback       string `json:"feedback,omitempty"`
-	Revision       int    `json:"revision,omitempty"`
-	RejectReason   string `json:"rejectReason,omitempty"`
-	IdempotencyKey string `json:"idempotencyKey,omitempty"`
+	RunID                string   `json:"runId"`
+	ActionID             string   `json:"actionId"`
+	PlanID               string   `json:"planId,omitempty"`
+	Confirmed            *bool    `json:"confirmed,omitempty"`
+	Action               string   `json:"action,omitempty"`
+	Feedback             string   `json:"feedback,omitempty"`
+	Revision             int      `json:"revision,omitempty"`
+	RejectReason         string   `json:"rejectReason,omitempty"`
+	IdempotencyKey       string   `json:"idempotencyKey,omitempty"`
+	SelectedParticipants []string `json:"selectedParticipants,omitempty"`
 }
 
 // ConfirmRun sends a HITL confirmation to the remote Orchestrator.
@@ -448,7 +484,135 @@ func (s *OrchestratorRunService) ConfirmRun(ctx context.Context, req HITLConfirm
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("orchestrator confirm returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return &HTTPError{
+			StatusCode:  resp.StatusCode,
+			Body:        strings.TrimSpace(string(body)),
+			ContentType: resp.Header.Get("Content-Type"),
+		}
+	}
+	return nil
+}
+
+// CancelRun sends a cancel request for a run to the remote Orchestrator.
+// POST /internal/orchestrator/runs/cancel
+func (s *OrchestratorRunService) CancelRun(ctx context.Context, runID string) error {
+	if s == nil {
+		return errors.New("orchestrator run service is nil")
+	}
+	if strings.TrimSpace(runID) == "" {
+		return errors.New("runId is required")
+	}
+
+	bodyBytes, err := json.Marshal(map[string]string{"runId": runID})
+	if err != nil {
+		return fmt.Errorf("marshal cancel request: %w", err)
+	}
+
+	url := s.baseURL + "/internal/orchestrator/runs/cancel"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("create cancel request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if s.internalToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+s.internalToken)
+	}
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("orchestrator cancel request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return &HTTPError{
+			StatusCode:  resp.StatusCode,
+			Body:        strings.TrimSpace(string(body)),
+			ContentType: resp.Header.Get("Content-Type"),
+		}
+	}
+	return nil
+}
+
+// HTTPError represents an error response from the Orchestrator that should be
+// transparently forwarded to the caller (preserving status code, body, and Content-Type).
+type HTTPError struct {
+	StatusCode  int
+	Body        string
+	ContentType string
+}
+
+func (e *HTTPError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Body
+}
+
+// SendToolResult forwards a tool result from the frontend through the Gateway
+// to the Orchestrator so it can relay it to the appropriate child agent.
+// POST /internal/orchestrator/runs/tool-result
+func (s *OrchestratorRunService) SendToolResult(ctx context.Context, runID, taskID, toolCallID, status, contentType string, data any, errDetail *bridge.ToolResultError) error {
+	if s == nil {
+		return errors.New("orchestrator run service is nil")
+	}
+	if strings.TrimSpace(runID) == "" {
+		return errors.New("runId is required")
+	}
+	if strings.TrimSpace(toolCallID) == "" {
+		return errors.New("toolCallId is required")
+	}
+
+	reqBody := map[string]any{
+		"runId":      runID,
+		"toolCallId": toolCallID,
+		"status":     status,
+	}
+	if strings.TrimSpace(taskID) != "" {
+		reqBody["taskId"] = taskID
+	}
+	if strings.TrimSpace(contentType) != "" {
+		reqBody["contentType"] = contentType
+	}
+	if data != nil {
+		reqBody["data"] = data
+	}
+	if errDetail != nil {
+		reqBody["error"] = map[string]string{
+			"code":    errDetail.Code,
+			"message": errDetail.Message,
+		}
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("marshal tool result request: %w", err)
+	}
+
+	url := s.baseURL + "/internal/orchestrator/runs/tool-result"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("create tool result request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if s.internalToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+s.internalToken)
+	}
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("orchestrator tool result request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return &HTTPError{
+			StatusCode:  resp.StatusCode,
+			Body:        strings.TrimSpace(string(body)),
+			ContentType: resp.Header.Get("Content-Type"),
+		}
 	}
 	return nil
 }

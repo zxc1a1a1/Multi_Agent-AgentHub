@@ -4,12 +4,14 @@ import "time"
 
 // Conversation represents a chat session.
 type Conversation struct {
-	ID           string    `json:"id"`
-	Title        string    `json:"title"`
-	Status       string    `json:"status"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-	MetadataJSON string    `json:"metadataJson,omitempty"`
+	ID           string     `json:"id"`
+	Title        string     `json:"title"`
+	Status       string     `json:"status"`
+	Pinned       bool       `json:"pinned"`
+	PinnedAt     *time.Time `json:"pinnedAt,omitempty"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
+	MetadataJSON string     `json:"metadataJson,omitempty"`
 }
 
 // Message represents a single user-visible message bubble.

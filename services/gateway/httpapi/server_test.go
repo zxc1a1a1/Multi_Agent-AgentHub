@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"net/http"
 	"net/http/httptest"
@@ -1145,8 +1146,8 @@ func TestDerivePlanningMode(t *testing.T) {
 			want:      runservice.PlanningModeAuto,
 		},
 		{
-			name:      "agentName=auto with empty selection → auto",
-			agentName: "auto",
+			name:               "agentName=auto with empty selection → auto",
+			agentName:          "auto",
 			selectedAgentNames: []string{},
 			mentions:           []string{},
 			want:               runservice.PlanningModeAuto,
@@ -1226,7 +1227,7 @@ func TestDerivePlanningMode(t *testing.T) {
 
 // contextCaptureRunner captures context values for assertions.
 type contextCaptureRunner struct {
-	seq        iter.Seq2[adk.Event, error]
+	seq         iter.Seq2[adk.Event, error]
 	capturedCtx context.Context
 }
 
@@ -1460,6 +1461,53 @@ func TestChat_RequestPlanningModeAccepted(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for request with planningMode field, got %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestChat_ContextMessagesPassthrough(t *testing.T) {
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-cm", "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	runner := &contextCaptureRunner{
+		seq: seqEvents(adk.Event{
+			ID:     "evt-cm",
+			Author: "orchestrator",
+			Content: &adk.Content{
+				Role:  adk.RoleAssistant,
+				Parts: []adk.Part{adk.TextPart{Text: "response"}},
+			},
+			Final: true,
+		}),
+	}
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	body := `{"conversationId":"` + conv.ID + `","message":"hello","contextMessages":[{"id":"msg-1","role":"user","text":"previous question"},{"id":"msg-2","role":"assistant","text":"previous answer"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if runner.capturedCtx == nil {
+		t.Fatal("expected context to be captured")
+	}
+
+	cm := runservice.ContextMessagesFromContext(runner.capturedCtx)
+	if len(cm) != 2 {
+		t.Fatalf("expected 2 context messages, got %d", len(cm))
+	}
+	if cm[0].ID != "msg-1" || cm[0].Role != "user" || cm[0].Text != "previous question" {
+		t.Errorf("cm[0] mismatch: ID=%q Role=%q Text=%q", cm[0].ID, cm[0].Role, cm[0].Text)
+	}
+	if cm[1].ID != "msg-2" || cm[1].Role != "assistant" || cm[1].Text != "previous answer" {
+		t.Errorf("cm[1] mismatch: ID=%q Role=%q Text=%q", cm[1].ID, cm[1].Role, cm[1].Text)
 	}
 }
 
@@ -1868,5 +1916,425 @@ func TestAGUICompliance_RevisedConfirmPlanThroughGateway(t *testing.T) {
 	}
 	if !strings.Contains(respBody, "plan-v2") {
 		t.Error("plan-v2 must appear in output")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Agent Management Proxy tests
+// ---------------------------------------------------------------------------
+
+// mockAgentProxy is a test implementation of AgentManagementProxy that records
+// the proxy call and returns a configurable response.
+type mockAgentProxy struct {
+	calledMethod      string
+	calledPathSuffix  string
+	calledRawQuery    string
+	calledBody        string
+	calledContentType string
+
+	statusCode int
+	respBody   string
+	respErr    error
+}
+
+func (m *mockAgentProxy) ProxyAgentManagement(
+	ctx context.Context, method, pathSuffix, rawQuery string,
+	body io.Reader, contentType string,
+) (*http.Response, error) {
+	m.calledMethod = method
+	m.calledPathSuffix = pathSuffix
+	m.calledRawQuery = rawQuery
+	m.calledContentType = contentType
+	if body != nil {
+		b, _ := io.ReadAll(body)
+		m.calledBody = string(b)
+	}
+	if m.respErr != nil {
+		return nil, m.respErr
+	}
+	w := httptest.NewRecorder()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(m.statusCode)
+	w.Write([]byte(m.respBody))
+	return w.Result(), nil
+}
+
+func TestAgentProxy_ListProxied(t *testing.T) {
+	proxy := &mockAgentProxy{
+		statusCode: http.StatusOK,
+		respBody:   `[{"name":"code-agent","displayName":"Code Agent","source":"static"}]`,
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if proxy.calledMethod != http.MethodGet {
+		t.Errorf("expected method GET, got %s", proxy.calledMethod)
+	}
+	if proxy.calledPathSuffix != "" {
+		t.Errorf("expected empty pathSuffix, got %q", proxy.calledPathSuffix)
+	}
+	if !strings.Contains(rec.Body.String(), "code-agent") {
+		t.Errorf("expected code-agent in response, got %q", rec.Body.String())
+	}
+}
+
+func TestAgentProxy_GetByNameProxied(t *testing.T) {
+	proxy := &mockAgentProxy{
+		statusCode: http.StatusOK,
+		respBody:   `{"name":"code-agent","displayName":"Code Agent","source":"static"}`,
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents/code-agent", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if proxy.calledPathSuffix != "/code-agent" {
+		t.Errorf("expected pathSuffix '/code-agent', got %q", proxy.calledPathSuffix)
+	}
+}
+
+func TestAgentProxy_CheckActionProxied(t *testing.T) {
+	proxy := &mockAgentProxy{
+		statusCode: http.StatusOK,
+		respBody:   `{"name":"foo","healthy":true,"lastError":""}`,
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/foo/check", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if proxy.calledMethod != http.MethodPost {
+		t.Errorf("expected method POST, got %s", proxy.calledMethod)
+	}
+	if proxy.calledPathSuffix != "/foo/check" {
+		t.Errorf("expected pathSuffix '/foo/check', got %q", proxy.calledPathSuffix)
+	}
+}
+
+func TestAgentProxy_PostBodyForwarded(t *testing.T) {
+	proxy := &mockAgentProxy{
+		statusCode: http.StatusCreated,
+		respBody:   `{"name":"new-agent","source":"dynamic"}`,
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	body := `{"url":"http://127.0.0.1:8081"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/agents", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec.Code)
+	}
+	if proxy.calledBody != body {
+		t.Errorf("expected body %q, got %q", body, proxy.calledBody)
+	}
+}
+
+func TestAgentProxy_PreservesErrorStatus(t *testing.T) {
+	proxy := &mockAgentProxy{
+		statusCode: http.StatusNotFound,
+		respBody:   `{"error":"agent not found"}`,
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents/nonexistent", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "agent not found") {
+		t.Errorf("expected error body, got %q", rec.Body.String())
+	}
+}
+
+func TestAgentProxy_PreservesConflictStatus(t *testing.T) {
+	proxy := &mockAgentProxy{
+		statusCode: http.StatusConflict,
+		respBody:   `{"error":"agent already exists"}`,
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents/existing", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d", rec.Code)
+	}
+}
+
+func TestAgentProxy_PreservesBadGateway(t *testing.T) {
+	proxy := &mockAgentProxy{
+		statusCode: http.StatusBadGateway,
+		respBody:   `{"error":"upstream agent fetch failed"}`,
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents/trouble", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", rec.Code)
+	}
+}
+
+func TestAgentProxy_ProxyCallErrorReturns502(t *testing.T) {
+	proxy := &mockAgentProxy{
+		respErr: fmt.Errorf("dial tcp 10.0.0.1:8090: connection refused"),
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", rec.Code)
+	}
+	// Must not expose internal URL.
+	if strings.Contains(rec.Body.String(), "10.0.0.1") {
+		t.Errorf("expected sanitized error, got %q", rec.Body.String())
+	}
+}
+
+func TestAgentProxy_QueryStringPassthrough(t *testing.T) {
+	proxy := &mockAgentProxy{
+		statusCode: http.StatusOK,
+		respBody:   `[]`,
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents?enabled=true", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if proxy.calledRawQuery != "enabled=true" {
+		t.Errorf("expected rawQuery 'enabled=true', got %q", proxy.calledRawQuery)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestAgentProxy_FallbackStaticWhenNoProxy(t *testing.T) {
+	// Without agent proxy, GET /api/agents should return static AgentSummary.
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var agents []AgentSummary
+	json.Unmarshal(rec.Body.Bytes(), &agents)
+	if len(agents) < 3 {
+		t.Fatalf("expected at least 3 agents (auto + code-agent + web-agent), got %d", len(agents))
+	}
+	if agents[0].Name != "auto" {
+		t.Errorf("expected auto first, got %q", agents[0].Name)
+	}
+}
+
+func TestAgentProxy_FallbackPostReturns405(t *testing.T) {
+	// Without agent proxy, POST /api/agents should return 405.
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agents", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAgentProxy_FallbackSubPathReturns404(t *testing.T) {
+	// Without agent proxy, GET /api/agents/foo should return 404.
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents/foo", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestAgentProxy_PathTraversalRejected(t *testing.T) {
+	// Path with .. should be rejected before proxying.
+	proxy := &mockAgentProxy{
+		statusCode: http.StatusOK,
+		respBody:   `[]`,
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	// Go's cleanPath will redirect .. before routing, so this won't reach our handler.
+	// Test that query with ? in pathSuffix (which shouldn't happen with RawQuery separation) is rejected.
+	req := httptest.NewRequest(http.MethodGet, "/api/agents/foo?bar=1", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	// Go's mux strips the query before routing. The path becomes /api/agents/foo
+	// which routes to handleAgentsByName with pathSuffix="/foo", rawQuery="bar=1".
+	// This is valid — the query is passed through.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if proxy.calledPathSuffix != "/foo" {
+		t.Errorf("expected pathSuffix '/foo', got %q", proxy.calledPathSuffix)
+	}
+	if proxy.calledRawQuery != "bar=1" {
+		t.Errorf("expected rawQuery 'bar=1', got %q", proxy.calledRawQuery)
+	}
+}
+
+func TestAgentProxy_ContentTypePreserved(t *testing.T) {
+	proxy := &mockAgentProxy{
+		statusCode: http.StatusOK,
+		respBody:   `{"name":"test"}`,
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	body := `{"displayName":"updated"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/agents/foo", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if proxy.calledContentType != "application/json" {
+		t.Errorf("expected content-type application/json, got %q", proxy.calledContentType)
+	}
+	if proxy.calledBody != body {
+		t.Errorf("expected body %q, got %q", body, proxy.calledBody)
+	}
+}
+
+func TestAgentProxy_ExistingMethodNotAllowedTestsStillPass(t *testing.T) {
+	// Verify that the old test for PATCH /api/agents → 405 still works IN FALLBACK MODE.
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/agents", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Allow"); got != "GET" {
+		t.Errorf("expected Allow=GET, got %q", got)
+	}
+}
+
+func TestAgentProxy_WithAgentListIncludesAuto(t *testing.T) {
+	// When proxying, the response comes from the Orchestrator which includes
+	// static agents (not auto — auto is a frontend routing sentinel).
+	// The frontend's buildAgentOptionsFromSummary prepends auto automatically.
+	// The proxy just passes through whatever the Orchestrator returns.
+	proxy := &mockAgentProxy{
+		statusCode: http.StatusOK,
+		respBody:   `[{"name":"code-agent","displayName":"Code Agent","source":"static"},{"name":"web-agent","displayName":"Web Agent","source":"static"}]`,
+	}
+	srv, err := NewServer(store.NewMemoryStore(), &mockRunService{}, WithAgentProxy(proxy))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var agents []map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &agents)
+
+	// Auto is NOT in the response (Orchestrator doesn't track auto).
+	for _, a := range agents {
+		if a["name"] == "auto" {
+			t.Error("auto should not be in Orchestrator proxy response")
+		}
+	}
+	// Both static agents should be present.
+	foundCode, foundWeb := false, false
+	for _, a := range agents {
+		if a["name"] == "code-agent" {
+			foundCode = true
+		}
+		if a["name"] == "web-agent" {
+			foundWeb = true
+		}
+	}
+	if !foundCode || !foundWeb {
+		t.Errorf("expected code-agent and web-agent in response, got %v", agents)
 	}
 }

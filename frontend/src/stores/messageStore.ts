@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Message, AGUIEvent, CodeBlock, WebPreviewBlock, ActivitySnapshot } from '../types'
+import type { Message, AGUIEvent, CodeBlock, WebPreviewBlock, SkillCardData, OrchestrationSummaryData, ActivitySnapshot } from '../types'
 import type { AgentName } from '../lib/agents'
 import * as api from '../services/api'
 import { runAgent, type AGUIChatRequest } from '../agui/client'
@@ -13,6 +13,9 @@ interface SendMessageOptions {
   agentName?: AgentName
   mentions?: string[]
   selectedAgentNames?: string[]
+  replyTo?: import('../types').ReplyTo
+  quote?: import('../types').Quote
+  contextMessages?: Array<{ id?: string; role: string; text: string }>
 }
 
 export interface PendingConfirmation {
@@ -43,9 +46,12 @@ interface MessageState {
   abortControllersByConversation: Record<string, AbortController | null>
   orchestrationByConversation: Record<string, OrchestrationInfo>
   confirmationByConversation: Record<string, PendingConfirmation | null>
+  pinnedMessageIdsByConversation: Record<string, string[]>
 
   loadMessages: (conversationId: string) => Promise<void>
   sendMessage: (conversationId: string, content: string, options?: SendMessageOptions) => void
+  togglePinMessage: (conversationId: string, messageId: string) => void
+  regenerateMessage: (conversationId: string, messageId: string) => Promise<void>
   isStreaming: (conversationId: string) => boolean
   stopStreaming: (conversationId: string) => void
   getConfirmation: (conversationId: string) => PendingConfirmation | null
@@ -77,6 +83,7 @@ interface StoredMessage {
 type ParsedArtifacts = {
   codeBlocks?: CodeBlock[]
   webPreviews?: WebPreviewBlock[]
+  skillCards?: SkillCardData[]
 }
 
 function setConversationStreaming(
@@ -279,6 +286,7 @@ function parseArtifacts(artifactsStr: string): ParsedArtifacts {
 
   const codeBlocks: CodeBlock[] = []
   const webPreviews: WebPreviewBlock[] = []
+  const skillCards: SkillCardData[] = []
 
   for (const item of decoded) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
@@ -313,12 +321,25 @@ function parseArtifacts(artifactsStr: string): ParsedArtifacts {
         html: content,
         title: title || 'web-preview.html',
       })
+      continue
     }
+
+    skillCards.push({
+      type: 'artifact_card',
+      id: typeof metadata.id === 'string' ? metadata.id : undefined,
+      name: title || undefined,
+      kind: type || undefined,
+      mimeType: typeof metadata.mimeType === 'string' ? metadata.mimeType : undefined,
+      size: typeof metadata.size === 'number' || typeof metadata.size === 'string' ? metadata.size : undefined,
+      downloadPath: typeof metadata.downloadPath === 'string' ? metadata.downloadPath : undefined,
+      metadata,
+    })
   }
 
   return {
     codeBlocks: codeBlocks.length > 0 ? codeBlocks : undefined,
     webPreviews: webPreviews.length > 0 ? webPreviews : undefined,
+    skillCards: skillCards.length > 0 ? skillCards : undefined,
   }
 }
 
@@ -328,6 +349,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   abortControllersByConversation: {},
   orchestrationByConversation: {},
   confirmationByConversation: {},
+  pinnedMessageIdsByConversation: {},
 
   loadMessages: async (conversationId: string) => {
     try {
@@ -365,6 +387,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                 : ('sent' as const),
           codeBlocks: parsedArtifacts.codeBlocks,
           webPreviews: parsedArtifacts.webPreviews,
+          skillCards: parsedArtifacts.skillCards,
+          pinned: get().pinnedMessageIdsByConversation[conversationId]?.includes(raw.id) || false,
           runId: raw.runId,
           stepId: raw.stepId,
           sseMessageId: raw.sseMessageId,
@@ -381,6 +405,89 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
   },
 
+  togglePinMessage: (conversationId: string, messageId: string) => {
+    set((s) => {
+      const current = s.pinnedMessageIdsByConversation[conversationId] || []
+      const pinned = current.includes(messageId)
+      const next = pinned ? current.filter((id) => id !== messageId) : [...current, messageId]
+      return {
+        pinnedMessageIdsByConversation: {
+          ...s.pinnedMessageIdsByConversation,
+          [conversationId]: next,
+        },
+        messages: {
+          ...s.messages,
+          [conversationId]: (s.messages[conversationId] || []).map((m) =>
+            m.id === messageId ? { ...m, pinned: !pinned } : m,
+          ),
+        },
+      }
+    })
+  },
+
+  regenerateMessage: async (conversationId: string, messageId: string) => {
+    const messages = get().messages[conversationId] || []
+    const message = messages.find((m) => m.id === messageId)
+    if (!message || message.senderType !== 'agent') {
+      throw new Error('Only agent messages can be regenerated')
+    }
+
+    // Build context snapshot from all messages: {id, role, text}.
+    const context = messages.map((m) => ({
+      id: m.id,
+      role: m.senderType === 'user' ? 'user' : 'assistant',
+      text: m.content,
+    }))
+
+    let regenResp: api.RegenerateResponse
+    try {
+      regenResp = await api.regenerateMessage({
+        runId: message.runId,
+        conversationId,
+        messageId,
+        pinnedMessageIds: get().pinnedMessageIdsByConversation[conversationId] || [],
+        context,
+      })
+    } catch (err: any) {
+      if (err.message === 'MESSAGE_NOT_FOUND') {
+        throw new Error('Cannot regenerate: message not found in conversation context')
+      }
+      if (err.message === 'INVALID_TARGET_ROLE') {
+        throw new Error('Only assistant messages can be regenerated')
+      }
+      throw err
+    }
+
+    if (regenResp.status !== 'ready') {
+      throw new Error(`Regenerate returned unexpected status: ${regenResp.status}`)
+    }
+
+    // Use backend-truncated context to find the nearest user message before target.
+    if (!regenResp.context || regenResp.context.length === 0) {
+      throw new Error('Cannot regenerate: backend returned empty context')
+    }
+    const sourceUser = [...regenResp.context].reverse().find((m) => m.role === 'user')
+    if (!sourceUser) {
+      throw new Error('Cannot regenerate: no user message found in truncated context')
+    }
+    const marker: Message = {
+      id: `regen-${Date.now()}`,
+      conversationId,
+      senderType: 'agent',
+      senderName: message.senderName,
+      agentName: message.agentName,
+      content: `Regenerating response for ${message.id}...`,
+      status: 'sent',
+      versionOf: message.id,
+      createdAt: new Date().toISOString(),
+    }
+    set((s) => ({ messages: { ...s.messages, [conversationId]: [...(s.messages[conversationId] || []), marker] } }))
+    get().sendMessage(conversationId, sourceUser.text, {
+      agentName: normalizeAgentName(message.agentName || DEFAULT_AGENT_NAME),
+      contextMessages: regenResp.context,
+    })
+  },
+
   sendMessage: (conversationId: string, content: string, options?: SendMessageOptions) => {
     const selectedAgentName = normalizeAgentName(options?.agentName || DEFAULT_AGENT_NAME)
     const fallbackSenderName = getAgentDisplayName(selectedAgentName)
@@ -391,6 +498,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       senderType: 'user',
       content,
       status: 'sent',
+      replyTo: options?.replyTo,
+      quote: options?.quote,
       createdAt: new Date().toISOString(),
     }
 
@@ -411,11 +520,24 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       persistTitle(conversationId, title)
     }
 
+    // Build context snapshot for pinned message resolution: {id, role, text}.
+    // When options.contextMessages is provided (e.g. from regenerate), use the
+    // backend-truncated context instead of the full conversation.
+    const contextMessages = options?.contextMessages ?? currentMessages.map((m) => ({
+      id: m.id,
+      role: m.senderType === 'user' ? 'user' : 'assistant',
+      text: m.content,
+    }))
+
     const request: AGUIChatRequest = {
       conversationId,
       message: content,
       selectedAgentNames: options?.selectedAgentNames || [],
       mentions: options?.mentions || [],
+      replyTo: options?.replyTo,
+      quote: options?.quote,
+      pinnedMessageIds: get().pinnedMessageIdsByConversation[conversationId] || [],
+      contextMessages,
     }
     // Only pass agentName for concrete agents; "auto" lets orchestrator decide.
     if (options?.agentName && options.agentName !== 'auto') {
@@ -431,6 +553,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     let currentSenderName = fallbackSenderName
     let codeBlocks: CodeBlock[] = []
     let webPreviews: WebPreviewBlock[] = []
+    let skillCards: SkillCardData[] = []
+    let orchestrationSummary: OrchestrationSummaryData | undefined = undefined
     // Track whether web-related artifact/tool evidence was seen during streaming.
     // Used to gate content-based Web Preview extraction when agentName is 'auto'.
     let hasWebArtifactEvidence = false
@@ -509,6 +633,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                       ...message,
                       senderName: message.senderName || currentSenderName,
                       agentName: message.agentName || currentAgentName,
+                      runId: message.runId || event.runId,
+                      stepId: message.stepId || event.stepId || event.taskId,
+                      sseMessageId: message.sseMessageId || event.messageId,
                     }
                   : message,
               ),
@@ -528,6 +655,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                 agentName: currentAgentName,
                 content: '',
                 status: 'streaming',
+                runId: event.runId,
+                stepId: event.stepId || event.taskId,
+                sseMessageId: event.messageId,
                 createdAt: new Date().toISOString(),
               },
             ],
@@ -541,6 +671,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         ...message,
         codeBlocks: codeBlocks.length > 0 ? [...codeBlocks] : undefined,
         webPreviews: webPreviews.length > 0 ? [...webPreviews] : undefined,
+        skillCards: skillCards.length > 0 ? [...skillCards] : undefined,
+        orchestrationSummary,
       }))
     }
 
@@ -616,11 +748,206 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       }
       if (toolName === 'code_preview') {
         appendCodePreview(args)
+        return
       }
       if (toolName === 'web_preview' || toolName === 'generate_html_snippet') {
         hasWebArtifactEvidence = true
         appendWebPreview(args)
+        return
       }
+
+      // Phase 6E: map tool names to skill cards
+      if (toolName === 'terminal_output') {
+        skillCards.push({
+          type: 'terminal_output',
+          command: getStringField(args, 'command') || undefined,
+          stdout: getStringField(args, 'stdout') || undefined,
+          stderr: getStringField(args, 'stderr') || undefined,
+          exitCode: typeof args.exitCode === 'number' ? args.exitCode : undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'diff_preview') {
+        skillCards.push({
+          type: 'diff_preview',
+          diffText: getStringField(args, 'diff') || getStringField(args, 'diffText') || getStringField(args, 'content') || '',
+          filename: getStringField(args, 'filename') || undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'deploy_status') {
+        skillCards.push({
+          type: 'deploy_status',
+          environment: getStringField(args, 'environment') || undefined,
+          version: getStringField(args, 'version') || undefined,
+          status: getStringField(args, 'status') || undefined,
+          timestamp: getStringField(args, 'timestamp') || undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'chart_render') {
+        const rawData = args.data
+        const data: Array<{ label?: string; value: number }> = Array.isArray(rawData)
+          ? rawData.map((d: unknown) => {
+              if (d && typeof d === 'object') {
+                const obj = d as Record<string, unknown>
+                return {
+                  label: typeof obj.label === 'string' ? obj.label : undefined,
+                  value: typeof obj.value === 'number' ? obj.value : 0,
+                }
+              }
+              return { value: 0 }
+            })
+          : []
+        skillCards.push({
+          type: 'chart_render',
+          chartType: (getStringField(args, 'chartType') as 'bar' | 'line' | 'pie') || 'bar',
+          data,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'file_download') {
+        const sizeVal = args.size
+        const size: number | string | undefined =
+          typeof sizeVal === 'number' ? sizeVal : typeof sizeVal === 'string' ? sizeVal : undefined
+        skillCards.push({
+          type: 'file_download',
+          filename: getStringField(args, 'filename') || undefined,
+          size,
+          mimeType: getStringField(args, 'mimeType') || undefined,
+          createdAt: getStringField(args, 'createdAt') || undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'image_preview') {
+        skillCards.push({
+          type: 'image_preview',
+          url: getStringField(args, 'url') || getStringField(args, 'src') || undefined,
+          alt: getStringField(args, 'alt') || getStringField(args, 'title') || undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+
+      if (toolName === 'confirm_action') {
+        skillCards.push({
+          type: 'confirm_action',
+          runId: getStringField(args, 'runId') || undefined,
+          taskId: getStringField(args, 'taskId') || undefined,
+          toolCallId: getStringField(args, 'toolCallId') || getStringField(args, 'id') || undefined,
+          title: getStringField(args, 'title') || undefined,
+          message: getStringField(args, 'message') || getStringField(args, 'description') || undefined,
+          riskLevel: (getStringField(args, 'riskLevel') as 'low' | 'medium' | 'high') || 'medium',
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'form_input') {
+        const schema = args.schema && typeof args.schema === 'object' && !Array.isArray(args.schema)
+          ? args.schema as Record<string, unknown>
+          : undefined
+        skillCards.push({
+          type: 'form_input',
+          runId: getStringField(args, 'runId') || undefined,
+          taskId: getStringField(args, 'taskId') || undefined,
+          toolCallId: getStringField(args, 'toolCallId') || getStringField(args, 'id') || undefined,
+          title: getStringField(args, 'title') || undefined,
+          schema,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'artifact_metadata' || toolName === 'artifact_card') {
+        skillCards.push({
+          type: 'artifact_card',
+          id: getStringField(args, 'id') || undefined,
+          runId: getStringField(args, 'runId') || undefined,
+          taskId: getStringField(args, 'taskId') || undefined,
+          messageId: getStringField(args, 'messageId') || undefined,
+          name: getStringField(args, 'name') || getStringField(args, 'filename') || undefined,
+          kind: getStringField(args, 'kind') || undefined,
+          mimeType: getStringField(args, 'mimeType') || undefined,
+          size: typeof args.size === 'number' || typeof args.size === 'string' ? args.size : undefined,
+          downloadPath: getStringField(args, 'downloadPath') || undefined,
+          createdAt: getStringField(args, 'createdAt') || undefined,
+          metadata: args.metadata && typeof args.metadata === 'object' && !Array.isArray(args.metadata) ? args.metadata as Record<string, unknown> : undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+
+      // confirm_plan: legacy TOOL_CALL path for plan confirmation
+      // (ACTIVITY_SNAPSHOT with activityType=plan_approval is the primary path)
+      if (toolName === 'confirm_plan') {
+        const confirmRunId = getStringField(args, 'runId') || ''
+        const confirmPlanId = getStringField(args, 'planId') || ''
+        const confirmPlannedAgents: string[] = Array.isArray(args.plannedAgents)
+          ? args.plannedAgents.map((a: unknown) => String(a))
+          : []
+        const confirmParticipants: PendingConfirmation['participants'] = Array.isArray(args.participants)
+          ? args.participants.map((p: unknown) => {
+              if (p && typeof p === 'object') {
+                const obj = p as Record<string, unknown>
+                return {
+                  agentName: String(obj.agentName || ''),
+                  role: typeof obj.role === 'string' ? obj.role : 'executor',
+                  required: typeof obj.required === 'boolean' ? obj.required : undefined,
+                  selected: typeof obj.selected === 'boolean' ? obj.selected : undefined,
+                }
+              }
+              return { agentName: '', role: 'executor' as const }
+            })
+          : undefined
+        const confirmTasks: PendingConfirmation['tasks'] = Array.isArray(args.tasks)
+          ? args.tasks.map((t: unknown) => {
+              if (t && typeof t === 'object') {
+                const task = t as Record<string, unknown>
+                return {
+                  taskId: getStringField(task, 'taskId') || undefined,
+                  agentName: getStringField(task, 'agentName') || '',
+                  content: getStringField(task, 'content') || undefined,
+                  dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn.map((d: unknown) => String(d)) : undefined,
+                  priority: typeof task.priority === 'number' ? task.priority : undefined,
+                  riskLevel: getStringField(task, 'riskLevel') || undefined,
+                }
+              }
+              return { agentName: '' }
+            })
+          : []
+        set((s) => ({
+          confirmationByConversation: {
+            ...s.confirmationByConversation,
+            [conversationId]: {
+              runId: confirmRunId,
+              actionId: confirmPlanId,
+              planId: confirmPlanId,
+              revision: typeof args.revision === 'number' ? args.revision : undefined,
+              executionPath: getStringField(args, 'executionPath') || undefined,
+              agentNames: confirmPlannedAgents,
+              participants: confirmParticipants,
+              tasks: confirmTasks,
+              intentSummary: getStringField(args, 'intentSummary') || getStringField(args, 'summary') || undefined,
+              strategy: getStringField(args, 'strategy') || undefined,
+              warnings: Array.isArray(args.warnings) ? args.warnings.map((w: unknown) => String(w)) : undefined,
+              status: 'pending' as const,
+            },
+          },
+        }))
+        return
+      }
+
+      // Unknown tool → fallback card
+      skillCards.push({
+        type: 'unknown_skill',
+        toolName: toolName || undefined,
+        args,
+      })
+      syncPreviewBlocks()
     }
 
     // Progressive WebPreview: update preview HTML as tool args stream in.
@@ -707,12 +1034,34 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           agentName: supportedAgentName,
         })
         syncPreviewBlocks()
+        return
       }
+
+      skillCards.push({
+        type: 'artifact_card',
+        id: pickText(event.artifact.metadata?.id) || undefined,
+        runId: event.runId,
+        taskId: event.taskId,
+        messageId: event.messageId,
+        name: title || undefined,
+        kind: type || undefined,
+        mimeType: pickText(event.artifact.metadata?.mimeType) || undefined,
+        size: pickText(event.artifact.metadata?.size) || undefined,
+        downloadPath: pickText(event.artifact.metadata?.downloadPath) || undefined,
+        sourceAgent: pickText(event.artifact.metadata?.sourceAgent) || undefined,
+        metadata: event.artifact.metadata,
+      })
+      syncPreviewBlocks()
     }
 
     const finishStreamingMessage = () => {
       appendWebPreviewFromMessageContent()
-      updateAgentMessage((message) => ({ ...message, status: 'sent' }))
+      updateAgentMessage((message) => ({
+        ...message,
+        status: 'sent',
+        skillCards: skillCards.length > 0 ? [...skillCards] : undefined,
+        orchestrationSummary,
+      }))
     }
 
     const failStreamingMessage = (errorText: string) => {
@@ -727,7 +1076,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       request,
       (event: AGUIEvent) => {
         switch (event.type) {
-          case 'TEXT_MESSAGE_START': {
+          case 'TEXT_MESSAGE_START':
+          case 'AGENT_TURN_STARTED': {
             agentMsgId = event.messageId || event.id || `agent-${Date.now()}`
             agentContent = ''
             codeBlocks = []
@@ -737,6 +1087,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           }
 
           case 'TEXT_MESSAGE_CONTENT':
+          case 'AGENT_TURN_CONTENT':
           case 'message':
           case 'message.delta': {
             ensureAgentMessage(event)
@@ -762,6 +1113,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           }
 
           case 'TEXT_MESSAGE_END':
+          case 'AGENT_TURN_FINISHED':
           case 'message.end': {
             // If TEXT_MESSAGE_END carries full content, use the more complete
             // version to avoid losing content from partial deltas.
@@ -978,68 +1330,14 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           case 'TOOL_CALL_END': {
             let toolName = ''
             let toolArgs = ''
-            let toolId = ''
             if (event.id) {
               toolName = event.toolCall?.name || toolCallNames[event.id] || ''
               toolArgs = toolCallArgs[event.id] || ''
-              toolId = event.id
             } else if (event.toolCallId) {
               toolName = event.toolName || toolCallNames[event.toolCallId] || ''
               toolArgs = toolCallArgs[event.toolCallId] || ''
-              toolId = event.toolCallId
             }
-            // Handle confirm_plan: set up pending HITL confirmation state.
-            if (toolName === 'confirm_plan') {
-              const parsed = normalizeToolArguments(toolArgs)
-              if (parsed) {
-                const confirmRunId = (typeof parsed.runId === 'string' ? parsed.runId : '') || ''
-                const confirmPlanId = (typeof parsed.planId === 'string' ? parsed.planId : '') || toolId
-                const confirmAgents: string[] = Array.isArray(parsed.plannedAgents)
-                  ? (parsed.plannedAgents as string[])
-                  : []
-                const confirmTasks = Array.isArray(parsed.tasks)
-                  ? (parsed.tasks as PendingConfirmation['tasks'])
-                  : []
-                const confirmSummary = typeof parsed.intentSummary === 'string' ? parsed.intentSummary : ''
-                const confirmStrategy = typeof parsed.strategy === 'string' ? parsed.strategy : ''
-
-                // v1.2 plan approval fields
-                const confirmExecutionPath = typeof parsed.executionPath === 'string' ? parsed.executionPath : undefined
-                const confirmRevision = typeof parsed.revision === 'number' ? parsed.revision : undefined
-                const confirmPlanOwner = parsed.planOwner != null && typeof parsed.planOwner === 'object' && !Array.isArray(parsed.planOwner)
-                  ? parsed.planOwner as PendingConfirmation['planOwner']
-                  : undefined
-                const confirmParticipants = Array.isArray(parsed.participants)
-                  ? parsed.participants as PendingConfirmation['participants']
-                  : undefined
-                const confirmWarnings = Array.isArray(parsed.warnings)
-                  ? (parsed.warnings as string[])
-                  : undefined
-
-                set((s) => ({
-                  confirmationByConversation: {
-                    ...s.confirmationByConversation,
-                    [conversationId]: {
-                      runId: confirmRunId,
-                      actionId: confirmPlanId,
-                      planId: confirmPlanId,
-                      revision: confirmRevision,
-                      executionPath: confirmExecutionPath,
-                      planOwner: confirmPlanOwner,
-                      agentNames: confirmAgents,
-                      participants: confirmParticipants,
-                      tasks: confirmTasks,
-                      intentSummary: confirmSummary,
-                      strategy: confirmStrategy,
-                      warnings: confirmWarnings,
-                      status: 'pending',
-                    },
-                  },
-                }))
-              }
-            } else {
-              handleToolPayload(toolName, toolArgs)
-            }
+            handleToolPayload(toolName, toolArgs)
             break
           }
 
@@ -1057,6 +1355,39 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             break
 
           case 'RUN_FINISHED':
+            // Capture orchestration summary from state before finishing
+            if (event.state && typeof event.state === 'object') {
+              const state = event.state as Record<string, unknown>
+              const summaryAgents = Array.isArray(state.agents)
+                ? state.agents.map((a: unknown) => String(a))
+                : undefined
+              const summaryTasks: OrchestrationSummaryData['tasks'] = Array.isArray(state.tasks)
+                ? state.tasks.map((t: unknown) => {
+                    if (t && typeof t === 'object') {
+                      const task = t as Record<string, unknown>
+                      const taskStatus = typeof task.status === 'string' ? task.status : 'pending'
+                      const validStatus = ['completed', 'failed', 'running', 'pending', 'skipped'].includes(taskStatus)
+                        ? (taskStatus as 'completed' | 'failed' | 'running' | 'pending' | 'skipped')
+                        : ('pending' as const)
+                      return {
+                        agentName: String(task.agentName || ''),
+                        taskId: typeof task.taskId === 'string' ? task.taskId : undefined,
+                        status: validStatus,
+                        content: typeof task.content === 'string' ? task.content : undefined,
+                        duration: typeof task.duration === 'string' ? task.duration : undefined,
+                      }
+                    }
+                    return { agentName: '', status: 'pending' as const }
+                  })
+                : undefined
+              orchestrationSummary = {
+                agents: summaryAgents,
+                tasks: summaryTasks,
+                runStatus: typeof state.status === 'string' ? state.status : 'completed',
+                duration: typeof state.duration === 'string' ? state.duration : undefined,
+                artifactCount: typeof state.artifactCount === 'number' ? state.artifactCount : undefined,
+              }
+            }
             finishStreamingMessage()
             set((s) => ({
               ...setConversationStreaming(s, conversationId, false),
@@ -1133,14 +1464,32 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   stopStreaming: (conversationId: string) => {
-    const { abortControllersByConversation } = get()
+    const { abortControllersByConversation, confirmationByConversation, messages } = get()
     const abortController = abortControllersByConversation[conversationId]
-    if (abortController) {
-      abortController.abort()
-      set((s) => ({
-        ...setConversationStreaming(s, conversationId, false),
-        ...setConversationAbortController(s, conversationId, null),
-      }))
+    if (!abortController) return
+
+    abortController.abort()
+    set((s) => ({
+      ...setConversationStreaming(s, conversationId, false),
+      ...setConversationAbortController(s, conversationId, null),
+    }))
+
+    // Resolve runId to cancel on the backend: prefer confirmation state,
+    // then fall back to the last agent message with a runId.
+    let runId = confirmationByConversation[conversationId]?.runId || ''
+    if (!runId) {
+      const convMessages = messages[conversationId] || []
+      for (let i = convMessages.length - 1; i >= 0; i--) {
+        if (convMessages[i].runId) {
+          runId = convMessages[i].runId!
+          break
+        }
+      }
+    }
+    if (runId) {
+      api.cancelRun(runId).catch(() => {
+        // Best-effort; the SSE abort already stops the frontend stream.
+      })
     }
   },
 
@@ -1158,11 +1507,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       await api.confirmHITL({
         runId: runId || current.runId,
         actionId: actionId || current.actionId,
+        planId: current.planId,
         action: action || (confirmed ? 'approve' : 'cancel'),
         feedback: feedback || '',
-        revision: revision,
+        revision: revision ?? current.revision,
         confirmed,
         rejectReason: reason || '',
+        idempotencyKey: crypto.randomUUID(),
         selectedParticipants: selectedParticipants && selectedParticipants.length > 0 ? selectedParticipants : undefined,
       })
       const isRevise = action === 'revise'

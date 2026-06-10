@@ -170,6 +170,52 @@ func ExecutionPathFromContext(ctx context.Context) string {
 	return path
 }
 
+type replyToContextKey struct{}
+
+// WithReplyTo stores reply-to metadata into context.
+func WithReplyTo(ctx context.Context, replyTo map[string]any) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, replyToContextKey{}, replyTo)
+}
+
+// ReplyToFromContext loads reply-to metadata from context.
+func ReplyToFromContext(ctx context.Context) map[string]any {
+	if ctx == nil {
+		return nil
+	}
+	raw := ctx.Value(replyToContextKey{})
+	val, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return val
+}
+
+type quoteContextKey struct{}
+
+// WithQuote stores text quote metadata into context.
+func WithQuote(ctx context.Context, quote map[string]any) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, quoteContextKey{}, quote)
+}
+
+// QuoteFromContext loads text quote metadata from context.
+func QuoteFromContext(ctx context.Context) map[string]any {
+	if ctx == nil {
+		return nil
+	}
+	raw := ctx.Value(quoteContextKey{})
+	val, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return val
+}
+
 // AgentNameSelector decides a target agentName for one run.
 type AgentNameSelector func(ctx context.Context, conversationID string, userContent *adk.Content) string
 
@@ -275,4 +321,67 @@ func (s *RoutingRunService) Run(ctx context.Context, conversationID string, user
 
 func defaultSelector(ctx context.Context, _ string, _ *adk.Content) string {
 	return AgentNameFromContext(ctx)
+}
+
+type pinnedMessageIDsContextKey struct{}
+
+// WithPinnedMessageIDs stores pinned message IDs so Gateway can forward them to Orchestrator.
+func WithPinnedMessageIDs(ctx context.Context, ids []string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cleaned := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		cleaned = append(cleaned, id)
+	}
+	return context.WithValue(ctx, pinnedMessageIDsContextKey{}, cleaned)
+}
+
+// PinnedMessageIDsFromContext loads pinned message IDs.
+func PinnedMessageIDsFromContext(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	ids, ok := ctx.Value(pinnedMessageIDsContextKey{}).([]string)
+	if !ok {
+		return nil
+	}
+	return append([]string(nil), ids...)
+}
+
+// ContextMessage is a lightweight message snapshot forwarded from the frontend
+// through Gateway to Orchestrator so pinned message IDs can be resolved.
+type ContextMessage struct {
+	ID   string `json:"id,omitempty"`
+	Role string `json:"role"`
+	Text string `json:"text"`
+}
+
+type contextMessagesContextKey struct{}
+
+// WithContextMessages stores the conversation context snapshot so Gateway can
+// forward it to Orchestrator for pinned message resolution.
+func WithContextMessages(ctx context.Context, msgs []ContextMessage) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, contextMessagesContextKey{}, msgs)
+}
+
+// ContextMessagesFromContext loads the conversation context snapshot.
+func ContextMessagesFromContext(ctx context.Context) []ContextMessage {
+	if ctx == nil {
+		return nil
+	}
+	msgs, ok := ctx.Value(contextMessagesContextKey{}).([]ContextMessage)
+	if !ok {
+		return nil
+	}
+	return msgs
 }

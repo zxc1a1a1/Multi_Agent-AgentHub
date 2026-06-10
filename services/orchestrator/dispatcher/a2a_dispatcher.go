@@ -3,6 +3,7 @@ package dispatcher
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,18 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
 )
+
+// ArtifactMeta is metadata-only artifact information extracted from A2A
+// responses. No binary/file content is stored — only name, kind, mime type,
+// size, and provenance.
+type ArtifactMeta struct {
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+	Size        int64  `json:"size,omitempty"`
+	SourceAgent string `json:"sourceAgent,omitempty"`
+}
 
 // DispatchInput carries everything needed to call a remote agent.
 type DispatchInput struct {
@@ -28,14 +41,20 @@ type DispatchInput struct {
 
 // DispatchResult carries the response from a remote agent.
 type DispatchResult struct {
-	Text string
+	Text      string
+	TaskID    string
+	Artifacts []ArtifactMeta
 }
 
 // DispatchChunk is one streamed text chunk from DispatchStream. When Err != nil
 // the stream is finished with an error and no further chunks follow.
 type DispatchChunk struct {
-	Text string
-	Err  error
+	// TaskID carries the real remote A2A task id returned by the child agent.
+	// It may appear before any text chunk and is metadata-only.
+	TaskID   string
+	Text     string
+	Artifact *ArtifactMeta // non-nil when this chunk carries artifact metadata
+	Err      error
 }
 
 // A2ADispatcher is a minimal A2A dispatcher that calls one remote agent.
@@ -160,16 +179,22 @@ func (d *A2ADispatcher) dispatchOnce(ctx context.Context, url string, req a2a.Ru
 	}
 
 	var texts []string
+	var artifacts []ArtifactMeta
 	for _, event := range resp.Events {
 		for _, part := range event.Parts {
 			if part.Type == "text" && strings.TrimSpace(part.Text) != "" {
 				texts = append(texts, part.Text)
 			}
+			if art := extractArtifactFromPart(part, input.AgentName); art != nil {
+				artifacts = append(artifacts, *art)
+			}
 		}
 	}
 
 	return &DispatchResult{
-		Text: strings.Join(texts, "\n"),
+		Text:      strings.Join(texts, "\n"),
+		TaskID:    strings.TrimSpace(resp.TaskID),
+		Artifacts: artifacts,
 	}, nil
 }
 
@@ -224,6 +249,11 @@ func (d *A2ADispatcher) DispatchStream(ctx context.Context, input DispatchInput)
 			if c.Err != nil {
 				return yield(DispatchChunk{Err: fmt.Errorf("agent dispatch failed: %w", c.Err)})
 			}
+			if taskID := strings.TrimSpace(c.TaskID); taskID != "" {
+				if !yield(DispatchChunk{TaskID: taskID}) {
+					return false
+				}
+			}
 			var sb strings.Builder
 			for _, part := range c.Event.Parts {
 				if part.Type == "text" && strings.TrimSpace(part.Text) != "" {
@@ -231,6 +261,11 @@ func (d *A2ADispatcher) DispatchStream(ctx context.Context, input DispatchInput)
 						sb.WriteString("\n")
 					}
 					sb.WriteString(part.Text)
+				}
+				if art := extractArtifactFromPart(part, input.AgentName); art != nil {
+					if !yield(DispatchChunk{Artifact: art}) {
+						return false
+					}
 				}
 			}
 			if sb.Len() == 0 {
@@ -250,5 +285,68 @@ func (d *A2ADispatcher) DispatchStream(ctx context.Context, input DispatchInput)
 			sentText.WriteString(chunkText)
 			return yield(DispatchChunk{Text: chunkText})
 		})
+	}
+}
+
+// extractArtifactFromPart extracts artifact metadata from an A2A part.
+// Strict convention: part.Type=="tool_result" AND part.Name=="artifact_metadata"
+// AND part.Content is valid JSON with required fields id/artifactId + name.
+// Ordinary tool_results (e.g. file_search, code_execution) are never classified
+// as artifacts. Returns nil for anything that doesn't match the convention.
+func extractArtifactFromPart(part a2a.PartDTO, sourceAgent string) *ArtifactMeta {
+	if part.Type != "tool_result" {
+		return nil
+	}
+	if strings.TrimSpace(part.Name) != "artifact_metadata" {
+		return nil
+	}
+	content := strings.TrimSpace(part.Content)
+	if content == "" {
+		return nil
+	}
+
+	var meta struct {
+		ID          string `json:"id"`
+		ArtifactID  string `json:"artifactId"`
+		Name        string `json:"name"`
+		Kind        string `json:"kind"`
+		MimeType    string `json:"mimeType"`
+		Size        int64  `json:"size"`
+		SourceAgent string `json:"sourceAgent"`
+	}
+	if err := json.Unmarshal([]byte(content), &meta); err != nil {
+		return nil
+	}
+
+	id := strings.TrimSpace(meta.ID)
+	if id == "" {
+		id = strings.TrimSpace(meta.ArtifactID)
+	}
+	name := strings.TrimSpace(meta.Name)
+	if id == "" || name == "" {
+		return nil
+	}
+
+	kind := strings.TrimSpace(meta.Kind)
+	if kind == "" {
+		kind = "file"
+	}
+	mimeType := strings.TrimSpace(meta.MimeType)
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	sa := strings.TrimSpace(meta.SourceAgent)
+	if sa == "" {
+		sa = sourceAgent
+	}
+
+	return &ArtifactMeta{
+		ID:          id,
+		Name:        name,
+		Kind:        kind,
+		MimeType:    mimeType,
+		Size:        meta.Size,
+		SourceAgent: sa,
 	}
 }

@@ -1,0 +1,69 @@
+AgentHub Phase 6 Prefailure / Checkpoint Record
+Generated at: Tue Jun  9 21:53:10 UTC 2026
+Branch: y
+
+Purpose:
+- Record known verification state before checkpoint commit.
+- This is NOT final PASS.
+- Final audit still required after commit.
+
+Known from CC report:
+- Phase 6 full implementation executed.
+- Frontend tests reported: 185/190 PASS, 5 pre-existing failures.
+- tsc -b + vite build reported PASS.
+- Gateway Go tests reported PASS.
+- Boundary checks reported PASS by CC, but this still requires terminal evidence audit.
+
+Important risk to audit later:
+- CC report lists services/gateway/runservice/routing.go as modified.
+- Earlier Phase 6 guidance preferred not touching legacy runservice.
+- Final audit must verify this is harmless context passthrough only, not Gateway child-agent routing expansion.
+
+===== git diff --name-status =====
+M	frontend/src/App.tsx
+M	frontend/src/agui/client.ts
+M	frontend/src/agui/skills.ts
+M	frontend/src/components/ChatWindow.tsx
+M	frontend/src/components/ConversationList.tsx
+M	frontend/src/components/MessageBubble.tsx
+M	frontend/src/components/MessageInput.tsx
+M	frontend/src/services/api.ts
+M	frontend/src/stores/agentStore.ts
+M	frontend/src/stores/conversationStore.ts
+M	frontend/src/stores/messageStore.ts
+M	frontend/src/types/index.ts
+M	services/gateway/httpapi/server.go
+M	services/gateway/internal/persistence/sqlite/models.go
+M	services/gateway/internal/persistence/sqlite/store.go
+M	services/gateway/orchestratorclient/client.go
+M	services/gateway/runservice/routing.go
+M	services/gateway/store/store.go
+
+===== git status --short =====
+ M frontend/src/App.tsx
+ M frontend/src/agui/client.ts
+ M frontend/src/agui/skills.ts
+ M frontend/src/components/ChatWindow.tsx
+ M frontend/src/components/ConversationList.tsx
+ M frontend/src/components/MessageBubble.tsx
+ M frontend/src/components/MessageInput.tsx
+ M frontend/src/services/api.ts
+ M frontend/src/stores/agentStore.ts
+ M frontend/src/stores/conversationStore.ts
+ M frontend/src/stores/messageStore.ts
+ M frontend/src/types/index.ts
+ M services/gateway/httpapi/server.go
+ M services/gateway/internal/persistence/sqlite/models.go
+ M services/gateway/internal/persistence/sqlite/store.go
+ M services/gateway/orchestratorclient/client.go
+ M services/gateway/runservice/routing.go
+ M services/gateway/store/store.go
+?? docs/refactor/phase6-prefailure-record-20260609_215310.txt
+?? frontend/src/components/AgentPicker.tsx
+?? frontend/src/components/MentionDropdown.tsx
+?? frontend/src/components/OrchestrationSummary.tsx
+?? frontend/src/components/agents/
+?? frontend/src/components/skills/
+?? services/gateway/internal/persistence/migrations/002_add_conversation_pin.sql
+
+===== forbidden touched quick scan =====

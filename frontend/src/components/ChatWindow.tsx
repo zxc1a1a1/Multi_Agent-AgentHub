@@ -7,9 +7,12 @@ import MessageBubble from './MessageBubble'
 import MessageInput from './MessageInput'
 import OrchestrationCard from './OrchestrationCard'
 import ActivitySnapshotRenderer, { type PlanApprovalStatus } from './ActivitySnapshotRenderer'
+import AgentPicker from './AgentPicker'
+import AgentAvatar from './AgentAvatar'
 import { useActivityStore } from '../stores/activityStore'
-import { Bot } from 'lucide-react'
+import { Bot, Users } from 'lucide-react'
 import { normalizeAgentName, type AgentName } from '../lib/agents'
+import type { ReplyTo, Quote } from '../types'
 
 interface Props {
   conversationId: string
@@ -23,6 +26,8 @@ export default function ChatWindow({ conversationId }: Props) {
   const confirmPlan = useMessageStore((s) => s.confirmPlan)
   const clearConfirmation = useMessageStore((s) => s.clearConfirmation)
   const loadMessages = useMessageStore((s) => s.loadMessages)
+  const togglePinMessage = useMessageStore((s) => s.togglePinMessage)
+  const regenerateMessage = useMessageStore((s) => s.regenerateMessage)
   const conversationAgentName = useConversationStore((s) => {
     const conversation = s.conversations.find((item) => item.id === conversationId)
     return conversation?.agentName
@@ -34,16 +39,35 @@ export default function ChatWindow({ conversationId }: Props) {
   const { sendMessage, isStreaming, stopStreaming } = useSendMessage()
   const streaming = isStreaming(conversationId)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const [selectedAgentName, setSelectedAgentName] = useState<AgentName>(() =>
-    normalizeAgentName(conversationAgentName || defaultAgentName()),
-  )
+  const [selectedAgentNames, setSelectedAgentNames] = useState<AgentName[]>(() => {
+    const name = normalizeAgentName(conversationAgentName || defaultAgentName())
+    return [name]
+  })
   const [confirmError, setConfirmError] = useState<string | null>(null)
   const [confirmStatus, setConfirmStatus] = useState<PlanApprovalStatus>('waiting')
+  const [replyTo, setReplyTo] = useState<ReplyTo | undefined>(undefined)
+  const [quote, setQuote] = useState<Quote | undefined>(undefined)
 
   const selectedAgentOption = useMemo(
-    () => findAgentOption(selectedAgentName),
-    [findAgentOption, selectedAgentName],
+    () => findAgentOption(selectedAgentNames[0] || 'auto'),
+    [findAgentOption, selectedAgentNames],
   )
+
+  // Resolve display info for all selected agents (for participant avatars)
+  const selectedAgentInfos = useMemo(
+    () =>
+      selectedAgentNames.map((name) => {
+        const opt = agentOptions.find((o) => o.name === name)
+        return {
+          name,
+          displayName: opt?.displayName || name,
+        }
+      }),
+    [selectedAgentNames, agentOptions],
+  )
+
+  const isGroupChat = selectedAgentNames.length > 1
+  const pinnedMessages = useMemo(() => messages.filter((m) => m.pinned), [messages])
 
   // Load messages when conversation changes.
   useEffect(() => {
@@ -55,7 +79,8 @@ export default function ChatWindow({ conversationId }: Props) {
   }, [loadAgents])
 
   useEffect(() => {
-    setSelectedAgentName(normalizeAgentName(conversationAgentName || defaultAgentName()))
+    const name = normalizeAgentName(conversationAgentName || defaultAgentName())
+    setSelectedAgentNames([name])
   }, [conversationAgentName, conversationId, defaultAgentName])
 
   // Auto-scroll to bottom on new messages. Use instant scroll during streaming
@@ -76,9 +101,43 @@ export default function ChatWindow({ conversationId }: Props) {
 
   const handleSend = (content: string, mentions: string[]) => {
     setConfirmError(null)
-    const agentNames = mentions.length > 0 ? mentions : (selectedAgentName !== 'auto' ? [selectedAgentName] : [])
-    sendMessage(conversationId, content, { agentName: selectedAgentName, mentions, selectedAgentNames: agentNames })
+    const effectiveAgentNames =
+      mentions.length > 0
+        ? mentions
+        : selectedAgentNames.filter((n) => n !== 'auto')
+    const primaryAgent = selectedAgentNames[0] || 'auto'
+    sendMessage(conversationId, content, {
+      agentName: primaryAgent,
+      mentions,
+      selectedAgentNames: effectiveAgentNames,
+      replyTo,
+      quote,
+    })
+    // Clear reply/quote after sending
+    setReplyTo(undefined)
+    setQuote(undefined)
   }
+
+  const handleTogglePin = useCallback((message: import('../types').Message) => {
+    togglePinMessage(conversationId, message.id)
+  }, [conversationId, togglePinMessage])
+
+  const handleRegenerate = useCallback((message: import('../types').Message) => {
+    regenerateMessage(conversationId, message.id).catch(() => {})
+  }, [conversationId, regenerateMessage])
+
+  const handleReply = useCallback((rt: ReplyTo) => {
+    setReplyTo(rt)
+    setQuote(undefined)
+  }, [])
+
+  const handleCancelReply = useCallback(() => {
+    setReplyTo(undefined)
+  }, [])
+
+  const handleCancelQuote = useCallback(() => {
+    setQuote(undefined)
+  }, [])
 
   const handleConfirm = useCallback(
     async (selectedParticipants?: string[]) => {
@@ -214,6 +273,20 @@ export default function ChatWindow({ conversationId }: Props) {
         </div>
       )}
 
+      {pinnedMessages.length > 0 && (
+        <div className="px-4 py-2 border-b border-yellow-200 bg-yellow-50/60">
+          <div className="max-w-3xl mx-auto text-xs text-yellow-800">
+            <span className="font-semibold">Pinned context:</span>{' '}
+            {pinnedMessages.slice(0, 3).map((msg) => (
+              <span key={msg.id} className="inline-block ml-2 px-2 py-0.5 rounded bg-white border border-yellow-200 max-w-[14rem] truncate align-bottom">
+                {msg.content.slice(0, 80)}
+              </span>
+            ))}
+            {pinnedMessages.length > 3 && <span className="ml-2">+{pinnedMessages.length - 3} more</span>}
+          </div>
+        </div>
+      )}
+
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto space-y-6">
@@ -228,7 +301,13 @@ export default function ChatWindow({ conversationId }: Props) {
             <OrchestrationCard info={orchestration} />
           )}
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} />
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              onReply={handleReply}
+              onTogglePin={handleTogglePin}
+              onRegenerate={handleRegenerate}
+            />
           ))}
           {/* Only show skeleton when streaming has started but no agent message bubble exists yet. */}
           {streaming && !messages.some((msg) => msg.status === 'streaming') && (
@@ -259,22 +338,32 @@ export default function ChatWindow({ conversationId }: Props) {
 
       <div className="px-4 py-2 border-t border-gray-200 bg-gray-50">
         <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <label htmlFor="agent-select" className="text-xs text-gray-600 whitespace-nowrap">
+          <label className="text-xs text-gray-600 whitespace-nowrap">
             Agent
           </label>
-          <select
-            id="agent-select"
-            value={selectedAgentName}
-            onChange={(event) => setSelectedAgentName(normalizeAgentName(event.target.value))}
-            className="text-sm rounded-md border border-gray-300 bg-white px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          <AgentPicker
+            selectedAgentNames={selectedAgentNames}
+            onChange={setSelectedAgentNames}
             disabled={streaming}
-          >
-            {agentOptions.map((option) => (
-              <option key={option.name} value={option.name}>
-                {option.displayName}
-              </option>
-            ))}
-          </select>
+          />
+          {isGroupChat && (
+            <div className="flex items-center gap-1 ml-1">
+              <Users className="w-3.5 h-3.5 text-indigo-400" />
+              <div className="flex -space-x-1.5">
+                {selectedAgentInfos.map((info) => (
+                  <div
+                    key={info.name}
+                    title={info.displayName}
+                    className="w-6 h-6 rounded-full bg-indigo-100 border-2 border-white flex items-center justify-center"
+                  >
+                    <span className="text-[10px] font-medium text-indigo-600">
+                      {info.displayName.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <span className="text-xs text-gray-500 truncate">
             {selectedAgentOption?.description || 'Supports text responses'}
           </span>
@@ -287,6 +376,10 @@ export default function ChatWindow({ conversationId }: Props) {
         onStop={() => stopStreaming(conversationId)}
         streaming={streaming}
         knownAgentNames={agentOptions.map((o) => o.name)}
+        replyTo={replyTo}
+        quote={quote}
+        onCancelReply={handleCancelReply}
+        onCancelQuote={handleCancelQuote}
       />
     </div>
   )

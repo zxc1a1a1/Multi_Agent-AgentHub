@@ -19,11 +19,14 @@ var (
 )
 
 type Conversation struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"userId"`
-	AgentName string    `json:"agentName"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string     `json:"id"`
+	Title     string     `json:"title,omitempty"`
+	UserID    string     `json:"userId"`
+	AgentName string     `json:"agentName"`
+	Pinned    bool       `json:"pinned"`
+	PinnedAt  *time.Time `json:"pinnedAt,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
 type Message struct {
@@ -39,9 +42,17 @@ type Store interface {
 	CreateConversation(ctx context.Context, userID, agentName string) (*Conversation, error)
 	GetConversation(ctx context.Context, id string) (*Conversation, error)
 	ListConversations(ctx context.Context, userID string) ([]Conversation, error)
+	UpdateConversation(ctx context.Context, id string, patch ConversationPatch) (*Conversation, error)
+	UpdateConversationPin(ctx context.Context, id string, pinned bool) (*Conversation, error)
 	AppendMessage(ctx context.Context, msg Message) (*Message, error)
 	ListMessages(ctx context.Context, conversationID string) ([]Message, error)
 	DeleteConversation(ctx context.Context, id string) error
+}
+
+// ConversationPatch carries optional fields for updating a conversation.
+type ConversationPatch struct {
+	Title     *string `json:"title,omitempty"`
+	Pinned    *bool   `json:"pinned,omitempty"`
 }
 
 type MemoryStore struct {
@@ -110,10 +121,58 @@ func (s *MemoryStore) ListConversations(ctx context.Context, userID string) ([]C
 		}
 		out = append(out, copyConversation(conv))
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].CreatedAt.Before(out[j].CreatedAt)
-	})
+	sortConversations(out)
 	return out, nil
+}
+
+func (s *MemoryStore) UpdateConversation(ctx context.Context, id string, patch ConversationPatch) (*Conversation, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conv, ok := s.conversations[id]
+	if !ok {
+		return nil, ErrConversationNotFound
+	}
+
+	now := time.Now().UTC()
+	if patch.Pinned != nil {
+		conv.Pinned = *patch.Pinned
+		if *patch.Pinned {
+			conv.PinnedAt = &now
+		} else {
+			conv.PinnedAt = nil
+		}
+	}
+	if patch.Title != nil {
+		conv.Title = *patch.Title
+	}
+	conv.UpdatedAt = now
+	s.conversations[id] = conv
+
+	out := copyConversation(conv)
+	return &out, nil
+}
+
+func (s *MemoryStore) UpdateConversationPin(ctx context.Context, id string, pinned bool) (*Conversation, error) {
+	return s.UpdateConversation(ctx, id, ConversationPatch{Pinned: &pinned})
+}
+
+func sortConversations(out []Conversation) {
+	sort.Slice(out, func(i, j int) bool {
+		// Pinned first
+		if out[i].Pinned && !out[j].Pinned {
+			return true
+		}
+		if !out[i].Pinned && out[j].Pinned {
+			return false
+		}
+		// Then by updatedAt DESC (newest first)
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
 }
 
 func (s *MemoryStore) AppendMessage(ctx context.Context, msg Message) (*Message, error) {
@@ -185,10 +244,18 @@ func (s *MemoryStore) DeleteConversation(ctx context.Context, id string) error {
 }
 
 func copyConversation(in Conversation) Conversation {
+	var pinnedAt *time.Time
+	if in.PinnedAt != nil {
+		t := *in.PinnedAt
+		pinnedAt = &t
+	}
 	return Conversation{
 		ID:        in.ID,
+		Title:     in.Title,
 		UserID:    in.UserID,
 		AgentName: in.AgentName,
+		Pinned:    in.Pinned,
+		PinnedAt:  pinnedAt,
 		CreatedAt: in.CreatedAt,
 		UpdatedAt: in.UpdatedAt,
 	}

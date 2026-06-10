@@ -63,9 +63,13 @@ func (s *Server) handleRunsConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := hitlRunner.ConfirmRun(r.Context(), req); err != nil {
-		var statusErr interface{ StatusCode() int }
-		if errors.As(err, &statusErr) {
-			writeJSONError(w, statusErr.StatusCode(), "HITL confirmation failed")
+		var httpErr *orchestratorclient.HTTPError
+		if errors.As(err, &httpErr) {
+			if httpErr.ContentType != "" {
+				w.Header().Set("Content-Type", httpErr.ContentType)
+			}
+			w.WriteHeader(httpErr.StatusCode)
+			w.Write([]byte(httpErr.Body))
 			return
 		}
 		writeJSONError(w, http.StatusBadGateway, "HITL confirmation failed")

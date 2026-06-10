@@ -68,6 +68,12 @@ func (p *PlanParser) Parse(raw string) (*PlanSchema, error) {
 	return &schema, nil
 }
 
+// stripMarkdownFences removes ```json / ``` wrappers if present.
+// Exported for test visibility.
+func stripMarkdownFences(text string) string {
+	return stripFences(text)
+}
+
 // stripFences removes ```json / ``` wrappers if the text starts and ends with them.
 func stripFences(text string) string {
 	t := text

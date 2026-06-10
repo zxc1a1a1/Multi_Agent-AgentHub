@@ -7,9 +7,10 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
-	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
 )
 
@@ -17,9 +18,14 @@ import (
 // Validation.Validated == true.
 var ErrPlanNotValidated = errors.New("plan not validated: validation.validated must be true before execution")
 
+// InternalTypeTaskRefRegistered is an executor-internal event used by httpapi
+// to register the real remote A2A task id for cancellation/tool-result routing.
+// It is never forwarded as an AG-UI event.
+const InternalTypeTaskRefRegistered = "__agenthub_task_ref_registered"
+
 // AgentRegistry is the subset of the agent registry that executors need.
 type AgentRegistry interface {
-	Get(name string) (registry.AgentEndpoint, bool)
+	ResolveURL(ctx context.Context, name string) (string, bool, error)
 }
 
 // AgentDispatcher is the subset of the A2A dispatcher that executors need.
@@ -45,14 +51,21 @@ type StreamingExecutor interface {
 
 // ExecutionEvent is a single event produced during execution.
 type ExecutionEvent struct {
-	Type      string
-	RunID     string
-	MessageID string
-	TaskID    string
-	AgentName string
-	Delta     string
-	Error     *ExecutionError
-	State     map[string]any
+	Type         string
+	RunID        string
+	MessageID    string
+	TaskID       string
+	StepID       string
+	AgentName    string
+	RemoteTaskID string
+	AgentURL     string
+	TurnIndex    int
+	Delta        string
+	Status       string
+	Summary      string
+	Error        *ExecutionError
+	State        map[string]any
+	ArtifactMeta *dispatcher.ArtifactMeta // non-nil when this event carries artifact metadata
 }
 
 // ExecutionError is a sanitized error carried in execution events.
@@ -108,13 +121,13 @@ func synthesizeIfNeeded(ctx context.Context, p *plan.OrchestrationPlan, msgID st
 		summary, _ = static.Synthesize(ctx, p.IntentSummary, outputs)
 	}
 
-	if !emit(ExecutionEvent{Type: "message_start", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
+	if !emit(ExecutionEvent{Type: agui.InternalTypeMessageStart, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
 		return false
 	}
-	if !emit(ExecutionEvent{Type: "message_delta", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator", Delta: summary}) {
+	if !emit(ExecutionEvent{Type: agui.InternalTypeMessageDelta, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator", Delta: summary}) {
 		return false
 	}
-	if !emit(ExecutionEvent{Type: "message_end", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
+	if !emit(ExecutionEvent{Type: agui.InternalTypeMessageEnd, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
 		return false
 	}
 	return true

@@ -52,10 +52,18 @@ func (s *Store) CreateConversation(ctx context.Context, conv Conversation) error
 		conv.MetadataJSON = "{}"
 	}
 
+	pinnedInt := 0
+	if conv.Pinned {
+		pinnedInt = 1
+	}
+	var pinnedAtStr string
+	if conv.PinnedAt != nil {
+		pinnedAtStr = formatTime(*conv.PinnedAt)
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO conversations (id, title, status, created_at, updated_at, metadata_json)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		conv.ID, conv.Title, conv.Status,
+		`INSERT INTO conversations (id, title, status, pinned, pinned_at, created_at, updated_at, metadata_json)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		conv.ID, conv.Title, conv.Status, pinnedInt, pinnedAtStr,
 		formatTime(conv.CreatedAt), formatTime(conv.UpdatedAt),
 		conv.MetadataJSON,
 	)
@@ -64,13 +72,22 @@ func (s *Store) CreateConversation(ctx context.Context, conv Conversation) error
 
 func (s *Store) GetConversation(ctx context.Context, id string) (Conversation, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, title, status, created_at, updated_at, metadata_json
+		`SELECT id, title, status, pinned, pinned_at, created_at, updated_at, metadata_json
 		 FROM conversations WHERE id = ?`, id,
 	)
 	var c Conversation
 	var ca, ua string
-	if err := row.Scan(&c.ID, &c.Title, &c.Status, &ca, &ua, &c.MetadataJSON); err != nil {
+	var pinnedInt int
+	var pinnedAtStr sql.NullString
+	if err := row.Scan(&c.ID, &c.Title, &c.Status, &pinnedInt, &pinnedAtStr, &ca, &ua, &c.MetadataJSON); err != nil {
 		return Conversation{}, err
+	}
+	c.Pinned = pinnedInt != 0
+	if pinnedAtStr.Valid && pinnedAtStr.String != "" {
+		t, _ := time.Parse(time.RFC3339, pinnedAtStr.String)
+		if !t.IsZero() {
+			c.PinnedAt = &t
+		}
 	}
 	c.CreatedAt, _ = time.Parse(time.RFC3339, ca)
 	c.UpdatedAt, _ = time.Parse(time.RFC3339, ua)
@@ -79,8 +96,8 @@ func (s *Store) GetConversation(ctx context.Context, id string) (Conversation, e
 
 func (s *Store) ListConversations(ctx context.Context) ([]Conversation, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, status, created_at, updated_at, metadata_json
-		 FROM conversations ORDER BY updated_at DESC`,
+		`SELECT id, title, status, pinned, pinned_at, created_at, updated_at, metadata_json
+		 FROM conversations ORDER BY pinned DESC, updated_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -91,8 +108,17 @@ func (s *Store) ListConversations(ctx context.Context) ([]Conversation, error) {
 	for rows.Next() {
 		var c Conversation
 		var ca, ua string
-		if err := rows.Scan(&c.ID, &c.Title, &c.Status, &ca, &ua, &c.MetadataJSON); err != nil {
+		var pinnedInt int
+		var pinnedAtStr sql.NullString
+		if err := rows.Scan(&c.ID, &c.Title, &c.Status, &pinnedInt, &pinnedAtStr, &ca, &ua, &c.MetadataJSON); err != nil {
 			return nil, err
+		}
+		c.Pinned = pinnedInt != 0
+		if pinnedAtStr.Valid && pinnedAtStr.String != "" {
+			t, _ := time.Parse(time.RFC3339, pinnedAtStr.String)
+			if !t.IsZero() {
+				c.PinnedAt = &t
+			}
 		}
 		c.CreatedAt, _ = time.Parse(time.RFC3339, ca)
 		c.UpdatedAt, _ = time.Parse(time.RFC3339, ua)
@@ -128,6 +154,57 @@ func (s *Store) DeleteConversation(ctx context.Context, id string) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// UpdateConversation applies a partial update to a conversation.
+// Currently supports pinned and title fields.
+func (s *Store) UpdateConversation(ctx context.Context, id string, patch ConversationPatch) error {
+	// Build dynamic SET clause based on non-nil patch fields.
+	var setClauses []string
+	var args []any
+
+	if patch.Pinned != nil {
+		pinnedInt := 0
+		if *patch.Pinned {
+			pinnedInt = 1
+		}
+		setClauses = append(setClauses, "pinned = ?")
+		args = append(args, pinnedInt)
+		if *patch.Pinned {
+			setClauses = append(setClauses, "pinned_at = ?")
+			args = append(args, formatTime(time.Now().UTC()))
+		} else {
+			setClauses = append(setClauses, "pinned_at = NULL")
+		}
+	}
+	if patch.Title != nil {
+		setClauses = append(setClauses, "title = ?")
+		args = append(args, *patch.Title)
+	}
+
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	setClauses = append(setClauses, "updated_at = ?")
+	args = append(args, formatTime(time.Now().UTC()))
+	args = append(args, id)
+
+	query := "UPDATE conversations SET " +
+		fmt.Sprintf("%s", setClauses[0])
+	for i := 1; i < len(setClauses); i++ {
+		query += ", " + setClauses[i]
+	}
+	query += " WHERE id = ?"
+
+	_, err := s.db.ExecContext(ctx, query, args...)
+	return err
+}
+
+// ConversationPatch carries optional update fields.
+type ConversationPatch struct {
+	Title  *string
+	Pinned *bool
 }
 
 // ---------------------------------------------------------------------------

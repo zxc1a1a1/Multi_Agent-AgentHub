@@ -20,20 +20,20 @@ func validOrderedParallelPlan() *plan.OrchestrationPlan {
 		IntentSummary:  "mixed task",
 		Tasks: []plan.TaskPlan{
 			{
-				TaskID:    "task_web",
-				AgentName: "web-agent",
+				TaskID:      "task_web",
+				AgentName:   "web-agent",
 				TaskContent: "Create a login page",
-				Priority:  1,
-				TimeoutMs: 120000,
-				RiskLevel: "low",
+				Priority:    1,
+				TimeoutMs:   120000,
+				RiskLevel:   "low",
 			},
 			{
-				TaskID:    "task_code",
-				AgentName: "code-agent",
+				TaskID:      "task_code",
+				AgentName:   "code-agent",
 				TaskContent: "Create a Go login API",
-				Priority:  2,
-				TimeoutMs: 120000,
-				RiskLevel: "low",
+				Priority:    2,
+				TimeoutMs:   120000,
+				RiskLevel:   "low",
 			},
 		},
 		Validation: plan.Validation{Validated: true},
@@ -401,7 +401,7 @@ func TestOrderedParallelExecutorSummaryContent(t *testing.T) {
 func TestOrderedParallelExecutorSingleTaskFailsSecondSucceeds(t *testing.T) {
 	disp := &countingDispatcher{
 		results: []*dispatcher.DispatchResult{
-			nil,  // first task fails
+			nil,                   // first task fails
 			{Text: "code output"}, // second task succeeds
 		},
 		errs: []error{
@@ -461,6 +461,45 @@ func (d *countingDispatcher) DispatchStream(ctx context.Context, input dispatche
 		}
 		if res != nil && res.Text != "" {
 			yield(dispatcher.DispatchChunk{Text: res.Text})
+		}
+	}
+}
+
+func TestSerialExecutorStream_GroupChatEmitsAgentTurnSequence(t *testing.T) {
+	disp := &streamStubDispatcher{chunks: []string{"chunk"}}
+	e := NewSerialExecutor(newStubRegistry(), disp)
+	p := validOrderedParallelPlan()
+	p.ExecutionPath = executionPathGroupChat
+	p.Strategy = plan.StrategySequential
+
+	var events []ExecutionEvent
+	if err := e.ExecuteStream(context.Background(), p, "msg_group", func(ev ExecutionEvent) bool {
+		events = append(events, ev)
+		return true
+	}); err != nil {
+		t.Fatalf("ExecuteStream returned error: %v", err)
+	}
+
+	var starts, contents, finishes []ExecutionEvent
+	for _, ev := range events {
+		switch ev.Type {
+		case "agent_turn_started":
+			starts = append(starts, ev)
+		case "agent_turn_content":
+			contents = append(contents, ev)
+		case "agent_turn_finished":
+			finishes = append(finishes, ev)
+		}
+	}
+	if len(starts) != 2 || len(contents) != 2 || len(finishes) != 2 {
+		t.Fatalf("expected 2 started/content/finished events, got starts=%d contents=%d finishes=%d all=%+v", len(starts), len(contents), len(finishes), events)
+	}
+	for i := range starts {
+		if starts[i].TurnIndex != i || finishes[i].TurnIndex != i {
+			t.Fatalf("turn index mismatch at %d: start=%+v finish=%+v", i, starts[i], finishes[i])
+		}
+		if starts[i].MessageID == "" || starts[i].MessageID != finishes[i].MessageID {
+			t.Fatalf("messageId mismatch at %d: start=%+v finish=%+v", i, starts[i], finishes[i])
 		}
 	}
 }

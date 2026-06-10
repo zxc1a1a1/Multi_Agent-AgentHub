@@ -1,5 +1,7 @@
 package agui
 
+import "encoding/json"
+
 // Event is a frontend-consumable AG-UI event DTO.
 // v1.0 fields align with docs/contracts/agui-events.md.
 // Legacy fields (Author, Text, Content, StateDelta) are kept for backward compatibility.
@@ -45,6 +47,13 @@ type Event struct {
 	// Error field (AG-UI v1.0 standard)
 	Error *SafeError `json:"error,omitempty"`
 
+	// AGENT_TURN top-level fields (Phase 5-0 canonical — omitempty, non-AGENT_TURN events unaffected)
+	TurnIndex int    `json:"turnIndex,omitempty"`
+	StepID    string `json:"stepId,omitempty"`
+	AgentName string `json:"agentName,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+
 	// Timestamp and tracing
 	Timestamp string `json:"timestamp,omitempty"`
 	TraceID   string `json:"traceId,omitempty"`
@@ -55,6 +64,26 @@ type Event struct {
 }
 
 // EventSender identifies the sender of a message in AG-UI events.
+// MarshalJSON preserves the required turnIndex field for AGENT_TURN events,
+// including the first turn where turnIndex is 0. The struct tag keeps turnIndex
+// omitted for non-turn events to avoid polluting unrelated AG-UI events.
+func (e Event) MarshalJSON() ([]byte, error) {
+	type eventAlias Event
+	data, err := json.Marshal(eventAlias(e))
+	if err != nil {
+		return nil, err
+	}
+	if !isAgentTurnType(e.Type) {
+		return data, nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return nil, err
+	}
+	obj["turnIndex"] = e.TurnIndex
+	return json.Marshal(obj)
+}
+
 type EventSender struct {
 	Type        string `json:"type"`
 	Name        string `json:"name"`
@@ -65,6 +94,7 @@ type EventSender struct {
 type SafeError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Details any    `json:"details,omitempty"`
 }
 
 // ToolCall is the AG-UI DTO for one tool call.
@@ -93,22 +123,23 @@ type Artifact struct {
 // ActivitySnapshot is the AG-UI v1.3 DTO for plan approval and activity state.
 // Replaces the deprecated confirm_plan TOOL_CALL events.
 type ActivitySnapshot struct {
-	ActivityID                string            `json:"activityId"`
-	ActivityType              string            `json:"activityType"`
-	Status                    string            `json:"status"`
-	ExecutionPath             string            `json:"executionPath"`
-	PlanID                    string            `json:"planId"`
-	Revision                  int               `json:"revision"`
-	PlanOwner                 *PlanOwner        `json:"planOwner"`
-	Participants              []PlanParticipant `json:"participants"`
-	CandidateParticipants     []PlanParticipant `json:"candidateParticipants,omitempty"`
+	ActivityID                  string            `json:"activityId"`
+	ActivityType                string            `json:"activityType"`
+	Status                      string            `json:"status"`
+	ExecutionPath               string            `json:"executionPath"`
+	PlanID                      string            `json:"planId"`
+	Revision                    int               `json:"revision"`
+	PlanOwner                   *PlanOwner        `json:"planOwner"`
+	ExecutionOwner              *ExecutionOwner   `json:"executionOwner,omitempty"`
+	Participants                []PlanParticipant `json:"participants"`
+	CandidateParticipants       []PlanParticipant `json:"candidateParticipants,omitempty"`
 	DefaultSelectedParticipants []PlanParticipant `json:"defaultSelectedParticipants,omitempty"`
-	RequiredParticipants      []string          `json:"requiredParticipants,omitempty"`
-	Title                     string            `json:"title,omitempty"`
-	Summary                   string            `json:"summary,omitempty"`
-	Tasks                     []TaskSummary     `json:"tasks"`
-	AllowedActions            []string          `json:"allowedActions"`
-	Warnings                  []string          `json:"warnings,omitempty"`
+	RequiredParticipants        []string          `json:"requiredParticipants,omitempty"`
+	Title                       string            `json:"title,omitempty"`
+	Summary                     string            `json:"summary,omitempty"`
+	Tasks                       []TaskSummary     `json:"tasks"`
+	AllowedActions              []string          `json:"allowedActions"`
+	Warnings                    []string          `json:"warnings,omitempty"`
 }
 
 // PlanOwner identifies the owner of an orchestration plan.
@@ -116,6 +147,19 @@ type PlanOwner struct {
 	Type        string `json:"type"`
 	AgentName   string `json:"agentName"`
 	IsMainAgent bool   `json:"isMainAgent"`
+}
+
+// ExecutionOwner identifies who will execute the plan, determined by executionPath.
+//
+// Mapping:
+//   single_chat              → {type: "agent", agentName: <selectedAgent>}
+//   group_chat               → {type: "group", agentNames: <allowedAgents>}
+//   main_agent_orchestration → {type: "main_agent_orchestration", selectedParticipants: [...]}
+type ExecutionOwner struct {
+	Type                 string   `json:"type"` // "agent" | "group" | "main_agent_orchestration"
+	AgentName            string   `json:"agentName,omitempty"`
+	AgentNames           []string `json:"agentNames,omitempty"`
+	SelectedParticipants []string `json:"selectedParticipants,omitempty"`
 }
 
 // PlanParticipant represents an agent participant in a plan.
@@ -132,4 +176,36 @@ type TaskSummary struct {
 	Content   string `json:"content"`
 	Priority  int    `json:"priority"`
 	RiskLevel string `json:"riskLevel"`
+}
+
+// AgentTurnStarted is the AG-UI event marking the start of an agent's execution turn.
+// Required for group_chat and main_agent_orchestration execution paths.
+type AgentTurnStarted struct {
+	Type      string       `json:"type"`
+	RunID     string       `json:"runId"`
+	MessageID string       `json:"messageId"`
+	TurnIndex int          `json:"turnIndex"`
+	StepID    string       `json:"stepId"`
+	AgentName string       `json:"agentName"`
+	Sender    *EventSender `json:"sender"`
+}
+
+// AgentTurnContent is the AG-UI event for incremental text content within an agent's turn.
+type AgentTurnContent struct {
+	Type      string `json:"type"`
+	RunID     string `json:"runId"`
+	MessageID string `json:"messageId"`
+	TurnIndex int    `json:"turnIndex"`
+	Delta     string `json:"delta"`
+}
+
+// AgentTurnFinished is the AG-UI event marking the end of an agent's execution turn.
+type AgentTurnFinished struct {
+	Type      string `json:"type"`
+	RunID     string `json:"runId"`
+	MessageID string `json:"messageId"`
+	TurnIndex int    `json:"turnIndex"`
+	AgentName string `json:"agentName"`
+	Summary   string `json:"summary,omitempty"`
+	Status    string `json:"status,omitempty"` // "completed" or "failed"
 }

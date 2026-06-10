@@ -418,3 +418,37 @@ func firstText(content *adk.Content) string {
 		return strings.TrimSpace("")
 	}
 }
+
+func TestKeepPinnedWindowPruner_PreservesPinnedMiddle(t *testing.T) {
+	pruner := NewKeepPinnedWindowPruner(1, 1, map[int]bool{2: true}, 0)
+	req := &adk.GenerateRequest{Contents: []*adk.Content{
+		textContent(adk.RoleUser, "first"),
+		textContent(adk.RoleAssistant, "drop"),
+		textContent(adk.RoleUser, "pinned"),
+		textContent(adk.RoleAssistant, "tail"),
+	}}
+	got, err := pruner.Prune(context.Background(), req)
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if len(got.Contents) != 3 {
+		t.Fatalf("expected 3 contents, got %d", len(got.Contents))
+	}
+	if firstText(got.Contents[1]) != "pinned" {
+		t.Fatalf("pinned message was not preserved: %q", firstText(got.Contents[1]))
+	}
+}
+
+func TestKeepPinnedWindowPruner_HardLimitReturnsError(t *testing.T) {
+	pruner := NewKeepPinnedWindowPruner(1, 1, map[int]bool{1: true, 2: true}, 2)
+	req := &adk.GenerateRequest{Contents: []*adk.Content{
+		textContent(adk.RoleUser, "first"),
+		textContent(adk.RoleAssistant, "pin1"),
+		textContent(adk.RoleUser, "pin2"),
+		textContent(adk.RoleAssistant, "tail"),
+	}}
+	_, err := pruner.Prune(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected hard limit error")
+	}
+}

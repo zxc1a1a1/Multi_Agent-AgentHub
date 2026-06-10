@@ -7,6 +7,13 @@ export interface ActivityPlanOwner {
   isMainAgent?: boolean
 }
 
+export interface ActivityExecutionOwner {
+  type: string // "agent" | "group" | "main_agent_orchestration"
+  agentName?: string
+  agentNames?: string[]
+  selectedParticipants?: string[]
+}
+
 export interface ActivityParticipant {
   agentName: string
   required?: boolean
@@ -29,6 +36,7 @@ export interface ActivitySnapshot {
   planId: string
   revision: number
   planOwner?: ActivityPlanOwner
+  executionOwner?: ActivityExecutionOwner
   participants: ActivityParticipant[]
   candidateParticipants?: ActivityParticipant[]
   defaultSelectedParticipants?: ActivityParticipant[]
@@ -54,6 +62,10 @@ export interface AGUIEvent {
   author?: string
   senderName?: string
   agentName?: string
+  turnIndex?: number
+  stepId?: string
+  status?: string
+  summary?: string
   // AG-UI v1.0 sender object
   sender?: {
     type?: string
@@ -109,6 +121,7 @@ export interface AGUIEvent {
 export interface HITLConfirmRequest {
   runId: string
   actionId: string
+  planId?: string
   confirmed?: boolean
   action?: string
   feedback?: string
@@ -122,6 +135,8 @@ export interface Conversation {
   id: string
   title: string
   agentName: string
+  pinned?: boolean
+  pinnedAt?: string
   createdAt: string
   updatedAt: string
 }
@@ -132,10 +147,19 @@ export interface Message {
   senderType: 'user' | 'agent'
   senderName?: string
   agentName?: string
+  turnIndex?: number
+  summary?: string
   content: string
   status: 'sending' | 'streaming' | 'sent' | 'failed'
   codeBlocks?: CodeBlock[]
   webPreviews?: WebPreviewBlock[]
+  skillCards?: SkillCardData[]
+  orchestrationSummary?: OrchestrationSummaryData
+  replyTo?: ReplyTo
+  quote?: Quote
+  pinned?: boolean
+  versionOf?: string
+  artifacts?: ArtifactCardData[]
   runId?: string
   stepId?: string
   sseMessageId?: string
@@ -161,4 +185,170 @@ export interface Agent {
   displayName?: string
   description?: string
   outputModes?: string[]
+}
+
+/**
+ * Skill card data produced by tool calls during streaming.
+ * Each tool maps to a specific card type for lightweight display.
+ */
+export interface TerminalOutputData {
+  type: 'terminal_output'
+  command?: string
+  stdout?: string
+  stderr?: string
+  exitCode?: number
+}
+
+export interface DiffPreviewData {
+  type: 'diff_preview'
+  diffText: string
+  filename?: string
+}
+
+export interface DeployStatusData {
+  type: 'deploy_status'
+  environment?: string
+  version?: string
+  status?: string
+  timestamp?: string
+}
+
+export interface ChartRenderData {
+  type: 'chart_render'
+  chartType?: 'bar' | 'line' | 'pie'
+  data?: Array<{ label?: string; value: number }>
+}
+
+export interface FileDownloadData {
+  type: 'file_download'
+  filename?: string
+  size?: number | string
+  mimeType?: string
+  createdAt?: string
+}
+
+export interface ImagePreviewData {
+  type: 'image_preview'
+  url?: string
+  alt?: string
+}
+
+export interface ConfirmActionData {
+  type: 'confirm_action'
+  runId?: string
+  taskId?: string
+  toolCallId?: string
+  title?: string
+  message?: string
+  riskLevel?: 'low' | 'medium' | 'high'
+}
+
+export interface FormInputData {
+  type: 'form_input'
+  runId?: string
+  taskId?: string
+  toolCallId?: string
+  title?: string
+  schema?: Record<string, unknown>
+}
+
+export interface ArtifactCardData {
+  type: 'artifact_card'
+  id?: string
+  runId?: string
+  taskId?: string
+  messageId?: string
+  name?: string
+  kind?: string
+  mimeType?: string
+  size?: number | string
+  downloadPath?: string
+  createdAt?: string
+  sourceAgent?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface UnknownSkillData {
+  type: 'unknown_skill'
+  toolName?: string
+  args?: unknown
+}
+
+export type SkillCardData =
+  | TerminalOutputData
+  | DiffPreviewData
+  | DeployStatusData
+  | ChartRenderData
+  | FileDownloadData
+  | ImagePreviewData
+  | ConfirmActionData
+  | FormInputData
+  | ArtifactCardData
+  | UnknownSkillData
+
+/**
+ * Post-run orchestration summary data.
+ */
+export interface OrchestrationSummaryData {
+  agents?: string[]
+  tasks?: Array<{
+    agentName: string
+    taskId?: string
+    status: 'completed' | 'failed' | 'running' | 'pending' | 'skipped'
+    content?: string
+    duration?: string
+  }>
+  runStatus?: string
+  duration?: string
+  artifactCount?: number
+}
+
+/**
+ * Reply-to reference for threaded/IM-style replies.
+ */
+export interface ReplyTo {
+  id: string
+  author: string
+  senderType: 'user' | 'agent' | 'system'
+  contentPreview: string // first ~100 chars of replied-to message
+}
+
+/**
+ * Text quote selection from a message.
+ */
+export interface Quote {
+  messageId: string
+  author: string
+  text: string // the selected/quoted text
+  startOffset?: number // character offset in source message
+  endOffset?: number
+}
+
+/**
+ * AgentManagement extends Agent with orchestration-level metadata
+ * returned by the agent management API (GET /api/agents).
+ * Used by the Agent Directory page.
+ */
+export interface AgentManagement {
+  name: string
+  displayName?: string
+  description?: string
+  outputModes?: string[]
+  source: 'static' | 'dynamic'
+  enabled: boolean
+  healthy: boolean
+  capabilities?: string[]
+  lastError?: string
+  baseURL?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+/**
+ * Request body for registering a new dynamic agent.
+ */
+export interface RegisterAgentRequest {
+  name: string
+  url: string
+  replace?: boolean
 }

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
@@ -65,7 +66,7 @@ func (e *OrderedParallelExecutor) Execute(ctx context.Context, p *plan.Orchestra
 
 	if p.Strategy != plan.StrategyOrderedParallel {
 		return []ExecutionEvent{{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_NOT_IMPLEMENTED",
@@ -76,7 +77,7 @@ func (e *OrderedParallelExecutor) Execute(ctx context.Context, p *plan.Orchestra
 
 	if len(p.Tasks) == 0 {
 		return []ExecutionEvent{{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_BAD_REQUEST",
@@ -101,14 +102,14 @@ func (e *OrderedParallelExecutor) Execute(ctx context.Context, p *plan.Orchestra
 		// Per-task message ID: append task index to keep messages distinct.
 		taskMsgID := fmt.Sprintf("%s_%d", msgID, i)
 
-		taskEvents, result, err := e.executeOneTask(ctx, p, task, taskMsgID)
+		taskEvents, result, err := e.executeOneTask(ctx, p, task, taskMsgID, i)
 		events = append(events, taskEvents...)
 
 		if err != nil {
 			allSucceeded = false
 			events = append(events, ExecutionEvent{
-				Type:  "run_error",
-				RunID: p.RunID,
+				Type:   agui.InternalTypeRunError,
+				RunID:  p.RunID,
 				TaskID: task.TaskID,
 				Error: &ExecutionError{
 					Code:    "ORCHESTRATOR_AGENT_FAILED",
@@ -125,20 +126,20 @@ func (e *OrderedParallelExecutor) Execute(ctx context.Context, p *plan.Orchestra
 		summaryMsgID := msgID + "_summary"
 		summary := buildSummary(taskResults)
 		events = append(events, ExecutionEvent{
-			Type:      "message_start",
+			Type:      agui.InternalTypeMessageStart,
 			RunID:     p.RunID,
 			MessageID: summaryMsgID,
 			AgentName: "orchestrator",
 		})
 		events = append(events, ExecutionEvent{
-			Type:      "message_delta",
+			Type:      agui.InternalTypeMessageDelta,
 			RunID:     p.RunID,
 			MessageID: summaryMsgID,
 			AgentName: "orchestrator",
 			Delta:     summary,
 		})
 		events = append(events, ExecutionEvent{
-			Type:      "message_end",
+			Type:      agui.InternalTypeMessageEnd,
 			RunID:     p.RunID,
 			MessageID: summaryMsgID,
 			AgentName: "orchestrator",
@@ -151,7 +152,7 @@ func (e *OrderedParallelExecutor) Execute(ctx context.Context, p *plan.Orchestra
 		status = "partial_failure"
 	}
 	events = append(events, ExecutionEvent{
-		Type:  "run_finished",
+		Type:  agui.InternalTypeRunFinished,
 		RunID: p.RunID,
 		State: map[string]any{
 			"status":    status,
@@ -188,7 +189,7 @@ func (e *OrderedParallelExecutor) ExecuteStream(ctx context.Context, p *plan.Orc
 	}
 	if p.Strategy != plan.StrategyOrderedParallel {
 		emit(ExecutionEvent{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_NOT_IMPLEMENTED",
@@ -199,7 +200,7 @@ func (e *OrderedParallelExecutor) ExecuteStream(ctx context.Context, p *plan.Orc
 	}
 	if len(p.Tasks) == 0 {
 		emit(ExecutionEvent{
-			Type:  "run_error",
+			Type:  agui.InternalTypeRunError,
 			RunID: p.RunID,
 			Error: &ExecutionError{Code: "ORCHESTRATOR_BAD_REQUEST", Message: "plan has no tasks"},
 		})
@@ -217,7 +218,7 @@ func (e *OrderedParallelExecutor) ExecuteStream(ctx context.Context, p *plan.Orc
 
 	for i, task := range tasks {
 		taskMsgID := fmt.Sprintf("%s_%d", msgID, i)
-		result, ok := e.streamOneTask(ctx, p, task, taskMsgID, emit)
+		result, ok := e.streamOneTask(ctx, p, task, taskMsgID, i, emit)
 		if !ok {
 			allSucceeded = false
 			continue
@@ -232,13 +233,13 @@ func (e *OrderedParallelExecutor) ExecuteStream(ctx context.Context, p *plan.Orc
 		if !synthesizeIfNeeded(ctx, p, msgID, taskResults, e.synthesizer, emit) {
 			summaryMsgID := msgID + "_summary"
 			summary := buildSummary(taskResults)
-			if !emit(ExecutionEvent{Type: "message_start", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
+			if !emit(ExecutionEvent{Type: agui.InternalTypeMessageStart, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
 				return nil
 			}
-			if !emit(ExecutionEvent{Type: "message_delta", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator", Delta: summary}) {
+			if !emit(ExecutionEvent{Type: agui.InternalTypeMessageDelta, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator", Delta: summary}) {
 				return nil
 			}
-			if !emit(ExecutionEvent{Type: "message_end", RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
+			if !emit(ExecutionEvent{Type: agui.InternalTypeMessageEnd, RunID: p.RunID, MessageID: summaryMsgID, AgentName: "orchestrator"}) {
 				return nil
 			}
 		}
@@ -249,7 +250,7 @@ func (e *OrderedParallelExecutor) ExecuteStream(ctx context.Context, p *plan.Orc
 		status = "partial_failure"
 	}
 	emit(ExecutionEvent{
-		Type:  "run_finished",
+		Type:  agui.InternalTypeRunFinished,
 		RunID: p.RunID,
 		State: map[string]any{"status": status, "taskCount": len(tasks)},
 	})
@@ -258,13 +259,25 @@ func (e *OrderedParallelExecutor) ExecuteStream(ctx context.Context, p *plan.Orc
 
 // streamOneTask dispatches a single task in streaming mode. It returns the
 // accumulated task result and whether the task succeeded.
-func (e *OrderedParallelExecutor) streamOneTask(ctx context.Context, p *plan.OrchestrationPlan, task plan.TaskPlan, msgID string, emit EventSink) (*taskResult, bool) {
+func (e *OrderedParallelExecutor) streamOneTask(ctx context.Context, p *plan.OrchestrationPlan, task plan.TaskPlan, msgID string, turnIndex int, emit EventSink) (*taskResult, bool) {
 	agentName := task.AgentName
 
-	endpoint, ok := e.registry.Get(agentName)
+	agentURL, ok, err := e.registry.ResolveURL(ctx, agentName)
+	if err != nil {
+		emit(ExecutionEvent{
+			Type:   agui.InternalTypeRunError,
+			RunID:  p.RunID,
+			TaskID: task.TaskID,
+			Error: &ExecutionError{
+				Code:    "ORCHESTRATOR_INTERNAL",
+				Message: "Failed to resolve agent " + agentName,
+			},
+		})
+		return nil, false
+	}
 	if !ok {
 		emit(ExecutionEvent{
-			Type:   "run_error",
+			Type:   agui.InternalTypeRunError,
 			RunID:  p.RunID,
 			TaskID: task.TaskID,
 			Error: &ExecutionError{
@@ -275,12 +288,12 @@ func (e *OrderedParallelExecutor) streamOneTask(ctx context.Context, p *plan.Orc
 		return nil, false
 	}
 
-	if !emit(ExecutionEvent{Type: "message_start", RunID: p.RunID, MessageID: msgID, TaskID: task.TaskID, AgentName: agentName}) {
+	if !emit(taskStartedEvent(p, task, msgID, turnIndex)) {
 		return nil, false
 	}
 
 	input := dispatcher.DispatchInput{
-		AgentURL:       endpoint.URL,
+		AgentURL:       agentURL,
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,
@@ -292,27 +305,43 @@ func (e *OrderedParallelExecutor) streamOneTask(ctx context.Context, p *plan.Orc
 	var sb strings.Builder
 	var dispatchErr error
 	e.dispatcher.DispatchStream(ctx, input)(func(c dispatcher.DispatchChunk) bool {
+		if c.TaskID != "" {
+			if !emit(ExecutionEvent{
+				Type:         InternalTypeTaskRefRegistered,
+				RunID:        p.RunID,
+				TaskID:       task.TaskID,
+				AgentName:    agentName,
+				RemoteTaskID: c.TaskID,
+				AgentURL:     agentURL,
+			}) {
+				return false
+			}
+		}
 		if c.Err != nil {
 			dispatchErr = c.Err
 			return false
+		}
+		if c.Artifact != nil {
+			if !emit(ExecutionEvent{
+				Type:         "artifact.delta",
+				RunID:        p.RunID,
+				TaskID:       task.TaskID,
+				AgentName:    agentName,
+				ArtifactMeta: c.Artifact,
+			}) {
+				return false
+			}
 		}
 		if c.Text == "" {
 			return true
 		}
 		sb.WriteString(c.Text)
-		return emit(ExecutionEvent{
-			Type:      "message_delta",
-			RunID:     p.RunID,
-			MessageID: msgID,
-			TaskID:    task.TaskID,
-			AgentName: agentName,
-			Delta:     c.Text,
-		})
+		return emit(taskContentEvent(p, task, msgID, turnIndex, c.Text))
 	})
 
 	if dispatchErr != nil {
 		emit(ExecutionEvent{
-			Type:   "run_error",
+			Type:   agui.InternalTypeRunError,
 			RunID:  p.RunID,
 			TaskID: task.TaskID,
 			Error: &ExecutionError{
@@ -323,20 +352,31 @@ func (e *OrderedParallelExecutor) streamOneTask(ctx context.Context, p *plan.Orc
 		return nil, false
 	}
 
-	emit(ExecutionEvent{Type: "message_end", RunID: p.RunID, MessageID: msgID, TaskID: task.TaskID, AgentName: agentName})
+	emit(taskFinishedEvent(p, task, msgID, turnIndex, sb.String(), "completed"))
 
 	return &taskResult{TaskID: task.TaskID, AgentName: agentName, Text: sb.String()}, true
 }
 
 // executeOneTask dispatches a single task and returns message_start/delta/end events.
-func (e *OrderedParallelExecutor) executeOneTask(ctx context.Context, p *plan.OrchestrationPlan, task plan.TaskPlan, msgID string) ([]ExecutionEvent, *taskResult, error) {
+func (e *OrderedParallelExecutor) executeOneTask(ctx context.Context, p *plan.OrchestrationPlan, task plan.TaskPlan, msgID string, turnIndex int) ([]ExecutionEvent, *taskResult, error) {
 	agentName := task.AgentName
 
-	endpoint, ok := e.registry.Get(agentName)
+	agentURL, ok, err := e.registry.ResolveURL(ctx, agentName)
+	if err != nil {
+		return []ExecutionEvent{{
+			Type:   agui.InternalTypeRunError,
+			RunID:  p.RunID,
+			TaskID: task.TaskID,
+			Error: &ExecutionError{
+				Code:    "ORCHESTRATOR_INTERNAL",
+				Message: "Failed to resolve agent " + agentName,
+			},
+		}}, nil, fmt.Errorf("resolve agent %s: %w", agentName, err)
+	}
 	if !ok {
 		return []ExecutionEvent{{
-			Type:  "run_error",
-			RunID: p.RunID,
+			Type:   agui.InternalTypeRunError,
+			RunID:  p.RunID,
 			TaskID: task.TaskID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_AGENT_UNAVAILABLE",
@@ -347,17 +387,10 @@ func (e *OrderedParallelExecutor) executeOneTask(ctx context.Context, p *plan.Or
 
 	var events []ExecutionEvent
 
-	// message_start
-	events = append(events, ExecutionEvent{
-		Type:      "message_start",
-		RunID:     p.RunID,
-		MessageID: msgID,
-		TaskID:    task.TaskID,
-		AgentName: agentName,
-	})
+	events = append(events, taskStartedEvent(p, task, msgID, turnIndex))
 
 	input := dispatcher.DispatchInput{
-		AgentURL:       endpoint.URL,
+		AgentURL:       agentURL,
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,
@@ -368,8 +401,8 @@ func (e *OrderedParallelExecutor) executeOneTask(ctx context.Context, p *plan.Or
 	result, err := e.dispatcher.Dispatch(ctx, input)
 	if err != nil {
 		events = append(events, ExecutionEvent{
-			Type:  "run_error",
-			RunID: p.RunID,
+			Type:   agui.InternalTypeRunError,
+			RunID:  p.RunID,
 			TaskID: task.TaskID,
 			Error: &ExecutionError{
 				Code:    "ORCHESTRATOR_AGENT_FAILED",
@@ -380,24 +413,10 @@ func (e *OrderedParallelExecutor) executeOneTask(ctx context.Context, p *plan.Or
 	}
 
 	if result != nil && result.Text != "" {
-		events = append(events, ExecutionEvent{
-			Type:      "message_delta",
-			RunID:     p.RunID,
-			MessageID: msgID,
-			TaskID:    task.TaskID,
-			AgentName: agentName,
-			Delta:     result.Text,
-		})
+		events = append(events, taskContentEvent(p, task, msgID, turnIndex, result.Text))
 	}
 
-	// message_end
-	events = append(events, ExecutionEvent{
-		Type:      "message_end",
-		RunID:     p.RunID,
-		MessageID: msgID,
-		TaskID:    task.TaskID,
-		AgentName: agentName,
-	})
+	events = append(events, taskFinishedEvent(p, task, msgID, turnIndex, resultText(result), "completed"))
 
 	tr := &taskResult{
 		TaskID:    task.TaskID,
@@ -473,4 +492,11 @@ func sanitizeSummary(s string) string {
 		s = s[:117] + "..."
 	}
 	return s
+}
+
+func resultText(result *dispatcher.DispatchResult) string {
+	if result == nil {
+		return ""
+	}
+	return result.Text
 }

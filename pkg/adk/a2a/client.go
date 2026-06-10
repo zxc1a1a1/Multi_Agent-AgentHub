@@ -83,6 +83,15 @@ type jsonRPCRequest struct {
 	Params  RunRequest `json:"params"`
 }
 
+type taskIDRequest struct {
+	TaskID string `json:"taskId"`
+}
+
+type taskMessageRequest struct {
+	TaskID  string   `json:"taskId"`
+	Message *Message `json:"message"`
+}
+
 // NewClient creates a minimal A2A client.
 func NewClient(opts ...ClientOption) *Client {
 	client := &Client{
@@ -126,8 +135,12 @@ func (c *Client) SendJSONRPC(ctx context.Context, baseURL string, req RunRequest
 // Event / Err is meaningful per chunk: when Err != nil the stream is finished
 // with an error and no further chunks follow.
 type StreamChunk struct {
-	Event EventDTO
-	Err   error
+	// TaskID is populated when the remote A2A server exposes the task id
+	// before or alongside streamed output. It is metadata and may appear in a
+	// chunk without Event text.
+	TaskID string
+	Event  EventDTO
+	Err    error
 }
 
 // SendJSONRPCStream sends a JSON-RPC wrapped A2A run request and yields events
@@ -198,12 +211,143 @@ func (c *Client) SendJSONRPCStream(ctx context.Context, baseURL string, req RunR
 		}
 
 		if isEventStream(httpResp.Header.Get("Content-Type")) {
+			if taskID := strings.TrimSpace(httpResp.Header.Get("X-A2A-Task-ID")); taskID != "" {
+				if !yield(StreamChunk{TaskID: taskID}) {
+					return
+				}
+			}
 			streamSSE(httpResp.Body, yield)
 			return
 		}
 		// Compatibility fallback: buffered application/json RunResponse.
 		yieldBufferedResponse(httpResp.Body, yield)
 	}
+}
+
+// GetTask retrieves the current state of a task from a remote A2A server.
+// baseURL may be either the agent root URL (for example
+// "http://agent:8080") or the explicit /a2a/tasks/get endpoint.
+func (c *Client) GetTask(ctx context.Context, baseURL string, taskID string) (*Task, error) {
+	endpoint, err := normalizeTaskEndpointURL(baseURL, "/a2a/tasks/get")
+	if err != nil {
+		return nil, err
+	}
+
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, errors.New("taskId is required")
+	}
+
+	httpClient := http.DefaultClient
+	if c != nil && c.httpClient != nil {
+		httpClient = c.httpClient
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	bodyRaw, err := json.Marshal(taskIDRequest{TaskID: taskID})
+	if err != nil {
+		return nil, errors.New("encode request failed")
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyRaw))
+	if err != nil {
+		return nil, errors.New("build request failed")
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := httpClient.Do(httpReq)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		return nil, errors.New("send request failed")
+	}
+	defer httpResp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(httpResp.Body, maxBodySizeBytes))
+	if err != nil {
+		return nil, errors.New("read response failed")
+	}
+
+	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+		return nil, buildStatusError(httpResp.StatusCode, respBody)
+	}
+
+	var task Task
+	if err := decodeStrictJSON(respBody, &task); err != nil {
+		return nil, errors.New("decode response failed")
+	}
+	return &task, nil
+}
+
+// CancelTask requests cancellation of a task on a remote A2A server.
+// baseURL may be either the agent root URL (for example
+// "http://agent:8080") or the explicit /a2a/tasks/cancel endpoint.
+// Returns the final task state. Cancel is idempotent — cancelling an already
+// completed/failed/cancelled task returns its current state without error.
+func (c *Client) CancelTask(ctx context.Context, baseURL string, taskID string) (*Task, error) {
+	endpoint, err := normalizeTaskEndpointURL(baseURL, "/a2a/tasks/cancel")
+	if err != nil {
+		return nil, err
+	}
+
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, errors.New("taskId is required")
+	}
+
+	httpClient := http.DefaultClient
+	if c != nil && c.httpClient != nil {
+		httpClient = c.httpClient
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	bodyRaw, err := json.Marshal(taskIDRequest{TaskID: taskID})
+	if err != nil {
+		return nil, errors.New("encode request failed")
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyRaw))
+	if err != nil {
+		return nil, errors.New("build request failed")
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := httpClient.Do(httpReq)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		return nil, errors.New("send request failed")
+	}
+	defer httpResp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(httpResp.Body, maxBodySizeBytes))
+	if err != nil {
+		return nil, errors.New("read response failed")
+	}
+
+	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+		return nil, buildStatusError(httpResp.StatusCode, respBody)
+	}
+
+	var task Task
+	if err := decodeStrictJSON(respBody, &task); err != nil {
+		return nil, errors.New("decode response failed")
+	}
+	return &task, nil
 }
 
 // isEventStream reports whether the content type indicates SSE.
@@ -281,6 +425,11 @@ func yieldBufferedResponse(r io.Reader, yield func(StreamChunk) bool) {
 		return
 	}
 	redactThinkingParts(&parsed)
+	if strings.TrimSpace(parsed.TaskID) != "" {
+		if !yield(StreamChunk{TaskID: strings.TrimSpace(parsed.TaskID)}) {
+			return
+		}
+	}
 	for _, event := range parsed.Events {
 		if !yield(StreamChunk{Event: event}) {
 			return
@@ -301,6 +450,70 @@ func redactThinkingEvent(event *EventDTO) {
 		event.Parts[j].Content = ""
 		event.Parts[j].Arguments = nil
 	}
+}
+
+// SendMessage sends a follow-up message to an existing task identified by
+// taskID. It is used by the Orchestrator to forward tool results from the
+// frontend back to a child agent whose task is awaiting human input. Unlike
+// Send, this targets the tasks/message endpoint and must reference an existing
+// task rather than starting a new run.
+func (c *Client) SendMessage(ctx context.Context, baseURL string, taskID string, content string) (*RunResponse, error) {
+	endpoint, err := normalizeTaskEndpointURL(baseURL, "/a2a/tasks/message")
+	if err != nil {
+		return nil, err
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, errors.New("taskId is required")
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil, errors.New("message.content is required")
+	}
+
+	httpClient := http.DefaultClient
+	if c != nil && c.httpClient != nil {
+		httpClient = c.httpClient
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	bodyRaw, err := json.Marshal(taskMessageRequest{TaskID: taskID, Message: &Message{Role: "tool", Content: content}})
+	if err != nil {
+		return nil, errors.New("encode request failed")
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyRaw))
+	if err != nil {
+		return nil, errors.New("build request failed")
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpResp, err := httpClient.Do(httpReq)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		return nil, errors.New("send request failed")
+	}
+	defer httpResp.Body.Close()
+	respBody, err := io.ReadAll(io.LimitReader(httpResp.Body, maxBodySizeBytes))
+	if err != nil {
+		return nil, errors.New("read response failed")
+	}
+	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
+		return nil, buildStatusError(httpResp.StatusCode, respBody)
+	}
+	var parsed RunResponse
+	if err := decodeStrictJSON(respBody, &parsed); err != nil {
+		return nil, errors.New("decode response failed")
+	}
+	if parsed.Error != nil {
+		return nil, fmt.Errorf("remote request failed: %s", sanitizeRemoteErrorMessage(parsed.Error.Message))
+	}
+	redactThinkingParts(&parsed)
+	return &parsed, nil
 }
 
 func (c *Client) send(ctx context.Context, baseURL string, req RunRequest, jsonRPC bool) (*RunResponse, error) {
@@ -374,6 +587,35 @@ func (c *Client) send(ctx context.Context, baseURL string, req RunRequest, jsonR
 	}
 	redactThinkingParts(&parsed)
 	return &parsed, nil
+}
+
+func normalizeTaskEndpointURL(baseURL string, endpointPath string) (string, error) {
+	normalized, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return "", err
+	}
+	endpointPath = "/" + strings.Trim(strings.TrimSpace(endpointPath), "/")
+	parsed, err := url.Parse(normalized)
+	if err != nil {
+		return "", errors.New("baseURL is invalid")
+	}
+	path := "/" + strings.Trim(strings.TrimSpace(parsed.Path), "/")
+	if path == "/" || path == "" {
+		parsed.Path = endpointPath
+		return parsed.String(), nil
+	}
+	if path == endpointPath {
+		parsed.Path = endpointPath
+		return parsed.String(), nil
+	}
+	// If an A2A task endpoint is provided, replace it with the requested one so
+	// callers can safely pass /a2a/tasks/get to CancelTask and vice versa.
+	if strings.HasPrefix(path, "/a2a/tasks/") {
+		parsed.Path = endpointPath
+		return parsed.String(), nil
+	}
+	parsed.Path = strings.TrimRight(path, "/") + endpointPath
+	return parsed.String(), nil
 }
 
 func normalizeBaseURL(baseURL string) (string, error) {
