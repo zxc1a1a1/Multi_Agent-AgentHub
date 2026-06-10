@@ -244,6 +244,17 @@ func (e *SingleExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 			dispatchErr = c.Err
 			return false
 		}
+		if c.Artifact != nil {
+			if !emit(ExecutionEvent{
+				Type:         "artifact.delta",
+				RunID:        p.RunID,
+				TaskID:       task.TaskID,
+				AgentName:    agentName,
+				ArtifactMeta: c.Artifact,
+			}) {
+				return false
+			}
+		}
 		if c.Text == "" {
 			return true
 		}

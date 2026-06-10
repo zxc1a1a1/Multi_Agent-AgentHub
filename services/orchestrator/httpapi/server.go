@@ -13,6 +13,7 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/bridge"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
@@ -86,6 +87,7 @@ type Server struct {
 	idempotencyCache  map[string]*idempotencyEntry       // runID+":"+key → cached response (legacy, migrating to PendingPlan.IdempotencyRecords)
 	pendingPlanStates map[string]*PendingPlan            // runID → full lifecycle state (Phase 4, coexists with legacy maps during migration)
 	runTaskRegistry   *registry.RunTaskRegistry          // runID → child task refs for cancel path
+	artifactStore     artifacts.Store                    // metadata-only artifact store; no file blobs
 }
 
 // Option customizes Server behavior.
@@ -175,6 +177,17 @@ func WithRunTaskRegistry(rtr *registry.RunTaskRegistry) Option {
 	}
 }
 
+// WithArtifactStore injects a metadata-only artifact store. The store never
+// writes binary file contents; it only records run/task/message metadata.
+func WithArtifactStore(store artifacts.Store) Option {
+	return func(s *Server) {
+		if s == nil || store == nil {
+			return
+		}
+		s.artifactStore = store
+	}
+}
+
 // WithMainAgentPlanner injects a MainAgent Planner instance.
 // When set, all execution paths (single_chat, group_chat, main_agent_orchestration)
 // use this planner for plan generation.
@@ -224,6 +237,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/internal/orchestrator/agents/", s.handleAgentsByName)
 	s.mux.HandleFunc("/internal/orchestrator/runs/cancel", s.handleRunCancel)
 	s.mux.HandleFunc("/internal/orchestrator/runs/tool-result", s.handleRunToolResult)
+	s.mux.HandleFunc("/internal/orchestrator/runs/regenerate", s.handleRunRegenerate)
+	s.mux.HandleFunc("/internal/orchestrator/diffs/dry-run", s.handleDiffDryRun)
+	s.mux.HandleFunc("/internal/orchestrator/diffs/apply", s.handleDiffApply)
+	s.mux.HandleFunc("/internal/orchestrator/artifacts", s.handleArtifacts)
+	s.mux.HandleFunc("/internal/orchestrator/artifacts/", s.handleArtifactByID)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

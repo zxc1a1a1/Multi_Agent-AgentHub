@@ -99,6 +99,8 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 		requestedPath := runservice.RequestedPathFromContext(ctx)
 		replyTo := runservice.ReplyToFromContext(ctx)
 		quote := runservice.QuoteFromContext(ctx)
+		pinnedMessageIDs := runservice.PinnedMessageIDsFromContext(ctx)
+		contextMessages := runservice.ContextMessagesFromContext(ctx)
 		if planningMode == "" {
 			planningMode = runservice.PlanningModeAuto
 		}
@@ -111,17 +113,35 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 			mentions = []string{}
 		}
 
+		// Build messages array: if contextMessages were forwarded from the
+		// frontend, pass them through with IDs so the Orchestrator can resolve
+		// pinnedMessageIds. Otherwise fall back to the current message only.
+		var messages []map[string]string
+		if len(contextMessages) > 0 {
+			messages = make([]map[string]string, 0, len(contextMessages))
+			for _, cm := range contextMessages {
+				m := map[string]string{"role": cm.Role, "text": cm.Text}
+				if cm.ID != "" {
+					m["id"] = cm.ID
+				}
+				messages = append(messages, m)
+			}
+		} else {
+			messages = []map[string]string{
+				{"role": "user", "text": userText},
+			}
+		}
+
 		reqBody := map[string]any{
 			"conversationId":   conversationID,
 			"conversationType": "single",
-			"messages": []map[string]string{
-				{"role": "user", "text": userText},
-			},
-			"planningMode":       string(planningMode),
+			"messages":         messages,
+			"planningMode":     string(planningMode),
 			"agentName":          agentName,
 			"selectedAgentNames": selectedAgentNames,
 			"mentions":           mentions,
 			"requestedPath":      requestedPath,
+			"pinnedMessageIds":   pinnedMessageIDs,
 		}
 		if replyTo != nil {
 			reqBody["replyTo"] = replyTo

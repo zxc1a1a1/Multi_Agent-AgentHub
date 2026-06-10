@@ -1464,6 +1464,53 @@ func TestChat_RequestPlanningModeAccepted(t *testing.T) {
 	}
 }
 
+func TestChat_ContextMessagesPassthrough(t *testing.T) {
+	st := store.NewMemoryStore()
+	conv, err := st.CreateConversation(context.Background(), "user-cm", "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	runner := &contextCaptureRunner{
+		seq: seqEvents(adk.Event{
+			ID:     "evt-cm",
+			Author: "orchestrator",
+			Content: &adk.Content{
+				Role:  adk.RoleAssistant,
+				Parts: []adk.Part{adk.TextPart{Text: "response"}},
+			},
+			Final: true,
+		}),
+	}
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatalf("new server failed: %v", err)
+	}
+
+	body := `{"conversationId":"` + conv.ID + `","message":"hello","contextMessages":[{"id":"msg-1","role":"user","text":"previous question"},{"id":"msg-2","role":"assistant","text":"previous answer"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	if runner.capturedCtx == nil {
+		t.Fatal("expected context to be captured")
+	}
+
+	cm := runservice.ContextMessagesFromContext(runner.capturedCtx)
+	if len(cm) != 2 {
+		t.Fatalf("expected 2 context messages, got %d", len(cm))
+	}
+	if cm[0].ID != "msg-1" || cm[0].Role != "user" || cm[0].Text != "previous question" {
+		t.Errorf("cm[0] mismatch: ID=%q Role=%q Text=%q", cm[0].ID, cm[0].Role, cm[0].Text)
+	}
+	if cm[1].ID != "msg-2" || cm[1].Role != "assistant" || cm[1].Text != "previous answer" {
+		t.Errorf("cm[1] mismatch: ID=%q Role=%q Text=%q", cm[1].ID, cm[1].Role, cm[1].Text)
+	}
+}
+
 func TestAGUICompliance_ConfirmPlanToolEventsThroughGateway(t *testing.T) {
 	confirmArgs := `{"runId":"run-agui-001","planId":"plan-agui-001","strategy":"single","revision":2,"executionPath":"single_chat","planOwner":{"type":"agent","agentName":"code-agent"},"participants":[{"agentName":"code-agent","required":true,"selected":true}],"plannedAgents":["code-agent"],"tasks":[{"taskId":"t1","agentName":"code-agent","content":"write code","priority":1,"riskLevel":"low"}],"intentSummary":"revised plan","requiresConfirmation":true}`
 

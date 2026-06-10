@@ -65,6 +65,7 @@ type ExecutionEvent struct {
 	Summary      string
 	Error        *ExecutionError
 	State        map[string]any
+	ArtifactMeta *dispatcher.ArtifactMeta // non-nil when this event carries artifact metadata
 }
 
 // ExecutionError is a sanitized error carried in execution events.

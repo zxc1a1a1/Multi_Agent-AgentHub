@@ -10,6 +10,8 @@ export interface AGUIChatRequest {
   requestedPath?: string
   replyTo?: ReplyTo
   quote?: Quote
+  pinnedMessageIds?: string[]
+  contextMessages?: Array<{ id?: string; role: string; text: string }>
 }
 
 function authHeaders(): Record<string, string> {

@@ -157,6 +157,9 @@ export interface Message {
   orchestrationSummary?: OrchestrationSummaryData
   replyTo?: ReplyTo
   quote?: Quote
+  pinned?: boolean
+  versionOf?: string
+  artifacts?: ArtifactCardData[]
   runId?: string
   stepId?: string
   sseMessageId?: string
@@ -230,6 +233,41 @@ export interface ImagePreviewData {
   alt?: string
 }
 
+export interface ConfirmActionData {
+  type: 'confirm_action'
+  runId?: string
+  taskId?: string
+  toolCallId?: string
+  title?: string
+  message?: string
+  riskLevel?: 'low' | 'medium' | 'high'
+}
+
+export interface FormInputData {
+  type: 'form_input'
+  runId?: string
+  taskId?: string
+  toolCallId?: string
+  title?: string
+  schema?: Record<string, unknown>
+}
+
+export interface ArtifactCardData {
+  type: 'artifact_card'
+  id?: string
+  runId?: string
+  taskId?: string
+  messageId?: string
+  name?: string
+  kind?: string
+  mimeType?: string
+  size?: number | string
+  downloadPath?: string
+  createdAt?: string
+  sourceAgent?: string
+  metadata?: Record<string, unknown>
+}
+
 export interface UnknownSkillData {
   type: 'unknown_skill'
   toolName?: string
@@ -243,6 +281,9 @@ export type SkillCardData =
   | ChartRenderData
   | FileDownloadData
   | ImagePreviewData
+  | ConfirmActionData
+  | FormInputData
+  | ArtifactCardData
   | UnknownSkillData
 
 /**

@@ -11,14 +11,19 @@ import ChartRender from './skills/ChartRender'
 import FileDownloadCard from './skills/FileDownloadCard'
 import ImagePreview from './skills/ImagePreview'
 import UnknownSkillFallback from './skills/UnknownSkillFallback'
+import ConfirmActionCard from './skills/ConfirmActionCard'
+import FormInputCard from './skills/FormInputCard'
+import ArtifactCard from './skills/ArtifactCard'
 import OrchestrationSummary from './OrchestrationSummary'
-import { User, Reply, Copy, Check } from 'lucide-react'
+import { User, Reply, Copy, Check, RotateCcw, Pin, PinOff } from 'lucide-react'
 import { getAgentDisplayName } from '../lib/agents'
 import { useAgentStore } from '../stores/agentStore'
 
 interface Props {
   message: Message
   onReply?: (replyTo: ReplyTo) => void
+  onRegenerate?: (message: Message) => void
+  onTogglePin?: (message: Message) => void
 }
 
 /**
@@ -40,6 +45,12 @@ function SkillCardRenderer({ card }: { card: SkillCardData }) {
         return <FileDownloadCard filename={card.filename} size={card.size} mimeType={card.mimeType} createdAt={card.createdAt} />
       case 'image_preview':
         return <ImagePreview url={card.url} alt={card.alt} />
+      case 'confirm_action':
+        return <ConfirmActionCard runId={card.runId} taskId={card.taskId} toolCallId={card.toolCallId} title={card.title} message={card.message} riskLevel={card.riskLevel} />
+      case 'form_input':
+        return <FormInputCard runId={card.runId} taskId={card.taskId} toolCallId={card.toolCallId} title={card.title} schema={card.schema} />
+      case 'artifact_card':
+        return <ArtifactCard id={card.id} name={card.name} kind={card.kind} mimeType={card.mimeType} size={card.size} downloadPath={card.downloadPath} createdAt={card.createdAt} sourceAgent={card.sourceAgent} metadata={card.metadata} />
       case 'unknown_skill':
         return <UnknownSkillFallback toolName={card.toolName} args={card.args} />
       default:
@@ -64,7 +75,7 @@ function buildReplyTo(message: Message): ReplyTo {
   }
 }
 
-export default function MessageBubble({ message, onReply }: Props) {
+export default function MessageBubble({ message, onReply, onRegenerate, onTogglePin }: Props) {
   const isUser = message.senderType === 'user'
   const isStreaming = message.status === 'streaming'
   const [hover, setHover] = useState(false)
@@ -99,6 +110,18 @@ export default function MessageBubble({ message, onReply }: Props) {
       onReply(buildReplyTo(message))
     }
   }, [onReply, isStreaming, message])
+
+  const handleRegenerate = useCallback(() => {
+    if (onRegenerate && !isUser && !isStreaming && message.status === 'sent') {
+      onRegenerate(message)
+    }
+  }, [onRegenerate, isUser, isStreaming, message])
+
+  const handleTogglePin = useCallback(() => {
+    if (onTogglePin && !isStreaming && message.status !== 'failed') {
+      onTogglePin(message)
+    }
+  }, [onTogglePin, isStreaming, message])
 
   return (
     <div
@@ -145,6 +168,12 @@ export default function MessageBubble({ message, onReply }: Props) {
           </div>
         )}
 
+        {message.pinned && (
+          <div className="mb-1 px-2 py-0.5 rounded-full bg-yellow-50 border border-yellow-200 text-[10px] text-yellow-700 inline-flex items-center gap-1">
+            <Pin className="w-3 h-3" /> pinned
+          </div>
+        )}
+
         <div
           className={`inline-block px-4 py-2.5 rounded-2xl ${
             isUser
@@ -169,6 +198,22 @@ export default function MessageBubble({ message, onReply }: Props) {
             >
               <Reply className="w-3.5 h-3.5" />
             </button>
+            <button
+              onClick={handleTogglePin}
+              className="p-1 rounded text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 transition-colors"
+              title={message.pinned ? 'Unpin message' : 'Pin message'}
+            >
+              {message.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+            </button>
+            {!isUser && (
+              <button
+                onClick={handleRegenerate}
+                className="p-1 rounded text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                title="Regenerate"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
             <button
               onClick={handleCopy}
               className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"

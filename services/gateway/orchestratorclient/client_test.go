@@ -810,3 +810,204 @@ data: {"type":"run_finished","runId":"run_001","state":{"status":"completed"}}
 		t.Errorf("expected empty mentions, got %v", mentionsRaw)
 	}
 }
+
+func TestOrchestratorRunService_ContextMessagesForwarded(t *testing.T) {
+	var capturedBody map[string]any
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprint(w, "event: run_started\ndata: {\"type\":\"run_started\",\"runId\":\"run_001\",\"state\":{\"phase\":\"accepted\"}}\n\nevent: run_finished\ndata: {\"type\":\"run_finished\",\"runId\":\"run_001\",\"state\":{\"status\":\"completed\"}}\n\n")
+		flusher.Flush()
+	}))
+	defer mockServer.Close()
+
+	svc, err := NewOrchestratorRunService(mockServer.URL, "")
+	if err != nil {
+		t.Fatalf("NewOrchestratorRunService: %v", err)
+	}
+
+	ctx := context.Background()
+	ctx = runservice.WithContextMessages(ctx, []runservice.ContextMessage{
+		{ID: "msg-1", Role: "user", Text: "first question"},
+		{ID: "msg-2", Role: "assistant", Text: "first answer"},
+		{ID: "msg-3", Role: "user", Text: "current question"},
+	})
+	ctx = runservice.WithPinnedMessageIDs(ctx, []string{"msg-1"})
+
+	seq := svc.Run(ctx, "conv_001", &adk.Content{
+		Role: adk.RoleUser,
+		Parts: []adk.Part{
+			adk.TextPart{Text: "current question"},
+		},
+	})
+
+	var runErr error
+	seq(func(event adk.Event, err error) bool {
+		if err != nil {
+			runErr = err
+			return false
+		}
+		return true
+	})
+	if runErr != nil {
+		t.Fatalf("unexpected error: %v", runErr)
+	}
+
+	if capturedBody == nil {
+		t.Fatal("expected request body to be captured")
+	}
+
+	messagesRaw, ok := capturedBody["messages"].([]interface{})
+	if !ok {
+		t.Fatalf("expected messages to be an array, got %T", capturedBody["messages"])
+	}
+	if len(messagesRaw) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(messagesRaw))
+	}
+
+	m0, ok := messagesRaw[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected message[0] to be object, got %T", messagesRaw[0])
+	}
+	if m0["id"] != "msg-1" || m0["role"] != "user" || m0["text"] != "first question" {
+		t.Errorf("message[0] mismatch: got id=%v role=%v text=%v", m0["id"], m0["role"], m0["text"])
+	}
+
+	m2, ok := messagesRaw[2].(map[string]any)
+	if !ok {
+		t.Fatalf("expected message[2] to be object, got %T", messagesRaw[2])
+	}
+	if m2["id"] != "msg-3" || m2["role"] != "user" || m2["text"] != "current question" {
+		t.Errorf("message[2] mismatch: got id=%v role=%v text=%v", m2["id"], m2["role"], m2["text"])
+	}
+
+	pinnedRaw, ok := capturedBody["pinnedMessageIds"].([]interface{})
+	if !ok {
+		t.Fatalf("expected pinnedMessageIds to be an array, got %T", capturedBody["pinnedMessageIds"])
+	}
+	if len(pinnedRaw) != 1 || pinnedRaw[0].(string) != "msg-1" {
+		t.Errorf("expected pinnedMessageIds=[msg-1], got %v", pinnedRaw)
+	}
+}
+
+func TestOrchestratorRunService_ContextMessagesWithoutID(t *testing.T) {
+	var capturedBody map[string]any
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprint(w, "event: run_started\ndata: {\"type\":\"run_started\",\"runId\":\"run_001\"}\n\nevent: run_finished\ndata: {\"type\":\"run_finished\",\"runId\":\"run_001\"}\n\n")
+		flusher.Flush()
+	}))
+	defer mockServer.Close()
+
+	svc, err := NewOrchestratorRunService(mockServer.URL, "")
+	if err != nil {
+		t.Fatalf("NewOrchestratorRunService: %v", err)
+	}
+
+	ctx := context.Background()
+	ctx = runservice.WithContextMessages(ctx, []runservice.ContextMessage{
+		{Role: "user", Text: "hello world"},
+	})
+
+	seq := svc.Run(ctx, "conv_001", &adk.Content{
+		Role: adk.RoleUser,
+		Parts: []adk.Part{
+			adk.TextPart{Text: "hello world"},
+		},
+	})
+
+	var runErr error
+	seq(func(event adk.Event, err error) bool {
+		if err != nil {
+			runErr = err
+			return false
+		}
+		return true
+	})
+	if runErr != nil {
+		t.Fatalf("unexpected error: %v", runErr)
+	}
+
+	messagesRaw, ok := capturedBody["messages"].([]interface{})
+	if !ok || len(messagesRaw) != 1 {
+		t.Fatalf("expected 1 message, got %v", capturedBody["messages"])
+	}
+	m0, ok := messagesRaw[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected message[0] to be object")
+	}
+	if _, hasID := m0["id"]; hasID {
+		t.Errorf("expected no id field for message without ID, got id=%v", m0["id"])
+	}
+	if m0["role"] != "user" || m0["text"] != "hello world" {
+		t.Errorf("expected role=user text='hello world', got role=%v text=%v", m0["role"], m0["text"])
+	}
+}
+
+func TestOrchestratorRunService_NoContextMessagesFallsBackToSingleMessage(t *testing.T) {
+	var capturedBody map[string]any
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprint(w, "event: run_started\ndata: {\"type\":\"run_started\",\"runId\":\"run_001\"}\n\nevent: run_finished\ndata: {\"type\":\"run_finished\",\"runId\":\"run_001\"}\n\n")
+		flusher.Flush()
+	}))
+	defer mockServer.Close()
+
+	svc, err := NewOrchestratorRunService(mockServer.URL, "")
+	if err != nil {
+		t.Fatalf("NewOrchestratorRunService: %v", err)
+	}
+
+	ctx := context.Background()
+
+	seq := svc.Run(ctx, "conv_001", &adk.Content{
+		Role: adk.RoleUser,
+		Parts: []adk.Part{
+			adk.TextPart{Text: "standalone message"},
+		},
+	})
+
+	var runErr error
+	seq(func(event adk.Event, err error) bool {
+		if err != nil {
+			runErr = err
+			return false
+		}
+		return true
+	})
+	if runErr != nil {
+		t.Fatalf("unexpected error: %v", runErr)
+	}
+
+	messagesRaw, ok := capturedBody["messages"].([]interface{})
+	if !ok || len(messagesRaw) != 1 {
+		t.Fatalf("expected 1 message in fallback, got %v", capturedBody["messages"])
+	}
+	m0, ok := messagesRaw[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected message[0] to be object")
+	}
+	if m0["role"] != "user" || m0["text"] != "standalone message" {
+		t.Errorf("expected fallback to single user message, got role=%v text=%v", m0["role"], m0["text"])
+	}
+	if _, hasID := m0["id"]; hasID {
+		t.Errorf("expected no id in fallback mode, got id=%v", m0["id"])
+	}
+}

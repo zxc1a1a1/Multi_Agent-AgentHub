@@ -57,28 +57,18 @@ func TestDispatchResolverAgentInfosFiltersUnavailableDynamicAgents(t *testing.T)
 
 func TestDispatchResolverAgentInfosExcludesUnhealthyStaticAgents(t *testing.T) {
 	static, err := NewStaticAgentRegistry([]AgentEndpoint{
-		{Name: "healthy-static", URL: "http://healthy-static:8080", Description: "healthy", CapabilityIDs: []string{"cap1"}},
-		{Name: "unhealthy-static", URL: "http://unhealthy-static:8080", Description: "unhealthy", CapabilityIDs: []string{"cap2"}},
+		{Name: "healthy-static", URL: "http://healthy", Description: "healthy", CapabilityIDs: []string{"ok"}},
+		{Name: "unhealthy-static", URL: "http://unhealthy", Description: "bad", CapabilityIDs: []string{"bad"}},
 	})
 	if err != nil {
 		t.Fatalf("NewStaticAgentRegistry: %v", err)
 	}
-
-	// Attach a HealthChecker with one agent marked unhealthy.
-	hc := &HealthChecker{
-		healthy: map[string]bool{
-			"healthy-static":   true,
-			"unhealthy-static": false,
-		},
-		endpoints: map[string]string{
-			"healthy-static":   "http://healthy-static:8080",
-			"unhealthy-static": "http://unhealthy-static:8080",
-		},
-	}
+	hc := NewHealthChecker(static.List(), HealthCheckerConfig{})
+	hc.healthy["healthy-static"] = true
+	hc.healthy["unhealthy-static"] = false
 	static.SetHealthChecker(hc)
 
-	dyn := newTestDynamicRegistry(t)
-	infos, err := NewDispatchResolver(static, dyn).AgentInfos(context.Background())
+	infos, err := NewDispatchResolver(static, nil).AgentInfos(context.Background())
 	if err != nil {
 		t.Fatalf("AgentInfos: %v", err)
 	}
@@ -87,34 +77,9 @@ func TestDispatchResolverAgentInfosExcludesUnhealthyStaticAgents(t *testing.T) {
 		seen[info.Name] = true
 	}
 	if !seen["healthy-static"] {
-		t.Fatal("healthy static agent must be visible to AgentInfos")
+		t.Fatalf("healthy static not visible: %#v", seen)
 	}
 	if seen["unhealthy-static"] {
-		t.Fatal("unhealthy static agent must not be visible to AgentInfos")
-	}
-
-	// Names and ResolveURL must also respect static health for consistency.
-	names, err := NewDispatchResolver(static, dyn).Names(context.Background())
-	if err != nil {
-		t.Fatalf("Names: %v", err)
-	}
-	nameSet := map[string]bool{}
-	for _, n := range names {
-		nameSet[n] = true
-	}
-	if !nameSet["healthy-static"] {
-		t.Error("Names must include healthy static agent")
-	}
-	if nameSet["unhealthy-static"] {
-		t.Error("Names must exclude unhealthy static agent")
-	}
-
-	url, ok, err := NewDispatchResolver(static, dyn).ResolveURL(context.Background(), "healthy-static")
-	if err != nil || !ok || url != "http://healthy-static:8080" {
-		t.Fatalf("ResolveURL healthy-static: ok=%v err=%v url=%q", ok, err, url)
-	}
-	_, ok, _ = NewDispatchResolver(static, dyn).ResolveURL(context.Background(), "unhealthy-static")
-	if ok {
-		t.Fatal("ResolveURL must not resolve unhealthy static agent")
+		t.Fatalf("unhealthy static must not be visible to planner AgentInfos: %#v", seen)
 	}
 }

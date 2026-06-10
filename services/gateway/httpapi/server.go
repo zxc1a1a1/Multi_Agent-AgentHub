@@ -53,6 +53,13 @@ type AgentManagementProxy interface {
 	) (*http.Response, error)
 }
 
+// InternalOrchestratorProxy is implemented by the Orchestrator HTTP client for
+// Phase 8 endpoints such as diff dry-run/apply, regenerate, and artifact
+// metadata. Gateway remains a strict proxy and never writes workspace files.
+type InternalOrchestratorProxy interface {
+	ProxyInternal(ctx context.Context, method string, internalPath string, body io.Reader, contentType string) (*http.Response, error)
+}
+
 // AgentSummary is the frontend-facing agent list projection.
 type AgentSummary struct {
 	Name        string   `json:"name"`
@@ -194,6 +201,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/agents/", s.handleAgentsByName)
 	s.mux.HandleFunc("/api/chat", s.handleChat)
 	s.mux.HandleFunc("/api/runs/", s.handleRuns)
+	s.mux.HandleFunc("/api/diffs/dry-run", s.handleDiffDryRun)
+	s.mux.HandleFunc("/api/diffs/apply", s.handleDiffApply)
+	s.mux.HandleFunc("/api/artifacts", s.handleArtifacts)
+	s.mux.HandleFunc("/api/artifacts/", s.handleArtifactByID)
 }
 
 // handleRuns dispatches to the appropriate handler based on path suffix.
@@ -208,6 +219,16 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasSuffix(r.URL.Path, "/tool-result") {
 		s.handleRunsToolResult(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/regenerate") {
+		runID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/runs/"), "/regenerate")
+		runID = strings.Trim(runID, "/")
+		if runID == "" || strings.Contains(runID, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		s.handleRunsRegenerate(w, r, runID)
 		return
 	}
 	http.NotFound(w, r)
@@ -613,15 +634,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ConversationID     string   `json:"conversationId"`
-		Message            string   `json:"message"`
-		AgentName          string   `json:"agentName,omitempty"`
-		SelectedAgentNames []string `json:"selectedAgentNames,omitempty"`
-		Mentions           []string `json:"mentions,omitempty"`
-		PlanningMode       string   `json:"planningMode,omitempty"`
-		RequestedPath      string   `json:"requestedPath,omitempty"`
-		ReplyTo            *ReplyTo `json:"replyTo,omitempty"`
-		Quote              *Quote   `json:"quote,omitempty"`
+		ConversationID     string                    `json:"conversationId"`
+		Message            string                    `json:"message"`
+		AgentName          string                    `json:"agentName,omitempty"`
+		SelectedAgentNames []string                  `json:"selectedAgentNames,omitempty"`
+		Mentions           []string                  `json:"mentions,omitempty"`
+		PlanningMode       string                    `json:"planningMode,omitempty"`
+		RequestedPath      string                    `json:"requestedPath,omitempty"`
+		ReplyTo            *ReplyTo                  `json:"replyTo,omitempty"`
+		Quote              *Quote                    `json:"quote,omitempty"`
+		PinnedMessageIDs   []string                  `json:"pinnedMessageIds,omitempty"`
+		ContextMessages    []runservice.ContextMessage `json:"contextMessages,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid request body")
@@ -679,6 +702,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	ctx = runservice.WithRequestedPath(ctx, req.RequestedPath)
 	ctx = runservice.WithSelectedAgentNames(ctx, req.SelectedAgentNames)
 	ctx = runservice.WithMentions(ctx, req.Mentions)
+	ctx = runservice.WithPinnedMessageIDs(ctx, req.PinnedMessageIDs)
+	if len(req.ContextMessages) > 0 {
+		ctx = runservice.WithContextMessages(ctx, req.ContextMessages)
+	}
 	if req.ReplyTo != nil {
 		ctx = runservice.WithReplyTo(ctx, map[string]any{
 			"id":             req.ReplyTo.ID,

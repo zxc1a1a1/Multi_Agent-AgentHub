@@ -15,6 +15,7 @@ interface SendMessageOptions {
   selectedAgentNames?: string[]
   replyTo?: import('../types').ReplyTo
   quote?: import('../types').Quote
+  contextMessages?: Array<{ id?: string; role: string; text: string }>
 }
 
 export interface PendingConfirmation {
@@ -45,9 +46,12 @@ interface MessageState {
   abortControllersByConversation: Record<string, AbortController | null>
   orchestrationByConversation: Record<string, OrchestrationInfo>
   confirmationByConversation: Record<string, PendingConfirmation | null>
+  pinnedMessageIdsByConversation: Record<string, string[]>
 
   loadMessages: (conversationId: string) => Promise<void>
   sendMessage: (conversationId: string, content: string, options?: SendMessageOptions) => void
+  togglePinMessage: (conversationId: string, messageId: string) => void
+  regenerateMessage: (conversationId: string, messageId: string) => Promise<void>
   isStreaming: (conversationId: string) => boolean
   stopStreaming: (conversationId: string) => void
   getConfirmation: (conversationId: string) => PendingConfirmation | null
@@ -79,6 +83,7 @@ interface StoredMessage {
 type ParsedArtifacts = {
   codeBlocks?: CodeBlock[]
   webPreviews?: WebPreviewBlock[]
+  skillCards?: SkillCardData[]
 }
 
 function setConversationStreaming(
@@ -281,6 +286,7 @@ function parseArtifacts(artifactsStr: string): ParsedArtifacts {
 
   const codeBlocks: CodeBlock[] = []
   const webPreviews: WebPreviewBlock[] = []
+  const skillCards: SkillCardData[] = []
 
   for (const item of decoded) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
@@ -315,12 +321,25 @@ function parseArtifacts(artifactsStr: string): ParsedArtifacts {
         html: content,
         title: title || 'web-preview.html',
       })
+      continue
     }
+
+    skillCards.push({
+      type: 'artifact_card',
+      id: typeof metadata.id === 'string' ? metadata.id : undefined,
+      name: title || undefined,
+      kind: type || undefined,
+      mimeType: typeof metadata.mimeType === 'string' ? metadata.mimeType : undefined,
+      size: typeof metadata.size === 'number' || typeof metadata.size === 'string' ? metadata.size : undefined,
+      downloadPath: typeof metadata.downloadPath === 'string' ? metadata.downloadPath : undefined,
+      metadata,
+    })
   }
 
   return {
     codeBlocks: codeBlocks.length > 0 ? codeBlocks : undefined,
     webPreviews: webPreviews.length > 0 ? webPreviews : undefined,
+    skillCards: skillCards.length > 0 ? skillCards : undefined,
   }
 }
 
@@ -330,6 +349,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   abortControllersByConversation: {},
   orchestrationByConversation: {},
   confirmationByConversation: {},
+  pinnedMessageIdsByConversation: {},
 
   loadMessages: async (conversationId: string) => {
     try {
@@ -367,6 +387,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                 : ('sent' as const),
           codeBlocks: parsedArtifacts.codeBlocks,
           webPreviews: parsedArtifacts.webPreviews,
+          skillCards: parsedArtifacts.skillCards,
+          pinned: get().pinnedMessageIdsByConversation[conversationId]?.includes(raw.id) || false,
           runId: raw.runId,
           stepId: raw.stepId,
           sseMessageId: raw.sseMessageId,
@@ -381,6 +403,89 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     } catch {
       // ignore load errors silently
     }
+  },
+
+  togglePinMessage: (conversationId: string, messageId: string) => {
+    set((s) => {
+      const current = s.pinnedMessageIdsByConversation[conversationId] || []
+      const pinned = current.includes(messageId)
+      const next = pinned ? current.filter((id) => id !== messageId) : [...current, messageId]
+      return {
+        pinnedMessageIdsByConversation: {
+          ...s.pinnedMessageIdsByConversation,
+          [conversationId]: next,
+        },
+        messages: {
+          ...s.messages,
+          [conversationId]: (s.messages[conversationId] || []).map((m) =>
+            m.id === messageId ? { ...m, pinned: !pinned } : m,
+          ),
+        },
+      }
+    })
+  },
+
+  regenerateMessage: async (conversationId: string, messageId: string) => {
+    const messages = get().messages[conversationId] || []
+    const message = messages.find((m) => m.id === messageId)
+    if (!message || message.senderType !== 'agent') {
+      throw new Error('Only agent messages can be regenerated')
+    }
+
+    // Build context snapshot from all messages: {id, role, text}.
+    const context = messages.map((m) => ({
+      id: m.id,
+      role: m.senderType === 'user' ? 'user' : 'assistant',
+      text: m.content,
+    }))
+
+    let regenResp: api.RegenerateResponse
+    try {
+      regenResp = await api.regenerateMessage({
+        runId: message.runId,
+        conversationId,
+        messageId,
+        pinnedMessageIds: get().pinnedMessageIdsByConversation[conversationId] || [],
+        context,
+      })
+    } catch (err: any) {
+      if (err.message === 'MESSAGE_NOT_FOUND') {
+        throw new Error('Cannot regenerate: message not found in conversation context')
+      }
+      if (err.message === 'INVALID_TARGET_ROLE') {
+        throw new Error('Only assistant messages can be regenerated')
+      }
+      throw err
+    }
+
+    if (regenResp.status !== 'ready') {
+      throw new Error(`Regenerate returned unexpected status: ${regenResp.status}`)
+    }
+
+    // Use backend-truncated context to find the nearest user message before target.
+    if (!regenResp.context || regenResp.context.length === 0) {
+      throw new Error('Cannot regenerate: backend returned empty context')
+    }
+    const sourceUser = [...regenResp.context].reverse().find((m) => m.role === 'user')
+    if (!sourceUser) {
+      throw new Error('Cannot regenerate: no user message found in truncated context')
+    }
+    const marker: Message = {
+      id: `regen-${Date.now()}`,
+      conversationId,
+      senderType: 'agent',
+      senderName: message.senderName,
+      agentName: message.agentName,
+      content: `Regenerating response for ${message.id}...`,
+      status: 'sent',
+      versionOf: message.id,
+      createdAt: new Date().toISOString(),
+    }
+    set((s) => ({ messages: { ...s.messages, [conversationId]: [...(s.messages[conversationId] || []), marker] } }))
+    get().sendMessage(conversationId, sourceUser.text, {
+      agentName: normalizeAgentName(message.agentName || DEFAULT_AGENT_NAME),
+      contextMessages: regenResp.context,
+    })
   },
 
   sendMessage: (conversationId: string, content: string, options?: SendMessageOptions) => {
@@ -415,6 +520,15 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       persistTitle(conversationId, title)
     }
 
+    // Build context snapshot for pinned message resolution: {id, role, text}.
+    // When options.contextMessages is provided (e.g. from regenerate), use the
+    // backend-truncated context instead of the full conversation.
+    const contextMessages = options?.contextMessages ?? currentMessages.map((m) => ({
+      id: m.id,
+      role: m.senderType === 'user' ? 'user' : 'assistant',
+      text: m.content,
+    }))
+
     const request: AGUIChatRequest = {
       conversationId,
       message: content,
@@ -422,6 +536,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       mentions: options?.mentions || [],
       replyTo: options?.replyTo,
       quote: options?.quote,
+      pinnedMessageIds: get().pinnedMessageIdsByConversation[conversationId] || [],
+      contextMessages,
     }
     // Only pass agentName for concrete agents; "auto" lets orchestrator decide.
     if (options?.agentName && options.agentName !== 'auto') {
@@ -718,6 +834,53 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         return
       }
 
+      if (toolName === 'confirm_action') {
+        skillCards.push({
+          type: 'confirm_action',
+          runId: getStringField(args, 'runId') || undefined,
+          taskId: getStringField(args, 'taskId') || undefined,
+          toolCallId: getStringField(args, 'toolCallId') || getStringField(args, 'id') || undefined,
+          title: getStringField(args, 'title') || undefined,
+          message: getStringField(args, 'message') || getStringField(args, 'description') || undefined,
+          riskLevel: (getStringField(args, 'riskLevel') as 'low' | 'medium' | 'high') || 'medium',
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'form_input') {
+        const schema = args.schema && typeof args.schema === 'object' && !Array.isArray(args.schema)
+          ? args.schema as Record<string, unknown>
+          : undefined
+        skillCards.push({
+          type: 'form_input',
+          runId: getStringField(args, 'runId') || undefined,
+          taskId: getStringField(args, 'taskId') || undefined,
+          toolCallId: getStringField(args, 'toolCallId') || getStringField(args, 'id') || undefined,
+          title: getStringField(args, 'title') || undefined,
+          schema,
+        })
+        syncPreviewBlocks()
+        return
+      }
+      if (toolName === 'artifact_metadata' || toolName === 'artifact_card') {
+        skillCards.push({
+          type: 'artifact_card',
+          id: getStringField(args, 'id') || undefined,
+          runId: getStringField(args, 'runId') || undefined,
+          taskId: getStringField(args, 'taskId') || undefined,
+          messageId: getStringField(args, 'messageId') || undefined,
+          name: getStringField(args, 'name') || getStringField(args, 'filename') || undefined,
+          kind: getStringField(args, 'kind') || undefined,
+          mimeType: getStringField(args, 'mimeType') || undefined,
+          size: typeof args.size === 'number' || typeof args.size === 'string' ? args.size : undefined,
+          downloadPath: getStringField(args, 'downloadPath') || undefined,
+          createdAt: getStringField(args, 'createdAt') || undefined,
+          metadata: args.metadata && typeof args.metadata === 'object' && !Array.isArray(args.metadata) ? args.metadata as Record<string, unknown> : undefined,
+        })
+        syncPreviewBlocks()
+        return
+      }
+
       // confirm_plan: legacy TOOL_CALL path for plan confirmation
       // (ACTIVITY_SNAPSHOT with activityType=plan_approval is the primary path)
       if (toolName === 'confirm_plan') {
@@ -871,7 +1034,24 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           agentName: supportedAgentName,
         })
         syncPreviewBlocks()
+        return
       }
+
+      skillCards.push({
+        type: 'artifact_card',
+        id: pickText(event.artifact.metadata?.id) || undefined,
+        runId: event.runId,
+        taskId: event.taskId,
+        messageId: event.messageId,
+        name: title || undefined,
+        kind: type || undefined,
+        mimeType: pickText(event.artifact.metadata?.mimeType) || undefined,
+        size: pickText(event.artifact.metadata?.size) || undefined,
+        downloadPath: pickText(event.artifact.metadata?.downloadPath) || undefined,
+        sourceAgent: pickText(event.artifact.metadata?.sourceAgent) || undefined,
+        metadata: event.artifact.metadata,
+      })
+      syncPreviewBlocks()
     }
 
     const finishStreamingMessage = () => {

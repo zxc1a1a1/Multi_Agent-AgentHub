@@ -26,6 +26,8 @@ export default function ChatWindow({ conversationId }: Props) {
   const confirmPlan = useMessageStore((s) => s.confirmPlan)
   const clearConfirmation = useMessageStore((s) => s.clearConfirmation)
   const loadMessages = useMessageStore((s) => s.loadMessages)
+  const togglePinMessage = useMessageStore((s) => s.togglePinMessage)
+  const regenerateMessage = useMessageStore((s) => s.regenerateMessage)
   const conversationAgentName = useConversationStore((s) => {
     const conversation = s.conversations.find((item) => item.id === conversationId)
     return conversation?.agentName
@@ -65,6 +67,7 @@ export default function ChatWindow({ conversationId }: Props) {
   )
 
   const isGroupChat = selectedAgentNames.length > 1
+  const pinnedMessages = useMemo(() => messages.filter((m) => m.pinned), [messages])
 
   // Load messages when conversation changes.
   useEffect(() => {
@@ -114,6 +117,14 @@ export default function ChatWindow({ conversationId }: Props) {
     setReplyTo(undefined)
     setQuote(undefined)
   }
+
+  const handleTogglePin = useCallback((message: import('../types').Message) => {
+    togglePinMessage(conversationId, message.id)
+  }, [conversationId, togglePinMessage])
+
+  const handleRegenerate = useCallback((message: import('../types').Message) => {
+    regenerateMessage(conversationId, message.id).catch(() => {})
+  }, [conversationId, regenerateMessage])
 
   const handleReply = useCallback((rt: ReplyTo) => {
     setReplyTo(rt)
@@ -262,6 +273,20 @@ export default function ChatWindow({ conversationId }: Props) {
         </div>
       )}
 
+      {pinnedMessages.length > 0 && (
+        <div className="px-4 py-2 border-b border-yellow-200 bg-yellow-50/60">
+          <div className="max-w-3xl mx-auto text-xs text-yellow-800">
+            <span className="font-semibold">Pinned context:</span>{' '}
+            {pinnedMessages.slice(0, 3).map((msg) => (
+              <span key={msg.id} className="inline-block ml-2 px-2 py-0.5 rounded bg-white border border-yellow-200 max-w-[14rem] truncate align-bottom">
+                {msg.content.slice(0, 80)}
+              </span>
+            ))}
+            {pinnedMessages.length > 3 && <span className="ml-2">+{pinnedMessages.length - 3} more</span>}
+          </div>
+        </div>
+      )}
+
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto space-y-6">
@@ -276,7 +301,13 @@ export default function ChatWindow({ conversationId }: Props) {
             <OrchestrationCard info={orchestration} />
           )}
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} onReply={handleReply} />
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              onReply={handleReply}
+              onTogglePin={handleTogglePin}
+              onRegenerate={handleRegenerate}
+            />
           ))}
           {/* Only show skeleton when streaming has started but no agent message bubble exists yet. */}
           {streaming && !messages.some((msg) => msg.status === 'streaming') && (

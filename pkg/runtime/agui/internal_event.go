@@ -19,6 +19,9 @@ type InternalStreamEvent struct {
 	// Content
 	Delta string `json:"delta,omitempty"`
 
+	// Artifact metadata (Phase 8: artifact.delta events)
+	Artifact *Artifact `json:"artifact,omitempty"`
+
 	// State
 	State      map[string]any `json:"state,omitempty"`
 	StateDelta map[string]any `json:"stateDelta,omitempty"`

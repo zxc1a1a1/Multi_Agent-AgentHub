@@ -2,12 +2,20 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 )
 
 func testPlanSingle() *plan.OrchestrationPlan {
@@ -471,4 +479,294 @@ func TestPrePlannerValidationAgentSelectionConflict(t *testing.T) {
 	// the handler returns — no PlannerInput, no Planner.Plan(), no plan, no
 	// agent dispatch. This test proves the validation catches the conflict
 	// before any orchestration work begins.
+}
+
+// ---------------------------------------------------------------------------
+// Pin context tests (Phase 8 — pinned messages reach downstream)
+// ---------------------------------------------------------------------------
+
+func TestSafeRoleLabelEmpty(t *testing.T) {
+	if got := safeRoleLabel(""); got != "Unknown" {
+		t.Errorf("empty role: expected Unknown, got %q", got)
+	}
+}
+
+func TestSafeRoleLabelNormal(t *testing.T) {
+	if got := safeRoleLabel("user"); got != "User" {
+		t.Errorf("user role: expected User, got %q", got)
+	}
+	if got := safeRoleLabel("assistant"); got != "Assistant" {
+		t.Errorf("assistant role: expected Assistant, got %q", got)
+	}
+}
+
+func TestSafeRoleLabelSingleChar(t *testing.T) {
+	if got := safeRoleLabel("u"); got != "U" {
+		t.Errorf("single char: expected U, got %q", got)
+	}
+}
+
+func TestSafeRoleLabelWhitespace(t *testing.T) {
+	if got := safeRoleLabel("  "); got != "Unknown" {
+		t.Errorf("whitespace: expected Unknown, got %q", got)
+	}
+}
+
+func TestBuildPinnedUserText_EmptyRoleDoesNotPanic(t *testing.T) {
+	messages := []MessageInput{
+		{ID: "m1", Role: "", Text: "message with empty role"},
+		{ID: "m2", Role: "user", Text: "hello"},
+	}
+	pinnedIDs := []string{"m1"}
+	// Must not panic — safeRoleLabel handles empty role.
+	result := buildPinnedUserText(messages, pinnedIDs, "current message")
+	if !strings.Contains(result, "Unknown:") {
+		t.Errorf("expected 'Unknown:' label for empty role, got: %q", result)
+	}
+}
+
+func TestBuildPinnedUserText_PinnedOutsideWindowRetained(t *testing.T) {
+	// Build 30 messages so head=20 tail=4 window doesn't include msgs 5-10.
+	// Pin msg at index 5 — it must appear in output despite being outside window.
+	messages := make([]MessageInput, 30)
+	for i := range messages {
+		messages[i] = MessageInput{
+			ID:   "msg-" + string(rune('0'+i%10)) + string(rune('0'+i/10)),
+			Role: "user",
+			Text: "message " + string(rune('0'+i)),
+		}
+	}
+	// Insert a clearly identifiable pinned message in the middle.
+	messages[5] = MessageInput{ID: "pinned-1", Role: "user", Text: "PINNED OLD MESSAGE"}
+	messages[15] = MessageInput{ID: "unpinned-middle", Role: "assistant", Text: "UNPINNED MIDDLE"}
+
+	pinnedIDs := []string{"pinned-1"}
+	result := buildPinnedUserText(messages, pinnedIDs, "current user message")
+	if !strings.Contains(result, "PINNED OLD MESSAGE") {
+		t.Errorf("pinned old message must appear in output, got: %q", result)
+	}
+}
+
+func TestBuildPinnedUserText_UnpinnedOutsideWindowPruned(t *testing.T) {
+	// Build 30 messages. head=20, tail=4 means indices 0-19 (head) and 26-29
+	// (tail) are kept. An unpinned message at index 22 falls between windows
+	// and must be pruned.
+	messages := make([]MessageInput, 30)
+	for i := range messages {
+		messages[i] = MessageInput{
+			ID:   fmt.Sprintf("msg-%02d", i),
+			Role: "user",
+			Text: fmt.Sprintf("message %d", i),
+		}
+	}
+	messages[22] = MessageInput{ID: "unpinned-middle", Role: "assistant", Text: "UNPINNED MIDDLE"}
+
+	result := buildPinnedUserText(messages, nil, "current user message")
+	if strings.Contains(result, "UNPINNED MIDDLE") {
+		t.Errorf("unpinned old message outside window must be pruned, but appears in: %q", result)
+	}
+}
+
+func TestBuildPinnedUserText_UnknownPinnedIDIgnored(t *testing.T) {
+	messages := []MessageInput{
+		{ID: "m1", Role: "user", Text: "hello"},
+		{ID: "m2", Role: "assistant", Text: "world"},
+	}
+	pinnedIDs := []string{"nonexistent-1", "nonexistent-2"}
+	result := buildPinnedUserText(messages, pinnedIDs, "current message")
+	// Unknown IDs are silently ignored — output should still have [Pinned conversation context].
+	if !strings.Contains(result, "[Pinned conversation context]") {
+		t.Errorf("expected pinned context block even with unknown IDs, got: %q", result)
+	}
+}
+
+func TestBuildPinnedUserText_NoMessages(t *testing.T) {
+	result := buildPinnedUserText(nil, []string{"id1"}, "current message")
+	if result != "current message" {
+		t.Errorf("no messages should return current user text unchanged, got: %q", result)
+	}
+}
+
+func TestBuildPinnedUserText_DeduplicatesCurrentMessage(t *testing.T) {
+	// When the last message in filtered window has the same text as the current
+	// user message, [Current user message] block must not be added.
+	messages := []MessageInput{
+		{ID: "m1", Role: "user", Text: "hello"},
+		{ID: "m2", Role: "assistant", Text: "hi there"},
+	}
+	result := buildPinnedUserText(messages, nil, "hi there")
+	if strings.Contains(result, "[Current user message]") {
+		t.Errorf("duplicate current message must not add [Current user message] block, got: %q", result)
+	}
+	if !strings.Contains(result, "hi there") {
+		t.Errorf("output must contain the message text, got: %q", result)
+	}
+}
+
+func TestBuildPinnedUserText_FormatIsStable(t *testing.T) {
+	messages := []MessageInput{
+		{ID: "m1", Role: "user", Text: "first question"},
+	}
+	result := buildPinnedUserText(messages, []string{"m1"}, "second question")
+	if !strings.Contains(result, "[Pinned conversation context]") {
+		t.Errorf("must have [Pinned conversation context] block")
+	}
+	if !strings.Contains(result, "[/Pinned conversation context]") {
+		t.Errorf("must have [/Pinned conversation context] closing tag")
+	}
+	if !strings.Contains(result, "[Current user message]") {
+		t.Errorf("must have [Current user message] block for new message")
+	}
+	if !strings.Contains(result, "second question") {
+		t.Errorf("must contain current user text")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Artifact SSE E2E test
+// ---------------------------------------------------------------------------
+
+// mockA2AArtifactServer returns an httptest server that produces a buffered
+// JSON A2A RunResponse containing an artifact_metadata tool_result part.
+func mockA2AArtifactServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		artifactMeta := map[string]any{
+			"id":       "art-001",
+			"name":     "report.md",
+			"kind":     "text",
+			"mimeType": "text/markdown",
+			"size":     1024,
+		}
+		artifactJSON, _ := json.Marshal(artifactMeta)
+		resp := map[string]any{
+			"taskId": "task-art-001",
+			"status": "completed",
+			"events": []map[string]any{
+				{
+					"author":  "code-agent",
+					"role":    "assistant",
+					"final":   true,
+					"partial": false,
+					"parts": []map[string]any{
+						{"type": "text", "text": "I created a report for you."},
+						{
+							"type":    "tool_result",
+							"name":    "artifact_metadata",
+							"content": string(artifactJSON),
+							"callId":  "call-art-1",
+						},
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestRunStreamEmitsArtifactDeltaSSE(t *testing.T) {
+	os.Setenv("REQUIRE_PLAN_CONFIRMATION", "")
+	defer os.Unsetenv("REQUIRE_PLAN_CONFIRMATION")
+
+	mockAgent := mockA2AArtifactServer(t)
+
+	reg, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{
+		{Name: "code-agent", URL: mockAgent.URL, Description: "code agent", CapabilityIDs: []string{"code_generation"}, OutputModes: []string{"text"}},
+	})
+	if err != nil {
+		t.Fatalf("create registry: %v", err)
+	}
+
+	artStore, err := artifacts.NewJSONStore(filepath.Join(t.TempDir(), "artifacts.json"))
+	if err != nil {
+		t.Fatalf("create artifact store: %v", err)
+	}
+
+	fake := &FakeMainAgent{
+		PlanToReturn: makeTestPlan("run-art-test", plan.StrategySingle, []plan.TaskPlan{
+			makeTaskPlan("task-1", "code-agent", "write code"),
+		}),
+	}
+	fake.PlanToReturn.ExecutionPath = "single_chat"
+	fake.PlanToReturn.Participants = []plan.PlanParticipant{
+		{AgentName: "code-agent", Required: true, Selected: true},
+	}
+
+	srv := NewServer(
+		WithRegistry(reg),
+		WithDispatcher(dispatcher.NewA2ADispatcher()),
+		WithMainAgentPlanner(fake),
+		WithArtifactStore(artStore),
+	)
+	orchTS := httptest.NewServer(srv.Handler())
+	defer orchTS.Close()
+
+	body := fmt.Sprintf(`{"runId":"run-art-test","conversationId":"conv-art","messages":[{"role":"user","text":"write code"}],"selectedAgentNames":["code-agent"]}`)
+	resp, err := http.Post(orchTS.URL+"/internal/orchestrator/runs/stream", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+
+	events := readSSEBody(t, resp.Body)
+
+	if _, ok := findEvent(events, "run_started"); !ok {
+		t.Error("expected run_started event")
+	}
+	if _, ok := findEvent(events, "run_finished"); !ok {
+		t.Error("expected run_finished event")
+	}
+
+	var artifactEvents []sseEvent
+	for _, ev := range events {
+		if ev.eventType == "artifact.delta" {
+			artifactEvents = append(artifactEvents, ev)
+		}
+	}
+	if len(artifactEvents) == 0 {
+		t.Fatal("expected at least one artifact.delta SSE event")
+	}
+
+	for _, ae := range artifactEvents {
+		var parsed struct {
+			Type     string `json:"type"`
+			Artifact *struct {
+				Type     string            `json:"type"`
+				Title    string            `json:"title"`
+				Metadata map[string]string `json:"metadata"`
+			} `json:"artifact"`
+		}
+		if err := json.Unmarshal([]byte(ae.data), &parsed); err != nil {
+			t.Errorf("failed to parse artifact event data: %v", err)
+			continue
+		}
+		if parsed.Artifact == nil {
+			t.Error("artifact.delta event missing 'artifact' field")
+			continue
+		}
+		if parsed.Artifact.Type != "text" {
+			t.Errorf("expected artifact type=text, got %q", parsed.Artifact.Type)
+		}
+		if parsed.Artifact.Title != "report.md" {
+			t.Errorf("expected artifact title=report.md, got %q", parsed.Artifact.Title)
+		}
+		if parsed.Artifact.Metadata["id"] != "art-001" {
+			t.Errorf("expected artifact metadata id=art-001, got %q", parsed.Artifact.Metadata["id"])
+		}
+		if parsed.Artifact.Metadata["mimeType"] != "text/markdown" {
+			t.Errorf("expected artifact metadata mimeType=text/markdown, got %q", parsed.Artifact.Metadata["mimeType"])
+		}
+		if parsed.Artifact.Metadata["size"] != "1024" {
+			t.Errorf("expected artifact metadata size=1024, got %q", parsed.Artifact.Metadata["size"])
+		}
+		if parsed.Artifact.Metadata["sourceAgent"] != "code-agent" {
+			t.Errorf("expected artifact metadata sourceAgent=code-agent, got %q", parsed.Artifact.Metadata["sourceAgent"])
+		}
+	}
 }

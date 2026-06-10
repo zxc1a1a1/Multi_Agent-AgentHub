@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/pruning"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/executor"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
@@ -36,9 +38,11 @@ type OrchestratorRequest struct {
 	TraceID            string         `json:"traceId"`
 	RequestID          string         `json:"requestId"`
 	DeadlineMs         int64          `json:"deadlineMs"`
+	PinnedMessageIDs   []string       `json:"pinnedMessageIds,omitempty"`
 }
 
 type MessageInput struct {
+	ID   string `json:"id,omitempty"`
 	Role string `json:"role"`
 	Text string `json:"text"`
 }
@@ -81,6 +85,13 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	if userText == "" {
 		s.writeSSEError(w, runID, "ORCHESTRATOR_BAD_REQUEST", "Message content is required")
 		return
+	}
+
+	// Apply pinned-message context: map pinnedMessageIds to messages, retain
+	// pinned messages alongside the head+tail window, and enrich the user text
+	// so the pinned conversation context reaches downstream agents.
+	if len(req.PinnedMessageIDs) > 0 {
+		userText = buildPinnedUserText(req.Messages, req.PinnedMessageIDs, userText)
 	}
 
 	// Set up SSE streaming immediately so that RUN_STARTED is always the first
@@ -170,6 +181,9 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		TraceID:            req.TraceID,
 		AvailableAgents:    availableAgentNames,
 	}
+	if len(req.PinnedMessageIDs) > 0 {
+		log.Printf("orchestrator: run=%s applying %d pinnedMessageIds to context", runID, len(req.PinnedMessageIDs))
+	}
 
 	// Ensure mainAgentPlanner has a production default.
 	if s.mainAgentPlanner == nil {
@@ -177,15 +191,15 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	orchPlan, planErr := s.mainAgentPlanner.Plan(r.Context(), plannerInput)
+	if orchPlan != nil {
+		// The external request runID is the authoritative key for cancel/tool-result registries.
+		orchPlan.RunID = runID
+	}
 	if planErr != nil || orchPlan == nil {
 		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED",
 			"MainAgent failed to generate plan")
 		return
 	}
-
-	// Normalize: the request runID is authoritative. Ensures RunTaskRegistry
-	// operations (RegisterRun, RegisterTask, GetTasks, CancelRun) use the same key.
-	orchPlan.RunID = runID
 
 	if orchPlan.Strategy == plan.StrategySingle && len(orchPlan.Tasks) == 0 {
 		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED", "Orchestration plan has no tasks")
@@ -735,6 +749,24 @@ func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http
 			}
 			return true
 		}
+		// Record artifact metadata when an agent produces artifact output.
+		if evt.ArtifactMeta != nil && evt.Type == "artifact.delta" {
+			store := s.ensureArtifactStore()
+			_ = store.Create(r.Context(), artifacts.ArtifactRecord{
+				ID:           evt.ArtifactMeta.ID,
+				RunID:        orchPlan.RunID,
+				TaskID:       evt.TaskID,
+				MessageID:    evt.MessageID,
+				Name:         evt.ArtifactMeta.Name,
+				Kind:         evt.ArtifactMeta.Kind,
+				MimeType:     evt.ArtifactMeta.MimeType,
+				Size:         evt.ArtifactMeta.Size,
+				DownloadPath: evt.ArtifactMeta.Name,
+				Metadata: map[string]any{
+					"sourceAgent": evt.ArtifactMeta.SourceAgent,
+				},
+			})
+		}
 		if evt.Type == agui.InternalTypeRunError && s.runTaskRegistry != nil && s.runTaskRegistry.IsCancelled(orchPlan.RunID) {
 			emitCancelled()
 			return false
@@ -763,6 +795,18 @@ func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http
 		}
 		if evt.Error != nil {
 			sse.Error = &agui.SafeError{Code: evt.Error.Code, Message: evt.Error.Message}
+		}
+		if evt.ArtifactMeta != nil {
+			sse.Artifact = &agui.Artifact{
+				Type:  evt.ArtifactMeta.Kind,
+				Title: evt.ArtifactMeta.Name,
+				Metadata: map[string]string{
+					"id":          evt.ArtifactMeta.ID,
+					"mimeType":    evt.ArtifactMeta.MimeType,
+					"size":        fmt.Sprintf("%d", evt.ArtifactMeta.Size),
+					"sourceAgent": evt.ArtifactMeta.SourceAgent,
+				},
+			}
 		}
 		s.emitEvent(w, flusher, sse)
 		return true
@@ -897,6 +941,70 @@ func extractUserText(messages []MessageInput) string {
 		}
 	}
 	return strings.Join(texts, "\n")
+}
+
+// safeRoleLabel returns a capitalized role label safe for display.
+// Empty or unknown roles default to "Unknown".
+func safeRoleLabel(role string) string {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return "Unknown"
+	}
+	if len(role) < 2 {
+		return strings.ToUpper(role)
+	}
+	return strings.ToUpper(role[:1]) + role[1:]
+}
+
+// buildPinnedUserText enriches the user text with pinned conversation context
+// so that pinned messages reach downstream agents via TaskContent → DispatchInput.
+// It maps pinnedMessageIds to messages, retains a head+tail window plus pinned
+// overrides, and returns the enriched text. Unknown pinned IDs are logged as
+// warnings and silently ignored.
+//
+// The current user message is deduplicated: if it already appears as the last
+// message in the pinned context, it is not repeated in [Current request].
+func buildPinnedUserText(messages []MessageInput, pinnedIDs []string, currentUserText string) string {
+	const head, tail = 20, 4
+
+	msgWithIDs := make([]pruning.MessageWithID, len(messages))
+	for i, m := range messages {
+		msgWithIDs[i] = pruning.MessageWithID{ID: m.ID, Role: m.Role, Text: m.Text}
+	}
+
+	filtered, missing := pruning.PreparePinnedMessages(msgWithIDs, pinnedIDs, head, tail)
+	for _, id := range missing {
+		log.Printf("orchestrator: pinnedMessageId=%q not found in request messages, ignoring", id)
+	}
+
+	if len(filtered) == 0 {
+		return currentUserText
+	}
+
+	// Deduplicate: if the last filtered message has the same text as the
+	// current user message, skip the [Current request] preamble to avoid
+	// double-injection.
+	lastText := strings.TrimSpace(filtered[len(filtered)-1].Text)
+	currentText := strings.TrimSpace(currentUserText)
+
+	var sb strings.Builder
+	sb.WriteString("[Pinned conversation context]\n")
+	for _, m := range filtered {
+		sb.WriteString(safeRoleLabel(m.Role))
+		sb.WriteString(": ")
+		sb.WriteString(m.Text)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("[/Pinned conversation context]\n")
+
+	if lastText == currentText {
+		// Current message is already in the pinned context; don't repeat it.
+		return sb.String()
+	}
+
+	sb.WriteString("\n[Current user message]\n")
+	sb.WriteString(currentUserText)
+	return sb.String()
 }
 
 func writeErrorEvent(w http.ResponseWriter, runID string, code, message string) {

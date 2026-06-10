@@ -389,3 +389,112 @@ export async function checkAgent(name: string): Promise<AgentManagement> {
   if (!agent) throw new Error('Invalid agent response')
   return agent
 }
+
+// ---------------------------------------------------------------------------
+// Phase 8 IM / Diff / Artifact API
+// ---------------------------------------------------------------------------
+
+export interface RegenerateRequest {
+  runId?: string
+  conversationId: string
+  messageId: string
+  pinnedMessageIds?: string[]
+  context?: Array<{ id?: string; role: string; text: string }>
+}
+
+export interface RegenerateResponse {
+  messageId: string
+  status: string
+  preserveOriginal: boolean
+  pinnedMessageIds?: string[]
+  context?: Array<{ id?: string; role: string; text: string }>
+}
+
+export async function regenerateMessage(request: RegenerateRequest): Promise<RegenerateResponse> {
+  const runId = request.runId || `regen-${request.messageId}`
+  const res = await fetch(`${API_BASE}/runs/${encodeURIComponent(runId)}/regenerate`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ ...request, runId }),
+  })
+  if (!res.ok) {
+    let code = ''
+    try {
+      const err = await res.json()
+      code = (err as any).code || ''
+    } catch { /* ignore parse errors */ }
+    if (res.status === 404 && code === 'MESSAGE_NOT_FOUND') {
+      throw new Error('MESSAGE_NOT_FOUND')
+    }
+    if (code === 'INVALID_TARGET_ROLE') {
+      throw new Error('INVALID_TARGET_ROLE')
+    }
+    throw new Error(`Failed to regenerate message: HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+export interface DiffRequest {
+  workspaceRoot?: string
+  path: string
+  diffText: string
+  dryRunId?: string
+  confirmed?: boolean
+}
+
+export interface DiffResult {
+  dryRunId?: string
+  status: string
+  files: string[]
+  warnings?: string[]
+  message?: string
+}
+
+export async function dryRunDiff(request: DiffRequest): Promise<DiffResult> {
+  const res = await fetch(`${API_BASE}/diffs/dry-run`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(request),
+  })
+  if (!res.ok) throw new Error(`Diff dry-run failed: HTTP ${res.status}`)
+  return res.json()
+}
+
+export async function applyDiff(request: DiffRequest): Promise<DiffResult> {
+  const res = await fetch(`${API_BASE}/diffs/apply`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ ...request, confirmed: request.confirmed ?? true }),
+  })
+  if (!res.ok) throw new Error(`Diff apply failed: HTTP ${res.status}`)
+  return res.json()
+}
+
+export interface ArtifactRecord {
+  id: string
+  runId?: string
+  taskId?: string
+  messageId?: string
+  name?: string
+  kind?: string
+  mimeType?: string
+  size?: number
+  storagePath?: string
+  downloadPath?: string
+  createdAt?: string
+  metadata?: Record<string, unknown>
+}
+
+export async function listArtifacts(runId?: string): Promise<ArtifactRecord[]> {
+  const query = runId ? `?runId=${encodeURIComponent(runId)}` : ''
+  const res = await fetch(`${API_BASE}/artifacts${query}`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Failed to list artifacts: HTTP ${res.status}`)
+  const payload = await res.json()
+  return extractArray(payload) as ArtifactRecord[]
+}
+
+export async function getArtifact(id: string): Promise<ArtifactRecord> {
+  const res = await fetch(`${API_BASE}/artifacts/${encodeURIComponent(id)}`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Failed to get artifact: HTTP ${res.status}`)
+  return res.json()
+}
