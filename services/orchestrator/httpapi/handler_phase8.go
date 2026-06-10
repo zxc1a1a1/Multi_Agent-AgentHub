@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -259,7 +260,7 @@ func (s *Server) ensureArtifactStore() artifacts.Store {
 	if s.artifactStore != nil {
 		return s.artifactStore
 	}
-	path := filepath.Join(".tmp", "orchestrator-artifacts.json")
+	path := filepath.Join(os.TempDir(), "agenthub-orchestrator-artifacts.json")
 	store, err := artifacts.NewJSONStore(path)
 	if err != nil {
 		panic(err)

@@ -7,18 +7,21 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
 )
 
 // AgentCard represents the /.well-known/agent.json response from a child agent.
+// Mirrors a2a.AgentCard but only keeps fields needed by the registry.
 type AgentCard struct {
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Version       string   `json:"version"`
-	URL           string   `json:"url"`
-	Skills        []string `json:"skills"`
-	InputModes    []string `json:"inputModes"`
-	OutputModes   []string `json:"outputModes"`
-	Streaming     bool     `json:"streaming"`
+	Name          string           `json:"name"`
+	Description   string           `json:"description"`
+	Version       string           `json:"version"`
+	URL           string           `json:"url"`
+	Skills        []a2a.AgentSkill `json:"skills"`
+	InputModes    []string         `json:"inputModes"`
+	OutputModes   []string         `json:"outputModes"`
+	Streaming     bool             `json:"streaming"`
 }
 
 // LoadAgentCard fetches the /.well-known/agent.json from the given base URL.
@@ -69,12 +72,20 @@ func LoadAllAgentCards(endpoints []AgentEndpoint) []AgentEndpoint {
 
 		log.Printf("[agent-card] loaded card for %q (version=%s, streaming=%v)", card.Name, card.Version, card.Streaming)
 
+		// Extract skill IDs from the structured skills array.
+		skillIDs := make([]string, 0, len(card.Skills))
+		for _, s := range card.Skills {
+			if s.ID != "" {
+				skillIDs = append(skillIDs, s.ID)
+			}
+		}
+
 		// Merge card data with hardcoded fallback for fields not in the card.
 		merged := AgentEndpoint{
 			Name:          ep.Name,
 			URL:           ep.URL,
 			Description:   firstNonEmpty(card.Description, ep.Description),
-			CapabilityIDs: firstNonEmptySlice(card.Skills, ep.CapabilityIDs),
+			CapabilityIDs: firstNonEmptySlice(skillIDs, ep.CapabilityIDs),
 			OutputModes:   firstNonEmptySlice(card.OutputModes, ep.OutputModes),
 			OutputTypes:   firstNonEmptySlice(card.OutputModes, ep.OutputTypes),
 		}
