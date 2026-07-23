@@ -1,76 +1,78 @@
 ---
 name: a2a-agent-contract
-description: "A2A child-agent protocol skill. Updated for Module Separation & Runtime Redesign."
+description: "AgentHub 2.0 A2A adapter contract for official AgentCard discovery, Task/Message/Artifact streaming, cancellation, sanitized metadata, and uniform invocation of built-in and registered Agents."
 ---
 
 # a2a-agent-contract
 
 ## Purpose
 
-Use this for Child Agent AgentCard, A2A task transport, and Orchestrator dispatcher work.
+Use this Skill for Orchestrator↔Agent communication, AgentCard protocol mapping, A2A Task lifecycle, streaming, cancellation, errors, or SDK adapter work.
 
-## Authoritative source order
-
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. Contracts listed in this skill
-4. PDR product goals only
-5. Sprint/UML as supplemental demo/product context only
-
-## Active architecture facts
+## Read first
 
 ```text
-pkg/adk                 pure ADK engine
-pkg/runtime             runtime framework over ADK
-services/gateway        public Gateway, auth, SSE, persistence
-services/orchestrator   planner/router/executor/dispatcher
-services/agents/*       child A2A agents
-frontend                React client, Gateway-only access
+/project-architecture
+/agent-registry-contract
+/planning-approval-contract
+/context-management-contract
+/artifact-contract
+/security-boundary-contract
+/testing-review-contract
 ```
 
-Legacy paths are not implementation targets for new-architecture work:
+Primary sources:
 
 ```text
-server/**               legacy reference only
-agents/**               legacy reference only
+docs/contracts/a2a-agent-card.md
+docs/contracts/a2a-task.md
+docs/contracts/a2a-errors.md
 ```
 
-## Contracts to read first
+## Boundary
 
-- `docs/contracts/a2a-agent-card.md`
-- `docs/contracts/a2a-task.md`
-- `docs/contracts/a2a-errors.md`
-
-## Allowed implementation targets
-
-- `pkg/adk/a2a`
-- `services/agents/*`
-- `services/orchestrator`
+```text
+Registry Contract  -> who can be called
+A2A Contract       -> how an eligible Agent is called
+Planning Contract  -> why/order/Skill selection
+Context Contract   -> what content is sent
+```
 
 ## Non-negotiable rules
 
-- Follow the redesign plan over old PDR/Sprint directory details.
-- Do not add new new-architecture work under legacy `server/` or root `agents/`.
-- Do not make Frontend call Orchestrator or Child Agents directly.
-- Do not put concrete LLM providers or business handlers in `pkg/adk`.
-- Keep Gateway and Orchestrator as separate services.
-- Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
-- Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
+- Official A2A specification and official Go SDK types are protocol sources.
+- AgentHub MUST NOT create a second incompatible AgentCard wire model.
+- The standard discovery target is `/.well-known/agent-card.json`.
+- Legacy `/.well-known/agent.json` is migration compatibility only.
+- Built-in and dynamically registered Agents use the same invocation abstraction.
+- Orchestrator is the only Agent caller.
+- AgentHub `conversationId` is not A2A `contextId`.
+- A2A requests receive bounded authorized context, not full history.
+- A2A metadata MUST NOT contain browser bearer tokens, Agent credentials, private prompts, or internal secrets.
+- Task/artifact streams are converted to internal Orchestrator events before AG-UI.
+- No automatic retry after user-visible streaming has begun unless resumable sequencing prevents duplication.
+- Cancellation and timeout must propagate.
+- AgentCard declaration does not grant Tool permission.
+- Errors are sanitized before Gateway/Frontend.
 
-## Required workflow
+## Allowed targets
 
-1. Identify the relevant contract files above.
-2. Check whether the requested change touches cross-module fields or event lifecycles.
-3. Update contract first when the boundary changes.
-4. Implement only in allowed targets.
-5. Add/update tests for the touched module.
-6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
+```text
+pkg/**/a2a/**
+services/orchestrator/dispatcher/**
+services/orchestrator/registry/**
+services/agents/**
+docs/contracts/a2a-*.md
+```
+
+Registry lifecycle changes require `/agent-registry-contract`.
 
 ## Completion checklist
 
-- [ ] No stale old-path instructions were introduced.
-- [ ] Contract and implementation agree.
-- [ ] Public Gateway API remains separate from internal service API.
-- [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
-- [ ] Errors are sanitized and do not expose secrets or internal URLs.
-- [ ] Tests or a clear blocker are reported.
+- [ ] official SDK/type mapping is explicit.
+- [ ] standard and legacy card paths are distinguished.
+- [ ] Task/Message/Artifact mapping is tested.
+- [ ] context/correlation IDs are not conflated.
+- [ ] stream retry does not duplicate output.
+- [ ] cancellation/timeout/error redaction are tested.
+- [ ] registered and built-in Agents share one client abstraction.

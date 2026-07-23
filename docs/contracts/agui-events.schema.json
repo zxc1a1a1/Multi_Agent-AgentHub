@@ -1,125 +1,319 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AG-UI Event",
-  "type": "object",
-  "required": [
-    "type"
+  "$id": "https://agenthub.local/contracts/agui-events.schema.json",
+  "title": "AgentHub AG-UI Event",
+  "oneOf": [
+    { "$ref": "#/$defs/runStarted" },
+    { "$ref": "#/$defs/runFinished" },
+    { "$ref": "#/$defs/runError" },
+    { "$ref": "#/$defs/stepStarted" },
+    { "$ref": "#/$defs/stepFinished" },
+    { "$ref": "#/$defs/textStart" },
+    { "$ref": "#/$defs/textContent" },
+    { "$ref": "#/$defs/textEnd" },
+    { "$ref": "#/$defs/toolStart" },
+    { "$ref": "#/$defs/toolArgs" },
+    { "$ref": "#/$defs/toolEnd" },
+    { "$ref": "#/$defs/toolResult" },
+    { "$ref": "#/$defs/stateSnapshot" },
+    { "$ref": "#/$defs/stateDelta" },
+    { "$ref": "#/$defs/messagesSnapshot" },
+    { "$ref": "#/$defs/activitySnapshot" },
+    { "$ref": "#/$defs/activityDelta" },
+    { "$ref": "#/$defs/custom" },
+    { "$ref": "#/$defs/raw" }
   ],
-  "properties": {
-    "type": {
-      "enum": [
-        "RUN_STARTED",
-        "RUN_FINISHED",
-        "RUN_ERROR",
-        "STATE_UPDATE",
-        "STATE_SNAPSHOT",
-        "STATE_DELTA",
-        "TEXT_MESSAGE_START",
-        "TEXT_MESSAGE_CONTENT",
-        "TEXT_MESSAGE_END",
-        "TOOL_CALL_START",
-        "TOOL_CALL_ARGS",
-        "TOOL_CALL_END",
-        "TOOL_ACTION_CONFIRM",
-        "TOOL_ACTION_RESPONSE",
-        "AGENT_TURN_STARTED",
-        "AGENT_TURN_CONTENT",
-        "AGENT_TURN_FINISHED",
-        "ACTIVITY_SNAPSHOT"
+  "$defs": {
+    "base": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "rawEvent": {}
+      },
+      "additionalProperties": true
+    },
+    "runBase": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["threadId", "runId"],
+          "properties": {
+            "threadId": { "type": "string" },
+            "runId": { "type": "string" }
+          }
+        }
       ]
     },
-    "runId": {
-      "type": "string"
-    },
-    "messageId": {
-      "type": "string"
-    },
-    "role": {
-      "type": "string"
-    },
-    "content": {
-      "type": "string"
-    },
-    "toolCallId": {
-      "type": "string"
-    },
-    "toolName": {
-      "type": "string"
-    },
-    "error": {
-      "type": "string"
-    },
-    "agentName": {
-      "type": "string"
-    },
-    "metadata": {
-      "type": "object"
-    },
-    "activity": {
-      "type": "object",
-      "properties": {
-        "activityId": { "type": "string" },
-        "activityType": {
-          "type": "string",
-          "enum": ["plan_approval", "agent_turn", "orchestration_progress"]
-        },
-        "status": {
-          "type": "string",
-          "enum": ["awaiting_confirmation", "revising_plan", "executing", "cancelled", "completed", "failed"]
-        },
-        "executionPath": {
-          "type": "string",
-          "enum": ["single_chat", "group_chat", "main_agent_orchestration"]
-        },
-        "planId": { "type": "string" },
-        "revision": { "type": "integer" },
-        "planOwner": {
+    "runStarted": {
+      "allOf": [
+        { "$ref": "#/$defs/runBase" },
+        {
           "type": "object",
           "properties": {
-            "type": { "type": "string", "enum": ["agent", "group_coordinator", "main_agent"] },
-            "agentName": { "type": "string" },
-            "isMainAgent": { "type": "boolean" }
+            "type": { "const": "RUN_STARTED" },
+            "parentRunId": { "type": "string" },
+            "input": {}
           }
-        },
-        "participants": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "agentName": { "type": "string" },
-              "required": { "type": "boolean" },
-              "selected": { "type": "boolean" }
-            }
-          }
-        },
-        "candidateParticipants": { "type": "array", "items": { "type": "object" } },
-        "defaultSelectedParticipants": { "type": "array", "items": { "type": "object" } },
-        "requiredParticipants": { "type": "array", "items": { "type": "string" } },
-        "title": { "type": "string" },
-        "summary": { "type": "string" },
-        "tasks": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "taskId": { "type": "string" },
-              "agentName": { "type": "string" },
-              "content": { "type": "string" },
-              "priority": { "type": "integer" },
-              "riskLevel": { "type": "string" }
-            }
-          }
-        },
-        "allowedActions": {
-          "type": "array",
-          "items": { "type": "string", "enum": ["approve", "revise", "cancel"] }
-        },
-        "warnings": {
-          "type": "array",
-          "items": { "type": "string" }
         }
-      }
+      ]
+    },
+    "runFinished": {
+      "allOf": [
+        { "$ref": "#/$defs/runBase" },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "RUN_FINISHED" },
+            "result": {},
+            "outcome": {}
+          }
+        }
+      ]
+    },
+    "runError": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "message"],
+          "properties": {
+            "type": { "const": "RUN_ERROR" },
+            "message": { "type": "string" },
+            "code": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "stepStarted": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "stepName"],
+          "properties": {
+            "type": { "const": "STEP_STARTED" },
+            "stepName": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "stepFinished": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "stepName"],
+          "properties": {
+            "type": { "const": "STEP_FINISHED" },
+            "stepName": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "textStart": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "messageId", "role"],
+          "properties": {
+            "type": { "const": "TEXT_MESSAGE_START" },
+            "messageId": { "type": "string" },
+            "role": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "textContent": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "messageId", "delta"],
+          "properties": {
+            "type": { "const": "TEXT_MESSAGE_CONTENT" },
+            "messageId": { "type": "string" },
+            "delta": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "textEnd": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "messageId"],
+          "properties": {
+            "type": { "const": "TEXT_MESSAGE_END" },
+            "messageId": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "toolStart": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "toolCallId", "toolCallName"],
+          "properties": {
+            "type": { "const": "TOOL_CALL_START" },
+            "toolCallId": { "type": "string" },
+            "toolCallName": { "type": "string" },
+            "parentMessageId": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "toolArgs": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "toolCallId", "delta"],
+          "properties": {
+            "type": { "const": "TOOL_CALL_ARGS" },
+            "toolCallId": { "type": "string" },
+            "delta": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "toolEnd": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "toolCallId"],
+          "properties": {
+            "type": { "const": "TOOL_CALL_END" },
+            "toolCallId": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "toolResult": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "messageId", "toolCallId", "content"],
+          "properties": {
+            "type": { "const": "TOOL_CALL_RESULT" },
+            "messageId": { "type": "string" },
+            "toolCallId": { "type": "string" },
+            "content": { "type": "string" },
+            "role": { "const": "tool" }
+          }
+        }
+      ]
+    },
+    "stateSnapshot": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "snapshot"],
+          "properties": {
+            "type": { "const": "STATE_SNAPSHOT" },
+            "snapshot": {}
+          }
+        }
+      ]
+    },
+    "stateDelta": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "delta"],
+          "properties": {
+            "type": { "const": "STATE_DELTA" },
+            "delta": {
+              "type": "array",
+              "items": { "type": "object" }
+            }
+          }
+        }
+      ]
+    },
+    "messagesSnapshot": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "messages"],
+          "properties": {
+            "type": { "const": "MESSAGES_SNAPSHOT" },
+            "messages": { "type": "array", "items": {} }
+          }
+        }
+      ]
+    },
+    "activitySnapshot": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "messageId", "activityType", "content"],
+          "properties": {
+            "type": { "const": "ACTIVITY_SNAPSHOT" },
+            "messageId": { "type": "string" },
+            "activityType": { "type": "string" },
+            "content": {}
+          }
+        }
+      ]
+    },
+    "activityDelta": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "messageId", "activityType", "patch"],
+          "properties": {
+            "type": { "const": "ACTIVITY_DELTA" },
+            "messageId": { "type": "string" },
+            "activityType": { "type": "string" },
+            "patch": { "type": "array", "items": { "type": "object" } }
+          }
+        }
+      ]
+    },
+    "custom": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "name"],
+          "properties": {
+            "type": { "const": "CUSTOM" },
+            "name": {
+              "type": "string",
+              "pattern": "^agenthub\\.(plan|artifact|preview|context)\\.[a-z0-9_]+$"
+            },
+            "value": {}
+          }
+        }
+      ]
+    },
+    "raw": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["type", "event"],
+          "properties": {
+            "type": { "const": "RAW" },
+            "event": {},
+            "source": { "type": "string" }
+          }
+        }
+      ]
     }
-  },
-  "additionalProperties": true
+  }
 }

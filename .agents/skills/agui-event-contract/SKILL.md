@@ -1,76 +1,97 @@
 ---
 name: agui-event-contract
-description: "AG-UI event stream skill. Updated for Module Separation & Runtime Redesign."
+description: "AgentHub 2.0 browser event contract using official AG-UI standard events plus bounded CUSTOM events for plan, artifact, preview, and context domains."
 ---
 
 # agui-event-contract
 
 ## Purpose
 
-Use this for RUN/TEXT/TOOL/STATE events and frontend stream handling. Preserve agentName.
+Use this Skill for Gateway SSE, AG-UI event conversion, frontend reducers, replay, plan activity, Agent messages, Tool events, Artifact events, or preview state.
 
-## Authoritative source order
-
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. Contracts listed in this skill
-4. PDR product goals only
-5. Sprint/UML as supplemental demo/product context only
-
-## Active architecture facts
+## Read first
 
 ```text
-pkg/adk                 pure ADK engine
-pkg/runtime             runtime framework over ADK
-services/gateway        public Gateway, auth, SSE, persistence
-services/orchestrator   planner/router/executor/dispatcher
-services/agents/*       child A2A agents
-frontend                React client, Gateway-only access
+/project-architecture
+/conversation-contract
+/planning-approval-contract
+/gateway-orchestrator-contract
+/artifact-contract
+/security-boundary-contract
+/testing-review-contract
 ```
 
-Legacy paths are not implementation targets for new-architecture work:
+Primary sources:
 
 ```text
-server/**               legacy reference only
-agents/**               legacy reference only
+docs/contracts/agui-events.md
+docs/contracts/agui-events.schema.json
 ```
 
-## Contracts to read first
+## Standard events to reuse
 
-- `docs/contracts/agui-events.md`
-- `docs/contracts/agui-events.schema.json`
+```text
+RUN_STARTED
+RUN_FINISHED
+RUN_ERROR
+STEP_STARTED
+STEP_FINISHED
+TEXT_MESSAGE_START
+TEXT_MESSAGE_CONTENT
+TEXT_MESSAGE_END
+TOOL_CALL_START
+TOOL_CALL_ARGS
+TOOL_CALL_END
+TOOL_CALL_RESULT
+STATE_SNAPSHOT
+STATE_DELTA
+MESSAGES_SNAPSHOT
+ACTIVITY_SNAPSHOT
+ACTIVITY_DELTA
+CUSTOM
+RAW
+```
 
-## Allowed implementation targets
+## AgentHub CUSTOM names
 
-- `pkg/runtime/agui`
-- `services/gateway`
-- `services/orchestrator`
-- `frontend/src`
+```text
+agenthub.plan.created
+agenthub.plan.awaiting_confirmation
+agenthub.plan.updated
+agenthub.plan.confirmed
+agenthub.plan.rejected
+agenthub.plan.replanned
+agenthub.artifact.created
+agenthub.artifact.updated
+agenthub.artifact.version_conflict
+agenthub.preview.building
+agenthub.preview.ready
+agenthub.preview.failed
+agenthub.context.compacted
+```
 
 ## Non-negotiable rules
 
-- Follow the redesign plan over old PDR/Sprint directory details.
-- Do not add new new-architecture work under legacy `server/` or root `agents/`.
-- Do not make Frontend call Orchestrator or Child Agents directly.
-- Do not put concrete LLM providers or business handlers in `pkg/adk`.
-- Keep Gateway and Orchestrator as separate services.
-- Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
-- Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
-
-## Required workflow
-
-1. Identify the relevant contract files above.
-2. Check whether the requested change touches cross-module fields or event lifecycles.
-3. Update contract first when the boundary changes.
-4. Implement only in allowed targets.
-5. Add/update tests for the touched module.
-6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
+- Frontend consumes Gateway events only.
+- Orchestrator internal events and A2A events MUST be converted, not directly forwarded.
+- Plan confirmation is a domain interrupt/API action, not a fake Tool call.
+- Artifact preview is not a fake Tool call.
+- Tool events describe actual Tool calls only.
+- Agent identity belongs in metadata/state using stable `agentId`, `agentVersion`, and `invocationId`.
+- Text deltas append between start/end.
+- SSE `id` is the persisted Run event sequence.
+- Reconnect uses `Last-Event-ID`.
+- A Run emits one terminal outcome.
+- Errors are sanitized.
+- Unknown CUSTOM names are ignored or shown safely; they are never executed.
 
 ## Completion checklist
 
-- [ ] No stale old-path instructions were introduced.
-- [ ] Contract and implementation agree.
-- [ ] Public Gateway API remains separate from internal service API.
-- [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
-- [ ] Errors are sanitized and do not expose secrets or internal URLs.
-- [ ] Tests or a clear blocker are reported.
+- [ ] Standard AG-UI events are reused.
+- [ ] CUSTOM names are namespaced.
+- [ ] Plan/Artifact/Preview events are not Tool events.
+- [ ] Event ordering and replay are tested.
+- [ ] Agent identity and Message IDs are stable.
+- [ ] cancellation/partial failure mapping is defined.
+- [ ] reducers handle duplicate replay safely.
+- [ ] schema/docs/implementation agree.

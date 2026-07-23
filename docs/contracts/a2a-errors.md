@@ -1,30 +1,87 @@
 # A2A Error Contract
 
 **Status:** Active
-**Owner:** AgentHub
-**Primary source:** Module Separation & Runtime Redesign
+**Version:** AgentHub 2.0
 
+## 1. Error classes
 
-## Authoritative source order
+```text
+agent_unavailable
+agent_disabled
+agent_unhealthy
+agent_unauthorized
+agent_card_fetch_failed
+agent_card_invalid
+agent_protocol_unsupported
+agent_auth_required
+task_rejected
+task_not_found
+task_not_cancelable
+task_failed
+task_input_required
+stream_interrupted
+stream_protocol_invalid
+artifact_invalid
+timeout
+canceled
+```
 
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. PDR product goals only, not old module layout
-4. Sprint/UML as supporting product/demo references only
+## 2. Retry policy
 
-Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
+| Error | Retry before visible output | Retry after visible output |
+|---|---:|---:|
+| connection/temporary unavailable | bounded | no full retry |
+| timeout | bounded by policy | no full retry |
+| stream interrupted | reconnect/resubscribe if supported | no duplicate restart |
+| invalid card/protocol | no | no |
+| unauthorized/auth required | no automatic credential guessing | no |
+| task rejected/invalid | no | no |
+| rate limited | bounded using safe retry guidance | only before visible output |
 
+## 3. Propagation
 
-## Error classes
+A2A adapter returns:
 
-| Code | Meaning | Retry |
-|---|---|---:|
-| `agent_unavailable` | Child Agent cannot be reached | yes |
-| `agent_card_invalid` | AgentCard failed validation | no |
-| `task_rejected` | Child Agent rejected malformed task | no |
-| `task_failed` | Handler/Runner failed | maybe |
-| `stream_interrupted` | A2A stream broke mid-run | yes |
+```text
+code
+safeMessage
+retryable
+remoteTaskId when safe
+invocationId
+internal cause for protected logs
+```
 
-## Propagation
+Orchestrator maps to internal events. Gateway maps to public error/AG-UI.
 
-A2A errors must be sanitized before becoming AG-UI `RUN_ERROR`. Internal URL, stack trace, API key, and DSN leakage is forbidden.
+## 4. Redaction
+
+Never expose:
+
+```text
+Agent credential
+Authorization header
+internal endpoint
+stack trace
+provider response body
+DNS/private address details
+system prompt
+user token
+```
+
+## 5. Plan interaction
+
+If a confirmed Agent becomes unavailable:
+
+- fail/pause the Step;
+- do not silently replace the Agent;
+- propose a Replan when an eligible alternative exists;
+- require user confirmation for the new PlanVersion.
+
+## 6. Required tests
+
+- sanitization;
+- retry boundary before/after stream;
+- cancel/not-cancelable mapping;
+- auth-required mapping;
+- invalid protocol/card;
+- Replan required instead of silent substitution.

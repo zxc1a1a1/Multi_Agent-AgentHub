@@ -1,119 +1,190 @@
-# A2A Task Contract
+# A2A Invocation Contract
 
 **Status:** Active
-**Owner:** AgentHub
-**Primary source:** Module Separation & Runtime Redesign
-**Last updated:** 2026-06-08 (Phase 0.5 — added RunRequest.Mode for plan_only / execute / full)
+**Version:** AgentHub 2.0
+**Protocol source:** Official A2A specification and official Go SDK
 
+## 1. Scope
 
-## Authoritative source order
+A2A is the Orchestrator↔registered Agent protocol.
 
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. PDR product goals only, not old module layout
-4. Sprint/UML as supporting product/demo references only
-
-Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
-
-
-## Scope
-
-A2A is the Orchestrator↔Child Agent protocol. The ADK adapter lives in `pkg/adk/a2a`.
-
-## Target endpoints
+It transports:
 
 ```text
-GET  /health
-GET  /.well-known/agent.json
-POST /              JSON-RPC / A2A task endpoint
+Message
+Task
+Task status
+Artifact
+stream updates
+cancellation
 ```
 
-If streaming endpoint is implemented separately, it must be explicitly documented as A2A streaming compatibility.
+It does not transport AgentHub public Conversation/Plan objects as wire replacements.
 
-## Message mapping
+## 2. Invocation input
 
-| ADK | A2A |
-|---|---|
-| `Content.Role` | message role |
-| `TextPart` | text part |
-| `ToolCallPart` | task/tool call event |
-| `ToolResultPart` | tool result message |
-| `Artifact` | artifact / output part |
+Orchestrator converts a confirmed PlanStep or Direct Run into an A2A Message/Task request.
 
-## Execution
+Input contains only:
 
-Child Agent owns its Runner/session for task execution. Orchestrator only sends tasks and consumes stream/result events.
+- task instruction;
+- bounded authorized context;
+- approved Artifact/File/Data Parts;
+- safe correlation metadata;
+- protocol/extension negotiation;
+- Agent-specific authentication applied by client adapter.
 
-## Streaming response (SSE)
+It MUST NOT include:
 
-The Orchestrator client (`pkg/adk/a2a.Client.SendJSONRPCStream`) consumes the
-Child Agent response as a stream of events and yields each event as it arrives,
-so the Orchestrator can forward partial output to the Gateway/Frontend without
-waiting for the whole task to complete.
+- full AgentHub Conversation history by default;
+- browser bearer token;
+- Registry credential value;
+- unrelated Conversation content;
+- hidden Planner/System prompt;
+- another Agent's private trace.
 
-Transport negotiation is content-type based and backward compatible:
+## 3. Identifier mapping
 
-| Server response `Content-Type` | Client behavior |
-|---|---|
-| `text/event-stream` | Parse SSE frames (`data: {EventDTO}\n\n`), yield each `EventDTO` as it arrives. |
-| `application/json` (buffered `RunResponse`) | Compatibility mode: yield each event in `RunResponse.Events` after the full body is read. |
+```text
+AgentHub conversationId   local business identifier
+AgentHub runId            local execution identifier
+AgentHub invocationId     local Agent call identifier
+A2A task id               remote task identifier
+A2A context id            remote Agent context identifier
+```
+
+A2A `contextId` is not AgentHub `conversationId`.
+
+AgentHub correlation may use sanitized A2A metadata/extensions:
+
+```text
+agenthub.run_id
+agenthub.invocation_id
+agenthub.conversation_ref
+agenthub.plan_step_id
+traceparent or trace reference
+```
+
+Do not send user secrets in metadata.
+
+## 4. Task lifecycle mapping
+
+AgentHub maps official A2A Task states into invocation state.
+
+Typical mapping:
+
+```text
+submitted/input-required/auth-required/working
+completed
+failed
+canceled
+rejected
+```
+
+Exact state names depend on the negotiated official protocol version. The adapter owns version mapping.
+
+A terminal remote Task cannot be silently restarted as the same invocation.
+
+## 5. Streaming
+
+Preferred path uses official streaming operation/binding.
+
+Stream may contain:
+
+- Task snapshot;
+- status update;
+- Message;
+- Artifact update/chunk.
+
+Orchestrator converts these into internal events.
 
 Rules:
 
-- Each SSE frame `data:` payload MUST be one JSON `EventDTO` (same shape as the
-  array elements in buffered `RunResponse.Events`).
-- A frame whose payload is `[DONE]` (or stream EOF) terminates the stream.
-- The client applies the same redaction as buffered mode: `thinking` parts are
-  emptied; transport/remote error messages are sanitized before they surface.
-- `SendJSONRPC` (buffered) remains supported and unchanged for callers that do
-  not need streaming.
+- preserve ordering;
+- append Artifact chunks according to protocol flags;
+- bracket visible Message streams;
+- sanitize errors;
+- persist remote task/context identifiers for cancel/resubscribe;
+- do not forward raw A2A events to Frontend.
 
-## Delta semantics (Orchestrator → Gateway)
+Buffered compatibility is allowed when an Agent does not support streaming.
 
-When the Orchestrator forwards streamed agent output, each text event becomes a
-`message_delta` event. The Frontend MUST treat `message_delta` as **append**
-(accumulate by `messageId`), never replace. `message_start` / `message_end`
-bracket one logical message; multiple `message_delta` may occur between them.
+## 6. Retry
 
-## Compatibility note
+Before visible stream output:
 
-A Child Agent that returns a buffered event array after completion is still
-valid (compatibility mode). The streaming SSE response is the preferred target
-for new agents because it removes head-of-line latency.
+- timeout/connection errors may use bounded retry/backoff/circuit breaker.
 
-## RunRequest execution modes (Phase 2 direction)
+After visible Message or Artifact output begins:
 
-This section defines the contract direction for Phase 2. **Not yet implemented.**
+- automatic full retry is disabled by default to avoid duplicate user-visible output;
+- resumable subscribe/reconnect is preferred when the protocol/Agent supports stable sequencing;
+- otherwise fail safely and preserve partial output.
 
-### RunRequest extension
+## 7. Cancellation
 
-```json
-{
-  "sessionId": "...",
-  "message": { "role": "user", "content": "..." },
-  "traceId": "...",
-  "mode": "full",
-  "approvedPlan": null
-}
+Run cancellation propagates:
+
+```text
+Gateway cancel
+-> Orchestrator context cancel
+-> A2A Cancel Task when task id exists
+-> local stream/subscription close
+-> invocation terminal state
 ```
 
-### Mode values
+Cancellation is idempotent.
 
-| Mode | Behavior | Use case |
-|---|---|---|
-| `full` | Generate and execute in one call. Default. | Current behavior; group_chat auto-execute. |
-| `plan_only` | Agent generates a plan/proposal but does NOT execute. Agent returns a plan response without side effects. | single_chat PLAN_PROPOSAL, revision re-plan. |
-| `execute` | Agent executes a previously approved plan. The `approvedPlan` field carries the plan. | single_chat after APPROVE_PLAN. |
+## 8. Multi-turn/input-required
 
-### Mode semantics
+If remote Task requires input or authorization:
 
-- `plan_only`: The Agent MUST NOT invoke tools that have side effects. It MAY invoke read-only tools for context gathering. The response is a structured plan, not executed code.
-- `execute`: The Agent receives the approved plan and executes it step by step. The Agent SHOULD follow the plan structure but MAY adapt to runtime conditions within the plan's intent.
-- `full` (default): Backward-compatible with current behavior. Agent processes the message and may generate and execute in one pass.
+- Orchestrator emits structured internal state;
+- Gateway exposes an approved UI/API interaction;
+- user response returns through Orchestrator;
+- raw remote prompts do not bypass authorization or confirmation.
 
-### Phase 2 scope
+A material change to the AgentHub Plan may require Replan confirmation.
 
-- Implement `mode` field in `adk.GenerateRequest`, `a2a.RunRequest`, `dispatcher.DispatchInput`.
-- Implement `plan_only` and `execute` branches in `CodeAgent.Generate()` and `WebAgent.Generate()`.
-- Implement `approvedPlan` field in `a2a.RunRequest`.
-- **Phase 0.5 does NOT implement any of this.** This section documents the target contract only.
+## 9. Artifact mapping
+
+Official A2A Artifacts/Parts are converted to AgentHub Artifact inputs.
+
+Known types map through Artifact Contract. Unknown types degrade to:
+
+- structured JSON viewer;
+- authorized file download;
+- safe unsupported type.
+
+Unknown remote output MUST NOT execute automatically.
+
+## 10. Tool boundary
+
+A remote Agent's declared capability does not grant AgentHub Tool permissions.
+
+Agent-internal tools remain opaque unless separately exposed through an approved MCP/Tool contract.
+
+## 11. Compatibility adapters
+
+Existing repository custom JSON-RPC/SSE types may be retained temporarily behind an adapter.
+
+Migration rules:
+
+- official SDK-facing contract at the boundary;
+- no new feature added only to the legacy wire shape;
+- fixtures cover both legacy and official mapping;
+- remove legacy path only after built-in Agent migration and compatibility tests.
+
+## 12. Required tests
+
+- official Message/Task invocation fixture;
+- streaming status/message/artifact mapping;
+- buffered compatibility;
+- cancel propagation;
+- input-required mapping;
+- remote context ID not confused with Conversation ID;
+- pre-stream retry;
+- no post-stream duplicate retry;
+- unknown Artifact safe fallback;
+- metadata/credential redaction;
+- built-in and dynamically registered Agent use the same dispatcher.
