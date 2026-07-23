@@ -1,102 +1,278 @@
 # AI Collaboration Workflow Contract
 
-## 1. 契约目的
+**Status:** Active  
+**Version:** AgentHub 2.0  
 
-本文定义 AgentHub 项目中 AI 编程代理参与开发时的协作契约。
+## 1. Purpose
 
-本契约用于保证：
+This Contract governs how AI coding assistants participate in AgentHub development.
 
-- 任务范围清晰；
-- 上下文选择可控；
-- 串行 Skill 重构不越界；
-- 文档和代码边界明确；
-- 文件包交付可复用；
-- Review 和交接可追溯。
+It ensures:
 
-## 2. 核心原则
+- correct source precedence;
+- minimal and relevant context;
+- Contract-first changes;
+- bounded file scope;
+- staged implementation;
+- reusable output packages;
+- explicit tests and review;
+- no silent reliance on legacy architecture assumptions.
 
-- 用户当前指令优先。
-- 当前阶段由用户指定的 Sprint / Plan / 任务决定。
-- 历史 MVP 规则不能自动成为当前限制。
-- 一个任务尽量只处理一个问题域。
-- 串行 Skill 生成时，每轮只处理一个 Skill。
-- 文档任务默认不生成业务代码。
-- 文件包必须包含清单和补丁说明。
-- 中文项目默认输出中文。
-
-## 3. 标准流程
+## 2. Source precedence
 
 ```text
-任务接收 → 上下文扫描 → 范围锁定 → 计划制定 → 执行修改 → 验证 → Review → 交接
+current explicit user instruction
+-> approved AgentHub 2.0 PDR and accepted corrections
+-> project-architecture
+-> active domain Contract
+-> Schema/OpenAPI/ADR
+-> current implementation and tests
+-> legacy documents
 ```
 
-## 4. 上下文选择
+A legacy redesign, Sprint, UML, v0.x, or v1.x document may explain history, but MUST NOT override an active 2.0 Contract.
 
-AI 应按以下顺序选择资料：
-
-1. 用户本轮明确给出的文件、链接、目录或 Skill；
-2. 用户上传的 Sprint / PDR / Contract 文件；
-3. 当前任务直接涉及的最小文件集合；
-4. 必要时再说明需要额外资料。
-
-不得一次性读取或修改所有 Skill。
-
-## 5. 串行 Skill 重构
-
-串行 Skill 重构时：
-
-- 只处理用户指定 Skill；
-- 不自动生成后续 Skill；
-- 不大量引用其他 Skill；
-- 保持当前 Skill 独立可读；
-- 必要 references 只补充当前 Skill；
-- 交付包只包含当前 Skill 及其直接契约文件。
-
-## 6. 文件包交付
-
-文件包必须包含：
+## 3. Standard workflow
 
 ```text
-.claude/skills/{skill-name}/SKILL.md
-.claude/skills/{skill-name}/references/*.md
-docs/contracts/{related}.md
-PATCH_NOTES.md
+Task intake
+-> Source scan
+-> Scope lock
+-> Contract update
+-> Implementation plan
+-> Small implementation slice
+-> Validation
+-> Review
+-> Delivery report
+```
+
+## 4. Task intake
+
+Before editing, determine:
+
+- the requested outcome;
+- whether the request is analysis, document generation, implementation, review, or packaging;
+- affected domains;
+- required Skills;
+- files allowed to change;
+- files explicitly excluded;
+- expected artifact format;
+- whether user confirmation is required before continuing.
+
+## 5. Minimal context policy
+
+AI MUST:
+
+- start from files explicitly provided by the user;
+- read the active architecture and directly affected domain Contracts;
+- inspect the smallest implementation surface needed;
+- distinguish source-derived facts from inference;
+- avoid loading all Skills or all repository files without a reason.
+
+AI MUST NOT:
+
+- treat search snippets as complete Contract content;
+- infer missing source behavior as fact;
+- silently reconcile contradictory source documents;
+- import an unrelated framework design into AgentHub.
+
+## 6. Skill selection examples
+
+### Multi-conversation IM
+
+```text
+/project-architecture
+/conversation-contract
+/data-persistence-contract
+/context-management-contract
+/platform-api-contract
+/agui-event-contract
+/testing-review-contract
+```
+
+### LLM planning and approval
+
+```text
+/project-architecture
+/planning-approval-contract
+/agent-registry-contract
+/context-management-contract
+/llm-provider-contract
+/a2a-agent-contract
+/llm-orchestration-dev
+/llm-orchestration-review
+```
+
+### Agent registration
+
+```text
+/project-architecture
+/agent-registry-contract
+/a2a-agent-contract
+/data-persistence-contract
+/platform-api-contract
+/security-boundary-contract
+/testing-review-contract
+```
+
+### Artifact preview
+
+```text
+/project-architecture
+/artifact-contract
+/web-project-preview-contract
+/agui-event-contract
+/security-boundary-contract
+/testing-review-contract
+```
+
+## 7. Scope lock
+
+The implementation plan MUST list:
+
+```text
+modify
+create
+delete/rename
+read-only dependencies
+explicitly forbidden paths
+tests
+risks
+rollback
+```
+
+Rules:
+
+- review-only means no file modification;
+- document-only means no business implementation;
+- no unapproved dependency installation;
+- no automatic transition to the next batch;
+- no opportunistic unrelated cleanup;
+- legacy paths change only in an explicit migration task.
+
+## 8. Contract-first development
+
+Update the active Contract before implementation when changing:
+
+- public or internal API;
+- event lifecycle;
+- Plan/Run/Message state;
+- Agent registration or AgentCard handling;
+- context selection;
+- Artifact structure or versioning;
+- persistence schema;
+- authorization boundary;
+- protocol mapping.
+
+Expected sequence:
+
+```text
+Contract
+-> Schema/OpenAPI
+-> fixture/mock
+-> implementation
+-> tests
+-> review
+```
+
+## 9. Reuse assessment
+
+Before new infrastructure is written, record:
+
+- existing repository component;
+- approved external implementation;
+- compatibility gaps;
+- chosen integration boundary;
+- code that AgentHub still needs to own.
+
+Do not reimplement:
+
+- A2A or MCP base protocol;
+- generic browser bundling/preview;
+- database migration framework;
+- SQL code generation;
+- full-text search engine;
+- tracing protocol.
+
+## 10. Validation
+
+Minimum document validation:
+
+- correct path;
+- valid frontmatter;
+- coherent headings;
+- no stale Skill names;
+- no conflicting source precedence;
+- no unsupported claim.
+
+Minimum code validation depends on scope:
+
+- Go tests;
+- race tests where concurrency changes;
+- TypeScript typecheck;
+- frontend component/reducer tests;
+- migration tests;
+- JSON Schema/OpenAPI validation;
+- event replay tests;
+- security negative tests;
+- deterministic Mock Agent/Planner tests.
+
+## 11. Review
+
+Review checks:
+
+- user scope;
+- active Contract compliance;
+- module boundary;
+- stale legacy assumptions;
+- unsafe Agent registration;
+- unconfirmed Plan execution;
+- cross-conversation context leakage;
+- non-versioned Artifact overwrite;
+- secret/log exposure;
+- missing errors and tests;
+- unnecessary new abstractions.
+
+## 12. Delivery package
+
+A document or Contract batch SHOULD contain:
+
+```text
+repository-relative files
 MANIFEST.md
+PATCH_NOTES.md
+applicable .diff/.patch
 ```
 
-实际文件以任务需要为准。
+The package MUST NOT contain:
 
-文件包不得包含：
+- secrets;
+- caches;
+- build output;
+- private logs;
+- unrelated source files.
 
-- 缓存；
-- 构建产物；
-- 无关业务代码；
-- 密钥；
-- 私密配置。
+## 13. Delivery report
 
-## 7. 验证
+Report:
 
-文档包至少验证：
+1. changed files;
+2. new files;
+3. deleted/renamed files;
+4. purpose;
+5. untouched scope;
+6. dependency changes;
+7. tests;
+8. known gaps;
+9. apply/rollback instructions.
 
-- 文件路径；
-- Markdown 结构；
-- frontmatter；
-- 中文一致性；
-- 独立性；
-- 是否越界；
-- 是否缺少清单或补丁说明。
+## 14. Completion
 
-代码任务应尽量验证测试、类型检查、构建或 smoke test。
+A task is complete when:
 
-## 8. 完成标准
-
-一个 AI 协作任务完成需要满足：
-
-- 用户目标已覆盖；
-- 范围未越界；
-- 输出格式符合用户要求；
-- 交付物可定位；
-- 有变更说明；
-- 有使用方式；
-- 明确未包含内容；
-- 如未运行测试，已说明。
+- requested scope is covered;
+- active Contracts and output agree;
+- no unauthorized work was added;
+- validation evidence exists or a blocker is stated;
+- the deliverable is locatable and reusable;
+- the next dependency batch is clearly separated.

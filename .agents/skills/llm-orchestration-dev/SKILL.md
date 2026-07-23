@@ -1,130 +1,158 @@
 ---
 name: llm-orchestration-dev
-description: 用于在 Claude Code 中按阶段实现 AgentHub services/orchestrator 的 LLM 编排开发。该 skill 强制执行范围边界、Phase Gate、Parser/Normalizer/Validator/Repairer 设计、禁止路径检查和阶段报告，防止 agent 乱改前端、Gateway、Docker、ADK 或 Runtime AG-UI。
+description: 用于按阶段实现 AgentHub 2.0 Orchestrator 的 LLM 计划生成、Registry Catalog、PlanVersion 校验、用户确认门、有限修复与依赖执行。
 ---
 
-# AgentHub LLM 编排开发 Skill
+# AgentHub 2.0 LLM 编排开发 Skill
 
-使用场景：只开发 `services/orchestrator` 的 LLM 编排能力。
+使用场景：开发 `services/orchestrator` 内的 LLM 编排与确认链路。
 
-## 必须先使用的项目 Skill
-
-开始改代码前，必须先调用或阅读：
+## 必须先调用或阅读
 
 ```text
 /project-architecture
-/intent-orchestration-contract
+/planning-approval-contract
+/agent-registry-contract
+/context-management-contract
 /a2a-agent-contract
-/adk-runtime-contract
+/llm-provider-contract
 /testing-review-contract
 ```
 
-如果需要确认前端事件兼容性，只能额外阅读：
+涉及公开 API、事件或持久化时，额外启用：
 
 ```text
+/gateway-orchestrator-contract
+/platform-api-contract
 /agui-event-contract
-/frontend-runtime-skills-contract
+/data-persistence-contract
 ```
 
-这两个只用于确认“不能破坏前端协议”，不是允许修改前端。
+读取这些 Skill 不等于自动获得修改对应模块的权限。
 
-## 本 Skill 的唯一目标
-
-把 Orchestrator 编排升级为：
+## 目标流水线
 
 ```text
-LLMPlanner
+Mode Resolver
+  -> Registry eligible catalog
+  -> Context bundle
+  -> LLM Planner
   -> Parser
   -> Normalizer
   -> Validator
-  -> Repairer once
-  -> Deprecated RulePlanner transitional fallback
-  -> Executor
+  -> Repair at most once
+  -> PlanVersion awaiting confirmation
+  -> Confirmation Gate
+  -> Dependency Executor
 ```
 
-后续目标是删除 RulePlanner，因此本阶段禁止增强 RulePlanner 关键词规则。
+Direct Mode 不创建多 Agent Plan。
 
-## 必读 references
-
-按顺序阅读并执行：
-
-```text
-references/00-execution-protocol.md
-references/01-scope-boundary.md
-references/02-design-standard.md
-references/phase-0-readonly-recon.md
-references/phase-1-schema-parser-prompt-trace.md
-references/phase-2-normalizer-validator.md
-references/phase-3-llm-planner-main-flow.md
-references/phase-4-repair-fallback.md
-references/phase-5-metadata-wiring-final-verify.md
-references/report-template.md
-```
-
-## Phase Gate 强制规则
+## Phase Gate
 
 每个 Phase 必须：
 
 ```text
-只做本 Phase 的任务
-只改本 Phase 允许的路径
-跑本 Phase 指定测试
+只完成当前 Phase
+只修改获批路径
+运行当前 Phase 测试
 输出 Phase Report
-停下来等待用户确认
+等待用户确认
 ```
 
-禁止自动进入下一 Phase。
+不得自动进入下一 Phase。
 
-## 允许修改路径
+## 默认允许路径
 
 ```text
 services/orchestrator/planner/**
 services/orchestrator/validator/**
 services/orchestrator/plan/**
+services/orchestrator/executor/**
 services/orchestrator/httpapi/**
 services/orchestrator/cmd/**
 ```
 
-## 禁止修改路径
+仅在任务明确授权时修改：
 
 ```text
-frontend/**
+services/orchestrator/registry/**
+services/orchestrator/context/**
 services/gateway/**
-docker-compose*
-pkg/adk/**
-pkg/runtime/agui/**
-server/**
-agents/**
+frontend/**
+pkg/**
+docs/contracts/**
 ```
 
-## 最重要的禁止事项
+## 禁止事项
 
 ```text
-不要修改前端
-不要修改 Gateway
-不要修改 Docker
-不要改 /api/chat
-不要改 AG-UI event type
-不要让 LLM 输出直接执行
-不要新增 RulePlanner 关键词
-不要让 Repairer 无限重试
-不要让测试依赖真实 API key
+LLM 输出未经 Validator 直接执行
+未确认 Plan 创建 AgentInvocation
+Manual Mode 添加用户未选 Agent
+Planner 使用 Registry 外 Agent
+Planner 使用 disabled/unhealthy/unauthorized Agent
+Planner 发明 Agent Skill
+Normalizer 猜测未知 Agent
+Repair 无限循环
+Replan 不生成新 PlanVersion
+Replan 不重新确认
+静默替换确认后的 Agent
+测试依赖真实 API key
+跨 Conversation 注入历史
+增强 RulePlanner 关键词以绕过 LLM/Validator
 ```
 
-## 最终报告要求
+## RulePlanner 迁移
 
-最终必须输出：
+RulePlanner 是否保留由当前迁移任务决定。
+
+允许：
+
+- 作为明确标记的兼容 fallback；
+- 生成结构化 PlanVersion；
+- 经过相同 Validator；
+- 经过相同用户确认门；
+- 有独立指标和测试。
+
+禁止：
+
+- 绕过 PlanVersion；
+- 绕过确认；
+- 新增大量关键词规则替代 Planner 改造。
+
+## 必测场景
+
+```text
+Direct Mode no-plan
+Manual selected Agents only
+Auto eligible catalog only
+serial plan
+parallel plan
+invalid JSON repair
+unknown Agent rejection
+unknown Skill rejection
+cycle rejection
+unconfirmed execution rejection
+stale PlanVersion rejection
+Agent unavailable after confirmation
+material Replan confirmation
+repair failure/fallback
+cross-conversation contamination negative
+```
+
+## 最终报告
 
 ```text
 git diff --stat
 git diff --name-only
-修改文件清单
+修改/新增/删除文件
+Phase Reports
 测试命令和结果
-三类正常场景证据
-invalid JSON repair 证据
-unknown agent repair 证据
-repair fail fallback 证据
-forbidden paths 未修改确认
-RulePlanner 只作为 deprecated fallback 的确认
-风险与后续建议
+Plan/confirmation evidence
+Registry catalog evidence
+repair/fallback evidence
+forbidden paths confirmation
+known risks
+next dependency batch
 ```

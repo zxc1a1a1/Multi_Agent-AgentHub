@@ -1,75 +1,175 @@
 ---
 name: ai-collaboration-workflow
-description: "AI collaboration workflow skill. Updated for Module Separation & Runtime Redesign."
+description: "AgentHub 2.0 AI-assisted development workflow: source selection, Contract-first changes, bounded scope, staged implementation, validation, review, and reusable delivery."
 ---
 
 # ai-collaboration-workflow
 
 ## Purpose
 
-Use this to plan task-by-task work. Always cite the redesign plan as engineering source of truth.
+Use this Skill whenever an AI coding assistant studies, plans, modifies, tests, reviews, or packages AgentHub files.
+
+Core workflow:
+
+```text
+understand
+-> select minimal context
+-> lock scope
+-> update Contract
+-> create implementation plan
+-> implement one slice
+-> test
+-> review
+-> hand off
+```
 
 ## Authoritative source order
 
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. Contracts listed in this skill
-4. PDR product goals only
-5. Sprint/UML as supplemental demo/product context only
+1. Current explicit user instruction.
+2. Approved AgentHub 2.0 PDR and accepted follow-up decisions.
+3. `/project-architecture`.
+4. The active domain Contract Skill and `docs/contracts/*`.
+5. Schema/OpenAPI/ADR.
+6. Current implementation and tests.
+7. Legacy redesign, Sprint, UML, and v1.x documents as historical references only.
 
-## Active architecture facts
+Old gRPC/MySQL/MVP restrictions are not active unless an active 2.0 Contract explicitly restores them.
+
+## Context selection
+
+Read only what the task requires.
+
+Examples:
+
+### Conversation work
 
 ```text
-pkg/adk                 pure ADK engine
-pkg/runtime             runtime framework over ADK
-services/gateway        public Gateway, auth, SSE, persistence
-services/orchestrator   planner/router/executor/dispatcher
-services/agents/*       child A2A agents
-frontend                React client, Gateway-only access
+/project-architecture
+/conversation-contract
+/data-persistence-contract
+/context-management-contract
+/platform-api-contract
+/testing-review-contract
 ```
 
-Legacy paths are not implementation targets for new-architecture work:
+### Planning work
 
 ```text
-server/**               legacy reference only
-agents/**               legacy reference only
+/project-architecture
+/planning-approval-contract
+/agent-registry-contract
+/context-management-contract
+/llm-provider-contract
+/a2a-agent-contract
+/llm-orchestration-dev
 ```
 
-## Contracts to read first
+### Registry work
 
-- `docs/contracts/ai-collaboration-workflow.md`
+```text
+/project-architecture
+/agent-registry-contract
+/a2a-agent-contract
+/data-persistence-contract
+/platform-api-contract
+/security-boundary-contract
+```
 
-## Allowed implementation targets
+Do not load all Skills by default.
 
-- `docs`
-- `pkg`
-- `services`
-- `frontend`
+## Scope rules
 
-## Non-negotiable rules
+Before editing, state:
 
-- Follow the redesign plan over old PDR/Sprint directory details.
-- Do not add new new-architecture work under legacy `server/` or root `agents/`.
-- Do not make Frontend call Orchestrator or Child Agents directly.
-- Do not put concrete LLM providers or business handlers in `pkg/adk`.
-- Keep Gateway and Orchestrator as separate services.
-- Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
-- Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
+- files to modify;
+- files to create;
+- files to delete/rename;
+- files explicitly out of scope;
+- Contract changes;
+- tests;
+- risks and rollback.
 
-## Required workflow
+If the user requests review only, do not modify files.  
+If the user requests documents only, do not generate business implementation.
 
-1. Identify the relevant contract files above.
-2. Check whether the requested change touches cross-module fields or event lifecycles.
-3. Update contract first when the boundary changes.
-4. Implement only in allowed targets.
-5. Add/update tests for the touched module.
-6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
+## Contract-first rule
+
+When a domain boundary, API, event, Schema, state machine, Agent lifecycle, or data model changes:
+
+```text
+Contract
+-> Schema/OpenAPI if applicable
+-> Mock/fixture
+-> implementation
+-> tests
+-> review
+```
+
+Do not update implementation first and silently document it later.
+
+## Small-step rule
+
+- One batch should address one coherent dependency layer.
+- Do not automatically continue to the next batch.
+- Do not install dependencies without authorization.
+- Do not mix unrelated refactors into the same patch.
+- Do not modify legacy paths unless the task is a migration.
+- Preserve existing working behavior when not contradicted by the active Contract.
+
+## Reuse rule
+
+Before implementing infrastructure, check approved references and existing repository code.
+
+Prefer reuse for:
+
+- A2A and MCP protocol layers;
+- AG-UI event semantics;
+- database migrations and typed query generation;
+- browser code preview;
+- tracing and metrics.
+
+Do not replace existing Registry, Planner, or storage code merely because a new abstraction is fashionable. First map it to the active Contract and identify the minimum change.
+
+## Required validation
+
+Depending on scope:
+
+```text
+Markdown/frontmatter validation
+JSON Schema/OpenAPI validation
+go test
+go test -race where relevant
+frontend typecheck/test
+event reducer/replay test
+migration test
+security negative test
+mock Agent/Planner test
+```
+
+Tests must not depend on production secrets or uncontrolled public endpoints.
+
+## Delivery report
+
+Every modification report includes:
+
+1. modified files;
+2. created files;
+3. deleted/renamed files;
+4. purpose of each file;
+5. files intentionally untouched;
+6. dependencies installed, or confirmation that none were installed;
+7. tests run and results;
+8. known mismatches or follow-up work;
+9. application/rollback instructions when delivering a patch.
 
 ## Completion checklist
 
-- [ ] No stale old-path instructions were introduced.
-- [ ] Contract and implementation agree.
-- [ ] Public Gateway API remains separate from internal service API.
-- [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
-- [ ] Errors are sanitized and do not expose secrets or internal URLs.
-- [ ] Tests or a clear blocker are reported.
+- [ ] Current user scope was respected.
+- [ ] The correct active Contracts were used.
+- [ ] No legacy document overrode AgentHub 2.0.
+- [ ] Contract changes precede implementation changes.
+- [ ] The patch is one coherent batch.
+- [ ] Reuse options were considered.
+- [ ] Tests or blockers are reported.
+- [ ] No secret or private data appears in files or logs.
+- [ ] The handoff is reproducible.

@@ -1,75 +1,90 @@
 ---
 name: data-persistence-contract
-description: "Persistence profile skill. Updated for Module Separation & Runtime Redesign."
+description: "Persistence contract skill for AgentHub 2.0 conversations, messages, plans, events, context, artifacts, and registered Agent lifecycle."
 ---
 
 # data-persistence-contract
 
 ## Purpose
 
-Use this for Gateway conversation storage and Runtime SessionService implementations. MySQL is target; SQLite is demo-only.
+Use this Skill for database Schema, migrations, repositories, transaction boundaries, search indexes, snapshots, retention, or persistence ownership.
 
-## Authoritative source order
-
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. Contracts listed in this skill
-4. PDR product goals only
-5. Sprint/UML as supplemental demo/product context only
-
-## Active architecture facts
+## Read first
 
 ```text
-pkg/adk                 pure ADK engine
-pkg/runtime             runtime framework over ADK
-services/gateway        public Gateway, auth, SSE, persistence
-services/orchestrator   planner/router/executor/dispatcher
-services/agents/*       child A2A agents
-frontend                React client, Gateway-only access
+/project-architecture
+/conversation-contract
+/planning-approval-contract
+/context-management-contract
+/agent-registry-contract
+/security-boundary-contract
+/testing-review-contract
 ```
 
-Legacy paths are not implementation targets for new-architecture work:
-
-```text
-server/**               legacy reference only
-agents/**               legacy reference only
-```
-
-## Contracts to read first
+Primary Contract:
 
 - `docs/contracts/data-model.md`
-- `docs/contracts/mysql-schema.md`
-- `docs/contracts/storage-profiles.md`
 
-## Allowed implementation targets
+## Active persistence profile
 
-- `services/gateway`
-- `pkg/runtime/session`
+```text
+AgentHub 2.0 single-node profile
+SQLite
+WAL
+sqlc
+goose
+FTS5
+```
+
+PostgreSQL may be introduced later behind stable repository interfaces. MySQL is not the implicit target.
+
+## Core persisted domains
+
+```text
+users
+conversations
+conversation_members
+messages
+runs
+plans
+plan_versions
+agent_invocations
+events
+attachments
+artifacts
+artifact_versions
+conversation_summaries
+context_snapshots
+context_chunks
+registered_agents
+agent_versions
+agent_health_checks
+agent_credentials
+run_agent_snapshots
+```
 
 ## Non-negotiable rules
 
-- Follow the redesign plan over old PDR/Sprint directory details.
-- Do not add new new-architecture work under legacy `server/` or root `agents/`.
-- Do not make Frontend call Orchestrator or Child Agents directly.
-- Do not put concrete LLM providers or business handlers in `pkg/adk`.
-- Keep Gateway and Orchestrator as separate services.
-- Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
-- Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
-
-## Required workflow
-
-1. Identify the relevant contract files above.
-2. Check whether the requested change touches cross-module fields or event lifecycles.
-3. Update contract first when the boundary changes.
-4. Implement only in allowed targets.
-5. Add/update tests for the touched module.
-6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
+- AgentHub storage is the conversation fact source; provider conversation IDs are optional optimization metadata.
+- Original Messages MUST NOT be replaced by summaries.
+- Confirmed PlanVersions and ArtifactVersions are immutable.
+- Every Run MUST be traceable to the triggering Message, context snapshot, PlanVersion, Agent invocations, events, and artifacts.
+- Registry records MUST preserve AgentVersion and historical snapshots.
+- Secrets MUST NOT be stored in ordinary JSON columns or returned through public APIs.
+- All list queries MUST be paginated.
+- Soft deletion and purge behavior MUST be explicit.
+- Database field names use `snake_case`; public API fields use `camelCase`.
+- SQLite migrations have one owner and MUST be reproducible from an empty database.
+- Multi-process SQLite access MUST use WAL, short transactions, busy timeout, and bounded retry.
+- Do not scatter raw SQL outside the selected query/repository layer.
 
 ## Completion checklist
 
-- [ ] No stale old-path instructions were introduced.
-- [ ] Contract and implementation agree.
-- [ ] Public Gateway API remains separate from internal service API.
-- [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
-- [ ] Errors are sanitized and do not expose secrets or internal URLs.
-- [ ] Tests or a clear blocker are reported.
+- [ ] Schema matches active Contracts.
+- [ ] Migration up/down or forward-only policy is explicit and tested.
+- [ ] Indexes cover conversation list, message pagination, event replay, registry lookup, and search.
+- [ ] Idempotency and optimistic concurrency are enforced.
+- [ ] Cross-conversation access is protected.
+- [ ] Agent and Plan snapshots preserve historical reproducibility.
+- [ ] Secret fields and retention policy are reviewed.
+- [ ] Tests and migration evidence are reported.
