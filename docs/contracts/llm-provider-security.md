@@ -1,24 +1,109 @@
 # LLM Provider Security
 
-## Secret 规则
+**Status:** Active
+**Version:** AgentHub 2.0
 
-- API key 只能来自环境变量、secret manager 或等价机制。
-- 配置文件只能保存 env var 名称。
-- 不得把真实 API key 写进仓库。
-- 不得把用户 token 当 Provider API key。
+## Secret rules
 
-## 日志规则
+Provider credentials may come from:
 
-不得记录：
+```text
+environment reference
+container secret
+secret manager
+approved local development secret store
+```
 
-- API key
-- Authorization header
-- 完整 system prompt
-- 数据库连接串
-- Provider 原始敏感响应
+Configuration stores the reference name, not the value.
 
-## Gateway / Orchestrator 分进程规则
+Never write a real credential to:
 
-- Gateway Service 不直接调用 LLM Provider。
-- Gateway Service 不保存 Provider secret。
-- LLM 调用必须发生在被授权的后端运行单元中，并通过 Provider Adapter。
+```text
+Git
+AgentCard
+Plan/PlanVersion
+Message
+Event
+Artifact
+ContextSnapshot
+ordinary database field
+frontend environment
+log/trace/metric
+debug bundle
+test fixture
+```
+
+User and browser bearer tokens are not Provider credentials.
+
+## Content and reasoning
+
+Ordinary logs and telemetry exclude:
+
+- full system/developer prompt;
+- unredacted user Message;
+- Attachment/Artifact body;
+- provider raw request/response;
+- private model reasoning or chain-of-thought.
+
+AgentHub requests final answers, bounded explanations, and structured outputs.
+
+Usage-only fields such as reasoning token counts may be recorded when they contain no reasoning content.
+
+## Trust boundary
+
+```text
+Gateway
+  X Provider SDK / Provider credential
+
+authorized backend module
+  -> Provider Router
+  -> Provider Adapter
+  -> external Provider
+```
+
+Provider output remains untrusted until parsed, validated, and mapped into the owning domain.
+
+## Base URL and proxy
+
+Custom/provider-compatible base URLs require:
+
+- explicit configuration;
+- TLS policy;
+- no browser exposure;
+- credential scoping;
+- timeout and response-size limits;
+- safe redirect/network policy where applicable.
+
+A Provider proxy cannot silently receive credentials intended for another trust boundary.
+
+## Errors
+
+Public/provider-normalized errors expose:
+
+```text
+safe code
+safe message
+retryable
+correlation ID
+```
+
+They do not expose:
+
+```text
+credential
+Authorization header
+internal URL with secret query
+provider raw body
+private prompt
+private reasoning
+```
+
+## Required tests
+
+- credential reference not value;
+- redacted configuration/log/error;
+- Gateway has no Provider secret path;
+- custom base URL policy;
+- raw provider error sanitization;
+- prompt/content/reasoning absence from logs;
+- debug bundle allowlist.

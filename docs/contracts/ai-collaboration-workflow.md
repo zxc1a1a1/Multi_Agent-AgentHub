@@ -1,278 +1,186 @@
 # AI Collaboration Workflow Contract
 
-**Status:** Active  
-**Version:** AgentHub 2.0  
+**Status:** Active
+**Version:** AgentHub 2.0
+**Product source:** `docs/pdr/AgentHub-2.0-PDR.md`
 
 ## 1. Purpose
 
-This Contract governs how AI coding assistants participate in AgentHub development.
+This Contract governs how AI coding assistants study, plan, modify, test, review, and package AgentHub work.
 
 It ensures:
 
-- correct source precedence;
-- minimal and relevant context;
-- Contract-first changes;
+- exact source selection;
+- PDR and Contract precedence;
 - bounded file scope;
+- Contract-first changes;
 - staged implementation;
-- reusable output packages;
-- explicit tests and review;
-- no silent reliance on legacy architecture assumptions.
+- reproducible patch generation;
+- explicit validation and review;
+- no silent reliance on legacy architecture.
 
 ## 2. Source precedence
 
 ```text
 current explicit user instruction
--> approved AgentHub 2.0 PDR and accepted corrections
+-> docs/pdr/AgentHub-2.0-PDR.md
 -> project-architecture
 -> active domain Contract
--> Schema/OpenAPI/ADR
+-> Schema/OpenAPI/approved ADR
 -> current implementation and tests
--> legacy documents
+-> docs/legacy/**
 ```
 
-A legacy redesign, Sprint, UML, v0.x, or v1.x document may explain history, but MUST NOT override an active 2.0 Contract.
+Legacy redesign, Sprint, UML, v0.x, and v1.x material explains history but cannot override an active 2.0 source.
 
 ## 3. Standard workflow
 
 ```text
 Task intake
--> Source scan
--> Scope lock
--> Contract update
--> Implementation plan
--> Small implementation slice
--> Validation
--> Review
--> Delivery report
+-> exact source scan
+-> scope lock
+-> Contract/ADR update
+-> implementation plan
+-> one implementation slice
+-> validation
+-> review
+-> reproducible handoff
 ```
 
 ## 4. Task intake
 
-Before editing, determine:
+Determine:
 
-- the requested outcome;
-- whether the request is analysis, document generation, implementation, review, or packaging;
+- requested outcome;
+- analysis/document/implementation/review/package;
 - affected domains;
 - required Skills;
-- files allowed to change;
-- files explicitly excluded;
-- expected artifact format;
-- whether user confirmation is required before continuing.
+- exact source files;
+- allowed and excluded paths;
+- expected artifact;
+- confirmation needed before continuation.
 
-## 5. Minimal context policy
+## 5. Minimal exact context
 
-AI MUST:
+AI must:
 
-- start from files explicitly provided by the user;
-- read the active architecture and directly affected domain Contracts;
-- inspect the smallest implementation surface needed;
-- distinguish source-derived facts from inference;
-- avoid loading all Skills or all repository files without a reason.
+- start with files supplied by the user;
+- read the PDR and directly affected active Contracts;
+- inspect the smallest implementation surface;
+- distinguish source facts, inference, and external research;
+- report unsupported gaps.
 
-AI MUST NOT:
+AI must not:
 
-- treat search snippets as complete Contract content;
+- treat search snippets as complete files;
+- silently reconstruct an exact patch baseline from incomplete files;
 - infer missing source behavior as fact;
-- silently reconcile contradictory source documents;
-- import an unrelated framework design into AgentHub.
+- import unrelated framework design.
 
-## 6. Skill selection examples
+## 6. Patch baseline
 
-### Multi-conversation IM
-
-```text
-/project-architecture
-/conversation-contract
-/data-persistence-contract
-/context-management-contract
-/platform-api-contract
-/agui-event-contract
-/testing-review-contract
-```
-
-### LLM planning and approval
+For an applicable Git patch:
 
 ```text
-/project-architecture
-/planning-approval-contract
-/agent-registry-contract
-/context-management-contract
-/llm-provider-contract
-/a2a-agent-contract
-/llm-orchestration-dev
-/llm-orchestration-review
+exact relevant files or full commit
++ recorded HEAD
++ recorded working status
+-> normal Git modification
+-> git diff --binary
+-> second-copy git apply --check
+-> actual apply verification
 ```
 
-### Agent registration
-
-```text
-/project-architecture
-/agent-registry-contract
-/a2a-agent-contract
-/data-persistence-contract
-/platform-api-contract
-/security-boundary-contract
-/testing-review-contract
-```
-
-### Artifact preview
-
-```text
-/project-architecture
-/artifact-contract
-/web-project-preview-contract
-/agui-event-contract
-/security-boundary-contract
-/testing-review-contract
-```
+The delivery report states the expected baseline.
 
 ## 7. Scope lock
 
-The implementation plan MUST list:
+List:
 
 ```text
 modify
 create
 delete/rename
-read-only dependencies
-explicitly forbidden paths
+read-only sources
+excluded paths
+dependencies
 tests
 risks
 rollback
 ```
 
-Rules:
-
-- review-only means no file modification;
-- document-only means no business implementation;
-- no unapproved dependency installation;
-- no automatic transition to the next batch;
-- no opportunistic unrelated cleanup;
-- legacy paths change only in an explicit migration task.
+No automatic next batch, unrelated cleanup, dependency installation, or legacy migration without scope approval.
 
 ## 8. Contract-first development
 
-Update the active Contract before implementation when changing:
-
-- public or internal API;
-- event lifecycle;
-- Plan/Run/Message state;
-- Agent registration or AgentCard handling;
-- context selection;
-- Artifact structure or versioning;
-- persistence schema;
-- authorization boundary;
-- protocol mapping.
-
-Expected sequence:
+Use:
 
 ```text
-Contract
--> Schema/OpenAPI
--> fixture/mock
+PDR/Contract
+-> Schema/OpenAPI/ADR
+-> fixture/Mock
 -> implementation
 -> tests
 -> review
 ```
 
+for API, event, lifecycle, state, registration, context, Artifact, persistence, provider, security, or language-boundary changes.
+
 ## 9. Reuse assessment
 
-Before new infrastructure is written, record:
+Record existing repository component, approved external component, compatibility gap, and AgentHub-owned boundary.
 
-- existing repository component;
-- approved external implementation;
-- compatibility gaps;
-- chosen integration boundary;
-- code that AgentHub still needs to own.
-
-Do not reimplement:
-
-- A2A or MCP base protocol;
-- generic browser bundling/preview;
-- database migration framework;
-- SQL code generation;
-- full-text search engine;
-- tracing protocol.
+Do not reimplement base A2A/MCP, browser bundling, migration framework, typed SQL generation, FTS engine, or telemetry protocol.
 
 ## 10. Validation
 
-Minimum document validation:
+Document work:
 
-- correct path;
-- valid frontmatter;
-- coherent headings;
-- no stale Skill names;
-- no conflicting source precedence;
-- no unsupported claim.
+- path/frontmatter;
+- Markdown;
+- JSON Schema/OpenAPI;
+- stale source/Skill names;
+- `git diff --check`.
 
-Minimum code validation depends on scope:
+Code work as applicable:
 
-- Go tests;
-- race tests where concurrency changes;
-- TypeScript typecheck;
-- frontend component/reducer tests;
-- migration tests;
-- JSON Schema/OpenAPI validation;
-- event replay tests;
-- security negative tests;
-- deterministic Mock Agent/Planner tests.
+- Go tests/race;
+- frontend typecheck/test/build;
+- migration/restart;
+- event replay;
+- security negatives;
+- deterministic Mock Provider/Agent/Planner.
+
+Unexecuted validation is reported as not run.
 
 ## 11. Review
 
-Review checks:
+Check:
 
 - user scope;
-- active Contract compliance;
-- module boundary;
+- PDR/Contract compliance;
+- service/trust/language boundaries;
 - stale legacy assumptions;
 - unsafe Agent registration;
 - unconfirmed Plan execution;
-- cross-conversation context leakage;
+- cross-Conversation leakage;
 - non-versioned Artifact overwrite;
-- secret/log exposure;
-- missing errors and tests;
-- unnecessary new abstractions.
+- provider/Tool/Preview security;
+- missing tests;
+- unnecessary abstraction.
 
-## 12. Delivery package
-
-A document or Contract batch SHOULD contain:
-
-```text
-repository-relative files
-MANIFEST.md
-PATCH_NOTES.md
-applicable .diff/.patch
-```
-
-The package MUST NOT contain:
-
-- secrets;
-- caches;
-- build output;
-- private logs;
-- unrelated source files.
-
-## 13. Delivery report
+## 12. Handoff
 
 Report:
 
-1. changed files;
-2. new files;
-3. deleted/renamed files;
-4. purpose;
-5. untouched scope;
-6. dependency changes;
-7. tests;
-8. known gaps;
-9. apply/rollback instructions.
-
-## 14. Completion
-
-A task is complete when:
-
-- requested scope is covered;
-- active Contracts and output agree;
-- no unauthorized work was added;
-- validation evidence exists or a blocker is stated;
-- the deliverable is locatable and reusable;
-- the next dependency batch is clearly separated.
+```text
+baseline
+modified/created/deleted/renamed
+purpose
+intentionally untouched
+dependencies
+tests and results
+known gaps
+apply
+rollback
+```

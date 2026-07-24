@@ -2,21 +2,23 @@
 
 **Status:** Active
 **Version:** AgentHub 2.0
+**Contract baseline:** `2.0-initial`
+**Product source:** `docs/pdr/AgentHub-2.0-PDR.md`
 
 ## Source-of-truth order
 
 1. Current explicit user decision.
-2. Approved AgentHub 2.0 PDR and accepted corrections.
+2. `docs/pdr/AgentHub-2.0-PDR.md`.
 3. `project-architecture.md`.
 4. The active domain Contract in this directory.
-5. JSON Schema, OpenAPI, ADR, implementation, and tests.
-6. `docs/legacy/**` and older Sprint/UML/redesign documents as historical references only.
+5. JSON Schema, OpenAPI, approved ADR, implementation, and tests.
+6. `docs/legacy/**` and old Sprint/UML/redesign/v0.x/v1.x documents.
 
 ## Contract-first rule
 
 ```text
-Contract
--> Schema/OpenAPI
+PDR/Contract
+-> Schema/OpenAPI/ADR
 -> deterministic fixture or Mock
 -> implementation
 -> contract/integration/security tests
@@ -25,10 +27,19 @@ Contract
 
 ## Active core contracts
 
-### Product and orchestration
+### Governance and architecture
 
 ```text
 project-architecture.md
+contract-governance.md
+ai-collaboration-workflow.md
+code-style.md
+commit-security-review.md
+```
+
+### Product and orchestration
+
+```text
 conversation.md
 planning-approval.md
 context-management.md
@@ -39,7 +50,7 @@ gateway-orchestrator.md
 agui-events.md
 ```
 
-### Agent and runtime
+### Agent, runtime, and model
 
 ```text
 a2a-agent-card.md
@@ -47,6 +58,7 @@ a2a-task.md
 a2a-errors.md
 agent-runtime.md
 llm-provider.md
+llm-provider.schema.json
 ```
 
 ### Artifact and preview
@@ -72,6 +84,7 @@ docker-compose-delivery.md
 
 ```text
 project-architecture
+ai-collaboration-workflow
 conversation-contract
 planning-approval-contract
 context-management-contract
@@ -89,13 +102,13 @@ security-boundary-contract
 observability-debugging-contract
 testing-review-contract
 docker-compose-delivery
+code-style-and-conventions
+commit-security-review
 ```
 
-Workflow Skills may add implementation/review gates but do not replace domain Contracts.
+Workflow and review Skills add procedure and gates; they do not replace domain Contracts.
 
 ## Retired active names
-
-The following names are historical after AgentHub 2.0:
 
 ```text
 intent-orchestration-contract
@@ -103,14 +116,24 @@ adk-runtime-contract
 frontend-runtime-skills-contract
 ```
 
-Their previous content is retained under `docs/legacy/contracts/pre-v2/`.
+Previous content is retained under `docs/legacy/**`.
 
 ## Boundary reminders
 
-- CodeAgent and WebAgent are built-in reference Agents, not the only registrable Agents.
-- Planner, Synthesizer, Context Manager, summarizer, and preview renderer are not Agents.
-- Multi-Agent execution requires an LLM-generated, validated, user-confirmed PlanVersion.
-- Artifact is a persistent resource; preview is not a fake Tool Call.
-- Complete history is persisted, while model context is selected and bounded.
+- CodeAgent and WebAgent are built-in reference Agents, not all registrable Agents.
+- Planner, Synthesizer, Context Manager, summarizer, title generator, and Preview Renderer are not Agents.
+- Multi-Agent execution requires a validated and confirmed exact PlanVersion.
+- Agent registration does not grant Tool permission.
+- Artifact is persistent and versioned; Preview is not a fake Tool Call.
+- Complete history is persisted while model context is selected and bounded.
+- Provider state is not the AgentHub Conversation fact source.
 - Frontend calls Gateway only.
+- SQLite/WAL is the default 2.0 profile.
 - MySQL and gRPC are not implicit mandatory targets.
+- Core online services use Go; Python is reserved for evaluation and bounded scripts unless an ADR says otherwise.
+
+## Freeze policy
+
+`2.0-initial` is the baseline for implementation.
+
+Do not add a new core Contract or Skill for an implementation detail. Cross-module boundary changes require an approved ADR and updates to the owning Contracts.

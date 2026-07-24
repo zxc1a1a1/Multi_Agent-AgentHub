@@ -1,75 +1,71 @@
 ---
 name: code-style-and-conventions
-description: "Code style skill. Updated for Module Separation & Runtime Redesign."
+description: "AgentHub 2.0 engineering conventions for Go platform services, React/TypeScript frontend, Python evaluation scripts, contracts, errors, tests, naming, and generated changes."
 ---
 
 # code-style-and-conventions
 
 ## Purpose
 
-Use this for style review under the new module layout. New Go work targets pkg/* and services/*, not legacy server/agents.
+Use this Skill when writing or reviewing Go, TypeScript/React, Python helper scripts, SQL, JSON/YAML, Markdown Contracts, naming, errors, tests, comments, or generated code.
 
-## Authoritative source order
-
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. Contracts listed in this skill
-4. PDR product goals only
-5. Sprint/UML as supplemental demo/product context only
-
-## Active architecture facts
+## Read first
 
 ```text
-pkg/adk                 pure ADK engine
-pkg/runtime             runtime framework over ADK
-services/gateway        public Gateway, auth, SSE, persistence
-services/orchestrator   planner/router/executor/dispatcher
-services/agents/*       child A2A agents
-frontend                React client, Gateway-only access
+/project-architecture
+/ai-collaboration-workflow
+/testing-review-contract
+/commit-security-review
 ```
 
-Legacy paths are not implementation targets for new-architecture work:
+Primary source:
 
 ```text
-server/**               legacy reference only
-agents/**               legacy reference only
+docs/contracts/code-style.md
 ```
 
-## Contracts to read first
+References:
 
-- `docs/contracts/code-style.md`
-- `docs/contracts/conventions.md`
+```text
+references/go-style.md
+references/typescript-react-style.md
+references/python-script-style.md
+references/testing-and-errors.md
+references/review-checklist.md
+```
 
-## Allowed implementation targets
+## Language boundary
 
-- `pkg/*`
-- `services/*`
-- `frontend`
+```text
+Go          core online services, Agent Runtime, protocol/storage adapters
+TypeScript  React frontend, AG-UI reducer, Artifact/Sandpack workspace
+Python      evaluation, datasets, analysis, bounded development scripts
+SQL         migrations and typed queries through approved tooling
+```
+
+A new core online service in Python or another language requires an approved ADR.
 
 ## Non-negotiable rules
 
-- Follow the redesign plan over old PDR/Sprint directory details.
-- Do not add new new-architecture work under legacy `server/` or root `agents/`.
-- Do not make Frontend call Orchestrator or Child Agents directly.
-- Do not put concrete LLM providers or business handlers in `pkg/adk`.
-- Keep Gateway and Orchestrator as separate services.
-- Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
-- Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
-
-## Required workflow
-
-1. Identify the relevant contract files above.
-2. Check whether the requested change touches cross-module fields or event lifecycles.
-3. Update contract first when the boundary changes.
-4. Implement only in allowed targets.
-5. Add/update tests for the touched module.
-6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
+- Optimize for correctness and readability before abstraction.
+- Keep changes small and domain-bounded.
+- External input is `unknown`/untrusted until validated.
+- Context, cancellation, timeout, and errors propagate across I/O boundaries.
+- Do not introduce parallel domain/protocol types when official or active Contract types exist.
+- Do not add new work to legacy `server/**` or root `agents/**` unless the task is an explicit migration.
+- Do not add an abstraction used by one call site unless it enforces a real boundary or test seam.
+- Logs contain stable IDs and safe errors, not credentials, private prompts, content dumps, or private reasoning.
+- Comments explain invariants and tradeoffs, not obvious syntax.
+- Generated code is formatted, tested, and free of placeholders.
+- Never claim an unexecuted command or test passed.
 
 ## Completion checklist
 
-- [ ] No stale old-path instructions were introduced.
-- [ ] Contract and implementation agree.
-- [ ] Public Gateway API remains separate from internal service API.
-- [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
-- [ ] Errors are sanitized and do not expose secrets or internal URLs.
-- [ ] Tests or a clear blocker are reported.
+- [ ] Language and module boundary is correct.
+- [ ] Formatting/typecheck/lint appropriate to the language was run.
+- [ ] I/O has cancellation/timeout and safe error handling.
+- [ ] validation occurs at the trust boundary.
+- [ ] concurrency has ownership and race coverage.
+- [ ] tests cover negative behavior.
+- [ ] no stale AgentHub terminology or retired Skill path was introduced.
+- [ ] no secret or generated cache/binary was added.

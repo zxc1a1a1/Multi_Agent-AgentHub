@@ -1,33 +1,46 @@
 # LLM Provider Review Checklist
 
-## 通用性
+## Boundary
 
-- 是否没有绑定具体 Agent 名称？
-- 是否没有让业务代码直接调用 Provider SDK？
-- 是否所有 LLM 调用都经过 Provider Adapter？
-- Gateway 是否没有直接调用 LLM Provider？
+- [ ] Provider adapter is behind an authorized backend use-case policy.
+- [ ] Gateway/browser does not call Provider or receive Provider credential.
+- [ ] Provider SDK types do not leak into domain/API/Event/Artifact contracts.
+- [ ] Provider state is not treated as Conversation truth.
 
-## Provider / Model
+## Registry and policy
 
-- Provider 是否注册？
-- Model 是否注册？
-- 能力是否声明？
-- disabled Provider / Model 是否不可用？
+- [ ] Provider and model are registered and enabled.
+- [ ] use case is one of the stable AgentHub 2.0 values.
+- [ ] required capabilities match the selected and fallback models.
+- [ ] prompt template and policy versions are explicit.
 
-## 结构化输出
+## Structured output
 
-- 是否有 schema？
-- 是否本地 JSON Schema validation？
-- 校验失败是否不执行下游动作？
+- [ ] local JSON/domain validation is mandatory.
+- [ ] Planner output cannot bypass Plan Validator.
+- [ ] invalid output has bounded repair/failure behavior.
 
-## 安全
+## Streaming and reliability
 
-- API key 是否未进入日志、Prompt、Artifact、数据库普通字段？
-- 错误是否脱敏？
-- Prompt 模板是否不含 secret？
+- [ ] timeout and cancellation propagate.
+- [ ] retry is classified and bounded.
+- [ ] fallback is capability/privacy compatible.
+- [ ] visible streaming is not duplicated by a full retry.
+- [ ] terminal stream event is unique.
 
-## 可靠性
+## Security and observability
 
-- 是否有 timeout？
-- retry 是否有上限？
-- fallback 是否校验能力？
+- [ ] configuration contains a secret reference only.
+- [ ] credentials, prompts, content, and private reasoning are redacted.
+- [ ] provider/model/use case/request ID/usage/latency are normalized.
+- [ ] errors are safe and correlated.
+
+## Testing
+
+- [ ] deterministic Mock Provider.
+- [ ] disabled/capability mismatch.
+- [ ] structured output validation.
+- [ ] retry/fallback.
+- [ ] cancellation/stream interruption.
+- [ ] provider state loss/switch.
+- [ ] redaction.

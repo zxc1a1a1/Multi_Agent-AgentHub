@@ -1,74 +1,94 @@
 ---
 name: llm-provider-contract
-description: "Runtime model provider skill. Updated for Module Separation & Runtime Redesign."
+description: "AgentHub 2.0 model-provider contract skill for use-case routing, provider/model registries, structured output, streaming, retries, fallback, usage, redaction, and deterministic Mock mode."
 ---
 
 # llm-provider-contract
 
 ## Purpose
 
-Use this for Anthropic/OpenAI/Proxy provider work. Providers never live in pkg/adk.
+Use this Skill for model provider adapters, model registry, use-case policy, structured output, provider streaming, retry/fallback, token usage, provider conversation state, Mock Provider, or model credential changes.
 
-## Authoritative source order
-
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. Contracts listed in this skill
-4. PDR product goals only
-5. Sprint/UML as supplemental demo/product context only
-
-## Active architecture facts
+## Read first
 
 ```text
-pkg/adk                 pure ADK engine
-pkg/runtime             runtime framework over ADK
-services/gateway        public Gateway, auth, SSE, persistence
-services/orchestrator   planner/router/executor/dispatcher
-services/agents/*       child A2A agents
-frontend                React client, Gateway-only access
+/project-architecture
+/context-management-contract
+/planning-approval-contract
+/agent-runtime-contract
+/security-boundary-contract
+/observability-debugging-contract
+/testing-review-contract
 ```
 
-Legacy paths are not implementation targets for new-architecture work:
+Primary sources:
 
 ```text
-server/**               legacy reference only
-agents/**               legacy reference only
+docs/contracts/llm-provider.md
+docs/contracts/llm-provider.schema.json
+docs/contracts/llm-provider-security.md
+docs/contracts/llm-provider-review-checklist.md
 ```
 
-## Contracts to read first
+References:
 
-- `docs/contracts/llm-provider.md`
-- `docs/contracts/model-registry.md`
+```text
+references/use-case-policy.md
+references/provider-adapter-policy.md
+references/retry-streaming-policy.md
+references/secret-redaction-policy.md
+references/review-checklist.md
+```
 
-## Allowed implementation targets
+## Stable use cases
 
-- `pkg/runtime/model`
-- `pkg/runtime/registry`
+```text
+planner
+code_agent
+web_agent
+synthesizer
+conversation_summary
+auto_title
+```
+
+A use case is platform policy, not an Agent identity or Provider endpoint.
+
+## Boundary
+
+```text
+domain module
+-> use-case policy
+-> Provider Router
+-> Provider Adapter
+-> external model API
+```
+
+Gateway does not call a model provider.
+
+Planner, built-in Agent handlers, Synthesizer, Summary, and Auto Title may call the provider layer through explicit use-case policy.
 
 ## Non-negotiable rules
 
-- Follow the redesign plan over old PDR/Sprint directory details.
-- Do not add new new-architecture work under legacy `server/` or root `agents/`.
-- Do not make Frontend call Orchestrator or Child Agents directly.
-- Do not put concrete LLM providers or business handlers in `pkg/adk`.
-- Keep Gateway and Orchestrator as separate services.
-- Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
-- Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
-
-## Required workflow
-
-1. Identify the relevant contract files above.
-2. Check whether the requested change touches cross-module fields or event lifecycles.
-3. Update contract first when the boundary changes.
-4. Implement only in allowed targets.
-5. Add/update tests for the touched module.
-6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
+- Provider Conversation or response ID is an optimization, not the AgentHub Conversation fact source.
+- Local ContextSnapshot remains sufficient to reconstruct a request after provider switch or state loss.
+- Planner structured output is parsed and validated locally before it can create a PlanVersion.
+- Provider/model capabilities are declared and checked before routing or fallback.
+- Retry is bounded and classified.
+- Full request retry after user-visible streaming begins is forbidden unless the provider supports safe resumable semantics.
+- Fallback before visible output requires compatible capability and use-case policy.
+- API keys come from secret references, never ordinary persisted fields.
+- Credentials, Authorization headers, full private prompts, private model reasoning, and unredacted content do not enter logs/events.
+- The platform requests final answers and structured outputs, not private chain-of-thought.
+- Mock Provider is deterministic and requires no production credential.
+- Provider-specific SDK objects do not leak into domain, API, Event, Artifact, or AgentCard contracts.
 
 ## Completion checklist
 
-- [ ] No stale old-path instructions were introduced.
-- [ ] Contract and implementation agree.
-- [ ] Public Gateway API remains separate from internal service API.
-- [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
-- [ ] Errors are sanitized and do not expose secrets or internal URLs.
-- [ ] Tests or a clear blocker are reported.
+- [ ] Provider/model/use-case policy is explicit.
+- [ ] capability and structured-output validation are local.
+- [ ] timeout/retry/fallback and visible-stream boundary are tested.
+- [ ] provider state loss/switch is recoverable from local context.
+- [ ] token/usage metadata is normalized.
+- [ ] secrets and content redaction are tested.
+- [ ] deterministic Mock mode exists.
+- [ ] Gateway and public browser boundary remain provider-free.

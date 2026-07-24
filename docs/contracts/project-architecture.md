@@ -1,8 +1,9 @@
 # Project Architecture Contract
 
-**Status:** Active  
-**Version:** AgentHub 2.0  
-**Owner:** AgentHub  
+**Status:** Active
+**Version:** AgentHub 2.0
+**Product source:** `docs/pdr/AgentHub-2.0-PDR.md`
+**Owner:** AgentHub
 
 ## 1. Purpose
 
@@ -10,7 +11,7 @@ This Contract defines the system boundary and architectural source of truth for 
 
 AgentHub 2.0 is:
 
-> A multi-conversation IM system that supports direct Agent chat, user-selected multi-Agent collaboration, automatic Agent selection, LLM-generated plans that require user confirmation, registered remote Agents, controlled context construction, and persistent artifacts with web preview.
+> A multi-conversation IM system supporting direct Agent chat, user-selected multi-Agent collaboration, automatic Agent selection, LLM-generated plans requiring user confirmation, registered remote Agents, controlled context, and persistent versioned Artifacts with web preview.
 
 It is not:
 
@@ -18,40 +19,49 @@ It is not:
 - a repository-review-only product;
 - a visual workflow editor;
 - an unrestricted autonomous Agent loop;
-- a system in which Planner, Context Manager, or Synthesizer are separate Agents.
+- a system in which Planner, Context Manager, Synthesizer, summarizer, or Preview Renderer is an Agent.
 
 ## 2. Source precedence
 
 1. Current explicit user decision.
-2. Approved AgentHub 2.0 PDR and accepted corrections.
+2. `docs/pdr/AgentHub-2.0-PDR.md`.
 3. This architecture Contract.
 4. Active domain Contracts.
-5. Schema, OpenAPI, ADR, implementation, and tests.
-6. Legacy Sprint, UML, redesign, v0.x, and v1.x documents.
+5. Schema, OpenAPI, approved ADR, implementation, and tests.
+6. `docs/legacy/**` and older Sprint/UML/redesign/v0.x/v1.x documents.
 
-Legacy documents are historical evidence. They MUST NOT override an active 2.0 Contract.
+Legacy sources are historical evidence and MUST NOT override an active 2.0 source.
 
 ## 3. System topology
 
 ```text
 Frontend
+  -> Gateway
+  -> Orchestrator
+  -> Registered Agents
+```
+
+Expanded:
+
+```text
+Frontend
   ├── Conversation management
   ├── Chat timeline
-  ├── Agent selector
+  ├── Agent selector and registration UI
   ├── Plan confirmation
   ├── Artifact workspace
-  └── Web preview
+  └── Sandpack preview
         |
         | Public API + SSE/AG-UI
         v
 Gateway
-  ├── Authentication and authorization
-  ├── Conversation and message API
-  ├── Plan confirmation API
-  ├── Attachment and artifact API
-  └── Event stream
+  ├── Authentication and object authorization
+  ├── Conversation/Message/Run/Plan APIs
+  ├── Agent registration API
+  ├── Attachment/Artifact/Search APIs
+  └── Event replay and stream mapping
         |
-        | Internal run protocol
+        | Private internal protocol
         v
 Orchestrator
   ├── Mode Resolver
@@ -62,19 +72,21 @@ Orchestrator
   ├── Context Manager
   ├── Agent Registry
   ├── A2A Dispatcher
-  └── Result Synthesizer
+  ├── Result Synthesizer
+  └── Run/Event/Artifact coordination
         |
         | A2A
         v
 Registered Agents
   ├── Built-in CodeAgent
   ├── Built-in WebAgent
-  └── Dynamically registered conforming Agents
+  ├── Configured Agents
+  └── Remote registered Agents
 ```
 
-## 4. Product-level resources
+## 4. Product and execution resources
 
-The primary user-visible resources are:
+User-visible domain resources:
 
 ```text
 User
@@ -90,7 +102,7 @@ Artifact
 ArtifactVersion
 ```
 
-Internal execution resources include:
+Internal supporting resources:
 
 ```text
 Event
@@ -99,30 +111,41 @@ ConversationSummary
 RegisteredAgent
 AgentVersion
 AgentHealthCheck
+AgentCredential
 RunAgentSnapshot
 ```
 
-A Message is not an Event.  
-A PlanStep is not an Agent.  
-An Artifact is not a Tool Call.  
+A Message is not an Event.
+A PlanStep is not an Agent.
+An Artifact is not a Tool Call.
 A Skill is not an Agent.
+A Preview is not an Agent or Tool.
 
 ## 5. Agent model
 
-### 5.1 Built-in Agents
-
-AgentHub 2.0 ships and validates two reference Agents:
+### Built-in
 
 ```text
 CodeAgent
 WebAgent
 ```
 
-They are the default built-in Agents, not the only Agents the platform may invoke.
+These are stable reference Agents, not the complete platform boundary.
 
-### 5.2 Registered Agents
+### Registered
 
-A conforming Agent may enter the platform through:
+A new invocation candidate is:
+
+```text
+registered
++ enabled
++ health acceptable
++ authorized
++ valid AgentVersion
++ applicable Skill
+```
+
+Registration source may be:
 
 ```text
 builtin
@@ -130,208 +153,132 @@ config
 remote
 ```
 
-An eligible registered Agent MUST be:
+Future platform-managed Agent resources remain separate from remote A2A registration.
+
+### Internal modules
+
+The following MUST NOT register as Agents:
 
 ```text
-registered
-+ enabled
-+ healthy
-+ authorized for the user/conversation
-+ backed by a valid AgentVersion
-+ equipped with a valid capability/skill declaration
+Planner
+Plan Validator/Repairer
+Context Manager
+Result Synthesizer
+Conversation Summarizer
+Auto Title Generator
+Preview Renderer
 ```
-
-### 5.3 Non-Agent components
-
-The following components MUST NOT register as Agents:
-
-- LLM Planner;
-- Result Synthesizer;
-- Context Manager;
-- Conversation summarizer;
-- title generator;
-- preview renderer.
 
 ## 6. Conversation modes
 
-### 6.1 Direct Mode
+### Direct
 
-The user selects one eligible Agent.
+One eligible Agent, no multi-Agent Plan.
 
-```text
-User Message -> selected Agent -> Agent response
-```
+### Manual Multi-Agent
 
-Direct Mode does not require a multi-Agent Plan confirmation.
+The Planner uses only the user-selected eligible Agent set. Execution requires exact PlanVersion confirmation.
 
-### 6.2 Manual Multi-Agent Mode
+### Auto
 
-The user selects two or more eligible Agents. The LLM Planner may assign work only within that selected set.
+The Planner selects from the current eligible Registry Catalog. Execution requires exact PlanVersion confirmation.
 
-```text
-User selection -> LLM Plan -> validation -> user confirmation -> execution
-```
+A material Replan creates a new PlanVersion and requires reconfirmation.
 
-### 6.3 Auto Mode
-
-The LLM Planner selects from the current eligible Agent Catalog.
-
-```text
-Eligible Registry Catalog -> LLM Plan -> validation -> user confirmation -> execution
-```
-
-## 7. Planning boundary
-
-- Planner is an Orchestrator module.
-- A multi-Agent Plan is a versioned first-class resource.
-- The exact confirmed PlanVersion is the only executable version.
-- Editing or regenerating creates a new PlanVersion.
-- A material Replan requires new confirmation.
-- The internal dependency graph may represent serial, parallel, or mixed execution.
-- DAG terminology is an internal scheduling detail and is not the main product UI.
-
-## 8. Context boundary
-
-- Full source history is persisted.
-- The model receives only a Context Manager selection.
-- Context is isolated by Conversation by default.
-- Cross-conversation retrieval requires explicit user action or an explicit policy.
-- Different Agents receive different context projections.
-- ContextSnapshot records the selected inputs, not private model reasoning.
-
-## 9. Artifact and preview boundary
-
-- Agent outputs may create persistent Artifacts.
-- Artifact modifications create immutable ArtifactVersions.
-- A web project is represented as a `WebProjectArtifact`.
-- Frontend preview uses a sandboxed renderer such as Sandpack.
-- Preview is a renderer capability, not an Agent and not automatically a Tool Call.
-- Unknown artifact types MUST degrade safely to structured view or download.
-
-## 10. Service boundaries
+## 7. Boundaries
 
 ### Frontend
 
-MUST:
+React/TypeScript IM UI, AG-UI reducer, Plan confirmation, Artifact workspace, Sandpack Preview.
 
-- call Gateway only;
-- render Conversation, Message, Plan, AgentInvocation, and Artifact state;
-- require explicit confirmation before sending a Plan execution request;
-- sandbox web preview.
-
-MUST NOT:
-
-- call Orchestrator or registered Agents directly;
-- infer authorization from AgentCard;
-- execute unknown Artifact payloads.
+Frontend calls Gateway only.
 
 ### Gateway
 
-MUST:
+Public API, auth, object authorization, Conversation/Message access, registration endpoints, AG-UI/SSE replay.
 
-- expose the public API;
-- enforce object-level authorization;
-- handle idempotent message submission;
-- expose event replay;
-- mediate Plan confirmation and artifact access.
-
-MUST NOT:
-
-- perform Agent planning;
-- call an Agent directly;
-- silently mutate an approved Plan.
+Gateway does not dispatch Agents and does not call model providers.
 
 ### Orchestrator
 
-MUST:
+Planning, confirmation, context, registry, A2A dispatch, dependency execution, synthesis, and internal Run/Event state.
 
-- build Planner Catalog from Registry;
-- create and validate Plans;
-- block execution until confirmation;
-- build Agent-specific context;
-- dispatch through A2A;
-- preserve Agent and Plan snapshots.
+### Agent Runtime
 
-MUST NOT:
+Framework-neutral handler lifecycle and A2A/model/Tool adapters for built-in or future managed Agent services.
 
-- expose its internal API to Frontend;
-- bypass Registry state;
-- silently replace a confirmed Agent after execution begins.
+Runtime does not own Planner, Registry, Conversation, public API, or AG-UI.
 
-### Registered Agent
+### Provider layer
 
-MUST:
+Use-case policy and provider/model adapters.
 
-- expose a valid AgentCard or equivalent configured definition;
-- declare skills/capabilities;
-- implement supported A2A invocation behavior;
-- return structured errors and supported outputs.
+Provider state is optional optimization metadata, not Conversation truth.
 
-MUST NOT:
+## 8. Persistence and context
 
-- receive another Conversation's context;
-- obtain platform secrets;
-- assume its registration grants Tool permissions.
-
-## 11. Persistence profile
-
-AgentHub 2.0 default profile:
+Default 2.0 single-node profile:
 
 ```text
-single-node
 SQLite
 WAL
-sqlc
 goose
+sqlc
 FTS5
 ```
 
-PostgreSQL may be added as a later deployment profile behind the same repository interfaces. MySQL is not a mandatory architecture target.
+Complete history is persisted. Model/Agent context is selected and bounded through ContextSnapshot.
 
-Transport between Gateway and Orchestrator is contract-driven. Existing internal HTTP streaming may remain until an explicit transport migration Contract is approved. gRPC is not an implicit mandatory target.
+MySQL and gRPC are not implicit implementation targets.
 
-## 12. Reuse boundary
+## 9. Artifacts and preview
 
-Prefer established implementations:
+ArtifactVersion is immutable.
 
-- official A2A specification/SDK for Agent communication;
-- official MCP SDK for Tool protocol;
-- AG-UI event semantics for frontend streaming;
-- Sandpack for browser frontend preview;
-- sqlc for typed data access;
-- goose for migrations;
-- SQLite FTS5 for 2.0 full-text search;
-- OpenTelemetry for traces and metrics.
+User and Agent edits create new versions with conflict validation.
 
-AgentHub owns:
-
-- Conversation/Message/Run/Plan domain semantics;
-- Planner prompt, validation, and confirmation gate;
-- Registry policy and authorization;
-- context projection;
-- artifact versioning;
-- IM-to-Agent execution mapping;
-- product-specific evaluation.
-
-## 13. Legacy paths
+Web preview:
 
 ```text
-server/**
-agents/**
+WebProjectArtifact
+-> exact ArtifactVersion
+-> authorized mapping
+-> Sandpack sandbox
 ```
 
-are legacy references unless a dedicated migration task explicitly changes them.
+Unknown output or project type does not execute.
 
-## 14. Review blockers
+## 10. Language boundary
 
-A change is blocking if it:
+```text
+Go          core online services and adapters
+TypeScript  React frontend and preview workspace
+Python      evaluation, data processing, bounded helper scripts
+```
 
-- makes Frontend call Orchestrator or an Agent directly;
-- executes a multi-Agent Plan without confirmation;
-- hardcodes the platform to only CodeAgent and WebAgent;
-- allows Planner to use an unregistered, disabled, unhealthy, or unauthorized Agent;
-- treats Planner, Synthesizer, Context Manager, or Preview as an Agent;
-- mixes Conversation history across users or Conversations;
-- treats Artifact preview as arbitrary executable content;
-- introduces new implementation under legacy paths;
-- restores old MySQL/gRPC requirements without an approved Contract change.
+A different core-service language requires an approved ADR.
+
+## 11. Contract-first rule
+
+For boundary changes:
+
+```text
+PDR/Contract
+-> Schema/OpenAPI/ADR
+-> Mock/fixture
+-> implementation
+-> tests
+-> review
+```
+
+## 12. 2.0 initial freeze
+
+The active Contract set is frozen as `2.0-initial` after Batch 4.
+
+After freeze:
+
+- wording and defect corrections update the owning Contract;
+- cross-module boundary changes require an ADR and affected Contract updates;
+- implementation detail does not create a new Contract by default;
+- new core Skills require a non-overlapping ownership justification;
+- legacy documents stay under `docs/legacy/**`.

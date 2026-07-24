@@ -1,69 +1,13 @@
-# Review Checklist
+# Code Style Review Checklist
 
-## 通用
-
-- 是否只修改授权范围内文件？
-- 是否遵守当前目录已有风格？
-- 是否没有引入无关依赖？
-- 是否没有大规模无关格式化？
-- 是否没有把历史阶段限制当成当前禁令？
-
-## Go
-
-- 是否 gofmt？
-- 包名是否小写简短？
-- error 是否显式处理？
-- context 是否正确传递？
-- 外部 HTTP 调用是否有 timeout？
-- handler 是否保持薄层？
-- goroutine 是否可退出？
-- 外部依赖是否可测试？
-
-## TypeScript
-
-- 是否符合 strict？
-- 是否没有无理由 any？
-- 是否没有长期 @ts-ignore？
-- 外部 JSON 是否有安全处理？
-- API 调用是否集中？
-- 异步请求是否可取消或可安全忽略过期响应？
-
-## React
-
-- 组件是否 PascalCase？
-- Hook 是否 useXxx？
-- Props 是否显式类型？
-- 页面是否只负责组合？
-- 高风险渲染是否独立封装？
-- 错误是否不会导致白屏？
-
-## 命名
-
-- 目录命名是否统一？
-- 对外 JSON 字段是否 camelCase？
-- 数据库字段是否没有直接泄漏到 API？
-- Contract 文件是否 kebab-case？
-- 测试文件命名是否正确？
-
-## 测试
-
-- 是否覆盖正常路径？
-- 是否覆盖错误路径？
-- 是否覆盖边界输入？
-- 是否说明未执行测试原因？
-- 是否没有依赖真实 secret 或真实外部服务？
-
-## 文档
-
-- 是否中文一致？
-- frontmatter 是否合法？
-- 标题层级是否合理？
-- 代码块是否标注语言？
-- 是否没有展开其他专业 Skill 的内部规则？
-
-## 交付
-
-- 是否有文件清单？
-- 是否有变更说明？
-- 是否说明使用方式？
-- 是否没有声称未验证内容已通过？
+- [ ] correct language and module.
+- [ ] minimal coherent change.
+- [ ] formatter/typecheck/lint run.
+- [ ] trust-boundary validation.
+- [ ] context/timeout/cancellation.
+- [ ] safe errors and logs.
+- [ ] no unnecessary abstraction or dependency.
+- [ ] concurrency ownership and race coverage.
+- [ ] deterministic positive and negative tests.
+- [ ] active AgentHub terminology.
+- [ ] no placeholder, secret, cache, binary, or generated dependency tree.

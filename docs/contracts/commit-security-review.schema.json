@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.local/contracts/commit-security-review.schema.json",
+  "title": "AgentHub Commit Security Review",
+  "type": "object",
+  "required": [
+    "baseline",
+    "stagedFiles",
+    "checks",
+    "findings",
+    "verdict"
+  ],
+  "properties": {
+    "baseline": {
+      "type": "object",
+      "required": [
+        "head",
+        "statusReviewed"
+      ],
+      "properties": {
+        "head": {
+          "type": "string",
+          "minLength": 7
+        },
+        "statusReviewed": {
+          "const": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "stagedFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "change",
+          "category"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "added",
+              "modified",
+              "deleted",
+              "renamed"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "source",
+              "test",
+              "contract",
+              "schema",
+              "migration",
+              "query",
+              "configuration",
+              "dependency",
+              "generated",
+              "binary",
+              "legacy",
+              "other"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "result"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "not_run"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "severity",
+          "category",
+          "path",
+          "description",
+          "requiredAction"
+        ],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "blocker",
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "secret",
+              "private_data",
+              "authorization",
+              "agent_registration",
+              "planning",
+              "context",
+              "provider",
+              "tool",
+              "artifact",
+              "preview",
+              "dependency",
+              "generated_file",
+              "scope",
+              "other"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "requiredAction": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "APPROVED",
+        "APPROVED_WITH_FOLLOW_UP",
+        "BLOCKED"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

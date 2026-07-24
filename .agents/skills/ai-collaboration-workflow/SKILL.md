@@ -1,6 +1,6 @@
 ---
 name: ai-collaboration-workflow
-description: "AgentHub 2.0 AI-assisted development workflow: source selection, Contract-first changes, bounded scope, staged implementation, validation, review, and reusable delivery."
+description: "AgentHub 2.0 AI-assisted development workflow for exact source selection, Contract-first changes, bounded scope, staged implementation, validation, review, and reproducible delivery."
 ---
 
 # ai-collaboration-workflow
@@ -9,16 +9,13 @@ description: "AgentHub 2.0 AI-assisted development workflow: source selection, C
 
 Use this Skill whenever an AI coding assistant studies, plans, modifies, tests, reviews, or packages AgentHub files.
 
-Core workflow:
-
 ```text
 understand
--> select minimal context
+-> select exact sources
 -> lock scope
 -> update Contract
--> create implementation plan
 -> implement one slice
--> test
+-> validate
 -> review
 -> hand off
 ```
@@ -26,33 +23,20 @@ understand
 ## Authoritative source order
 
 1. Current explicit user instruction.
-2. Approved AgentHub 2.0 PDR and accepted follow-up decisions.
+2. `docs/pdr/AgentHub-2.0-PDR.md`.
 3. `/project-architecture`.
 4. The active domain Contract Skill and `docs/contracts/*`.
-5. Schema/OpenAPI/ADR.
+5. Schema, OpenAPI, approved ADR.
 6. Current implementation and tests.
-7. Legacy redesign, Sprint, UML, and v1.x documents as historical references only.
+7. `docs/legacy/**` and old redesign/Sprint/UML/v1.x material.
 
-Old gRPC/MySQL/MVP restrictions are not active unless an active 2.0 Contract explicitly restores them.
+Old gRPC, MySQL, fixed-Agent, fake ToolCall, and unrestricted context assumptions are not active unless a current Contract explicitly restores them.
 
 ## Context selection
 
 Read only what the task requires.
 
-Examples:
-
-### Conversation work
-
-```text
-/project-architecture
-/conversation-contract
-/data-persistence-contract
-/context-management-contract
-/platform-api-contract
-/testing-review-contract
-```
-
-### Planning work
+### Planning
 
 ```text
 /project-architecture
@@ -61,115 +45,132 @@ Examples:
 /context-management-contract
 /llm-provider-contract
 /a2a-agent-contract
-/llm-orchestration-dev
+/testing-review-contract
 ```
 
-### Registry work
+### Artifact preview
 
 ```text
 /project-architecture
-/agent-registry-contract
-/a2a-agent-contract
-/data-persistence-contract
-/platform-api-contract
+/artifact-contract
+/web-project-preview-contract
+/agui-event-contract
 /security-boundary-contract
+/testing-review-contract
 ```
 
-Do not load all Skills by default.
+### Engineering or commit review
 
-## Scope rules
+```text
+/project-architecture
+/code-style-and-conventions
+/commit-security-review
+/testing-review-contract
+```
+
+Do not load every Skill by default.
+
+## Exact-baseline rule
+
+For a patch intended to apply to another worktree:
+
+1. capture the exact relevant files or complete repository commit;
+2. record HEAD and working-tree status;
+3. generate the patch with normal Git operations;
+4. run `git apply --check` on a second copy of the same baseline;
+5. report the expected baseline and file hashes when useful.
+
+Do not claim exact patch compatibility from a manually reconstructed or incomplete baseline.
+
+## Scope lock
 
 Before editing, state:
 
-- files to modify;
-- files to create;
-- files to delete/rename;
-- files explicitly out of scope;
-- Contract changes;
-- tests;
-- risks and rollback.
+```text
+modify
+create
+delete/rename
+read-only inputs
+explicitly excluded paths
+tests
+risk
+rollback
+```
 
-If the user requests review only, do not modify files.  
-If the user requests documents only, do not generate business implementation.
+Rules:
+
+- review-only means no modification;
+- document-only means no business implementation;
+- no unapproved dependency installation;
+- no automatic transition to the next batch;
+- no opportunistic unrelated cleanup;
+- legacy paths change only in an explicit migration.
 
 ## Contract-first rule
 
-When a domain boundary, API, event, Schema, state machine, Agent lifecycle, or data model changes:
+For API, event, state, Agent lifecycle, context, Artifact, persistence, authorization, provider, or language-boundary changes:
 
 ```text
-Contract
--> Schema/OpenAPI if applicable
--> Mock/fixture
+PDR/Contract
+-> Schema/OpenAPI/ADR
+-> fixture or Mock
 -> implementation
 -> tests
 -> review
 ```
 
-Do not update implementation first and silently document it later.
-
-## Small-step rule
-
-- One batch should address one coherent dependency layer.
-- Do not automatically continue to the next batch.
-- Do not install dependencies without authorization.
-- Do not mix unrelated refactors into the same patch.
-- Do not modify legacy paths unless the task is a migration.
-- Preserve existing working behavior when not contradicted by the active Contract.
-
 ## Reuse rule
 
-Before implementing infrastructure, check approved references and existing repository code.
+Prefer existing approved components for:
 
-Prefer reuse for:
-
-- A2A and MCP protocol layers;
+- A2A and MCP protocol;
 - AG-UI event semantics;
-- database migrations and typed query generation;
+- migration and typed query generation;
 - browser code preview;
-- tracing and metrics.
+- OpenTelemetry;
+- provider SDK adapters.
 
-Do not replace existing Registry, Planner, or storage code merely because a new abstraction is fashionable. First map it to the active Contract and identify the minimum change.
+Do not create a new provider abstraction, protocol model, bundler, or persistence framework without first mapping the existing component and the active Contract.
 
-## Required validation
+## Validation
 
 Depending on scope:
 
 ```text
-Markdown/frontmatter validation
+frontmatter and Markdown checks
 JSON Schema/OpenAPI validation
-go test
-go test -race where relevant
-frontend typecheck/test
-event reducer/replay test
-migration test
+git diff --check
+Go test and race test
+frontend typecheck/test/build
+migration/restart test
+event replay test
 security negative test
-mock Agent/Planner test
+deterministic Mock Provider/Agent/Planner test
 ```
 
-Tests must not depend on production secrets or uncontrolled public endpoints.
+Never state that an unexecuted test passed.
 
 ## Delivery report
 
-Every modification report includes:
+Report:
 
-1. modified files;
-2. created files;
-3. deleted/renamed files;
-4. purpose of each file;
-5. files intentionally untouched;
-6. dependencies installed, or confirmation that none were installed;
-7. tests run and results;
-8. known mismatches or follow-up work;
-9. application/rollback instructions when delivering a patch.
+1. baseline and source;
+2. modified/created/deleted/renamed files;
+3. purpose;
+4. intentionally untouched files;
+5. dependencies;
+6. tests and results;
+7. known gaps;
+8. apply and rollback instructions.
 
 ## Completion checklist
 
 - [ ] Current user scope was respected.
-- [ ] The correct active Contracts were used.
-- [ ] No legacy document overrode AgentHub 2.0.
+- [ ] Exact provided sources were used.
+- [ ] PDR and active Contracts took precedence over legacy files.
 - [ ] Contract changes precede implementation changes.
 - [ ] The patch is one coherent batch.
-- [ ] Reuse options were considered.
-- [ ] Tests or blockers are reported.
-- [ ] No secret or private data appears in files or logs.
-- [ ] The handoff is reproducible.
+- [ ] Reuse options were assessed.
+- [ ] Tests or blockers are reported honestly.
+- [ ] No secret, private data, or private reasoning appears in artifacts or logs.
+- [ ] Handoff is reproducible.

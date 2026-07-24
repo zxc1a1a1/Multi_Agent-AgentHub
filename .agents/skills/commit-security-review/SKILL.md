@@ -1,73 +1,75 @@
 ---
 name: commit-security-review
-description: "Commit security review skill. Updated for Module Separation & Runtime Redesign."
+description: "AgentHub 2.0 pre-commit security and repository hygiene skill for staged-diff review, secrets, credentials, private data, Agent registration, Tool permissions, Artifact/Preview safety, dependencies, and generated files."
 ---
 
 # commit-security-review
 
 ## Purpose
 
-Use this before commits. Check new-arch files, generated contracts, and AgentCards for secrets and legacy drift.
+Use this Skill before committing, packaging, or handing off AgentHub changes.
 
-## Authoritative source order
-
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. Contracts listed in this skill
-4. PDR product goals only
-5. Sprint/UML as supplemental demo/product context only
-
-## Active architecture facts
+## Read first
 
 ```text
-pkg/adk                 pure ADK engine
-pkg/runtime             runtime framework over ADK
-services/gateway        public Gateway, auth, SSE, persistence
-services/orchestrator   planner/router/executor/dispatcher
-services/agents/*       child A2A agents
-frontend                React client, Gateway-only access
+/project-architecture
+/security-boundary-contract
+/testing-review-contract
+/code-style-and-conventions
 ```
 
-Legacy paths are not implementation targets for new-architecture work:
+Primary sources:
 
 ```text
-server/**               legacy reference only
-agents/**               legacy reference only
+docs/contracts/commit-security-review.md
+docs/contracts/commit-security-review.schema.json
+docs/contracts/security-boundaries.md
 ```
 
-## Contracts to read first
+## Required review flow
 
-- `docs/contracts/security-review-checklist.md`
-- `docs/contracts/secret-management.md`
+```text
+working tree
+-> staged file inventory
+-> diff and whitespace
+-> secret/private-data scan
+-> trust-boundary review
+-> dependency/generated-file review
+-> tests and evidence
+-> commit decision
+```
 
-## Allowed implementation targets
+## Blocking findings
 
-- `.`
+- credential, token, private key, session cookie, or encrypted credential payload;
+- `.env`, local database, uploaded private content, model/cache directory, or dependency tree;
+- browser-visible provider or Agent credential;
+- unvalidated remote Agent URL, redirect, DNS target, or AgentCard;
+- Tool permission implicitly granted by Agent registration or Plan confirmation;
+- unconfirmed Plan execution;
+- cross-Conversation context access;
+- Artifact overwrite without version check;
+- generated code executing in the main application origin;
+- secret/private prompt/private reasoning in log, event, fixture, or debug bundle;
+- unexplained dependency or lockfile change;
+- binary/large generated output unrelated to the requested artifact.
 
 ## Non-negotiable rules
 
-- Follow the redesign plan over old PDR/Sprint directory details.
-- Do not add new new-architecture work under legacy `server/` or root `agents/`.
-- Do not make Frontend call Orchestrator or Child Agents directly.
-- Do not put concrete LLM providers or business handlers in `pkg/adk`.
-- Keep Gateway and Orchestrator as separate services.
-- Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
-- Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
-
-## Required workflow
-
-1. Identify the relevant contract files above.
-2. Check whether the requested change touches cross-module fields or event lifecycles.
-3. Update contract first when the boundary changes.
-4. Implement only in allowed targets.
-5. Add/update tests for the touched module.
-6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
+- Review the actual staged diff, not only the working tree.
+- Use `git diff --cached --check`.
+- Do not stage or unstage files without explicit user intent.
+- Do not rewrite history, force-push, or bypass hooks unless explicitly authorized.
+- A security scan result is evidence, not a substitute for domain-boundary review.
+- Redacted examples use unmistakably fake placeholders.
+- A blocked commit report names the file and finding without repeating the secret value.
 
 ## Completion checklist
 
-- [ ] No stale old-path instructions were introduced.
-- [ ] Contract and implementation agree.
-- [ ] Public Gateway API remains separate from internal service API.
-- [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
-- [ ] Errors are sanitized and do not expose secrets or internal URLs.
-- [ ] Tests or a clear blocker are reported.
+- [ ] staged inventory matches requested scope.
+- [ ] diff/whitespace check passed.
+- [ ] secret and private-data review completed.
+- [ ] Agent/Registry/Provider/Tool/Artifact/Preview boundaries were checked when affected.
+- [ ] dependency and generated files were reviewed.
+- [ ] tests and validation evidence are recorded.
+- [ ] commit is approved, conditionally approved, or blocked with an explicit reason.
