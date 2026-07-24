@@ -1,7 +1,7 @@
 # ADR Policy
 
-重大架构决策必须记录 ADR。
+**Status:** Active entry document. Product-level authority is [AgentHub 2.0 PDR](../pdr/AgentHub_2.0_PDR.md); active boundaries are indexed in [docs/contracts/README.md](../contracts/README.md).
 
-ADR 至少包含：标题、日期、状态、背景、决策、备选方案、后果、需要同步更新的契约。
+Record an ADR for a material boundary decision: changes to Frontend/Gateway/Orchestrator/Agent responsibilities, public or internal protocol changes, persistence-profile replacement, Artifact storage strategy, Provider policy, or Compose topology.
 
-凡改变 Gateway / Orchestrator / Agent 进程边界、新增跨服务协议、替换主数据库、改变 Artifact 存储或公开 API 版本策略，都必须写 ADR。
+An ADR states context, decision, alternatives, consequences, migration status and owning Contract updates. It must distinguish Current Implementation from 2.0 Target. Do not use an ADR to silently convert the 2.0 SQLite/WAL default, five-service Compose Target, runtime Agent registration, or PlanVersion confirmation requirement into completed behavior without corresponding implementation and evidence.

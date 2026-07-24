@@ -1,10 +1,14 @@
 # Process Boundaries
 
-Gateway 与 Orchestrator 必须是两个独立进程。
+**Status:** Active entry document; canonical rules are in the [PDR](../pdr/AgentHub_2.0_PDR.md) and [project architecture Contract](../contracts/project-architecture.md).
 
-架构 Review 时必须检查：
+```text
+Frontend -> Gateway -> Orchestrator -> Registered A2A Agents
+```
 
-- Gateway 是否只通过内部 API 调用 Orchestrator。
-- Gateway 是否没有 import Orchestrator 业务包。
-- Orchestrator 是否有独立启动、健康检查和内部接口。
-- Frontend 是否不能直接访问 Orchestrator。
+- Frontend does not call Orchestrator or Agents directly.
+- Gateway does not dispatch Agents or call a Provider directly.
+- Orchestrator is the only dispatch entry and owns the internal Planner, Validator, Confirmation Gate, Context Manager, Registry and Synthesizer.
+- These internal modules are not Agents and must not be registered as such.
+- CodeAgent and WebAgent are built-in stable reference Agents; additional conforming Agents are a dynamic registration Target/In Progress capability.
+- Direct has no multi-Agent Plan. Manual Multi-Agent and Auto require an LLM-generated, validated and user-confirmed exact PlanVersion.
