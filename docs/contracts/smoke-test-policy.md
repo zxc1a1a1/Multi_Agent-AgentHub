@@ -1,22 +1,60 @@
 # Smoke Test Policy
 
-## 目标
+## Default execution
 
-Smoke test 验证本地交付是否可运行。
+Smoke runs with deterministic Mock behavior and no real model API key.
 
-## 必须检查
+## Required checks
 
-- `docker compose config`
-- mysql health
-- gateway health
-- frontend reachable
-- enabled child agents health
-- agent list / registry API
-- minimal run 或 mock run
-- Demo profile 的关键路径
+```text
+frontend readiness
+gateway readiness
+orchestrator readiness
+code-agent readiness
+web-agent readiness
+Conversation create/list/switch
+Direct CodeAgent
+Direct WebAgent
+multi-Agent Plan awaiting confirmation
+confirm exact version
+execution and terminal event
+event replay
+Artifact creation/version
+WebProject fixture validation
+cancel
+SQLite restart persistence
+sanitized logs
+```
 
-## 禁止
+## Dynamic Agent fixture
 
-- 依赖真实 LLM 随机输出。
-- 输出 secret。
-- 失败后仍返回 0。
+Use a local mock A2A server for registration/health/invocation. Do not depend on a public endpoint.
+
+## Failure
+
+Smoke fails on:
+
+- unexpected HTTP status;
+- missing/duplicate terminal event;
+- AgentInvocation before confirmation;
+- context contamination;
+- missing Artifact version;
+- lost SQLite data after restart;
+- secret-shaped log output;
+- unhealthy mandatory service.
+
+## Output
+
+Produce:
+
+```text
+service readiness
+scenario result
+Run/Plan IDs
+event counts/sequences
+Artifact IDs/versions
+duration
+safe failure code
+```
+
+No secret or full private content in CI artifact.

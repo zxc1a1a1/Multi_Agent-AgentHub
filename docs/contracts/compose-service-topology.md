@@ -1,31 +1,64 @@
 # Compose Service Topology
 
-## 基础服务
+## Default
+
+```text
+Browser
+  -> frontend:3000
+  -> gateway:8080
+     -> orchestrator:8090
+        -> code-agent:8081
+        -> web-agent:8082
+```
+
+Exact ports may be configured, but service identity and direction remain.
+
+## Exposure
+
+Public/development host exposure:
 
 ```text
 frontend
 gateway
-mysql
-child-agent services
 ```
 
-## 可选服务
+Internal by default:
 
 ```text
-mock-llm
-mock-agent
-redis
-object-storage
-observability
-reverse-proxy
+orchestrator
+code-agent
+web-agent
+optional telemetry backends
 ```
 
-## 规则
+Development may expose internal ports explicitly for debugging.
 
-- 默认拓扑必须能运行主 Demo。
-- 可选服务通过 profile 启用。
-- 服务之间通过 service name 访问。
-- Agent 服务 service name 供 Orchestrator / Registry 使用，Gateway 不得直接持有。
-- Gateway 只通过 `ORCHESTRATOR_URL` 访问 Orchestrator，不直接访问 Child Agent。
-- Agent 服务不固定名称。
-- 新增 Agent 必须有 healthcheck。
+## Dynamic Agent
+
+A remote registered Agent is outside the default service list:
+
+```text
+orchestrator
+-> validated registered endpoint
+```
+
+It is not added to Compose automatically.
+
+## Storage
+
+```text
+gateway/orchestrator repository layer
+-> SQLite volume
+```
+
+Deployment must follow the single-writer/repository ownership policy and WAL settings defined by Data Persistence Contract.
+
+## Optional observability
+
+```text
+services
+-> OTLP collector
+-> selected local backend
+```
+
+Observability services are activated through a profile and are not required for core startup.

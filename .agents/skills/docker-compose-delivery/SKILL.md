@@ -1,75 +1,82 @@
 ---
 name: docker-compose-delivery
-description: "Docker delivery topology skill. Updated for Module Separation & Runtime Redesign."
+description: "AgentHub 2.0 Docker Compose delivery skill for the default five-service profile, SQLite volume, health/dependency checks, Mock mode, optional observability, secrets, and reproducible smoke tests."
 ---
 
 # docker-compose-delivery
 
 ## Purpose
 
-Use this for compose and Dockerfile changes. Canonical target is six services: frontend/gateway/orchestrator/code-agent/web-agent/mysql.
+Use this Skill for Dockerfile, Compose, health checks, startup ordering, environment variables, volumes, Mock profile, observability profile, smoke tests, or delivery documentation.
 
-## Authoritative source order
-
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. Contracts listed in this skill
-4. PDR product goals only
-5. Sprint/UML as supplemental demo/product context only
-
-## Active architecture facts
+## Read first
 
 ```text
-pkg/adk                 pure ADK engine
-pkg/runtime             runtime framework over ADK
-services/gateway        public Gateway, auth, SSE, persistence
-services/orchestrator   planner/router/executor/dispatcher
-services/agents/*       child A2A agents
-frontend                React client, Gateway-only access
+/project-architecture
+/agent-registry-contract
+/data-persistence-contract
+/agent-runtime-contract
+/security-boundary-contract
+/observability-debugging-contract
+/testing-review-contract
 ```
 
-Legacy paths are not implementation targets for new-architecture work:
+Primary sources:
 
 ```text
-server/**               legacy reference only
-agents/**               legacy reference only
+docs/contracts/docker-compose-delivery.md
+docs/contracts/docker-compose-delivery.schema.json
+docs/contracts/compose-service-topology.md
+docs/contracts/environment-variables.md
+docs/contracts/smoke-test-policy.md
+docs/contracts/docker-compose-review-checklist.md
 ```
 
-## Contracts to read first
+## Default profile
 
-- `docs/contracts/docker-compose-delivery.md`
+```text
+frontend
+gateway
+orchestrator
+code-agent
+web-agent
+```
 
-## Allowed implementation targets
+CodeAgent and WebAgent are built-in reference Agents. Dynamically registered remote Agents are external resources and are not automatically added as Compose services.
 
-- `docker-compose.yml`
-- `docker-compose.new-arch.yml`
-- `services/*/Dockerfile`
-- `frontend/Dockerfile`
+## Optional profiles
+
+```text
+observability
+development helpers
+```
+
+Mock mode is configuration of built-in services, not a duplicate production topology.
 
 ## Non-negotiable rules
 
-- Follow the redesign plan over old PDR/Sprint directory details.
-- Do not add new new-architecture work under legacy `server/` or root `agents/`.
-- Do not make Frontend call Orchestrator or Child Agents directly.
-- Do not put concrete LLM providers or business handlers in `pkg/adk`.
-- Keep Gateway and Orchestrator as separate services.
-- Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
-- Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
-
-## Required workflow
-
-1. Identify the relevant contract files above.
-2. Check whether the requested change touches cross-module fields or event lifecycles.
-3. Update contract first when the boundary changes.
-4. Implement only in allowed targets.
-5. Add/update tests for the touched module.
-6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
+- Frontend reaches Gateway only.
+- Gateway reaches Orchestrator only for orchestration.
+- Orchestrator reaches registered Agents.
+- SQLite database uses a persistent volume and WAL-compatible deployment.
+- MySQL/Redis are not mandatory default services.
+- health checks test service readiness, not only container process existence.
+- startup scripts do not embed production secrets.
+- `.env.example` contains placeholders only.
+- service ports and internal URLs are unambiguous.
+- Compose smoke runs without a real LLM API key.
+- optional real-model profile fails clearly when required secrets are absent.
+- dynamic Agent registration does not require rebuilding Compose.
+- logs and health output are sanitized.
+- delivery docs match the actual Compose file.
 
 ## Completion checklist
 
-- [ ] No stale old-path instructions were introduced.
-- [ ] Contract and implementation agree.
-- [ ] Public Gateway API remains separate from internal service API.
-- [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
-- [ ] Errors are sanitized and do not expose secrets or internal URLs.
-- [ ] Tests or a clear blocker are reported.
+- [ ] default five-service profile starts deterministically.
+- [ ] SQLite data persists across restart.
+- [ ] health/dependency behavior is tested.
+- [ ] Mock smoke covers Direct Code, Direct Web, Plan confirmation, and basic Artifact flow.
+- [ ] secrets are externalized.
+- [ ] optional observability profile is isolated.
+- [ ] remote Agent registration remains runtime-configurable.
+- [ ] clean shutdown and cancellation behavior are documented.

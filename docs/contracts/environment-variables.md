@@ -1,42 +1,97 @@
-# Environment Variables Contract
+# Environment Variable Contract
 
-## 必须维护
+## Rules
+
+- names are uppercase `SNAKE_CASE`;
+- `.env.example` contains placeholders only;
+- secrets have no insecure production default;
+- services validate required combinations at startup;
+- unknown/deprecated variables generate a safe warning where practical;
+- values are never printed in full.
+
+## Gateway
 
 ```text
-.env.example
+GATEWAY_ADDR
+GATEWAY_ALLOWED_ORIGINS
+GATEWAY_ENABLE_AUTH
+AGENTHUB_API_TOKEN
+ORCHESTRATOR_URL
+ORCHESTRATOR_INTERNAL_TOKEN
+AGENTHUB_GATEWAY_STORE
+AGENTHUB_SQLITE_PATH
 ```
 
-## 禁止提交
+SQLite is the default 2.0 profile.
+
+## Orchestrator
 
 ```text
-.env
-.env.local
-.env.production
-secrets/*.txt
+ORCHESTRATOR_ADDR
+INTERNAL_SERVICE_TOKEN
+ORCHESTRATOR_PLANNER_MODE
+ORCHESTRATOR_LLM_PROVIDER
+ORCHESTRATOR_LLM_MODEL
+ORCHESTRATOR_LLM_API_KEY
+ORCHESTRATOR_LLM_BASE_URL
+REGISTRY_STORE
+REGISTRY_DATA_PATH
+REGISTRY_HEALTHCHECK
+ORCHESTRATOR_MAX_TASKS
+DISPATCH_TIMEOUT_MS
+DISPATCH_MAX_RETRY
+DISPATCH_RETRY_BACKOFF_MS
 ```
 
-## 推荐变量
+Planner mode defaults must align with active Planning Contract. Mock/CI mode is explicit.
 
-```env
-DB_HOST=mysql
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=change-me
-DB_NAME=agenthub
+## Built-in Agents
 
-GATEWAY_PORT=8080
-AGENTHUB_API_TOKEN=change-me
+Common pattern:
 
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=your-api-key-here
-ANTHROPIC_MODEL=your-model-here
-
-AGENT_URLS=code-agent=http://code-agent:8081,web-agent=http://web-agent:8082
-VITE_API_URL=http://localhost:8080
+```text
+{PREFIX}_AGENT_ADDR
+{PREFIX}_AGENT_PUBLIC_URL
+{PREFIX}_AGENT_VERSION
+{PREFIX}_AGENT_MODE
+{PREFIX}_AGENT_LLM_PROVIDER
+{PREFIX}_AGENT_LLM_MODEL
+{PREFIX}_AGENT_LLM_API_KEY
+{PREFIX}_AGENT_LLM_BASE_URL
+{PREFIX}_AGENT_TIMEOUT_MS
 ```
 
-## 规则
+Stable prefixes:
 
-- 所有新增变量必须说明用途。
-- secret 只能使用占位值。
-- 真实 secret 不得进入仓库、镜像或日志。
+```text
+CODE
+WEB
+```
+
+Other registered remote Agents do not require a predefined environment-variable prefix.
+
+## Preview
+
+```text
+VITE_AGENTHUB_API_BASE
+VITE_PREVIEW_ENABLED
+VITE_PREVIEW_NETWORK_POLICY
+```
+
+Do not put API keys or Agent credentials in `VITE_*`.
+
+## Observability
+
+```text
+OTEL_SERVICE_NAME
+OTEL_EXPORTER_OTLP_ENDPOINT
+OTEL_TRACES_EXPORTER
+OTEL_METRICS_EXPORTER
+OTEL_RESOURCE_ATTRIBUTES
+```
+
+Telemetry endpoint is configuration, not a user-visible secret.
+
+## Deprecated variables
+
+Variables for old mandatory MySQL/gRPC/ten-Agent profiles may remain temporarily with documented adapter/removal conditions. They are not the active 2.0 default.

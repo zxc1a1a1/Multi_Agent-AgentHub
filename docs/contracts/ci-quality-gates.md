@@ -1,22 +1,76 @@
 # CI Quality Gates
 
-## 必过 Gates
+## Required baseline jobs
 
-- lint / format。
-- backend unit。
-- frontend unit。
-- schema validation。
-- contract tests。
-- security regression。
-- minimal smoke。
+```text
+contract-schema
+go-test
+frontend-test
+security-negative
+mock-integration
+```
 
-## 条件必过 Gates
+## Contract/schema
 
-- docker compose smoke。
-- demo E2E。
-- migration check。
-- coverage threshold。
+- parse all JSON/YAML;
+- validate JSON Schemas with Draft 2020-12;
+- validate OpenAPI;
+- check Skill frontmatter/name;
+- reject references to retired active Skill names where prohibited.
 
-## 禁止
+## Go
 
-测试失败仍合并、普通 CI 使用真实 LLM key、跳过 contract test、CI 输出 secret。
+```text
+go test ./...
+go test -race <affected concurrent packages>
+go vet <affected packages>
+```
+
+Repository-specific workspace commands may replace `./...` when documented.
+
+## Frontend
+
+```text
+npm ci
+npm run typecheck
+npm test -- --run
+npm run build
+```
+
+Exact scripts follow package.json.
+
+## Security negative
+
+At minimum for affected domains:
+
+- authorization denial;
+- redaction;
+- SSRF;
+- context contamination;
+- path traversal;
+- preview sandbox policy;
+- secret scanning.
+
+## Mock integration
+
+Uses local deterministic services only.
+
+Covers Gateway→Orchestrator→Mock Agent, Plan confirmation, event replay, and Artifact flow.
+
+## Optional jobs
+
+```text
+compose-smoke
+observability integration
+real-provider evaluation
+performance
+```
+
+Real-provider jobs are opt-in, secret-protected, non-blocking unless explicitly promoted.
+
+## Flake policy
+
+- bounded infrastructure retry only;
+- test retry is reported;
+- persistent flaky test has owner and removal condition;
+- CI does not silently rerun until success.

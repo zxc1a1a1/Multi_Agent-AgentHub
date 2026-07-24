@@ -1,56 +1,45 @@
-# AgentHub 质量门禁
+# Quality Gates
 
-## 1. 原则
+## Contract gate
 
-优先执行仓库已有命令。命令不存在时，不得声称已通过。
+- active Contract identified;
+- Contract/Schema/OpenAPI updated first when boundary changes;
+- retired Contract not used as source.
 
-## 2. Go 建议命令
+## Build gate
 
-```bash
-gofmt -w <changed-go-files>
-go test ./...
-go vet ./...
-```
+- Go build/test for affected modules;
+- frontend typecheck/test;
+- JSON Schema/OpenAPI validation;
+- generated code current where applicable.
 
-如果项目配置了 lint：
+## Behavior gate
 
-```bash
-golangci-lint run
-```
+- positive path;
+- negative path;
+- cancellation/error;
+- idempotency/concurrency where applicable;
+- deterministic Mock path.
 
-## 3. 前端建议命令
+## Security gate
 
-```bash
-npm run lint
-npm run typecheck
-npm run test
-npm run build
-```
+- object authorization;
+- secret/error redaction;
+- registration SSRF when affected;
+- context isolation;
+- Artifact/preview safety;
+- Tool approval.
 
-## 4. 项目级建议命令
+## Compatibility gate
 
-```bash
-docker compose config
-./smoke-test.sh
-```
+- migration/adapter documented;
+- historical Plan/Agent/Artifact data remains readable;
+- deprecated endpoint/event has removal condition;
+- rollback described.
 
-## 5. 文档 / Skill 包检查
+## Evidence gate
 
-- 路径正确。
-- 内容中文。
-- frontmatter 合法。
-- Markdown 标题层级合理。
-- 代码块标注语言。
-- MANIFEST 完整。
-- PATCH_NOTES 说明变更。
-
-## 6. 输出报告
-
-报告必须包含：
-
-```text
-已执行：...
-未执行：...
-未执行原因：...
-建议本地执行：...
-```
+- commands and results;
+- modified/new/deleted files;
+- known gaps;
+- review verdict.

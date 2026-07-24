@@ -1,37 +1,149 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Artifact",
-  "type": "object",
-  "required": [
-    "type",
-    "title"
+  "$id": "https://agenthub.local/contracts/artifact.schema.json",
+  "title": "AgentHub Artifact Contract",
+  "oneOf": [
+    { "$ref": "#/$defs/artifact" },
+    { "$ref": "#/$defs/artifactVersion" },
+    { "$ref": "#/$defs/artifactRef" },
+    { "$ref": "#/$defs/artifactPatch" }
   ],
-  "properties": {
-    "type": {
+  "$defs": {
+    "artifactType": {
+      "type": "string",
       "enum": [
+        "text",
+        "markdown",
         "code",
-        "webpage",
-        "document",
+        "research",
+        "json",
         "file",
-        "diff",
-        "terminal",
-        "image"
+        "web_project"
       ]
     },
-    "title": {
-      "type": "string"
-    },
-    "content": {
-      "type": "string"
-    },
-    "url": {
-      "type": "string"
-    },
-    "metadata": {
+    "artifact": {
       "type": "object",
-      "additionalProperties": {
-        "type": "string"
-      }
+      "required": [
+        "id",
+        "conversationId",
+        "type",
+        "name",
+        "status",
+        "currentVersion",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "conversationId": { "type": "string", "minLength": 1 },
+        "runId": { "type": ["string", "null"] },
+        "sourceInvocationId": { "type": ["string", "null"] },
+        "type": { "$ref": "#/$defs/artifactType" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "status": {
+          "type": "string",
+          "enum": ["active", "archived", "deleted"]
+        },
+        "currentVersion": { "type": "integer", "minimum": 1 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "deletedAt": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "artifactVersion": {
+      "type": "object",
+      "required": [
+        "artifactId",
+        "version",
+        "contentHash",
+        "mediaType",
+        "createdByType",
+        "createdAt"
+      ],
+      "properties": {
+        "artifactId": { "type": "string", "minLength": 1 },
+        "version": { "type": "integer", "minimum": 1 },
+        "baseVersion": { "type": ["integer", "null"], "minimum": 1 },
+        "content": {},
+        "contentUri": { "type": ["string", "null"] },
+        "contentHash": { "type": "string", "minLength": 1 },
+        "mediaType": { "type": "string", "minLength": 1 },
+        "changeSummary": { "type": "string", "maxLength": 2000 },
+        "createdByType": {
+          "type": "string",
+          "enum": ["user", "agent", "system"]
+        },
+        "createdById": { "type": ["string", "null"] },
+        "sourceMessageId": { "type": ["string", "null"] },
+        "sourceInvocationId": { "type": ["string", "null"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "artifactRef": {
+      "type": "object",
+      "required": ["artifactId", "version", "type"],
+      "properties": {
+        "artifactId": { "type": "string", "minLength": 1 },
+        "version": { "type": "integer", "minimum": 1 },
+        "type": { "$ref": "#/$defs/artifactType" },
+        "name": { "type": "string" },
+        "contentHash": { "type": "string" },
+        "selection": {
+          "type": "object",
+          "properties": {
+            "paths": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "patchOperation": {
+      "type": "object",
+      "required": ["op"],
+      "properties": {
+        "op": {
+          "type": "string",
+          "enum": [
+            "replace_content",
+            "replace_file",
+            "add_file",
+            "delete_file",
+            "rename_file",
+            "update_metadata"
+          ]
+        },
+        "path": { "type": "string" },
+        "from": { "type": "string" },
+        "content": {},
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifactPatch": {
+      "type": "object",
+      "required": ["artifactId", "baseVersion", "operations"],
+      "properties": {
+        "artifactId": { "type": "string", "minLength": 1 },
+        "baseVersion": { "type": "integer", "minimum": 1 },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "items": { "$ref": "#/$defs/patchOperation" }
+        },
+        "changeSummary": { "type": "string", "maxLength": 2000 }
+      },
+      "additionalProperties": false
     }
   }
 }

@@ -1,73 +1,81 @@
 ---
 name: observability-debugging-contract
-description: "Observability and debug skill. Updated for Module Separation & Runtime Redesign."
+description: "AgentHub 2.0 observability skill for OpenTelemetry traces, metrics, structured logs, event replay diagnostics, Plan/Context/Agent/Artifact correlation, redaction, and debug bundles."
 ---
 
 # observability-debugging-contract
 
 ## Purpose
 
-Use this for tracing, logs, error propagation, and debug playbooks across Gateway/Orchestrator/Agents.
+Use this Skill for traces, metrics, logs, debugging, correlation identifiers, event replay diagnostics, cost/latency measurements, health telemetry, or support bundles.
 
-## Authoritative source order
-
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. Contracts listed in this skill
-4. PDR product goals only
-5. Sprint/UML as supplemental demo/product context only
-
-## Active architecture facts
+## Read first
 
 ```text
-pkg/adk                 pure ADK engine
-pkg/runtime             runtime framework over ADK
-services/gateway        public Gateway, auth, SSE, persistence
-services/orchestrator   planner/router/executor/dispatcher
-services/agents/*       child A2A agents
-frontend                React client, Gateway-only access
+/project-architecture
+/conversation-contract
+/planning-approval-contract
+/context-management-contract
+/agent-registry-contract
+/gateway-orchestrator-contract
+/a2a-agent-contract
+/artifact-contract
+/security-boundary-contract
+/testing-review-contract
 ```
 
-Legacy paths are not implementation targets for new-architecture work:
+Primary sources:
 
 ```text
-server/**               legacy reference only
-agents/**               legacy reference only
+docs/contracts/observability-debugging.md
+docs/contracts/observability-debugging.schema.json
+docs/contracts/metrics-policy.md
+docs/contracts/observability-review-checklist.md
 ```
 
-## Contracts to read first
+## Required correlation
 
-- `docs/contracts/observability-debugging.md`
-
-## Allowed implementation targets
-
-- `pkg/*`
-- `services/*`
+```text
+requestId
+traceId
+user/tenant reference when permitted
+conversationId
+messageId
+runId
+planId
+planVersion
+stepId
+invocationId
+agentId
+agentVersion
+skillId
+contextSnapshotId
+artifactId
+artifactVersion
+toolCallId
+errorCode
+```
 
 ## Non-negotiable rules
 
-- Follow the redesign plan over old PDR/Sprint directory details.
-- Do not add new new-architecture work under legacy `server/` or root `agents/`.
-- Do not make Frontend call Orchestrator or Child Agents directly.
-- Do not put concrete LLM providers or business handlers in `pkg/adk`.
-- Keep Gateway and Orchestrator as separate services.
-- Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
-- Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
-
-## Required workflow
-
-1. Identify the relevant contract files above.
-2. Check whether the requested change touches cross-module fields or event lifecycles.
-3. Update contract first when the boundary changes.
-4. Implement only in allowed targets.
-5. Add/update tests for the touched module.
-6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
+- Use OpenTelemetry conventions where applicable.
+- Logs, traces, metrics, and events use stable IDs.
+- Do not record private model reasoning.
+- Do not record credentials, Authorization headers, full private prompts, or unredacted attachment content.
+- High-cardinality IDs belong in traces/logs, not unrestricted metric labels.
+- Event replay and live-stream diagnostics preserve Run sequence.
+- Planner, Context, Registry, A2A, Tool, Artifact, Preview, and persistence failures are distinguishable.
+- Cost/token fields identify use case and model without exposing secrets.
+- Debug bundles are explicit, bounded, redacted, and user-authorized.
+- Health checks and product telemetry do not replace one another.
 
 ## Completion checklist
 
-- [ ] No stale old-path instructions were introduced.
-- [ ] Contract and implementation agree.
-- [ ] Public Gateway API remains separate from internal service API.
-- [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
-- [ ] Errors are sanitized and do not expose secrets or internal URLs.
-- [ ] Tests or a clear blocker are reported.
+- [ ] trace boundaries match service/Agent calls.
+- [ ] required correlation fields are propagated.
+- [ ] metrics avoid uncontrolled cardinality.
+- [ ] secrets/content redaction is tested.
+- [ ] Run replay and partial failure can be diagnosed.
+- [ ] PlanVersion, ContextSnapshot, AgentVersion, and ArtifactVersion are visible.
+- [ ] latency, token, retry, failure, and preview metrics are covered.
+- [ ] debug bundle policy is explicit.

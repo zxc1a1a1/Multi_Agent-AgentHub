@@ -1,29 +1,17 @@
 # Docker Compose Review Checklist
 
-## 文件
-
-- 主 Compose 文件是否明确？
-- 是否能通过 `docker compose config`？
-- 是否没有真实 secret？
-- 是否没有本机绝对路径？
-
-## 服务
-
-- 是否有 frontend？
-- 是否有 gateway？
-- 是否有 mysql？
-- 是否有 1 个或多个 Child Agent？
-- 新增 Agent 是否有 healthcheck？
-
-## 环境
-
-- `.env.example` 是否完整？
-- `.env` 是否未提交？
-- Dockerfile 是否没有真实 secret？
-
-## 验收
-
-- Makefile 命令是否存在？
-- smoke test 是否存在？
-- Demo checklist 是否存在？
-- reset 是否明确危险？
+- [ ] default services are frontend, gateway, orchestrator, code-agent, web-agent.
+- [ ] remote Agents remain dynamically registerable.
+- [ ] Frontend reaches Gateway only.
+- [ ] internal ports are not unnecessarily public.
+- [ ] SQLite uses a persistent volume and documented WAL behavior.
+- [ ] MySQL/Redis are not mandatory defaults.
+- [ ] health checks represent readiness.
+- [ ] Mock startup needs no API key.
+- [ ] real-model missing secret fails clearly.
+- [ ] Compose and `.env.example` contain no secret.
+- [ ] no secret is placed in `VITE_*`.
+- [ ] shutdown/cancellation is handled.
+- [ ] volume restart and Mock smoke pass.
+- [ ] optional observability profile does not block core startup.
+- [ ] documentation matches actual service names, ports, profiles, and variables.

@@ -1,12 +1,41 @@
-# PR Review Checklist
+# AgentHub 2.0 PR Review Checklist
 
-PR 必须检查：
+## Scope and source
 
-- Contract 是否同步。
-- Schema / fixture 是否同步。
-- Gateway / Orchestrator 是否仍分进程。
-- 是否没有写死具体 Agent 名称。
-- 是否有失败路径测试。
-- 是否有安全回归测试。
-- 是否更新 smoke / demo checklist。
-- README / 架构图 / AI 协作文档是否需要更新。
+- [ ] Current user scope is respected.
+- [ ] Active AgentHub 2.0 Contracts were identified.
+- [ ] Legacy documents were not used as higher authority.
+- [ ] Unrelated refactors and dependencies were excluded.
+
+## Architecture
+
+- [ ] Frontend calls Gateway only.
+- [ ] Gateway does not call Agents directly.
+- [ ] Orchestrator is the dispatch boundary.
+- [ ] Planner, Context Manager, Synthesizer, and Preview are not Agents.
+- [ ] Dynamic registered Agents remain supported.
+
+## Planning and context
+
+- [ ] Direct Mode remains plan-free.
+- [ ] multi-Agent execution requires exact PlanVersion confirmation.
+- [ ] Manual Mode cannot add an unselected Agent.
+- [ ] Replan requires a new version and confirmation.
+- [ ] Conversation context is isolated and bounded.
+
+## Agent, Artifact, and preview
+
+- [ ] Registry eligibility and Agent snapshots are enforced.
+- [ ] Agent credentials and Tool permissions remain separate.
+- [ ] ArtifactVersion is immutable.
+- [ ] `baseVersion` conflicts are handled.
+- [ ] unknown Artifact/project content cannot execute.
+- [ ] Preview is sandboxed and bound to an exact version.
+
+## Evidence
+
+- [ ] Contract/schema/API changes agree.
+- [ ] deterministic tests cover positive and negative paths.
+- [ ] concurrency/race tests were used when required.
+- [ ] logs/errors are redacted.
+- [ ] migration, compatibility, and rollback are documented.

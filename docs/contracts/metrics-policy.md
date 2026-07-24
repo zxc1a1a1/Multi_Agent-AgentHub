@@ -1,59 +1,102 @@
 # Metrics Policy
 
-## 目的
+## 1. Goals
 
-定义 AgentHub 指标命名、维度和禁止事项。
+Metrics answer:
 
-## 指标方向
+- whether product flows succeed;
+- where latency and failures occur;
+- whether context/token/cost budgets are controlled;
+- whether Agent, Tool, Artifact, and Preview subsystems are healthy.
 
-指标优先覆盖：
+## 2. Cardinality
 
-- latency
-- traffic
-- errors
-- saturation
+Allowed labels are bounded enums/configured registries such as:
 
-## 推荐指标
+```text
+service
+environment
+mode
+status
+result
+error_class
+use_case
+provider
+configured model
+agent source/trust class
+artifact type
+preview template
+```
 
-- `gateway_http_requests_total`
-- `gateway_http_request_duration_ms`
-- `gateway_stream_disconnects_total`
-- `orchestrator_runs_total`
-- `orchestrator_run_duration_ms`
-- `orchestrator_agent_tasks_total`
-- `orchestrator_agent_task_duration_ms`
-- `orchestrator_fallback_attempts_total`
-- `llm_requests_total`
-- `llm_request_duration_ms`
-- `llm_tokens_input_total`
-- `llm_tokens_output_total`
-- `artifact_created_total`
-- `tool_calls_total`
-- `registry_health_check_failures_total`
-- `dispatcher_retry_total` — dispatch retry count per attempt
-- `dispatcher_breaker_state` — circuit breaker state (0=closed, 1=open, 2=half-open)
-- `executor_wave_duration_ms` — DAG executor wave duration histogram
-- `synthesizer_call_total` — synthesizer invocation count
-- `synthesizer_call_duration_ms` — synthesizer call duration
+Do not use as unrestricted metric labels:
 
-## 允许低基数标签
+```text
+userId
+conversationId
+messageId
+runId
+planId
+invocationId
+dynamic agentId
+artifactId
+URL
+free-form error text
+```
 
-- `service`
-- `environment`
-- `route`
-- `status`
-- `strategy`
-- `planningMode`
-- `provider`
-- `model`
-- `errorCode`
+Use traces/logs for exact IDs.
 
-## 禁止标签
+## 3. Privacy
 
-- `runId`
-- `traceId`
-- `messageId`
-- `user input`
-- `prompt`
-- `token`
-- `full URL with token`
+Metrics never contain:
+
+- prompt/content;
+- credentials;
+- email/name;
+- Attachment/Artifact body;
+- source URL unless classified into a bounded domain policy;
+- private model reasoning.
+
+## 4. Required groups
+
+```text
+run and plan
+context and retrieval
+Agent/A2A
+model/token/cost
+Tool
+persistence/event replay
+Artifact/version conflict
+preview
+Registry health
+```
+
+## 5. SLO candidates
+
+Measure, without claiming unsupported production guarantees:
+
+- Run success and latency;
+- Plan valid/confirmation rate;
+- event replay correctness;
+- Agent invocation success;
+- context budget overflow;
+- Artifact conflict;
+- Preview startup;
+- deterministic smoke pass.
+
+SLO values are set only after a measured baseline.
+
+## 6. Review
+
+Every new metric documents:
+
+```text
+name
+type
+unit
+description
+labels and cardinality
+owner
+privacy classification
+retention
+alert/dashboard use
+```

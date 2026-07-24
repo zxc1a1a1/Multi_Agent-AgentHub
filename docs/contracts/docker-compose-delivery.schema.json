@@ -1,21 +1,78 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AgentHub Docker Compose Target",
+  "$id": "https://agenthub.local/contracts/docker-compose-delivery.schema.json",
+  "title": "AgentHub Compose Delivery Profile",
   "type": "object",
   "required": [
-    "services"
+    "version",
+    "defaultServices",
+    "storage",
+    "profiles"
   ],
   "properties": {
-    "services": {
+    "version": { "const": "2.0" },
+    "defaultServices": {
+      "type": "array",
+      "uniqueItems": true,
+      "allOf": [
+        {
+          "contains": { "const": "frontend" }
+        },
+        {
+          "contains": { "const": "gateway" }
+        },
+        {
+          "contains": { "const": "orchestrator" }
+        },
+        {
+          "contains": { "const": "code-agent" }
+        },
+        {
+          "contains": { "const": "web-agent" }
+        }
+      ],
+      "items": { "type": "string" }
+    },
+    "storage": {
       "type": "object",
-      "required": [
-        "frontend",
-        "gateway",
-        "orchestrator",
-        "code-agent",
-        "web-agent",
-        "mysql"
-      ]
+      "required": ["database", "persistentVolume"],
+      "properties": {
+        "database": { "const": "sqlite" },
+        "journalMode": { "const": "WAL" },
+        "persistentVolume": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "profiles": {
+      "type": "object",
+      "required": ["default"],
+      "properties": {
+        "default": {
+          "type": "object",
+          "required": ["mockCapable"],
+          "properties": {
+            "mockCapable": { "const": true },
+            "requiresModelSecret": { "const": false }
+          },
+          "additionalProperties": true
+        },
+        "observability": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "realModel": {
+          "type": "object",
+          "properties": {
+            "requiresModelSecret": { "const": true }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "dynamicAgentRegistration": {
+      "const": true
     }
-  }
+  },
+  "additionalProperties": false
 }

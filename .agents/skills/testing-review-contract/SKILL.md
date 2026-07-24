@@ -1,75 +1,67 @@
 ---
 name: testing-review-contract
-description: "Testing and review skill. Updated for Module Separation & Runtime Redesign."
+description: "AgentHub 2.0 testing and review skill for contract tests, deterministic mocks, conversation isolation, plan confirmation, Agent registration, context, A2A, artifacts, preview, persistence, security, and release gates."
 ---
 
 # testing-review-contract
 
 ## Purpose
 
-Use this before claiming a phase is complete. Interface compliance and smoke tests are blocking.
+Use this Skill when designing tests, reviewing a patch, defining CI gates, or accepting an AgentHub 2.0 milestone.
 
-## Authoritative source order
+## Read first
 
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. Contracts listed in this skill
-4. PDR product goals only
-5. Sprint/UML as supplemental demo/product context only
+Read `/project-architecture` and every domain Contract affected by the patch.
 
-## Active architecture facts
+Primary sources:
 
 ```text
-pkg/adk                 pure ADK engine
-pkg/runtime             runtime framework over ADK
-services/gateway        public Gateway, auth, SSE, persistence
-services/orchestrator   planner/router/executor/dispatcher
-services/agents/*       child A2A agents
-frontend                React client, Gateway-only access
+docs/contracts/testing-review.md
+docs/contracts/testing-review.schema.json
+docs/contracts/test-matrix.md
+docs/contracts/pr-review-checklist.md
+docs/contracts/quality-gates.md
+docs/contracts/ci-quality-gates.md
 ```
 
-Legacy paths are not implementation targets for new-architecture work:
+## Required test layers
 
 ```text
-server/**               legacy reference only
-agents/**               legacy reference only
+schema/contract
+unit
+component
+integration
+security negative
+persistence/migration
+event replay
+deterministic smoke
+evaluation
 ```
-
-## Contracts to read first
-
-- `docs/contracts/testing-review.md`
-
-## Allowed implementation targets
-
-- `pkg/*`
-- `services/*`
-- `frontend`
-- `scripts`
 
 ## Non-negotiable rules
 
-- Follow the redesign plan over old PDR/Sprint directory details.
-- Do not add new new-architecture work under legacy `server/` or root `agents/`.
-- Do not make Frontend call Orchestrator or Child Agents directly.
-- Do not put concrete LLM providers or business handlers in `pkg/adk`.
-- Keep Gateway and Orchestrator as separate services.
-- Treat Gateway→Orchestrator gRPC streaming as target. HTTP/SSE is temporary compatibility only unless contracts are revised.
-- Treat MySQL as target persistence. SQLite is demo/profile-only unless contracts are revised.
-
-## Required workflow
-
-1. Identify the relevant contract files above.
-2. Check whether the requested change touches cross-module fields or event lifecycles.
-3. Update contract first when the boundary changes.
-4. Implement only in allowed targets.
-5. Add/update tests for the touched module.
-6. Report changed files, tests run, and any remaining mismatch against the redesign plan.
+- Tests MUST NOT require production secrets.
+- Unit/CI tests MUST NOT depend on uncontrolled public Agents or websites.
+- Use deterministic Mock Planner, Mock Agent, Mock Tool, and local HTTP fixtures.
+- Every fixed bug receives a regression test when practical.
+- Contract/API/event/schema changes require contract tests.
+- Multi-conversation work includes contamination negatives.
+- Multi-Agent planning includes unconfirmed/stale/Replan negatives.
+- Registry work includes SSRF, credential, health, authorization, and snapshot tests.
+- A2A streaming tests cover cancellation and duplicate-retry boundaries.
+- Artifact work covers immutable versions and conflict handling.
+- Preview work covers sandbox and version synchronization.
+- Review reports modified scope, test evidence, missing coverage, and Contract mismatch.
+- Flaky tests are not silently retried until green without diagnosis.
 
 ## Completion checklist
 
-- [ ] No stale old-path instructions were introduced.
-- [ ] Contract and implementation agree.
-- [ ] Public Gateway API remains separate from internal service API.
-- [ ] `agentName`, `runId`, `threadId`, and `requestId/traceId` are preserved when relevant.
-- [ ] Errors are sanitized and do not expose secrets or internal URLs.
-- [ ] Tests or a clear blocker are reported.
+- [ ] affected Contracts and state transitions are covered.
+- [ ] positive and negative paths are present.
+- [ ] deterministic fixtures are used.
+- [ ] concurrency/race tests are used where state is shared.
+- [ ] migration and restart persistence are tested.
+- [ ] security and redaction checks are present.
+- [ ] smoke tests represent the supported Compose profile.
+- [ ] evaluation metrics are reproducible.
+- [ ] review verdict and blockers are explicit.

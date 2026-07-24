@@ -1,249 +1,63 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agenthub.local/schemas/observability-debugging.schema.json",
-  "title": "AgentHub Observability Debugging Schema",
-  "description": "用于校验 AgentHub 结构化日志事件、错误对象、指标定义和 debug dump 的最小契约。",
+  "$id": "https://agenthub.local/contracts/observability-debugging.schema.json",
+  "title": "AgentHub Structured Log Record",
   "type": "object",
-  "oneOf": [
-    {
-      "$ref": "#/$defs/logEvent"
-    },
-    {
-      "$ref": "#/$defs/safeError"
-    },
-    {
-      "$ref": "#/$defs/metricDefinition"
-    },
-    {
-      "$ref": "#/$defs/debugDump"
-    }
+  "required": [
+    "timestamp",
+    "level",
+    "service",
+    "message"
   ],
-  "$defs": {
-    "logEvent": {
-      "type": "object",
-      "required": [
-        "timestamp",
-        "level",
-        "service",
-        "event",
-        "traceId"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "timestamp": {
-          "type": "string",
-          "format": "date-time",
-          "description": "日志时间"
-        },
-        "level": {
-          "type": "string",
-          "enum": [
-            "debug",
-            "info",
-            "warn",
-            "error"
-          ],
-          "description": "日志级别"
-        },
-        "service": {
-          "type": "string",
-          "minLength": 1,
-          "description": "服务名称"
-        },
-        "environment": {
-          "type": "string",
-          "description": "运行环境"
-        },
-        "event": {
-          "type": "string",
-          "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$",
-          "description": "dot.case 事件名"
-        },
-        "traceId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "追踪 ID"
-        },
-        "spanId": {
-          "type": "string",
-          "description": "span ID"
-        },
-        "requestId": {
-          "type": "string",
-          "description": "请求 ID"
-        },
-        "runId": {
-          "type": "string",
-          "description": "run ID"
-        },
-        "conversationId": {
-          "type": "string",
-          "description": "会话 ID"
-        },
-        "messageId": {
-          "type": "string",
-          "description": "消息 ID"
-        },
-        "planId": {
-          "type": "string",
-          "description": "计划 ID"
-        },
-        "stepId": {
-          "type": "string",
-          "description": "步骤 ID"
-        },
-        "agentTaskId": {
-          "type": "string",
-          "description": "Agent 子任务 ID"
-        },
-        "agentName": {
-          "type": "string",
-          "description": "Agent 名称"
-        },
-        "capabilityId": {
-          "type": "string",
-          "description": "能力 ID"
-        },
-        "artifactId": {
-          "type": "string",
-          "description": "产物 ID"
-        },
-        "toolCallId": {
-          "type": "string",
-          "description": "Tool Call ID"
-        },
-        "llmRequestId": {
-          "type": "string",
-          "description": "LLM 请求 ID"
-        },
-        "errorCode": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "稳定错误码"
-        },
-        "safeMessage": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "脱敏错误信息"
-        },
-        "durationMs": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "耗时毫秒"
-        }
-      }
+  "properties": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "level": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error"]
     },
-    "safeError": {
+    "service": { "type": "string", "minLength": 1 },
+    "environment": { "type": "string" },
+    "message": { "type": "string", "maxLength": 4096 },
+    "requestId": { "type": "string" },
+    "traceId": { "type": "string" },
+    "conversationId": { "type": "string" },
+    "messageId": { "type": "string" },
+    "runId": { "type": "string" },
+    "planId": { "type": "string" },
+    "planVersion": { "type": "integer", "minimum": 1 },
+    "stepId": { "type": "string" },
+    "invocationId": { "type": "string" },
+    "agentId": { "type": "string" },
+    "agentVersion": { "type": "string" },
+    "skillId": { "type": "string" },
+    "contextSnapshotId": { "type": "string" },
+    "artifactId": { "type": "string" },
+    "artifactVersion": { "type": "integer", "minimum": 1 },
+    "toolCallId": { "type": "string" },
+    "providerRequestId": { "type": "string" },
+    "eventSequence": { "type": "integer", "minimum": 0 },
+    "errorCode": { "type": "string" },
+    "retryable": { "type": "boolean" },
+    "durationMs": { "type": "number", "minimum": 0 },
+    "attributes": {
       "type": "object",
-      "required": [
-        "code",
-        "message"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "code": {
-          "type": "string",
-          "pattern": "^[A-Z][A-Z0-9_]+$",
-          "description": "稳定错误码"
-        },
-        "message": {
-          "type": "string",
-          "description": "用户安全错误文案"
-        },
-        "retryable": {
-          "type": "boolean",
-          "description": "是否可重试"
-        },
-        "detailsRef": {
-          "type": "string",
-          "description": "内部排障引用，不含敏感信息"
-        }
-      }
-    },
-    "metricDefinition": {
-      "type": "object",
-      "required": [
-        "name",
-        "type",
-        "description"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9_]*$",
-          "description": "指标名"
-        },
-        "type": {
-          "type": "string",
-          "enum": [
-            "counter",
-            "gauge",
-            "histogram"
-          ],
-          "description": "指标类型"
-        },
-        "description": {
-          "type": "string",
-          "description": "指标说明"
-        },
-        "labels": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "低基数标签"
-        }
-      }
-    },
-    "debugDump": {
-      "type": "object",
-      "required": [
-        "traceId",
-        "runId",
-        "createdAt",
-        "redacted"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "traceId": {
-          "type": "string"
-        },
-        "requestId": {
-          "type": "string"
-        },
-        "runId": {
-          "type": "string"
-        },
-        "conversationId": {
-          "type": "string"
-        },
-        "planId": {
-          "type": "string"
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "redacted": {
-          "type": "boolean",
-          "const": true,
-          "description": "debug dump 必须已脱敏"
-        },
-        "timeline": {
-          "type": "array",
-          "items": {
-            "type": "object"
-          }
-        }
+      "additionalProperties": {
+        "type": ["string", "number", "boolean", "null"]
       }
     }
-  }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "not": {
+        "anyOf": [
+          { "required": ["authorization"] },
+          { "required": ["apiKey"] },
+          { "required": ["credential"] },
+          { "required": ["chainOfThought"] },
+          { "required": ["systemPrompt"] }
+        ]
+      }
+    }
+  ]
 }

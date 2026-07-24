@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.local/contracts/web-project-preview.schema.json",
+  "title": "WebProjectArtifact Content",
+  "type": "object",
+  "required": [
+    "template",
+    "entryFile",
+    "files",
+    "preview"
+  ],
+  "properties": {
+    "template": {
+      "type": "string",
+      "enum": ["static", "vanilla", "react"]
+    },
+    "entryFile": {
+      "$ref": "#/$defs/projectPath"
+    },
+    "files": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 300,
+      "propertyNames": {
+        "$ref": "#/$defs/projectPath"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string", "maxLength": 1048576 },
+          {
+            "type": "object",
+            "required": ["code"],
+            "properties": {
+              "code": { "type": "string", "maxLength": 1048576 },
+              "active": { "type": "boolean" },
+              "hidden": { "type": "boolean" },
+              "readOnly": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "dependencies": {
+      "$ref": "#/$defs/dependencies"
+    },
+    "devDependencies": {
+      "$ref": "#/$defs/dependencies"
+    },
+    "preview": {
+      "type": "object",
+      "required": ["renderer", "enabled"],
+      "properties": {
+        "renderer": { "const": "sandpack" },
+        "enabled": { "type": "boolean" },
+        "networkPolicy": {
+          "type": "string",
+          "enum": ["disabled", "allowlisted", "user_approved"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "projectPath": {
+      "type": "string",
+      "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\u0000)[A-Za-z0-9._@+()\\- /]+$",
+      "maxLength": 512
+    },
+    "packageName": {
+      "type": "string",
+      "pattern": "^(?:@[a-z0-9._-]+/)?[a-z0-9._-]+$",
+      "maxLength": 214
+    },
+    "dependencies": {
+      "type": "object",
+      "maxProperties": 100,
+      "propertyNames": {
+        "$ref": "#/$defs/packageName"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "not": {
+          "pattern": "^(?:file:|git\\+|https?:|ssh:|workspace:)"
+        }
+      }
+    }
+  }
+}
