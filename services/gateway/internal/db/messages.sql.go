@@ -11,39 +11,51 @@ import (
 )
 
 const createMessage = `-- name: CreateMessage :one
-INSERT INTO messages (id, conversation_id, run_id, message_id, role, sender_type, content, content_json, reply_to_message_id, status, created_at, updated_at, metadata_json, client_message_id, sequence)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
-RETURNING id, conversation_id, run_id, client_message_id, sender_type, content, content_json, reply_to_message_id, status, sequence, created_at, updated_at, deleted_at
+INSERT INTO messages (id, conversation_id, run_id, step_id, message_id, role, sender_type, sender_name, agent_name, content, content_json, reply_to_message_id, status, sequence, error_code, error_message, created_at, updated_at, metadata_json, client_message_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?)
+RETURNING id, conversation_id, run_id, step_id, message_id, role, sender_type, sender_name, agent_name, client_message_id, content, content_json, reply_to_message_id, status, sequence, error_code, error_message, created_at, updated_at, deleted_at
 `
 
 type CreateMessageParams struct {
 	ID               string
 	ConversationID   string
 	RunID            sql.NullString
+	StepID           sql.NullString
 	MessageID        string
 	Role             string
 	SenderType       string
+	SenderName       string
+	AgentName        string
 	Content          string
 	ContentJson      sql.NullString
 	ReplyToMessageID sql.NullString
 	Status           string
+	Sequence         int64
+	ErrorCode        string
+	ErrorMessage     string
 	CreatedAt        string
 	UpdatedAt        string
 	ClientMessageID  sql.NullString
-	Sequence         int64
 }
 
 type CreateMessageRow struct {
 	ID               string
 	ConversationID   string
 	RunID            sql.NullString
-	ClientMessageID  sql.NullString
+	StepID           sql.NullString
+	MessageID        string
+	Role             string
 	SenderType       string
+	SenderName       string
+	AgentName        string
+	ClientMessageID  sql.NullString
 	Content          string
 	ContentJson      sql.NullString
 	ReplyToMessageID sql.NullString
 	Status           string
 	Sequence         int64
+	ErrorCode        string
+	ErrorMessage     string
 	CreatedAt        string
 	UpdatedAt        string
 	DeletedAt        sql.NullString
@@ -54,30 +66,42 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (C
 		arg.ID,
 		arg.ConversationID,
 		arg.RunID,
+		arg.StepID,
 		arg.MessageID,
 		arg.Role,
 		arg.SenderType,
+		arg.SenderName,
+		arg.AgentName,
 		arg.Content,
 		arg.ContentJson,
 		arg.ReplyToMessageID,
 		arg.Status,
+		arg.Sequence,
+		arg.ErrorCode,
+		arg.ErrorMessage,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.ClientMessageID,
-		arg.Sequence,
 	)
 	var i CreateMessageRow
 	err := row.Scan(
 		&i.ID,
 		&i.ConversationID,
 		&i.RunID,
-		&i.ClientMessageID,
+		&i.StepID,
+		&i.MessageID,
+		&i.Role,
 		&i.SenderType,
+		&i.SenderName,
+		&i.AgentName,
+		&i.ClientMessageID,
 		&i.Content,
 		&i.ContentJson,
 		&i.ReplyToMessageID,
 		&i.Status,
 		&i.Sequence,
+		&i.ErrorCode,
+		&i.ErrorMessage,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -86,7 +110,7 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (C
 }
 
 const getMessageByClientID = `-- name: GetMessageByClientID :one
-SELECT id, conversation_id, run_id, client_message_id, sender_type, content, content_json, reply_to_message_id, status, sequence, created_at, updated_at, deleted_at
+SELECT id, conversation_id, run_id, step_id, message_id, role, sender_type, sender_name, agent_name, client_message_id, content, content_json, reply_to_message_id, status, sequence, error_code, error_message, created_at, updated_at, deleted_at
 FROM messages WHERE conversation_id = ? AND client_message_id = ? AND deleted_at IS NULL
 `
 
@@ -99,13 +123,20 @@ type GetMessageByClientIDRow struct {
 	ID               string
 	ConversationID   string
 	RunID            sql.NullString
-	ClientMessageID  sql.NullString
+	StepID           sql.NullString
+	MessageID        string
+	Role             string
 	SenderType       string
+	SenderName       string
+	AgentName        string
+	ClientMessageID  sql.NullString
 	Content          string
 	ContentJson      sql.NullString
 	ReplyToMessageID sql.NullString
 	Status           string
 	Sequence         int64
+	ErrorCode        string
+	ErrorMessage     string
 	CreatedAt        string
 	UpdatedAt        string
 	DeletedAt        sql.NullString
@@ -118,13 +149,20 @@ func (q *Queries) GetMessageByClientID(ctx context.Context, arg GetMessageByClie
 		&i.ID,
 		&i.ConversationID,
 		&i.RunID,
-		&i.ClientMessageID,
+		&i.StepID,
+		&i.MessageID,
+		&i.Role,
 		&i.SenderType,
+		&i.SenderName,
+		&i.AgentName,
+		&i.ClientMessageID,
 		&i.Content,
 		&i.ContentJson,
 		&i.ReplyToMessageID,
 		&i.Status,
 		&i.Sequence,
+		&i.ErrorCode,
+		&i.ErrorMessage,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -133,7 +171,7 @@ func (q *Queries) GetMessageByClientID(ctx context.Context, arg GetMessageByClie
 }
 
 const listMessages = `-- name: ListMessages :many
-SELECT id, conversation_id, run_id, client_message_id, sender_type, content, content_json, reply_to_message_id, status, sequence, created_at, updated_at, deleted_at
+SELECT id, conversation_id, run_id, step_id, message_id, role, sender_type, sender_name, agent_name, client_message_id, content, content_json, reply_to_message_id, status, sequence, error_code, error_message, created_at, updated_at, deleted_at
 FROM messages WHERE conversation_id = ? AND deleted_at IS NULL ORDER BY sequence ASC, id ASC LIMIT ? OFFSET ?
 `
 
@@ -147,13 +185,20 @@ type ListMessagesRow struct {
 	ID               string
 	ConversationID   string
 	RunID            sql.NullString
-	ClientMessageID  sql.NullString
+	StepID           sql.NullString
+	MessageID        string
+	Role             string
 	SenderType       string
+	SenderName       string
+	AgentName        string
+	ClientMessageID  sql.NullString
 	Content          string
 	ContentJson      sql.NullString
 	ReplyToMessageID sql.NullString
 	Status           string
 	Sequence         int64
+	ErrorCode        string
+	ErrorMessage     string
 	CreatedAt        string
 	UpdatedAt        string
 	DeletedAt        sql.NullString
@@ -172,13 +217,20 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 			&i.ID,
 			&i.ConversationID,
 			&i.RunID,
-			&i.ClientMessageID,
+			&i.StepID,
+			&i.MessageID,
+			&i.Role,
 			&i.SenderType,
+			&i.SenderName,
+			&i.AgentName,
+			&i.ClientMessageID,
 			&i.Content,
 			&i.ContentJson,
 			&i.ReplyToMessageID,
 			&i.Status,
 			&i.Sequence,
+			&i.ErrorCode,
+			&i.ErrorMessage,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -192,6 +244,9 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	if items == nil {
+		items = []ListMessagesRow{}
 	}
 	return items, nil
 }

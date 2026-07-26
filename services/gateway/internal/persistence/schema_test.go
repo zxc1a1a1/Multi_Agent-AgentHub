@@ -1,3 +1,8 @@
+// Legacy compatibility test: verifies the schema produced by the old
+// RunMigrations against expected column definitions.
+//
+// Removal condition: delete when the old migrate.go and its embedded SQL
+// migrations are fully retired and all callers use goosemigrate.Up.
 package persistence_test
 
 import (

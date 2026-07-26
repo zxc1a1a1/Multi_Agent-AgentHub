@@ -19,7 +19,8 @@
       "Read(//c//**)",
       "Bash(cmd.exe /c \"where go 2>&1\")",
       "Bash(powershell.exe -Command \"Get-Command go -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
-      "Bash(docker run *)"
+      "Bash(docker run *)",
+      "Bash(GOPROXY=https://goproxy.cn,direct go vet ./...)"
     ],
     "additionalDirectories": [
       "\\tmp"

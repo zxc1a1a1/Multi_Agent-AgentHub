@@ -64,13 +64,14 @@ func run() error {
 
 	if cfg.StoreMode == "sqlite" {
 		log.Printf("store mode: sqlite, db path: %s", cfg.SQLitePath)
-		_, sqliteStore, writer, cleanup, err := gateway.BootstrapPersistence(cfg.SQLitePath)
+		layer, cleanup, err := gateway.BootstrapPersistence(cfg.SQLitePath)
 		if err != nil {
 			return fmt.Errorf("sqlite bootstrap failed: %w", err)
 		}
 		dbCleanup = cleanup
+		writer := httpapi.NewPersistenceWriter(layer.Conv, layer.Msg, layer.Run, layer.Evt, layer.Step)
 		opts = append(opts, httpapi.WithPersistenceWriter(writer))
-		opts = append(opts, httpapi.WithPersistenceStore(sqliteStore))
+		opts = append(opts, httpapi.WithPersistenceStore(layer.Conv, layer.Msg))
 	} else {
 		log.Printf("store mode: memory")
 	}

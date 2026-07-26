@@ -10,4 +10,4 @@ SELECT id, conversation_id, trigger_message_id, mode, status, plan_id, confirmed
 SELECT id, conversation_id, trigger_message_id, mode, status, plan_id, confirmed_plan_version, context_snapshot_id, started_at, finished_at, error_code, metadata_json, created_at, updated_at FROM runs WHERE conversation_id = ? ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?;
 
 -- name: CompareAndSetRunStatus :execrows
-UPDATE runs SET status = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status = ?;
+UPDATE runs SET status = ?, finished_at = ?, updated_at = ?, error_code = ?, error_message = ? WHERE id = ? AND status = ?;

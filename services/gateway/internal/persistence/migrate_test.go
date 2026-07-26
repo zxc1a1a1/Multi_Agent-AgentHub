@@ -1,3 +1,8 @@
+// Legacy compatibility test: verifies the old RunMigrations function
+// (idempotency, error handling, embedded FS).
+//
+// Removal condition: delete together with migrate.go when goosemigrate.Up
+// is the sole migration path and all existing databases have been adopted.
 package persistence_test
 
 import (

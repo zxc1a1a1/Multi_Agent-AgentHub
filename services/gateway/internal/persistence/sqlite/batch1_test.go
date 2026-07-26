@@ -1,3 +1,10 @@
+// Legacy compatibility test: verifies the deprecated sqlite.Store batch1
+// methods (AppendEvent, CompareAndSetRunStatus, CreateConversationV2,
+// AppendMessageV2, etc.).
+//
+// Removal condition: delete when the domain.EventRepository (Append,
+// ListAfter) and domain.RunRepository (CompareAndSetStatus) completely
+// replace the old Store methods and no production code calls them.
 package sqlite_test
 
 import (

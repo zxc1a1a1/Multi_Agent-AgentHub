@@ -325,3 +325,85 @@ func (q *Queries) UpdateConversationVersion(ctx context.Context, arg UpdateConve
 	)
 	return i, err
 }
+
+const setConversationPinned = `-- name: SetConversationPinned :one
+UPDATE conversations SET pinned = ?, pinned_at = ?, version = version + 1, updated_at = ?
+WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+RETURNING id, user_id, title, mode, response_mode, status, version, pinned, pinned_at, last_message_at, archived_at, deleted_at, created_at, updated_at
+`
+
+type SetConversationPinnedParams struct {
+	Pinned    int64
+	PinnedAt  sql.NullString
+	UpdatedAt string
+	ID        string
+	UserID    string
+}
+
+type SetConversationPinnedRow struct {
+	ID            string
+	UserID        string
+	Title         string
+	Mode          string
+	ResponseMode  string
+	Status        string
+	Version       int64
+	Pinned        int64
+	PinnedAt      sql.NullString
+	LastMessageAt sql.NullString
+	ArchivedAt    sql.NullString
+	DeletedAt     sql.NullString
+	CreatedAt     string
+	UpdatedAt     string
+}
+
+func (q *Queries) SetConversationPinned(ctx context.Context, arg SetConversationPinnedParams) (SetConversationPinnedRow, error) {
+	row := q.db.QueryRowContext(ctx, setConversationPinned,
+		arg.Pinned,
+		arg.PinnedAt,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.UserID,
+	)
+	var i SetConversationPinnedRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Title,
+		&i.Mode,
+		&i.ResponseMode,
+		&i.Status,
+		&i.Version,
+		&i.Pinned,
+		&i.PinnedAt,
+		&i.LastMessageAt,
+		&i.ArchivedAt,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const touchConversation = `-- name: TouchConversation :execrows
+UPDATE conversations SET last_message_at = ?, updated_at = ?
+WHERE id = ? AND deleted_at IS NULL
+`
+
+type TouchConversationParams struct {
+	LastMessageAt sql.NullString
+	UpdatedAt     string
+	ID            string
+}
+
+func (q *Queries) TouchConversation(ctx context.Context, arg TouchConversationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, touchConversation,
+		arg.LastMessageAt,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

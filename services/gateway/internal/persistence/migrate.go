@@ -15,6 +15,9 @@ var migrationFS embed.FS
 // RunMigrations applies all embedded SQL migration files in filename order.
 // Migrations that have already been applied (tracked in schema_migrations) are skipped.
 // The function is idempotent — calling it multiple times is safe.
+//
+// Deprecated: Use goosemigrate.Up for new code. RunMigrations is retained
+// only for backward compatibility in existing tests.
 func RunMigrations(db *sql.DB) error {
 	if db == nil {
 		return fmt.Errorf("db is nil")

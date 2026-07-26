@@ -9,43 +9,48 @@ import (
 	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
-	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/persistence/sqlite"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/domain"
 )
 
 // PersistenceWriter consumes translated AG-UI events and writes Run / RunStep /
-// Message rows to SQLite without affecting the SSE stream.
+// Message rows to SQLite via domain repositories without affecting the SSE stream.
 //
 // It is optional: when nil, handleChat behaves exactly as before (MemoryStore only).
 type PersistenceWriter struct {
-	store *sqlite.Store
+	conv domain.ConversationRepository
+	msg  domain.MessageRepository
+	run  domain.RunRepository
+	evt  domain.EventRepository
+	step domain.RunStepRepository
 
-	mu              sync.Mutex
-	runID           string
-	currentMsgID    string
-	currentTaskID   string
-	currentStepID   string
-	deltaBuf        strings.Builder
-	stepIndex       int
-	runFailed       bool
+	mu            sync.Mutex
+	runID         string
+	currentMsgID  string
+	currentTaskID string
+	currentStepID string
+	deltaBuf      strings.Builder
+	stepIndex     int
+	runFailed     bool
 }
 
-// NewPersistenceWriter returns a PersistenceWriter backed by the given sqlite.Store.
-func NewPersistenceWriter(store *sqlite.Store) *PersistenceWriter {
-	return &PersistenceWriter{store: store}
+// NewPersistenceWriter returns a PersistenceWriter backed by domain repositories.
+func NewPersistenceWriter(conv domain.ConversationRepository, msg domain.MessageRepository, run domain.RunRepository, evt domain.EventRepository, step domain.RunStepRepository) *PersistenceWriter {
+	return &PersistenceWriter{conv: conv, msg: msg, run: run, evt: evt, step: step}
 }
 
-// SaveUserMessage persists the user message to SQLite before the SSE loop starts.
+// SaveUserMessage persists the user message before the SSE loop starts.
 func (w *PersistenceWriter) SaveUserMessage(ctx context.Context, conversationID, text string) error {
 	if w == nil {
 		return nil
 	}
-	return w.store.AppendMessage(ctx, sqlite.Message{
+	_, err := w.msg.Create(ctx, domain.CreateMessageInput{
 		ConversationID: conversationID,
 		Role:           "user",
 		SenderType:     "user",
 		Content:        text,
 		Status:         "sent",
 	})
+	return err
 }
 
 // HandleEvent processes one AG-UI event and writes the corresponding DB rows.
@@ -75,10 +80,11 @@ func (w *PersistenceWriter) HandleEvent(ctx context.Context, conversationID stri
 func (w *PersistenceWriter) handleRunStarted(ctx context.Context, conversationID string, evt agui.Event) {
 	w.runID = evt.RunID
 	w.runFailed = false
-	_ = w.store.CreateRun(ctx, sqlite.Run{
+	_, _ = w.run.Create(ctx, domain.CreateRunInput{
 		ID:             evt.RunID,
 		ConversationID: conversationID,
-		Status:         "running",
+		Mode:           "direct",
+		Status:         "executing",
 	})
 }
 
@@ -94,17 +100,23 @@ func (w *PersistenceWriter) handleTextMessageStart(ctx context.Context, conversa
 	if evt.TaskID != "" && evt.TaskID != w.currentTaskID {
 		w.currentTaskID = evt.TaskID
 		w.stepIndex++
-		step := sqlite.RunStep{
-			ID:             newPWCryptoID(),
+		stepID := newPWCryptoID()
+		sType := senderType(evt)
+		sName := senderName(evt)
+		agentName := ""
+		if sType == "agent" {
+			agentName = sName
+		}
+		if err := w.step.Create(ctx, domain.CreateRunStepInput{
+			ID:             stepID,
 			RunID:          w.runID,
 			ConversationID: conversationID,
 			TaskID:         evt.TaskID,
 			StepIndex:      w.stepIndex - 1,
-			AgentName:      senderName(evt),
+			AgentName:      agentName,
 			Status:         "running",
-		}
-		if err := w.store.CreateRunStep(ctx, step); err == nil {
-			w.currentStepID = step.ID
+		}); err == nil {
+			w.currentStepID = stepID
 		}
 	}
 
@@ -116,11 +128,9 @@ func (w *PersistenceWriter) handleTextMessageStart(ctx context.Context, conversa
 		agentName = sName
 	}
 
-	msg := sqlite.Message{
-		ID:             newPWCryptoID(),
+	msg, err := w.msg.Create(ctx, domain.CreateMessageInput{
 		ConversationID: conversationID,
 		RunID:          w.runID,
-		StepID:         w.currentStepID,
 		MessageID:      evt.MessageID,
 		Role:           "assistant",
 		SenderType:     sType,
@@ -128,8 +138,8 @@ func (w *PersistenceWriter) handleTextMessageStart(ctx context.Context, conversa
 		AgentName:      agentName,
 		Content:        "",
 		Status:         "streaming",
-	}
-	if err := w.store.AppendMessage(ctx, msg); err == nil {
+	})
+	if err == nil {
 		w.currentMsgID = msg.ID
 		w.deltaBuf.Reset()
 	}
@@ -150,7 +160,7 @@ func (w *PersistenceWriter) handleTextMessageEnd(ctx context.Context, evt agui.E
 
 	// Mark step completed.
 	if w.currentStepID != "" {
-		_ = w.store.UpdateRunStepStatus(ctx, w.currentStepID, "completed", "", "", time.Now().UTC())
+		_ = w.step.UpdateStatus(ctx, w.currentStepID, "completed", "", "")
 	}
 }
 
@@ -166,20 +176,20 @@ func (w *PersistenceWriter) handleRunError(ctx context.Context, evt agui.Event) 
 		}
 	}
 
-	_ = w.store.UpdateRunStatus(ctx, w.runID, "failed", errCode, errMsg, time.Now().UTC())
+	_ = w.run.CompareAndSetStatus(ctx, w.runID, "executing", "failed", errCode, errMsg)
 
 	if w.currentStepID != "" {
-		_ = w.store.UpdateRunStepStatus(ctx, w.currentStepID, "failed", errCode, errMsg, time.Now().UTC())
+		_ = w.step.UpdateStatus(ctx, w.currentStepID, "failed", errCode, errMsg)
 	}
 
 	if w.currentMsgID != "" {
 		content := w.deltaBuf.String()
-		_ = w.store.UpdateMessageContentAndStatus(ctx, w.currentMsgID, content, "failed", errCode, errMsg, time.Now().UTC())
+		_ = w.msg.UpdateContentAndStatus(ctx, w.currentMsgID, content, "failed", errCode, errMsg)
 	}
 }
 
 func (w *PersistenceWriter) handleRunFinished(ctx context.Context) {
-	_ = w.store.UpdateRunStatus(ctx, w.runID, "completed", "", "", time.Now().UTC())
+	_ = w.run.CompareAndSetStatus(ctx, w.runID, "executing", "completed", "", "")
 }
 
 // finalizeCurrentMessage writes the buffered content to the current message and marks it sent.
@@ -199,7 +209,7 @@ func (w *PersistenceWriter) flushCurrentMessage(ctx context.Context) {
 	if content == "" {
 		return
 	}
-	_ = w.store.UpdateMessageContentAndStatus(ctx, w.currentMsgID, content, "sent", "", "", time.Now().UTC())
+	_ = w.msg.UpdateContentAndStatus(ctx, w.currentMsgID, content, "sent", "", "")
 }
 
 func senderType(evt agui.Event) string {

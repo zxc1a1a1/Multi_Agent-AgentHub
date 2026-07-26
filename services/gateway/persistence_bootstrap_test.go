@@ -7,7 +7,7 @@ import (
 )
 
 func TestBootstrapPersistence_EmptyPath(t *testing.T) {
-	_, _, _, _, err := BootstrapPersistence("")
+	_, _, err := BootstrapPersistence("")
 	if err == nil {
 		t.Fatal("expected error for empty path, got nil")
 	}
@@ -24,14 +24,14 @@ func TestBootstrapPersistence_MkdirAllCreatesParentDir(t *testing.T) {
 	nestedDir := filepath.Join(tmpDir, "nested", "subdir")
 	dbPath := filepath.Join(nestedDir, "test.db")
 
-	db, _, _, cleanup, err := BootstrapPersistence(dbPath)
+	layer, cleanup, err := BootstrapPersistence(dbPath)
 	if err != nil {
 		t.Fatalf("BootstrapPersistence with nested path failed: %v", err)
 	}
 	defer cleanup()
 
 	// Verify the database is accessible.
-	if err := db.Ping(); err != nil {
+	if err := layer.DB.Ping(); err != nil {
 		t.Fatalf("ping after bootstrap failed: %v", err)
 	}
 
@@ -58,13 +58,13 @@ func TestBootstrapPersistence_PlainFilename(t *testing.T) {
 	// Use just a filename — parentDir will be ".", so MkdirAll is skipped.
 	dbPath := "test.db"
 
-	db, _, _, cleanup, err := BootstrapPersistence(dbPath)
+	layer, cleanup, err := BootstrapPersistence(dbPath)
 	if err != nil {
 		t.Fatalf("BootstrapPersistence with plain filename failed: %v", err)
 	}
 	defer cleanup()
 
-	if err := db.Ping(); err != nil {
+	if err := layer.DB.Ping(); err != nil {
 		t.Fatalf("ping after bootstrap failed: %v", err)
 	}
 
@@ -90,7 +90,7 @@ func TestBootstrapPersistence_MkdirAllFails(t *testing.T) {
 	// Try to create a db inside the blocker (file as directory — should fail).
 	dbPath := filepath.Join(blocker, "subdir", "test.db")
 
-	_, _, _, _, err = BootstrapPersistence(dbPath)
+	_, _, err = BootstrapPersistence(dbPath)
 	if err == nil {
 		t.Fatal("expected error when MkdirAll fails, got nil")
 	}

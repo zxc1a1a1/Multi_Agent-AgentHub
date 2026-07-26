@@ -1,3 +1,9 @@
+// Legacy compatibility test: verifies the deprecated sqlite.Store
+// (CreateConversation, AppendMessage, CreateRun, CreateRunStep, etc.).
+//
+// Removal condition: delete when all callers have migrated to the
+// domain.Repository interfaces in internal/persistence/repository and
+// the old sqlite.Store is fully retired.
 package sqlite_test
 
 import (

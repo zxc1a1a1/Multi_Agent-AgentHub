@@ -67,3 +67,66 @@ func (q *Queries) UpdateRunStepStatus(ctx context.Context, arg UpdateRunStepStat
 	}
 	return result.RowsAffected()
 }
+
+const listRunStepsByRun = `-- name: ListRunStepsByRun :many
+SELECT id, run_id, conversation_id, task_id, step_index, agent_name, capability_id, status, started_at, finished_at, error_code, error_message, metadata_json
+FROM run_steps
+WHERE run_id = ?
+ORDER BY step_index ASC
+`
+
+type ListRunStepsByRunRow struct {
+	ID             string
+	RunID          string
+	ConversationID string
+	TaskID         string
+	StepIndex      int64
+	AgentName      string
+	CapabilityID   string
+	Status         string
+	StartedAt      sql.NullString
+	FinishedAt     sql.NullString
+	ErrorCode      string
+	ErrorMessage   string
+	MetadataJson   string
+}
+
+func (q *Queries) ListRunStepsByRun(ctx context.Context, runID string) ([]ListRunStepsByRunRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRunStepsByRun, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRunStepsByRunRow
+	for rows.Next() {
+		var i ListRunStepsByRunRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.ConversationID,
+			&i.TaskID,
+			&i.StepIndex,
+			&i.AgentName,
+			&i.CapabilityID,
+			&i.Status,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.ErrorCode,
+			&i.ErrorMessage,
+			&i.MetadataJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = []ListRunStepsByRunRow{}
+	}
+	return items, nil
+}

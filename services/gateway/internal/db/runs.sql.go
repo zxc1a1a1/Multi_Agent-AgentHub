@@ -11,15 +11,17 @@ import (
 )
 
 const compareAndSetRunStatus = `-- name: CompareAndSetRunStatus :execrows
-UPDATE runs SET status = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status = ?
+UPDATE runs SET status = ?, finished_at = ?, updated_at = ?, error_code = ?, error_message = ? WHERE id = ? AND status = ?
 `
 
 type CompareAndSetRunStatusParams struct {
-	Status     string
-	FinishedAt sql.NullString
-	UpdatedAt  sql.NullString
-	ID         string
-	Status_2   string
+	Status       string
+	FinishedAt   sql.NullString
+	UpdatedAt    sql.NullString
+	ErrorCode    string
+	ErrorMessage string
+	ID           string
+	Status_2     string
 }
 
 func (q *Queries) CompareAndSetRunStatus(ctx context.Context, arg CompareAndSetRunStatusParams) (int64, error) {
@@ -27,6 +29,8 @@ func (q *Queries) CompareAndSetRunStatus(ctx context.Context, arg CompareAndSetR
 		arg.Status,
 		arg.FinishedAt,
 		arg.UpdatedAt,
+		arg.ErrorCode,
+		arg.ErrorMessage,
 		arg.ID,
 		arg.Status_2,
 	)

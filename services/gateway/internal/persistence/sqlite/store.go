@@ -10,10 +10,10 @@ import (
 )
 
 // Store provides SQLite-backed persistence for AgentHub entities.
-// It does NOT implement the gateway store.Store interface directly —
-// that adapter will be introduced in Step 3-D when the runtime write
-// path is connected. This Store exposes the full model with sender
-// identity, run/step linkage, and artifact metadata.
+//
+// Deprecated: Use domain.Repository interfaces backed by sqlc-generated
+// queries (see internal/persistence/repository) for new code. Store is
+// retained only for backward compatibility in existing tests.
 type Store struct {
 	db *sql.DB
 }

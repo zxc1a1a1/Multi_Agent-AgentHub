@@ -8,12 +8,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
-	persistence "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/persistence"
-	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/persistence/sqlite"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/db"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/domain"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/persistence/goosemigrate"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/persistence/repository"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
 
 	_ "modernc.org/sqlite"
@@ -30,16 +31,49 @@ func openPersistenceDB(t *testing.T) *sql.DB {
 		t.Fatalf("open in-memory sqlite: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := persistence.RunMigrations(db); err != nil {
-		t.Fatalf("RunMigrations: %v", err)
+	if err := goosemigrate.Up(db, "../db/migrations"); err != nil {
+		t.Fatalf("goose up: %v", err)
 	}
 	return db
 }
 
+type testRepos struct {
+	db   *sql.DB
+	conv domain.ConversationRepository
+	msg  domain.MessageRepository
+	run  domain.RunRepository
+	evt  domain.EventRepository
+	step domain.RunStepRepository
+}
+
+func newTestRepos(t *testing.T) testRepos {
+	t.Helper()
+	d := openPersistenceDB(t)
+	q := db.New(d)
+	return testRepos{
+		db:   d,
+		conv: repository.NewConversationRepo(q),
+		msg:  repository.NewMessageRepo(q, d),
+		run:  repository.NewRunRepo(q),
+		evt:  repository.NewEventRepo(q, d),
+		step: repository.NewRunStepRepo(q),
+	}
+}
+
 func newPersistenceWriter(t *testing.T) *PersistenceWriter {
 	t.Helper()
-	db := openPersistenceDB(t)
-	return NewPersistenceWriter(sqlite.NewStore(db))
+	r := newTestRepos(t)
+	return NewPersistenceWriter(r.conv, r.msg, r.run, r.evt, r.step)
+}
+
+func newTestConversation(t *testing.T, convRepo domain.ConversationRepository, id string) {
+	t.Helper()
+	_, err := convRepo.Create(context.Background(), domain.CreateConversationInput{
+		ID: id, UserID: "test-user", Title: "Test", Mode: "direct", ResponseMode: "separate",
+	})
+	if err != nil {
+		t.Fatalf("create test conversation: %v", err)
+	}
 }
 
 // seqEventsWithMeta creates an iter.Seq2 from a list of adk.Event.
@@ -64,10 +98,9 @@ func metadata(eventType, runID, messageID, taskID, senderType, senderName string
 	}
 }
 
-func assertMessages(t *testing.T, db *sql.DB, conversationID string, expected int) []sqlite.Message {
+func assertMessages(t *testing.T, msgRepo domain.MessageRepository, conversationID string, expected int) []domain.Message {
 	t.Helper()
-	store := sqlite.NewStore(db)
-	msgs, err := store.ListMessages(context.Background(), conversationID)
+	msgs, err := msgRepo.List(context.Background(), conversationID, domain.Pagination{Limit: 100, Offset: 0})
 	if err != nil {
 		t.Fatalf("ListMessages: %v", err)
 	}
@@ -77,12 +110,11 @@ func assertMessages(t *testing.T, db *sql.DB, conversationID string, expected in
 	return msgs
 }
 
-func assertRuns(t *testing.T, db *sql.DB, conversationID string, expected int) []sqlite.Run {
+func assertRuns(t *testing.T, runRepo domain.RunRepository, conversationID string, expected int) []domain.Run {
 	t.Helper()
-	store := sqlite.NewStore(db)
-	runs, err := store.ListRunsByConversation(context.Background(), conversationID)
+	runs, err := runRepo.List(context.Background(), conversationID, domain.Pagination{Limit: 100, Offset: 0})
 	if err != nil {
-		t.Fatalf("ListRunsByConversation: %v", err)
+		t.Fatalf("ListRuns: %v", err)
 	}
 	if len(runs) != expected {
 		t.Fatalf("expected %d runs, got %d", expected, len(runs))
@@ -90,10 +122,9 @@ func assertRuns(t *testing.T, db *sql.DB, conversationID string, expected int) [
 	return runs
 }
 
-func assertRunSteps(t *testing.T, db *sql.DB, runID string, expected int) []sqlite.RunStep {
+func assertRunSteps(t *testing.T, stepRepo domain.RunStepRepository, runID string, expected int) []domain.RunStep {
 	t.Helper()
-	store := sqlite.NewStore(db)
-	steps, err := store.ListRunSteps(context.Background(), runID)
+	steps, err := stepRepo.ListByRun(context.Background(), runID)
 	if err != nil {
 		t.Fatalf("ListRunSteps: %v", err)
 	}
@@ -129,16 +160,12 @@ func assertNotContains(t *testing.T, s, substr, label string) {
 // ---------------------------------------------------------------------------
 
 func TestPersistenceWriterSingleCode(t *testing.T) {
-	db := openPersistenceDB(t)
-	store := sqlite.NewStore(db)
-	conv := sqlite.Conversation{ID: "conv-sc", Title: "Single Code"}
-	if err := store.CreateConversation(context.Background(), conv); err != nil {
-		t.Fatalf("CreateConversation: %v", err)
-	}
+	r := newTestRepos(t)
+	newTestConversation(t, r.conv, "conv-sc")
 
-	pw := NewPersistenceWriter(store)
+	pw := NewPersistenceWriter(r.conv, r.msg, r.run, r.evt, r.step)
 	ctx := context.Background()
-	conversationID := conv.ID
+	conversationID := "conv-sc"
 	runID := "run-sc"
 
 	// Save user message
@@ -181,15 +208,15 @@ func TestPersistenceWriterSingleCode(t *testing.T) {
 	})
 
 	// Verify
-	runs := assertRuns(t, db, conversationID, 1)
+	runs := assertRuns(t, r.run, conversationID, 1)
 	assertStr(t, runs[0].Status, "completed", "run status")
 
-	steps := assertRunSteps(t, db, runID, 1)
+	steps := assertRunSteps(t, r.step, runID, 1)
 	assertStr(t, steps[0].AgentName, "code-agent", "step agent_name")
 	assertStr(t, steps[0].TaskID, "task-code", "step task_id")
 	assertStr(t, steps[0].Status, "completed", "step status")
 
-	msgs := assertMessages(t, db, conversationID, 2) // user + code-agent
+	msgs := assertMessages(t, r.msg, conversationID, 2) // user + code-agent
 	assertStr(t, msgs[0].Role, "user", "msg[0] role")
 	assertStr(t, msgs[1].Role, "assistant", "msg[1] role")
 	assertStr(t, msgs[1].SenderType, "agent", "msg[1] sender_type")
@@ -204,16 +231,12 @@ func TestPersistenceWriterSingleCode(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPersistenceWriterSingleWeb(t *testing.T) {
-	db := openPersistenceDB(t)
-	store := sqlite.NewStore(db)
-	conv := sqlite.Conversation{ID: "conv-sw", Title: "Single Web"}
-	if err := store.CreateConversation(context.Background(), conv); err != nil {
-		t.Fatalf("CreateConversation: %v", err)
-	}
+	r := newTestRepos(t)
+	newTestConversation(t, r.conv, "conv-sw")
 
-	pw := NewPersistenceWriter(store)
+	pw := NewPersistenceWriter(r.conv, r.msg, r.run, r.evt, r.step)
 	ctx := context.Background()
-	conversationID := conv.ID
+	conversationID := "conv-sw"
 	runID := "run-sw"
 
 	_ = pw.SaveUserMessage(ctx, conversationID, "build a login page")
@@ -245,13 +268,13 @@ func TestPersistenceWriterSingleWeb(t *testing.T) {
 		RunID: runID,
 	})
 
-	runs := assertRuns(t, db, conversationID, 1)
+	runs := assertRuns(t, r.run, conversationID, 1)
 	assertStr(t, runs[0].Status, "completed", "run status")
 
-	steps := assertRunSteps(t, db, runID, 1)
+	steps := assertRunSteps(t, r.step, runID, 1)
 	assertStr(t, steps[0].AgentName, "web-agent", "step agent_name")
 
-	msgs := assertMessages(t, db, conversationID, 2)
+	msgs := assertMessages(t, r.msg, conversationID, 2)
 	assertStr(t, msgs[1].SenderName, "web-agent", "sender_name")
 	assertStr(t, msgs[1].AgentName, "web-agent", "agent_name")
 	assertStr(t, msgs[1].Content, "<section><h1>Login</h1>", "content")
@@ -262,16 +285,12 @@ func TestPersistenceWriterSingleWeb(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPersistenceWriterMixedOrderedParallel(t *testing.T) {
-	db := openPersistenceDB(t)
-	store := sqlite.NewStore(db)
-	conv := sqlite.Conversation{ID: "conv-mop", Title: "Mixed OrderedParallel"}
-	if err := store.CreateConversation(context.Background(), conv); err != nil {
-		t.Fatalf("CreateConversation: %v", err)
-	}
+	r := newTestRepos(t)
+	newTestConversation(t, r.conv, "conv-mop")
 
-	pw := NewPersistenceWriter(store)
+	pw := NewPersistenceWriter(r.conv, r.msg, r.run, r.evt, r.step)
 	ctx := context.Background()
-	conversationID := conv.ID
+	conversationID := "conv-mop"
 	runID := "run-mop"
 
 	_ = pw.SaveUserMessage(ctx, conversationID, "build login page and api")
@@ -302,7 +321,7 @@ func TestPersistenceWriterMixedOrderedParallel(t *testing.T) {
 		MessageID: "msg-web",
 	})
 
-	// Code agent task (new messageId triggers new Message)
+	// Code agent task
 	pw.HandleEvent(ctx, conversationID, agui.Event{
 		Type:      "TEXT_MESSAGE_START",
 		RunID:     runID,
@@ -322,7 +341,7 @@ func TestPersistenceWriterMixedOrderedParallel(t *testing.T) {
 		MessageID: "msg-code",
 	})
 
-	// Orchestrator summary (new messageId triggers new Message)
+	// Orchestrator summary
 	pw.HandleEvent(ctx, conversationID, agui.Event{
 		Type:      "TEXT_MESSAGE_START",
 		RunID:     runID,
@@ -348,10 +367,10 @@ func TestPersistenceWriterMixedOrderedParallel(t *testing.T) {
 	})
 
 	// Verify
-	runs := assertRuns(t, db, conversationID, 1)
+	runs := assertRuns(t, r.run, conversationID, 1)
 	assertStr(t, runs[0].Status, "completed", "run status")
 
-	steps := assertRunSteps(t, db, runID, 3)
+	steps := assertRunSteps(t, r.step, runID, 3)
 	assertStr(t, steps[0].AgentName, "web-agent", "step[0] agent")
 	assertStr(t, steps[1].AgentName, "code-agent", "step[1] agent")
 	assertStr(t, steps[2].AgentName, "orchestrator", "step[2] agent")
@@ -360,7 +379,7 @@ func TestPersistenceWriterMixedOrderedParallel(t *testing.T) {
 	assertStr(t, steps[2].TaskID, "task-summary", "step[2] task_id")
 
 	// 4 messages: user + web-agent + code-agent + orchestrator
-	msgs := assertMessages(t, db, conversationID, 4)
+	msgs := assertMessages(t, r.msg, conversationID, 4)
 	assertStr(t, msgs[0].Role, "user", "msg[0] role")
 
 	assertStr(t, msgs[1].SenderName, "web-agent", "msg[1] sender")
@@ -378,7 +397,7 @@ func TestPersistenceWriterMixedOrderedParallel(t *testing.T) {
 	assertStr(t, msgs[3].Status, "sent", "msg[3] status")
 	assertContains(t, msgs[3].Content, "2 task(s)", "msg[3] content")
 
-	// All agent messages must have distinct IDs (not merged)
+	// All agent messages must have distinct IDs
 	ids := make(map[string]bool)
 	for _, msg := range msgs {
 		if ids[msg.ID] {
@@ -393,16 +412,12 @@ func TestPersistenceWriterMixedOrderedParallel(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPersistenceWriterRunError(t *testing.T) {
-	db := openPersistenceDB(t)
-	store := sqlite.NewStore(db)
-	conv := sqlite.Conversation{ID: "conv-err", Title: "Error Test"}
-	if err := store.CreateConversation(context.Background(), conv); err != nil {
-		t.Fatalf("CreateConversation: %v", err)
-	}
+	r := newTestRepos(t)
+	newTestConversation(t, r.conv, "conv-err")
 
-	pw := NewPersistenceWriter(store)
+	pw := NewPersistenceWriter(r.conv, r.msg, r.run, r.evt, r.step)
 	ctx := context.Background()
-	conversationID := conv.ID
+	conversationID := "conv-err"
 	runID := "run-err"
 
 	_ = pw.SaveUserMessage(ctx, conversationID, "do something that fails")
@@ -424,34 +439,25 @@ func TestPersistenceWriterRunError(t *testing.T) {
 		MessageID: "msg-err",
 		Delta:     "partial output before crash",
 	})
-	// RUN_ERROR — should set run, step, and message to failed
 	pw.HandleEvent(ctx, conversationID, agui.Event{
 		Type:  "RUN_ERROR",
 		RunID: runID,
 		Error: &agui.SafeError{Code: "AGENT_ERROR", Message: "agent call failed"},
 	})
-	// RUN_FINISHED should not override the failed status.
-	// Our implementation only sets status=completed; it does not check current status.
-	// But since RUN_ERROR sets runFailed=true, the MemoryStore path skips saving.
-	// For the PersistenceWriter, we don't prevent RUN_FINISHED overwriting,
-	// but in practice (from orchestratorclient) RUN_FINISHED won't arrive after RUN_ERROR.
-	// If it does, the run status will be overwritten to "completed".
 
 	// Verify
-	runs := assertRuns(t, db, conversationID, 1)
+	runs := assertRuns(t, r.run, conversationID, 1)
 	assertStr(t, runs[0].Status, "failed", "run status")
 	assertStr(t, runs[0].ErrorCode, "AGENT_ERROR", "run error_code")
 
-	steps := assertRunSteps(t, db, runID, 1)
+	steps := assertRunSteps(t, r.step, runID, 1)
 	assertStr(t, steps[0].Status, "failed", "step status")
 	assertStr(t, steps[0].ErrorCode, "AGENT_ERROR", "step error_code")
 
-	msgs := assertMessages(t, db, conversationID, 2) // user + agent
-	// The agent message should have the buffered content and failed status
+	msgs := assertMessages(t, r.msg, conversationID, 2) // user + agent
 	assertStr(t, msgs[1].Status, "failed", "msg status")
 	assertStr(t, msgs[1].ErrorCode, "AGENT_ERROR", "msg error_code")
 	assertStr(t, msgs[1].ErrorMessage, "agent call failed", "msg error_message")
-	// Content from before the error should be preserved
 	assertContains(t, msgs[1].Content, "partial output before crash", "msg content")
 }
 
@@ -467,7 +473,6 @@ func TestHandleChatWithPersistenceWriterDoesNotChangeSSE(t *testing.T) {
 		t.Fatalf("create conversation failed: %v", err)
 	}
 
-	// Run events with metadata simulating AG-UI v1.0 events from orchestratorclient.
 	runner := &mockRunService{
 		seq: seqEvents(
 			adk.Event{
@@ -503,13 +508,10 @@ func TestHandleChatWithPersistenceWriterDoesNotChangeSSE(t *testing.T) {
 	}
 
 	// Build server with PersistenceWriter injected.
-	db := openPersistenceDB(t)
-	pw := NewPersistenceWriter(sqlite.NewStore(db))
+	r := newTestRepos(t)
+	pw := NewPersistenceWriter(r.conv, r.msg, r.run, r.evt, r.step)
 	// Also init a conversation row in sqlite so FK constraints are satisfied.
-	_ = sqlite.NewStore(db).CreateConversation(context.Background(), sqlite.Conversation{
-		ID:    conv.ID,
-		Title: "SSE + DB Test",
-	})
+	newTestConversation(t, r.conv, conv.ID)
 
 	srv, err := NewServer(st, runner, WithPersistenceWriter(pw))
 	if err != nil {
@@ -527,7 +529,7 @@ func TestHandleChatWithPersistenceWriterDoesNotChangeSSE(t *testing.T) {
 
 	respBody := rec.Body.String()
 
-	// SSE must still contain expected events (unchanged behavior).
+	// SSE must still contain expected events.
 	assertContains(t, respBody, "event: run_started\n", "SSE run_started")
 	assertContains(t, respBody, `"type":"RUN_STARTED"`, "SSE RUN_STARTED")
 	assertContains(t, respBody, `"type":"TEXT_MESSAGE_START"`, "SSE TEXT_MESSAGE_START")
@@ -545,17 +547,17 @@ func TestHandleChatWithPersistenceWriterDoesNotChangeSSE(t *testing.T) {
 		t.Fatalf("MemoryStore: expected 2 messages, got %d", len(memMsgs))
 	}
 
-	// SQLite should have user + code-agent = 2 messages (not merged).
-	sqliteMsgs := assertMessages(t, db, conv.ID, 2)
+	// SQLite should have user + code-agent = 2 messages.
+	sqliteMsgs := assertMessages(t, r.msg, conv.ID, 2)
 	assertStr(t, sqliteMsgs[0].Role, "user", "sqlite msg[0] role")
 	assertStr(t, sqliteMsgs[1].Role, "assistant", "sqlite msg[1] role")
 	assertStr(t, sqliteMsgs[1].SenderName, "code-agent", "sqlite msg[1] sender_name")
 
 	// SQLite should have 1 run + 1 step.
-	sqliteRuns := assertRuns(t, db, conv.ID, 1)
+	sqliteRuns := assertRuns(t, r.run, conv.ID, 1)
 	assertStr(t, sqliteRuns[0].Status, "completed", "sqlite run status")
 
-	sqliteSteps := assertRunSteps(t, db, "run-sse-test", 1)
+	sqliteSteps := assertRunSteps(t, r.step, "run-sse-test", 1)
 	assertStr(t, sqliteSteps[0].AgentName, "code-agent", "sqlite step agent_name")
 }
 
@@ -582,7 +584,6 @@ func TestHandleChatWithoutPersistenceWriterPreservesLegacyBehavior(t *testing.T)
 		}),
 	}
 
-	// No persistence writer — should behave exactly as before.
 	srv, err := NewServer(st, runner)
 	if err != nil {
 		t.Fatalf("new server failed: %v", err)
@@ -688,12 +689,9 @@ func TestHandleChatWithPersistenceWriterMultiAgentSSE(t *testing.T) {
 		),
 	}
 
-	db := openPersistenceDB(t)
-	pw := NewPersistenceWriter(sqlite.NewStore(db))
-	_ = sqlite.NewStore(db).CreateConversation(context.Background(), sqlite.Conversation{
-		ID:    conv.ID,
-		Title: "Multi Agent Test",
-	})
+	r := newTestRepos(t)
+	pw := NewPersistenceWriter(r.conv, r.msg, r.run, r.evt, r.step)
+	newTestConversation(t, r.conv, conv.ID)
 
 	srv, err := NewServer(st, runner, WithPersistenceWriter(pw))
 	if err != nil {
@@ -710,13 +708,12 @@ func TestHandleChatWithPersistenceWriterMultiAgentSSE(t *testing.T) {
 	}
 
 	respBody := rec.Body.String()
-	// SSE should contain all three agent names
 	assertContains(t, respBody, "web-agent", "SSE web-agent")
 	assertContains(t, respBody, "code-agent", "SSE code-agent")
 	assertContains(t, respBody, "orchestrator", "SSE orchestrator")
 
-	// SQLite: 4 messages (user + web + code + orchestrator), not merged
-	sqliteMsgs := assertMessages(t, db, conv.ID, 4)
+	// SQLite: 4 messages (user + web + code + orchestrator)
+	sqliteMsgs := assertMessages(t, r.msg, conv.ID, 4)
 	senders := make(map[string]bool)
 	for _, msg := range sqliteMsgs {
 		senders[msg.SenderName] = true
@@ -730,11 +727,10 @@ func TestHandleChatWithPersistenceWriterMultiAgentSSE(t *testing.T) {
 	if !senders["orchestrator"] {
 		t.Error("SQLite: missing orchestrator message")
 	}
-	// Verify the user message has empty sender_name
 	assertStr(t, sqliteMsgs[0].SenderName, "", "user sender_name")
 
 	// SQLite: 3 run steps
-	sqliteSteps := assertRunSteps(t, db, runID, 3)
+	sqliteSteps := assertRunSteps(t, r.step, runID, 3)
 	agents := []string{sqliteSteps[0].AgentName, sqliteSteps[1].AgentName, sqliteSteps[2].AgentName}
 	if agents[0] != "web-agent" || agents[1] != "code-agent" || agents[2] != "orchestrator" {
 		t.Errorf("run step agents: expected [web-agent code-agent orchestrator], got %v", agents)
@@ -755,16 +751,12 @@ func TestHandleChatWithPersistenceWriterMultiAgentSSE(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPersistenceWriterRunErrorSanitized(t *testing.T) {
-	db := openPersistenceDB(t)
-	store := sqlite.NewStore(db)
-	conv := sqlite.Conversation{ID: "conv-san", Title: "Sanitize Test"}
-	if err := store.CreateConversation(context.Background(), conv); err != nil {
-		t.Fatalf("CreateConversation: %v", err)
-	}
+	r := newTestRepos(t)
+	newTestConversation(t, r.conv, "conv-san")
 
-	pw := NewPersistenceWriter(store)
+	pw := NewPersistenceWriter(r.conv, r.msg, r.run, r.evt, r.step)
 	ctx := context.Background()
-	conversationID := conv.ID
+	conversationID := "conv-san"
 	runID := "run-san"
 
 	_ = pw.SaveUserMessage(ctx, conversationID, "trigger error")
@@ -780,9 +772,6 @@ func TestPersistenceWriterRunErrorSanitized(t *testing.T) {
 		TaskID:    "task-san",
 		Sender:    &agui.EventSender{Type: "agent", Name: "code-agent"},
 	})
-	// Error with sensitive content — the agui translator already sanitizes
-	// event.Error.Message via TextStreamFilter. We verify that the sanitized
-	// value is what gets persisted.
 	pw.HandleEvent(ctx, conversationID, agui.Event{
 		Type:  "RUN_ERROR",
 		RunID: runID,
@@ -792,8 +781,7 @@ func TestPersistenceWriterRunErrorSanitized(t *testing.T) {
 		},
 	})
 
-	runs := assertRuns(t, db, conversationID, 1)
-	// Error message must not contain sensitive content
+	runs := assertRuns(t, r.run, conversationID, 1)
 	errMsg := runs[0].ErrorMessage
 	assertNotContains(t, errMsg, "sk-", "error_message: sk-token")
 	assertNotContains(t, errMsg, "panic", "error_message: panic")
@@ -801,7 +789,7 @@ func TestPersistenceWriterRunErrorSanitized(t *testing.T) {
 	assertNotContains(t, errMsg, "C:\\", "error_message: windows path")
 	assertNotContains(t, errMsg, "/home/", "error_message: unix path")
 
-	msgs := assertMessages(t, db, conversationID, 2)
+	msgs := assertMessages(t, r.msg, conversationID, 2)
 	assertStr(t, msgs[1].Status, "failed", "msg status")
 	assertNotContains(t, msgs[1].ErrorMessage, "sk-", "msg error_message: sk-token")
 }
@@ -811,11 +799,9 @@ func TestPersistenceWriterRunErrorSanitized(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPersistenceWriterNilIsSafe(t *testing.T) {
-	// All methods on nil PersistenceWriter should be no-ops.
 	var pw *PersistenceWriter
 	ctx := context.Background()
 
-	// None of these should panic.
 	pw.SaveUserMessage(ctx, "conv", "hello")
 	pw.HandleEvent(ctx, "conv", agui.Event{Type: "RUN_STARTED", RunID: "r1"})
 	pw.HandleEvent(ctx, "conv", agui.Event{Type: "TEXT_MESSAGE_START"})
@@ -830,13 +816,11 @@ func TestPersistenceWriterNilIsSafe(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPersistenceWriterErrorDoesNotPanic(t *testing.T) {
-	db := openPersistenceDB(t)
-	store := sqlite.NewStore(db)
-	pw := NewPersistenceWriter(store)
+	r := newTestRepos(t)
+	pw := NewPersistenceWriter(r.conv, r.msg, r.run, r.evt, r.step)
 	ctx := context.Background()
 
 	// HandleEvent without a conversation row (FK violation) should not panic.
-	// The writer silently ignores DB errors.
 	pw.HandleEvent(ctx, "nonexistent", agui.Event{Type: "RUN_STARTED", RunID: "r1"})
 	pw.HandleEvent(ctx, "nonexistent", agui.Event{
 		Type:      "TEXT_MESSAGE_START",
@@ -845,7 +829,6 @@ func TestPersistenceWriterErrorDoesNotPanic(t *testing.T) {
 		TaskID:    "task1",
 		Sender:    &agui.EventSender{Type: "agent", Name: "test-agent"},
 	})
-	// Should not panic even though DB writes fail due to FK constraint.
 }
 
 // ---------------------------------------------------------------------------
@@ -853,54 +836,50 @@ func TestPersistenceWriterErrorDoesNotPanic(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateRunAndStepStatus(t *testing.T) {
-	db := openPersistenceDB(t)
-	store := sqlite.NewStore(db)
+	r := newTestRepos(t)
 	ctx := context.Background()
 
-	conv := sqlite.Conversation{ID: "conv-upd", Title: "Update Test"}
-	if err := store.CreateConversation(ctx, conv); err != nil {
+	// Create conversation
+	_, err := r.conv.Create(ctx, domain.CreateConversationInput{
+		ID: "conv-upd", UserID: "test-user", Title: "Update Test", Mode: "direct", ResponseMode: "separate",
+	})
+	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
 
 	// Create a run
-	run := sqlite.Run{ID: "run-upd", ConversationID: conv.ID, Status: "running"}
-	if err := store.CreateRun(ctx, run); err != nil {
+	_, err = r.run.Create(ctx, domain.CreateRunInput{
+		ID: "run-upd", ConversationID: "conv-upd", Mode: "direct", Status: "executing",
+	})
+	if err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
 
-	// Update run status
-	if err := store.UpdateRunStatus(ctx, "run-upd", "failed", "ERR", "something broke", time.Time{}); err != nil {
-		t.Fatalf("UpdateRunStatus: %v", err)
+	// Transition run to failed
+	if err := r.run.CompareAndSetStatus(ctx, "run-upd", "executing", "failed", "TEST_ERROR", "test error"); err != nil {
+		t.Fatalf("CompareAndSetStatus: %v", err)
 	}
 
-	fetched, err := store.GetRun(ctx, "run-upd")
+	fetchedRun, err := r.run.Get(ctx, "run-upd")
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
-	assertStr(t, fetched.Status, "failed", "updated run status")
-	assertStr(t, fetched.ErrorCode, "ERR", "updated run error_code")
+	assertStr(t, fetchedRun.Status, "failed", "updated run status")
 
 	// Create a run step
-	step := sqlite.RunStep{
-		ID:             "step-upd",
-		RunID:          "run-upd",
-		ConversationID: conv.ID,
-		TaskID:         "task-upd",
-		StepIndex:      0,
-		AgentName:      "test-agent",
-		Status:         "running",
-	}
-	if err := store.CreateRunStep(ctx, step); err != nil {
+	if err := r.step.Create(ctx, domain.CreateRunStepInput{
+		ID: "step-upd", RunID: "run-upd", ConversationID: "conv-upd",
+		TaskID: "task-upd", StepIndex: 0, AgentName: "test-agent", Status: "executing",
+	}); err != nil {
 		t.Fatalf("CreateRunStep: %v", err)
 	}
 
 	// Update step status
-	now := time.Now().UTC()
-	if err := store.UpdateRunStepStatus(ctx, "step-upd", "failed", "STEP_ERR", "step broke", now); err != nil {
+	if err := r.step.UpdateStatus(ctx, "step-upd", "failed", "STEP_ERR", "step broke"); err != nil {
 		t.Fatalf("UpdateRunStepStatus: %v", err)
 	}
 
-	steps, err := store.ListRunSteps(ctx, "run-upd")
+	steps, err := r.step.ListByRun(ctx, "run-upd")
 	if err != nil {
 		t.Fatalf("ListRunSteps: %v", err)
 	}
@@ -909,30 +888,30 @@ func TestUpdateRunAndStepStatus(t *testing.T) {
 	}
 	assertStr(t, steps[0].Status, "failed", "updated step status")
 	assertStr(t, steps[0].ErrorCode, "STEP_ERR", "updated step error_code")
-	if steps[0].FinishedAt.IsZero() {
-		t.Error("expected non-zero finished_at")
+	if steps[0].FinishedAt == nil {
+		t.Error("expected non-nil finished_at")
 	}
 
-	// Update message — pre-generate ID since AppendMessage takes value type.
-	msgID := "msg-upd-test"
-	msg := sqlite.Message{
-		ID:             msgID,
-		ConversationID: conv.ID,
+	// Create a message
+	msg, err := r.msg.Create(ctx, domain.CreateMessageInput{
+		ConversationID: "conv-upd",
+		RunID:          "run-upd",
+		MessageID:      "msg-upd-test",
 		Role:           "assistant",
 		SenderType:     "agent",
 		SenderName:     "test-agent",
-		Content:        "",
+		AgentName:      "test-agent",
 		Status:         "streaming",
-	}
-	if err := store.AppendMessage(ctx, msg); err != nil {
-		t.Fatalf("AppendMessage: %v", err)
+	})
+	if err != nil {
+		t.Fatalf("CreateMessage: %v", err)
 	}
 
-	if err := store.UpdateMessageContentAndStatus(ctx, msgID, "final content", "sent", "", "", time.Now().UTC()); err != nil {
+	if err := r.msg.UpdateContentAndStatus(ctx, msg.ID, "final content", "sent", "", ""); err != nil {
 		t.Fatalf("UpdateMessageContentAndStatus: %v", err)
 	}
 
-	msgs, err := store.ListMessages(ctx, conv.ID)
+	msgs, err := r.msg.List(ctx, "conv-upd", domain.Pagination{Limit: 100, Offset: 0})
 	if err != nil {
 		t.Fatalf("ListMessages: %v", err)
 	}

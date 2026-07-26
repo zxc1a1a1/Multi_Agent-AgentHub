@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/persistence/sqlite"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/domain"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
 )
 
@@ -33,10 +33,8 @@ type ReplayMessage struct {
 	UpdatedAt        time.Time       `json:"updatedAt,omitempty"`
 }
 
-// sqliteToReplayMessages converts SQLite-backed messages to the enriched replay format.
-// It preserves sender identity (senderType, senderName, senderDisplayName, agentName),
-// run/step linkage, status, error fields, and artifact metadata.
-func sqliteToReplayMessages(msgs []sqlite.Message) []ReplayMessage {
+// domainMessagesToReplay converts domain messages to the enriched replay format.
+func domainMessagesToReplay(msgs []domain.Message) []ReplayMessage {
 	out := make([]ReplayMessage, 0, len(msgs))
 	for _, m := range msgs {
 		sType := m.SenderType
@@ -67,10 +65,6 @@ func sqliteToReplayMessages(msgs []sqlite.Message) []ReplayMessage {
 			ErrorMessage:      m.ErrorMessage,
 			CreatedAt:         m.CreatedAt,
 			UpdatedAt:         m.UpdatedAt,
-		}
-
-		if artifacts := parseArtifactsFromMetadata(m.MetadataJSON); artifacts != nil {
-			rm.Artifacts = artifacts
 		}
 
 		out = append(out, rm)

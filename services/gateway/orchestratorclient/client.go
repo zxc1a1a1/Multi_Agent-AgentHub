@@ -170,7 +170,7 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 
 		resp, err := s.httpClient.Do(req)
 		if err != nil {
-			_ = yield(adk.Event{}, fmt.Errorf("orchestrator stream request failed: %w", err))
+			_ = yield(adk.Event{}, fmt.Errorf("orchestrator unavailable: please try again later"))
 			return
 		}
 		defer resp.Body.Close()
