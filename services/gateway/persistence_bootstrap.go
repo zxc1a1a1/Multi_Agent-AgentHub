@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -36,6 +37,12 @@ func BootstrapPersistence(dbPath string) (*sql.DB, *sqlite.Store, *httpapi.Persi
 	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_foreign_keys=on")
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("open sqlite db: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if _, err := db.ExecContext(context.Background(), "PRAGMA busy_timeout=5000"); err != nil {
+		_ = db.Close()
+		return nil, nil, nil, nil, fmt.Errorf("configure sqlite: %w", err)
 	}
 
 	if err := db.Ping(); err != nil {

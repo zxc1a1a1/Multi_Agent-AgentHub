@@ -9,7 +9,7 @@
 **Agent 扩展方式：** Built-in、Config、Remote Registration  
 **执行方式：** 按依赖关系与退出门槛推进，不按时间划分  
 **核心技术栈：** Go、React、TypeScript、SQLite、SSE/AG-UI、A2A、MCP、Sandpack  
-**目标岗位：** Agent 开发、Agent 平台、Agent Harness、Agent 应用算法  
+ 
 
 ---
 
