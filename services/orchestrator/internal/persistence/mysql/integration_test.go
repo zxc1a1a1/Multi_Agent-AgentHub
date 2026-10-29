@@ -29,9 +29,9 @@ func openIntegrationRepo(t *testing.T) *Repository {
 	cleanup := func() {
 		for _, table := range []string{
 			"outbox", "execution_events", "tool_calls", "approvals",
-			"checkpoints", "plan_revisions", "task_executions", "executions", "agent_catalog",
+			"checkpoints", "plan_revisions", "task_executions", "executions",
 		} {
-			if _, err := db.Exec("DELETE FROM " + table); err != nil {
+			if _, err := db.Exec("DELETE FROM " + table + " WHERE run_id LIKE 'run-itest-%'"); err != nil {
 				t.Fatalf("cleanup %s: %v", table, err)
 			}
 		}
@@ -44,7 +44,7 @@ func openIntegrationRepo(t *testing.T) *Repository {
 func acceptIntegrationRun(t *testing.T, repo *Repository, suffix string) *Execution {
 	t.Helper()
 	exec, _, err := repo.AcceptRun(context.Background(), AcceptRunParams{
-		RunID:          "run-" + suffix,
+		RunID:          "run-itest-" + suffix,
 		RequestID:      "req-" + suffix,
 		ConversationID: "conv-" + suffix,
 		WorkspaceID:    "ws-test",
@@ -159,7 +159,7 @@ func TestIntegrationConcurrentSeqAndStaleFencing(t *testing.T) {
 			t.Fatalf("event %d has seq %d, expected %d", i, e.Seq, i+1)
 		}
 	}
-	items, err := repo.PendingOutbox(context.Background(), 100)
+	items, err := repo.PendingOutboxForRun(context.Background(), run.RunID, 100)
 	if err != nil {
 		t.Fatalf("pending outbox: %v", err)
 	}

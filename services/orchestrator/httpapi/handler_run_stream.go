@@ -193,18 +193,28 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ledger, ledgerErr := s.newRunLedger(r.Context(), req, runID, string(derivedPath))
+	if ledgerErr != nil {
+		log.Printf("orchestrator: run=%s persistence unavailable: %v", runID, ledgerErr)
+		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_STORE_UNAVAILABLE", "run persistence unavailable")
+		return
+	}
+	plannerInput.Budget = ledger.budget
+
 	orchPlan, planErr := s.mainAgentPlanner.Plan(r.Context(), plannerInput)
 	if orchPlan != nil {
 		// The external request runID is the authoritative key for cancel/tool-result registries.
 		orchPlan.RunID = runID
 	}
 	if planErr != nil || orchPlan == nil {
+		ledger.terminal(context.Background(), "failed", "planner_failed")
 		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED",
 			"MainAgent failed to generate plan")
 		return
 	}
 
 	if orchPlan.Strategy == plan.StrategySingle && len(orchPlan.Tasks) == 0 {
+		ledger.terminal(context.Background(), "failed", "empty_plan")
 		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED", "Orchestration plan has no tasks")
 		return
 	}
@@ -230,6 +240,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		for _, e := range validationResult.Errors {
 			details = append(details, map[string]string{"field": e.Field, "message": e.Message})
 		}
+		ledger.terminal(context.Background(), "failed", "plan_invalid")
 		s.emitErrorEventWithDetail(w, flusher, runID, "ORCHESTRATOR_PLAN_INVALID",
 			"Orchestration plan validation failed", details)
 		return
@@ -245,6 +256,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		for _, e := range pathResult.Errors {
 			details = append(details, map[string]string{"field": e.Field, "code": e.Code, "message": e.Message})
 		}
+		ledger.terminal(context.Background(), "failed", "boundary_violation")
 		s.emitErrorEventWithDetail(w, flusher, runID, "AGENT_BOUNDARY_VIOLATION",
 			"Path-aware validation failed: plan violates execution-path constraints", details)
 		return
@@ -261,10 +273,26 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 			taskInfos[i] = executionpath.TaskInfo{TaskID: t.TaskID, AgentName: t.AgentName}
 		}
 		if boundaryErr := executionpath.EnforceAgentBoundary(taskInfos, selResult.AllowedAgents); boundaryErr != nil {
+			ledger.terminal(context.Background(), "failed", "boundary_violation")
 			s.emitErrorEvent(w, flusher, runID, boundaryErr.Code, boundaryErr.Message)
 			return
 		}
 		orchPlan.AllowedAgents = selResult.AllowedAgents
+	}
+
+	if ledger.enrolled() {
+		if err := ledger.savePlan(r.Context(), orchPlan); err != nil {
+			s.abortRunWithLedger(w, flusher, runID, ledger, "plan persistence failed", err)
+			return
+		}
+		if err := ledger.state(r.Context(), "planning", "planning", "state_update", planLedgerState(orchPlan)); err != nil {
+			s.abortRunWithLedger(w, flusher, runID, ledger, "run persistence failed", err)
+			return
+		}
+		if err := ledger.checkpoint(r.Context(), planLedgerState(orchPlan), "planning"); err != nil {
+			s.abortRunWithLedger(w, flusher, runID, ledger, "checkpoint failed", err)
+			return
+		}
 	}
 
 	planState := buildPlanState(orchPlan)
@@ -288,6 +316,16 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	isMainAgentPath := orchPlan.ExecutionPath == string(executionpath.PathMainAgentOrchestration)
 
 	if (requireConfirm || isMainAgentPath) && !isConversational {
+		if ledger.enrolled() {
+			if err := ledger.state(r.Context(), "awaiting_approval", "", "state_update", planLedgerState(orchPlan)); err != nil {
+				s.abortRunWithLedger(w, flusher, runID, ledger, "approval state persistence failed", err)
+				return
+			}
+			if err := ledger.checkpoint(r.Context(), planLedgerState(orchPlan), "awaiting_approval"); err != nil {
+				s.abortRunWithLedger(w, flusher, runID, ledger, "approval checkpoint failed", err)
+				return
+			}
+		}
 		// Register pending BEFORE emitActivitySnapshot to prevent race where
 		// a fast confirm request arrives before registration completes.
 		confirmCh := s.registerPendingPlan(runID, orchPlan, selResult.AllowedAgents)
@@ -482,6 +520,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 				}
 				// Cancel/reject path.
 				if result.Action == "cancel" || !result.Confirmed {
+					ledger.terminal(context.Background(), "cancelled", "user_cancelled")
 					rejectReason := result.RejectReason
 					if rejectReason == "" {
 						rejectReason = "user rejected the plan"
@@ -526,6 +565,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 					},
 				})
 			case <-confirmDeadline:
+				ledger.terminal(context.Background(), "failed", "approval_timeout")
 				s.emitEvent(w, flusher, agui.InternalStreamEvent{
 					Type:  agui.InternalTypeRunError,
 					RunID: runID,
@@ -571,6 +611,17 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 			planState["phase"] = "responding"
 		} else {
 			planState["phase"] = "executing"
+		}
+	}
+
+	if ledger.enrolled() {
+		if err := ledger.state(r.Context(), "executing", "executing", "state_update", planLedgerState(orchPlan)); err != nil {
+			s.abortRunWithLedger(w, flusher, runID, ledger, "execution state persistence failed", err)
+			return
+		}
+		if err := ledger.checkpoint(r.Context(), planLedgerState(orchPlan), "executing"); err != nil {
+			s.abortRunWithLedger(w, flusher, runID, ledger, "execution checkpoint failed", err)
+			return
 		}
 	}
 
@@ -625,29 +676,43 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 	r = r.WithContext(execCtx)
 
+	outcome := "completed"
 	switch orchPlan.Strategy {
 	case plan.StrategyConversational:
-		s.handleConversational(w, flusher, runID, msgID, orchPlan.Answer)
+		if !s.handleConversational(w, flusher, runID, msgID, orchPlan.Answer) {
+			outcome = "failed"
+		}
 	case plan.StrategySingle:
-		s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
+		outcome = s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
 			executor.NewSingleExecutor(s.dispatchResolver(), s.dispatcher,
 				executor.WithSingleSynthesizer(s.synthesizer)))
 	case plan.StrategyOrderedParallel, plan.StrategySequential:
 		// All strategies execute serially in original plan.Tasks order.
-		s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
+		outcome = s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
 			executor.NewSerialExecutor(s.dispatchResolver(), s.dispatcher,
 				executor.WithSerialSynthesizer(s.synthesizer)))
 	}
-
+	switch outcome {
+	case "completed":
+		ledger.terminal(context.Background(), "completed", "completed")
+	case "cancelled":
+		ledger.terminal(context.Background(), "cancelled", "cancelled")
+	case "failed":
+		ledger.terminal(context.Background(), "failed", "execution_failed")
+	case "disconnected":
+		if err := ledger.state(context.Background(), "paused", "client_disconnected", "state_update", planLedgerState(orchPlan)); err != nil {
+			log.Printf("orchestrator: run=%s persist paused after disconnect failed: %v", runID, err)
+		}
+	}
 }
 
 // handleConversational streams the model's direct answer. No child agent is
 // dispatched. An empty answer is a planner failure, not a canned response.
-func (s *Server) handleConversational(w http.ResponseWriter, flusher http.Flusher, runID, msgID, response string) {
+func (s *Server) handleConversational(w http.ResponseWriter, flusher http.Flusher, runID, msgID, response string) bool {
 	if strings.TrimSpace(response) == "" {
 		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED",
 			"conversational plan has no answer")
-		return
+		return false
 	}
 
 	s.emitEvent(w, flusher, agui.InternalStreamEvent{
@@ -684,6 +749,7 @@ func (s *Server) handleConversational(w http.ResponseWriter, flusher http.Flushe
 			"status": "completed",
 		},
 	})
+	return true
 }
 
 // splitConversationalResponse splits the response text into chunks at paragraph
@@ -711,13 +777,15 @@ func splitConversationalResponse(text string) []string {
 // executeViaStreamingExecutor delegates to a StreamingExecutor and converts each
 // execution event into an SSE event the moment it is produced, flushing after
 // each one so the client receives partial output without head-of-line latency.
-func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http.Flusher, r *http.Request, orchPlan *plan.OrchestrationPlan, msgID string, exec executor.StreamingExecutor) {
+func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http.Flusher, r *http.Request, orchPlan *plan.OrchestrationPlan, msgID string, exec executor.StreamingExecutor) (outcome string) {
+	outcome = "completed"
 	cancelledEmitted := false
 	emitCancelled := func() {
 		if cancelledEmitted {
 			return
 		}
 		cancelledEmitted = true
+		outcome = "cancelled"
 		s.emitEvent(w, flusher, agui.InternalStreamEvent{
 			Type:  agui.InternalTypeStateUpdate,
 			RunID: orchPlan.RunID,
@@ -766,6 +834,8 @@ func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http
 		if err := r.Context().Err(); err != nil {
 			if s.runTaskRegistry != nil && s.runTaskRegistry.IsCancelled(orchPlan.RunID) {
 				emitCancelled()
+			} else {
+				outcome = "disconnected"
 			}
 			return false // client disconnected or run cancelled; stop the executor
 		}
@@ -807,8 +877,12 @@ func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http
 	if err := exec.ExecuteStream(r.Context(), orchPlan, msgID, emit); err != nil {
 		if s.runTaskRegistry != nil && s.runTaskRegistry.IsCancelled(orchPlan.RunID) {
 			emitCancelled()
-			return
+			return "cancelled"
 		}
+		if r.Context().Err() != nil {
+			return "disconnected"
+		}
+		outcome = "failed"
 		s.emitEvent(w, flusher, agui.InternalStreamEvent{
 			Type:  agui.InternalTypeRunError,
 			RunID: orchPlan.RunID,
@@ -840,6 +914,7 @@ func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http
 		}
 		s.hitlMu.Unlock()
 	}
+	return outcome
 }
 
 func (s *Server) checkServiceAuth(r *http.Request) bool {

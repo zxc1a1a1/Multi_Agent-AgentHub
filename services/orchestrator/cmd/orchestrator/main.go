@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -17,7 +18,9 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/httpapi"
+	ledger "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/persistence/mysql"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
@@ -221,6 +224,27 @@ func run() error {
 		httpapi.WithDispatcher(a2aDispatcher),
 	}
 
+	var ledgerDB *sql.DB
+	dsn := strings.TrimSpace(os.Getenv("ORCHESTRATOR_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		log.Printf("WARN: ORCHESTRATOR_DATABASE_URL/DATABASE_URL not set; durable run ledger disabled (target config requires MySQL)")
+	} else {
+		db, err := ledger.Open(context.Background(), dsn)
+		if err != nil {
+			return fmt.Errorf("open orchestrator database: %w", err)
+		}
+		if err := ledger.RunMigrations(db); err != nil {
+			db.Close()
+			return fmt.Errorf("run orchestrator migrations: %w", err)
+		}
+		ledgerDB = db
+		serverOpts = append(serverOpts, httpapi.WithExecutionStore(execution.NewMySQLStore(ledger.NewRepository(db))))
+		log.Printf("orchestrator: durable run ledger enabled")
+	}
+
 	// Phase 5: Wire DynamicAgentRegistry with JSON file store for agent management API.
 	storePath := strings.TrimSpace(os.Getenv("ORCHESTRATOR_AGENT_STORE_PATH"))
 	if storePath == "" {
@@ -308,6 +332,11 @@ func run() error {
 		return err
 	}
 
+	if ledgerDB != nil {
+		if err := ledgerDB.Close(); err != nil {
+			log.Printf("orchestrator: close ledger db: %v", err)
+		}
+	}
 	log.Printf("orchestrator shutdown complete")
 	return nil
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/harness"
 )
 
 // fakePlannerModel implements PlannerModel for testing. When outputs has more
@@ -277,3 +279,54 @@ func TestMainAgent_NonAutoPathFiltersAgents(t *testing.T) {
 
 // Ensure MainAgent implements Planner.
 var _ Planner = (*MainAgent)(nil)
+
+func TestMainAgentBudgetBlocksModelCalls(t *testing.T) {
+	lister := &mockAgentLister{agents: testAgentInfos()}
+	limits := harness.DefaultLimits()
+	limits.ModelCalls = 1
+	budget, err := harness.NewBudget(limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := budget.ReserveModel(1); err != nil {
+		t.Fatal(err)
+	}
+	fakeModel := &fakePlannerModel{outputs: []string{validLLMResponse()}}
+	ma := NewMainAgent(fakeModel, "test-model", lister)
+
+	_, err = ma.Plan(context.Background(), PlannerInput{
+		RunID: "run-budget", ConversationID: "conv", UserMessage: "x",
+		ExecutionPath: "main_agent_orchestration", Budget: budget,
+	})
+	if err == nil {
+		t.Fatal("expected budget exhaustion")
+	}
+	if fakeModel.calls != 0 {
+		t.Fatalf("model must not be called after budget exhaustion, got %d call(s)", fakeModel.calls)
+	}
+}
+
+func TestMainAgentRepairBudgetIsEnforced(t *testing.T) {
+	lister := &mockAgentLister{agents: testAgentInfos()}
+	limits := harness.DefaultLimits()
+	limits.ModelCalls = 2
+	limits.Repairs = 0
+	budget, err := harness.NewBudget(limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := `{"intent":"x","mode":"single","confidence":0.5,"steps":[{"agent_name":"ghost-agent","input":"do it"}]}`
+	fakeModel := &fakePlannerModel{outputs: []string{bad, validLLMResponse()}}
+	ma := NewMainAgent(fakeModel, "test-model", lister)
+
+	_, err = ma.Plan(context.Background(), PlannerInput{
+		RunID: "run-repair-budget", ConversationID: "conv", UserMessage: "x",
+		ExecutionPath: "main_agent_orchestration", Budget: budget,
+	})
+	if err == nil {
+		t.Fatal("expected repair budget exhaustion")
+	}
+	if fakeModel.calls != 1 {
+		t.Fatalf("repair model must not be called without repair budget, got %d call(s)", fakeModel.calls)
+	}
+}

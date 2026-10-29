@@ -46,6 +46,11 @@ func (m *MainAgent) Plan(ctx context.Context, input PlannerInput) (*plan.Orchest
 	promptAgents := m.buildPromptAgents(input, isNonAuto)
 	pb := m.buildPromptBuilder(promptAgents, input)
 
+	if input.Budget != nil {
+		if err := input.Budget.ReserveModel(1); err != nil {
+			return nil, fmt.Errorf("planner model budget: %w", err)
+		}
+	}
 	raw, err := m.model.Generate(ctx, pb.BuildSystemPrompt(), pb.BuildUserPrompt(input.UserMessage, input.AgentName))
 	if err != nil {
 		return nil, fmt.Errorf("planner model call failed: %w", err)
@@ -53,6 +58,11 @@ func (m *MainAgent) Plan(ctx context.Context, input PlannerInput) (*plan.Orchest
 
 	orchPlan, failures := m.runPipeline(raw, input)
 	if orchPlan == nil {
+		if input.Budget != nil {
+			if err := input.Budget.RecordRepair(); err != nil {
+				return nil, fmt.Errorf("planner repair budget: %w", err)
+			}
+		}
 		repaired, repairErr := m.repairer.Repair(ctx, raw, failures, &staticLister{agents: promptAgents})
 		if repairErr != nil {
 			return nil, fmt.Errorf("planner output rejected (%s) and repair failed: %w", summarizeFailures(failures), repairErr)

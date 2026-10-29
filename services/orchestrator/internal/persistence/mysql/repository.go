@@ -599,6 +599,29 @@ func (r *Repository) PendingOutbox(ctx context.Context, limit int) ([]OutboxItem
 	return out, rows.Err()
 }
 
+func (r *Repository) PendingOutboxForRun(ctx context.Context, runID string, limit int) ([]OutboxItem, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, run_id, seq, event_type, attempts
+		FROM outbox WHERE status = 'pending' AND available_at <= NOW(3) AND run_id = ?
+		ORDER BY id ASC LIMIT ?`, runID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []OutboxItem
+	for rows.Next() {
+		var item OutboxItem
+		if err := rows.Scan(&item.ID, &item.RunID, &item.Seq, &item.EventType, &item.Attempts); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) MarkOutboxPublished(ctx context.Context, id int64) error {
 	_, err := r.db.ExecContext(ctx,
 		"UPDATE outbox SET status = 'published', published_at = ? WHERE id = ?", time.Now().UTC(), id)

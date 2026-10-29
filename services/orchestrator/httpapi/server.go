@@ -7,15 +7,18 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/bridge"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/harness"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
@@ -76,6 +79,9 @@ type Server struct {
 	pendingPlanStates map[string]*PendingPlan            // runID → full lifecycle state (Phase 4, coexists with legacy maps during migration)
 	runTaskRegistry   *registry.RunTaskRegistry          // runID → child task refs for cancel path
 	artifactStore     artifacts.Store                    // metadata-only artifact store; no file blobs
+	executionStore    execution.Store                    // durable run lifecycle/ledger (optional in tests)
+	instanceID        string                             // lease owner identity
+	budgetLimits      harness.Limits                     // per-run budget defaults
 }
 
 // Option customizes Server behavior.
@@ -154,6 +160,37 @@ func WithArtifactStore(store artifacts.Store) Option {
 	}
 }
 
+// WithExecutionStore injects the durable execution ledger. When absent, runs
+// execute without SQL lifecycle persistence (unit tests only).
+func WithExecutionStore(st execution.Store) Option {
+	return func(s *Server) {
+		if s == nil || st == nil {
+			return
+		}
+		s.executionStore = st
+	}
+}
+
+// WithInstanceID sets the lease owner identity.
+func WithInstanceID(id string) Option {
+	return func(s *Server) {
+		if s == nil || strings.TrimSpace(id) == "" {
+			return
+		}
+		s.instanceID = strings.TrimSpace(id)
+	}
+}
+
+// WithBudgetLimits overrides the per-run budget defaults.
+func WithBudgetLimits(l harness.Limits) Option {
+	return func(s *Server) {
+		if s == nil {
+			return
+		}
+		s.budgetLimits = l
+	}
+}
+
 // WithMainAgentPlanner injects the MainAgent Planner. It is required for run
 // handling; when absent the run endpoint fails without dispatching any agent.
 func WithMainAgentPlanner(p planner.Planner) Option {
@@ -175,6 +212,8 @@ func NewServer(opts ...Option) *Server {
 		idempotencyCache:  make(map[string]*idempotencyEntry),
 		pendingPlanStates: make(map[string]*PendingPlan),
 		runTaskRegistry:   registry.NewRunTaskRegistry(),
+		instanceID:        defaultInstanceID(),
+		budgetLimits:      harness.DefaultLimits(),
 	}
 	for _, opt := range opts {
 		if opt == nil {
@@ -889,4 +928,12 @@ func (s *Server) handleRunToolResult(w http.ResponseWriter, r *http.Request) {
 		Status:     "forwarded",
 		Forwarded:  forwarded,
 	})
+}
+
+func defaultInstanceID() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "orchestrator"
+	}
+	return fmt.Sprintf("%s-%d", host, os.Getpid())
 }
