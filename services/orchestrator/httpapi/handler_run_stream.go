@@ -326,6 +326,10 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 				s.abortRunWithLedger(w, flusher, runID, ledger, "approval checkpoint failed", err)
 				return
 			}
+			if err := ledger.requestApproval(r.Context(), orchPlan); err != nil {
+				s.abortRunWithLedger(w, flusher, runID, ledger, "approval persistence failed", err)
+				return
+			}
 		}
 		// Register pending BEFORE emitActivitySnapshot to prevent race where
 		// a fast confirm request arrives before registration completes.
@@ -362,6 +366,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 			case result := <-confirmCh:
 				// Revise: re-plan with feedback and emit revised ACTIVITY_SNAPSHOT.
 				if result.Action == "revise" {
+					ledger.resolveApproval(context.Background(), "superseded")
 					// Reset deadline for the new confirmation window.
 					confirmDeadline = time.After(confirmTimeout)
 
@@ -487,6 +492,21 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 					revisedPlan.PlanID = fmt.Sprintf("plan_%d", time.Now().UnixMilli())
 					orchPlan = revisedPlan
 
+					if ledger.enrolled() {
+						if err := ledger.savePlan(r.Context(), orchPlan); err != nil {
+							s.abortRunWithLedger(w, flusher, runID, ledger, "revised plan persistence failed", err)
+							return
+						}
+						if err := ledger.requestApproval(r.Context(), orchPlan); err != nil {
+							s.abortRunWithLedger(w, flusher, runID, ledger, "revised approval persistence failed", err)
+							return
+						}
+						if err := ledger.checkpoint(r.Context(), planLedgerState(orchPlan), "awaiting_approval"); err != nil {
+							s.abortRunWithLedger(w, flusher, runID, ledger, "revised checkpoint failed", err)
+							return
+						}
+					}
+
 					// Update PendingPlan with revised plan BEFORE emitActivitySnapshot.
 					s.hitlMu.Lock()
 					if pp, ok := s.pendingPlanStates[runID]; ok {
@@ -521,6 +541,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 				}
 				// Cancel/reject path.
 				if result.Action == "cancel" || !result.Confirmed {
+					ledger.resolveApproval(context.Background(), "cancelled")
 					ledger.terminal(context.Background(), "cancelled", "user_cancelled")
 					rejectReason := result.RejectReason
 					if rejectReason == "" {
@@ -566,6 +587,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 					},
 				})
 			case <-confirmDeadline:
+				ledger.resolveApproval(context.Background(), "expired")
 				ledger.terminal(context.Background(), "failed", "approval_timeout")
 				s.emitEvent(w, flusher, agui.InternalStreamEvent{
 					Type:  agui.InternalTypeRunError,
@@ -615,6 +637,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	ledger.resolveApproval(context.Background(), "approved")
 	if ledger.enrolled() {
 		if err := ledger.state(r.Context(), "executing", "executing", "state_update", planLedgerState(orchPlan)); err != nil {
 			s.abortRunWithLedger(w, flusher, runID, ledger, "execution state persistence failed", err)

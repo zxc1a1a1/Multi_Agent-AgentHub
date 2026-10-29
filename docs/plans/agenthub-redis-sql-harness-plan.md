@@ -325,7 +325,7 @@ git status --short
 | P1 | 已完成：删除 RulePlanner/LLMPlanner 与 rule 模式；MainAgent LLM-only；Gateway 必须配置 Orchestrator |
 | P2 | 存储层完成：MySQL Store/账本/Session/转换测试在真实 MySQL 通过；跨服务 accept 与运行接线待 P3b |
 | P3a | 已完成：Harness 预算/状态/上下文、Tool Descriptor/Broker、只读 workspace 工具、MemoryPolicy 接口 |
-| P3b | 部分完成：运行入口接入 SQL 状态/checkpoint/plan revision/预算；暂停恢复、审批表、工具许可未完成 |
+| P3b | 部分完成：SQL 状态/checkpoint/plan approval/预算/resume；已完成调用复用、工具许可、断连 durable run 未完成 |
 | P4 | 部分完成：Redis relay、SQL 回放、Gateway 恢复代理、requestId 幂等、Memory 工具/管理 API/UI；gRPC/投影游标/前端恢复/Memory 缓存未完成 |
 | P5 | 部分完成：apply_patch、Broker 审批门、SSRF/sandbox 接口/artifact；真实隔离执行、MCP、真实检索未完成 |
 | P6 | 部分完成：FakeModel Eval、前端单测/构建、真实 MySQL+Redis；独立进程/真模型/浏览器/race 未完成 |

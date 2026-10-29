@@ -304,3 +304,48 @@ func TestIntegrationFailedStateChangeLeavesNoHalfResult(t *testing.T) {
 		t.Fatalf("failed transaction left events: %d", events)
 	}
 }
+
+func TestIntegrationPlanApprovalLifecycle(t *testing.T) {
+	repo := openIntegrationRepo(t)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	run := acceptIntegrationRun(t, repo, suffix)
+	approvalID := "appr-itest-" + suffix
+	if _, _, err := repo.CreateApproval(context.Background(), Approval{
+		ApprovalID: approvalID, RunID: run.RunID, PlanID: "plan-" + suffix, PlanRevision: 1,
+		WorkspaceID: run.WorkspaceID, PrincipalID: run.PrincipalID,
+		ExpiresAt: time.Now().UTC().Add(10 * time.Minute), IdempotencyKey: "plan-" + suffix,
+	}); err != nil {
+		t.Fatalf("create approval: %v", err)
+	}
+	if err := repo.ResolveApproval(context.Background(), approvalID, "approved"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if err := repo.ResolveApproval(context.Background(), approvalID, "approved"); err != nil {
+		t.Fatalf("repeat approve must be idempotent: %v", err)
+	}
+	if err := repo.ResolveApproval(context.Background(), approvalID, "cancelled"); !errors.Is(err, ErrApprovalClosed) {
+		t.Fatalf("closed approval must reject a different status, got %v", err)
+	}
+	var status string
+	if err := repo.DB().QueryRow("SELECT status FROM approvals WHERE approval_id = ?", approvalID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "approved" {
+		t.Fatalf("unexpected approval status: %s", status)
+	}
+
+	expiredID := "appr-expired-" + suffix
+	if _, _, err := repo.CreateApproval(context.Background(), Approval{
+		ApprovalID: expiredID, RunID: run.RunID, PlanID: "plan-expired-" + suffix, PlanRevision: 1,
+		WorkspaceID: run.WorkspaceID, PrincipalID: run.PrincipalID,
+		ExpiresAt: time.Now().UTC().Add(-time.Minute), IdempotencyKey: "plan-expired-" + suffix,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ResolveApproval(context.Background(), expiredID, "approved"); !errors.Is(err, ErrApprovalExpired) {
+		t.Fatalf("expired approval must not be approved, got %v", err)
+	}
+	if err := repo.ResolveApproval(context.Background(), expiredID, "cancelled"); err != nil {
+		t.Fatalf("expired approval can be cancelled: %v", err)
+	}
+}

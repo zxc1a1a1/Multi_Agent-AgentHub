@@ -9,6 +9,10 @@ import (
 // handleRunInspect exposes SQL-authoritative run status and event replay.
 // Redis is only a cache/stream; recovery reads from this endpoint.
 func (s *Server) handleRunInspect(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/resume") {
+		s.handleResumeRun(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})

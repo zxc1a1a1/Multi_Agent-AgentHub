@@ -35,6 +35,26 @@ type Checkpoint struct {
 	BudgetJSON     []byte
 }
 
+type Approval struct {
+	ApprovalID     string
+	RunID          string
+	PlanID         string
+	PlanRevision   int
+	WorkspaceID    string
+	PrincipalID    string
+	ExpiresAt      time.Time
+	IdempotencyKey string
+}
+
+type ResumeState struct {
+	RunID          string
+	Status         string
+	FencingVersion int64
+	PlanJSON       []byte
+	BudgetJSON     []byte
+	CheckpointJSON []byte
+}
+
 type Plan struct {
 	RunID    string
 	PlanID   string
@@ -64,6 +84,9 @@ type Store interface {
 	AppendState(ctx context.Context, s State) (seq int64, err error)
 	SaveCheckpoint(ctx context.Context, c Checkpoint) (version int64, err error)
 	SavePlan(ctx context.Context, p Plan) error
+	CreatePlanApproval(ctx context.Context, a Approval) (approvalID string, deduplicated bool, err error)
+	ResolvePlanApproval(ctx context.Context, approvalID, status string) error
+	LoadResume(ctx context.Context, runID string) (*ResumeState, error)
 	GetRun(ctx context.Context, runID string) (*RunStatus, error)
 	ListEventsAfter(ctx context.Context, runID string, afterSeq int64, limit int) ([]Event, error)
 }

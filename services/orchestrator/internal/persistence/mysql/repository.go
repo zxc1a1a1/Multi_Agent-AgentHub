@@ -21,6 +21,7 @@ var (
 	ErrApprovalExpired   = errors.New("approval expired")
 	ErrApprovalMismatch  = errors.New("approval does not match tool call or arguments")
 	ErrDuplicateToolCall = errors.New("tool call already dispatched")
+	ErrApprovalClosed    = errors.New("approval is not pending")
 )
 
 // Repository is the Orchestrator execution ledger backed by MySQL.
@@ -321,6 +322,48 @@ func (r *Repository) RenewLease(ctx context.Context, runID, owner string, fencin
 	return tx.Commit()
 }
 
+type CheckpointRow struct {
+	Version        int64
+	StateJSON      []byte
+	BudgetJSON     []byte
+	FencingVersion int64
+	CreatedAt      time.Time
+}
+
+func (r *Repository) LatestCheckpoint(ctx context.Context, runID string) (*CheckpointRow, error) {
+	var c CheckpointRow
+	if err := r.db.QueryRowContext(ctx, `SELECT version, state_json, budget_json, fencing_version, created_at
+		FROM checkpoints WHERE run_id = ? ORDER BY version DESC LIMIT 1`, runID).Scan(
+		&c.Version, &c.StateJSON, &c.BudgetJSON, &c.FencingVersion, &c.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &c, nil
+}
+
+type PlanRevisionRow struct {
+	PlanID    string
+	Revision  int
+	PlanJSON  []byte
+	PlanHash  string
+	CreatedAt time.Time
+}
+
+func (r *Repository) LatestPlanRevision(ctx context.Context, runID string) (*PlanRevisionRow, error) {
+	var p PlanRevisionRow
+	if err := r.db.QueryRowContext(ctx, `SELECT plan_id, revision, plan_json, plan_hash, created_at
+		FROM plan_revisions WHERE run_id = ? ORDER BY revision DESC LIMIT 1`, runID).Scan(
+		&p.PlanID, &p.Revision, &p.PlanJSON, &p.PlanHash, &p.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &p, nil
+}
+
 type CheckpointParams struct {
 	RunID             string
 	FencingVersion    int64
@@ -410,6 +453,42 @@ func (r *Repository) CreateApproval(ctx context.Context, a Approval) (*Approval,
 		return nil, false, err
 	}
 	return &a, true, nil
+}
+
+// ResolveApproval closes a pending plan approval exactly once. Repeating the
+// same target status is idempotent.
+func (r *Repository) ResolveApproval(ctx context.Context, approvalID, status string) error {
+	switch status {
+	case "approved", "cancelled", "expired", "superseded":
+	default:
+		return fmt.Errorf("invalid approval status %q", status)
+	}
+	res, err := r.db.ExecContext(ctx, `UPDATE approvals
+		SET status = ?, consumed_at = IF(? = 'approved', ?, consumed_at)
+		WHERE approval_id = ? AND status = 'pending'
+		  AND (expires_at > ? OR ? <> 'approved')`,
+		status, status, time.Now().UTC(), approvalID, time.Now().UTC(), status)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 1 {
+		return nil
+	}
+	var current string
+	var expires time.Time
+	if err := r.db.QueryRowContext(ctx, "SELECT status, expires_at FROM approvals WHERE approval_id = ?", approvalID).Scan(&current, &expires); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if current == status {
+		return nil
+	}
+	if current == "pending" && !expires.After(time.Now().UTC()) {
+		return ErrApprovalExpired
+	}
+	return ErrApprovalClosed
 }
 
 type DispatchParams struct {

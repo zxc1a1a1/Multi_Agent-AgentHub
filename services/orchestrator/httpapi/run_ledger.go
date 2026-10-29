@@ -20,10 +20,13 @@ import (
 // configured it still owns the in-process budget so production code paths never
 // silently skip accounting.
 type runLedger struct {
-	store   execution.Store
-	runID   string
-	fencing int64
-	budget  *harness.Budget
+	store      execution.Store
+	runID      string
+	fencing    int64
+	budget     *harness.Budget
+	workspace  string
+	principal  string
+	approvalID string
 }
 
 func (s *Server) newRunLedger(ctx context.Context, req OrchestratorRequest, runID, executionPath string) (*runLedger, error) {
@@ -35,7 +38,7 @@ func (s *Server) newRunLedger(ctx context.Context, req OrchestratorRequest, runI
 	if err != nil {
 		return nil, err
 	}
-	ledger := &runLedger{store: s.executionStore, runID: runID, budget: budget}
+	ledger := &runLedger{store: s.executionStore, runID: runID, budget: budget, workspace: "default", principal: "anonymous"}
 	if s.executionStore == nil {
 		return ledger, nil
 	}
@@ -48,9 +51,10 @@ func (s *Server) newRunLedger(ctx context.Context, req OrchestratorRequest, runI
 	if principal == "" {
 		principal = "anonymous"
 	}
+	ledger.principal = principal
 	dedup, err := s.executionStore.AcceptRun(ctx, execution.Accept{
 		RunID: runID, RequestID: requestID, ConversationID: req.ConversationID,
-		WorkspaceID: "default", PrincipalID: principal, ExecutionPath: executionPath,
+		WorkspaceID: ledger.workspace, PrincipalID: principal, ExecutionPath: executionPath,
 		BudgetJSON: ledger.budgetJSON(),
 	})
 	if err != nil {
@@ -102,6 +106,38 @@ func (l *runLedger) state(ctx context.Context, status, reason, eventType string,
 		TerminalReason: reason, EventType: eventType, Payload: data, BudgetJSON: l.budgetJSON(),
 	})
 	return err
+}
+
+func (l *runLedger) requestApproval(ctx context.Context, p *plan.OrchestrationPlan) error {
+	if !l.enrolled() || p == nil {
+		return nil
+	}
+	revision := p.Revision
+	if revision < 1 {
+		revision = 1
+	}
+	key := fmt.Sprintf("plan:%s:%s:%d", l.runID, p.PlanID, revision)
+	sum := sha256.Sum256([]byte(key))
+	approvalID := "appr_" + hex.EncodeToString(sum[:12])
+	id, _, err := l.store.CreatePlanApproval(ctx, execution.Approval{
+		ApprovalID: approvalID, RunID: l.runID, PlanID: p.PlanID, PlanRevision: revision,
+		WorkspaceID: l.workspace, PrincipalID: l.principal,
+		ExpiresAt: time.Now().UTC().Add(15 * time.Minute), IdempotencyKey: key,
+	})
+	if err != nil {
+		return err
+	}
+	l.approvalID = id
+	return nil
+}
+
+func (l *runLedger) resolveApproval(ctx context.Context, status string) {
+	if !l.enrolled() || l.approvalID == "" {
+		return
+	}
+	if err := l.store.ResolvePlanApproval(ctx, l.approvalID, status); err != nil {
+		log.Printf("orchestrator: run=%s resolve approval %s=%s failed: %v", l.runID, l.approvalID, status, err)
+	}
 }
 
 func (l *runLedger) savePlan(ctx context.Context, p *plan.OrchestrationPlan) error {
