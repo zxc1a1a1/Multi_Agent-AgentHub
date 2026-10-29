@@ -1,7 +1,42 @@
 volumes:
   gateway-data:
+  mysql-data:
 
 services:
+  # =========================================================================
+  # MySQL 8.4 — authoritative state
+  # =========================================================================
+  mysql:
+    image: "mysql:8.4@sha256:a0225d1ea6631c8bc2385dc4c2faba17bbf1834ecf369e1659a9a382bd8d5dd7"
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}"
+      MYSQL_DATABASE: "agenthub"
+    command:
+      - "--character-set-server=utf8mb4"
+      - "--collation-server=utf8mb4_unicode_ci"
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # =========================================================================
+  # Redis 7.2 — auxiliary cache / short-lived event replica
+  # =========================================================================
+  redis:
+    image: "redis:7.2-alpine@sha256:2c933526722b4126a61d5c170f766dc159adf97682f0b1cbbc27b1666ba96d84"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
   # =========================================================================
   # 10 Specialist Agents (ports 8081–8090)
   # =========================================================================
@@ -219,6 +254,9 @@ services:
       DIFF_AGENT_URL: "http://diff-agent-new:8080"
       ORCHESTRATOR_AGENT_CARD_LOAD: "true"
       REQUIRE_PLAN_CONFIRMATION: "${REQUIRE_PLAN_CONFIRMATION:-true}"
+      DATABASE_URL: "root:${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}@tcp(mysql:3306)/agenthub?parseTime=true&loc=UTC&charset=utf8mb4"
+      REDIS_URL: "redis://redis:6379/0"
+      AGENTHUB_ENV: "docker"
       ORCHESTRATOR_LLM_PROVIDER: "${ORCHESTRATOR_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
       ORCHESTRATOR_LLM_MODEL: "${ORCHESTRATOR_LLM_MODEL:-${LLM_MODEL}}"
       ORCHESTRATOR_LLM_API_KEY: "${ORCHESTRATOR_LLM_API_KEY:-${LLM_API_KEY}}"
@@ -226,6 +264,10 @@ services:
     ports:
       - "8090:8080"
     depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
       code-agent-new:
         condition: service_healthy
       web-agent-new:
@@ -250,8 +292,8 @@ services:
       ORCHESTRATOR_INTERNAL_TOKEN: "dev-internal-token"
       GATEWAY_ENABLE_AUTH: "false"
       GATEWAY_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
-      AGENTHUB_GATEWAY_STORE: "sqlite"
-      AGENTHUB_SQLITE_PATH: "/data/agenthub.db"
+      AGENTHUB_GATEWAY_STORE: "mysql"
+      DATABASE_URL: "root:${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}@tcp(mysql:3306)/agenthub?parseTime=true&loc=UTC&charset=utf8mb4"
       # Agent endpoint URLs for frontend agent dropdown display
       CODE_AGENT_URL: "http://code-agent-new:8080"
       WEB_AGENT_URL: "http://web-agent-new:8080"
@@ -265,9 +307,9 @@ services:
       DIFF_AGENT_URL: "http://diff-agent-new:8080"
     ports:
       - "8080:8080"
-    volumes:
-      - gateway-data:/data
     depends_on:
+      mysql:
+        condition: service_healthy
       orchestrator-new:
         condition: service_healthy
     healthcheck:

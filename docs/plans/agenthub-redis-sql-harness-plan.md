@@ -1,7 +1,7 @@
 # AgentHub v2 实施计划：Redis / MySQL / LLM-only / Tools / Harness / Memory
 
 - 日期：2026-10-29；源码基线：`dev / 8a44f9e`。
-- 状态：**P0、P1 已完成；P2 存储层与真实 MySQL 门禁通过；P3a 已完成；P3b/P3c/P4/P5/P6 部分完成；P7 部分完成（2026-10-29）**。
+- 状态：**P0、P1 已完成；P2 存储层与真实 MySQL 门禁通过；P3a 已完成；P3b–P7 部分完成；gRPC/浏览器/真模型/独立进程验收仍缺失（2026-10-29）**。
 - 输入：[架构方案](../architecture/optimization-architecture.md)、[技术选型与来源](../architecture/optimization-technology-selection.md)。
 - 本轮只交付这三份文档；不运行迁移、不安装组件、不修改依赖/配置/业务代码/测试、不提交或推送。
 
@@ -329,6 +329,7 @@ git status --short
 | P4 | 部分完成：Redis relay、SQL 回放、Gateway 恢复代理、requestId 幂等；gRPC/投影游标/前端恢复/Memory 缓存未完成 |
 | P5 | 部分完成：apply_patch、Broker 审批门、SSRF/sandbox 接口/artifact；真实隔离执行、MCP、真实检索未完成 |
 | P6 | 部分完成：FakeModel Eval、前端单测/构建、真实 MySQL+Redis；独立进程/真模型/浏览器/race 未完成 |
+| P7 | 部分完成：compose MySQL/Redis、版本锁定、镜像构建、最小栈健康/迁移 smoke 通过；完整业务 smoke/数据迁移未执行 |
 | P3c | 部分完成：Memory MySQL 存储/候选/确认/CAS/遗忘与 Controller；短期记忆、工具、管理 API/UI、Redis 未完成 |
 | 业务代码/测试/配置/依赖 | P0 未修改；P1 已按阶段修改并验证 |
 | Redis/MySQL/真模型/浏览器/性能验收 | 未执行，不宣称通过 |

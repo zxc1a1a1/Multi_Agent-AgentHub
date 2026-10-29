@@ -194,7 +194,11 @@ Orchestrator 是核心编排层，需要知道所有 Agent 的地址。
 | `GATEWAY_DEFAULT_AGENT_NAME` | 否 | `code-agent` | 默认 Agent |
 | `ORCHESTRATOR_URL` | **是** | (空) | 编排服务地址，如 `http://127.0.0.1:8090` |
 | `ORCHESTRATOR_INTERNAL_TOKEN` | 否 | (空) | 编排服务内部令牌，需与 Orchestrator 一致 |
-| `AGENTHUB_GATEWAY_STORE` | 否 | `memory` | 存储模式：`memory` / `sqlite` |
+| `AGENTHUB_GATEWAY_STORE` | 否 | `mysql` | 存储模式：`mysql`（目标）/ `sqlite`（demo）/ `memory`（测试） |
+| `DATABASE_URL` | mysql 时必填 | (空) | MySQL DSN，如 `user:password@tcp(host:3306)/agenthub?parseTime=true&loc=UTC` |
+| `MYSQL_ROOT_PASSWORD` | compose 时必填 | (空) | 仅通过 `.env` 注入，不写入仓库 |
+| `REDIS_URL` | 否 | (空) | Orchestrator relay/缓存地址；缺失仅告警 |
+| `AGENTHUB_ENV` | 否 | `dev` | Redis 键空间环境段 |
 | `AGENTHUB_SQLITE_PATH` | 否 | `/data/agenthub.db` | SQLite 路径（store=sqlite 时） |
 
 ---
@@ -668,7 +672,7 @@ make build-check   # 验证所有模块编译通过
 
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
-| `DATABASE_URL` | `root:agenthub123@tcp(localhost:3306)/agenthub?...` | MySQL 连接字符串 |
+| `DATABASE_URL` | (空) | MySQL 连接字符串；密码由环境变量注入 |
 | `GATEWAY_PORT` | `8080` | Gateway 服务端口 |
 | `CODE_AGENT_PORT` | `8081` | Code-Agent 服务端口 |
 | `AGENT_CODE_URL` | `http://localhost:8081` | Gateway 连接 Agent 的地址 |
