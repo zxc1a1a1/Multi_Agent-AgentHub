@@ -498,3 +498,107 @@ export async function getArtifact(id: string): Promise<ArtifactRecord> {
   if (!res.ok) throw new Error(`Failed to get artifact: HTTP ${res.status}`)
   return res.json()
 }
+
+export type MemoryMode = 'off' | 'session_only' | 'scoped_long_term'
+
+export interface MemoryPolicy {
+  mode: MemoryMode
+  read: boolean
+  propose: boolean
+  confirm: boolean
+  forget: boolean
+  maxInjectedEntries: number
+  maxCoreEntries: number
+  maxInjectedTokens: number
+  maxEntryBytes: number
+  maxActivePerScope: number
+  candidateTTL: number
+  defaultRecheckAfter: number
+}
+
+export interface MemoryEntry {
+  memoryId: string
+  kind: string
+  logicalKey: string
+  content: string
+  revision: number
+  status: 'active' | 'candidate' | 'revoked' | 'expired'
+  sourceRefs: string[]
+  createdAt: string
+  verifiedAt: string
+  expiresAt?: string
+}
+
+const memoryScope = () => ({
+  env: (import.meta.env.VITE_AGENTHUB_ENV as string) || 'dev',
+  workspaceId: 'default',
+  principalId: DEFAULT_USER_ID,
+  sessionId: '',
+  agentName: '',
+  threadId: '',
+})
+
+async function memoryRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}/memory/${path}`, {
+    ...init,
+    headers: authHeaders({ 'Content-Type': 'application/json', ...(init?.headers as Record<string, string>) }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((body as { error?: string }).error || `Memory request failed (${res.status})`)
+  }
+  return body as T
+}
+
+export async function getMemoryPolicy(): Promise<MemoryPolicy> {
+  return memoryRequest<MemoryPolicy>('policy')
+}
+
+export async function updateMemoryPolicy(policy: MemoryPolicy): Promise<MemoryPolicy> {
+  return memoryRequest<MemoryPolicy>('policy', { method: 'PUT', body: JSON.stringify(policy) })
+}
+
+export async function listMemoryEntries(status?: string): Promise<MemoryEntry[]> {
+  const params = new URLSearchParams({ ...memoryScope(), limit: '100' })
+  if (status) params.set('status', status)
+  const body = await memoryRequest<{ entries?: MemoryEntry[] }>(`entries?${params.toString()}`)
+  return body.entries ?? []
+}
+
+export async function proposeMemory(entry: {
+  kind: string
+  logicalKey: string
+  content: string
+  sourceRefs: string[]
+}): Promise<MemoryEntry> {
+  return memoryRequest<MemoryEntry>('propose', {
+    method: 'POST',
+    body: JSON.stringify({ scope: memoryScope(), entry }),
+  })
+}
+
+export async function confirmMemory(memoryId: string, expectedRevision: number): Promise<MemoryEntry> {
+  return memoryRequest<MemoryEntry>('confirm', {
+    method: 'POST',
+    body: JSON.stringify({ scope: memoryScope(), memoryId, expectedRevision }),
+  })
+}
+
+export async function updateMemory(memoryId: string, content: string, expectedRevision: number): Promise<MemoryEntry> {
+  return memoryRequest<MemoryEntry>('update', {
+    method: 'POST',
+    body: JSON.stringify({ scope: memoryScope(), memoryId, content, expectedRevision }),
+  })
+}
+
+export async function forgetMemory(memoryId: string): Promise<{ recallDisabled: boolean; purgeStatus: string }> {
+  return memoryRequest<{ recallDisabled: boolean; purgeStatus: string }>('forget', {
+    method: 'POST',
+    body: JSON.stringify({ scope: memoryScope(), memoryId }),
+  })
+}
+
+export function memoryScopeSnapshot(): { env: string; workspaceId: string; principalId: string } {
+  const scope = memoryScope()
+  return { env: scope.env, workspaceId: scope.workspaceId, principalId: scope.principalId }
+}

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import ChatLayout from './components/ChatLayout'
 import AgentDirectory from './components/agents/AgentDirectory'
-import { MessageSquare, Bot } from 'lucide-react'
+import MemoryPanel from './components/MemoryPanel'
+import { MessageSquare, Bot, Brain } from 'lucide-react'
 
-type Tab = 'chat' | 'agents'
+type Tab = 'chat' | 'agents' | 'memory'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('chat')
@@ -34,11 +35,22 @@ export default function App() {
         >
           <Bot className="w-5 h-5" />
         </button>
+        <button
+          onClick={() => setTab('memory')}
+          className={`p-2 rounded-lg transition-colors ${
+            tab === 'memory'
+              ? 'bg-indigo-100 text-indigo-600'
+              : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+          }`}
+          title="Memory"
+        >
+          <Brain className="w-5 h-5" />
+        </button>
       </nav>
 
       {/* Main content area */}
       <div className="flex-1 flex min-w-0">
-        {tab === 'chat' ? <ChatLayout /> : <AgentDirectory />}
+        {tab === 'chat' ? <ChatLayout /> : tab === 'agents' ? <AgentDirectory /> : <MemoryPanel />}
       </div>
     </div>
   )

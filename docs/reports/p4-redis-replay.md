@@ -17,7 +17,8 @@
 | Memory 工具 | `pkg/runtime/tools/memory.go` | memory.search/read/propose；scope 由可信代码绑定，不从参数读取 |
 | Memory 管理 API | `httpapi/memory_admin.go` | entries/propose/confirm/update/forget/policy/mutations |
 | Gateway Memory 代理 | `httpapi/memory_proxy.go` | `/api/memory/*` 转发 Orchestrator，保留状态码 |
-| 测试 | relay、httpapi、orchestratorclient | 真实 Redis/MySQL 测试 + 单元测试 |
+| Memory UI | `frontend/src/components/MemoryPanel.tsx` | 模式/scope/状态/修订/来源/到期；候选确认、纠正、遗忘与 purgeStatus |
+| 测试 | relay、httpapi、orchestratorclient、MemoryPanel | 真实 Redis/MySQL 测试 + 前端组件测试 |
 
 ## 2. 验证
 
@@ -40,6 +41,7 @@ TestReplayProxyEndpoints                                   PASS
 TestMemoryToolsBindTrustedScope                            PASS
 TestMemoryProxyForwards                                    PASS
 TestIntegrationMemoryAdminAPI                              PASS（真实 MySQL：候选→确认→更新→冲突→遗忘）
+MemoryPanel.test.tsx                                       PASS（6 tests：加载/确认/纠正冲突/遗忘/错误/模式）
 ```
 
 ## 3. 未完成（P4 门禁未通过）
@@ -48,7 +50,7 @@ TestIntegrationMemoryAdminAPI                              PASS（真实 MySQL�
 2. **Gateway 事件投影与消费位置**：`event_projection_offsets` 表未接线；没有共享投影去重与 subIndex 游标。
 3. **浏览器断线恢复**：前端未保存/发送 `(runId, seq, subIndex)` 游标；重连不会自动回放。
 4. **两个 Gateway OS 进程独立订阅**、慢订阅者有界队列、Redis 重启/清空恢复测试未做。
-5. **Memory Redis 缓存**、失效事件、前端管理 UI 未实现（后端 API 已具备）。
+5. **Memory Redis 缓存**与失效事件未实现；前端管理 UI 已具备但未做浏览器 E2E。
 6. **取消语义**：普通断连仍会取消本地执行（未实现 durable run 继续/恢复）。
 7. `Redis Streams` 消费者侧去重与终态对账未接入 Gateway。
 
