@@ -52,6 +52,9 @@ curl -fsS -X POST http://localhost:8080/api/conversations -H 'Content-Type: appl
 # 发消息需要真实模型 key；成功后检查：
 #   MySQL executions/execution_events/outbox
 #   Redis: docker exec <redis> redis-cli --scan --pattern 'agenthub:*:run:*:events'
+
+# 重启恢复 smoke（要求 MYSQL_ROOT_PASSWORD 已注入）
+bash scripts/smoke-restart.sh
 ```
 
 ## 5. 数据迁移工具

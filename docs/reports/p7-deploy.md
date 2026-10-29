@@ -15,6 +15,7 @@
 | 交付文档 | 完成 | `docs/delivery/v2-mysql-redis.md` |
 | 镜像构建 | **PASS** | gateway/orchestrator 镜像构建成功 |
 | 最小栈启动/健康/迁移 | **PASS** | MySQL/Redis/Orchestrator/Gateway；health ok；21 张表 |
+| MySQL/Redis 重启恢复 | **PASS** | `scripts/smoke-restart.sh`：会话在 MySQL 重启后仍可读；Redis 重启不影响 SQL 权威历史 |
 | SQLite→MySQL 迁移工具 | 完成（合成验证） | `cmd/migrate-sqlite`；测试使用临时 SQLite + 真实 MySQL，幂等；**真实用户数据未导入** |
 | 回滚流程 | 已文档化 | 代码回滚≠数据库回滚 |
 
@@ -40,6 +41,11 @@ $ MySQL agenthub 表：agent_catalog, approvals, artifact_views, chat_requests,
   executions, memory_entries/mutations/revisions/scopes, messages, outbox,
   plan_revisions, run_views, schema_migrations, task_executions, tool_calls
 $ POST /api/conversations → 200；MySQL conversations 行存在（userId=smoke-user）
+
+$ bash scripts/smoke-restart.sh
+created conversation=...
+PASS: MySQL restart recovered conversation
+PASS: Redis restart did not affect SQL-authoritative history
 ```
 
 说明：Orchestrator 使用占位 provider/model 启动（未发起模型请求）；日志提示未启动的 8 个 Agent unhealthy，符合 `--no-deps` 最小栈预期。
@@ -57,7 +63,7 @@ PASS
 ## 4. 未通过的门禁
 
 1. 完整 10-Agent 栈与真实模型未启动；聊天/审批/工具/取消/回放 smoke 未执行。
-2. 未验证 Redis 重启/清空、MySQL 重启后的恢复。
+2. MySQL/Redis 重启已通过最小恢复 smoke；Redis 清空/裁剪、MySQL 崩溃事务恢复未做。
 3. 未备份/迁移真实数据；禁止把合成测试当作用户数据迁移证据。
 4. 未验证多节点 artifact 存储；只允许声明单机持久卷。
 5. 内部 gRPC、浏览器恢复、Memory 管理 UI 仍未实现，不能声明目标拓扑完整。
