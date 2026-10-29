@@ -1,7 +1,7 @@
 # AgentHub v2 实施计划：Redis / MySQL / LLM-only / Tools / Harness / Memory
 
 - 日期：2026-10-29；源码基线：`dev / 8a44f9e`。
-- 状态：**P0、P1 已完成；P2 部分完成（真实 MySQL 未验证）；P3a 已完成；P3b–P7 未开始（2026-10-29）**。
+- 状态：**P0、P1 已完成；P2 部分完成（真实 MySQL 未验证）；P3a 已完成；P3c 部分完成（Memory 存储/Controller）；P3b、P4–P7 未开始（2026-10-29）**。
 - 输入：[架构方案](../architecture/optimization-architecture.md)、[技术选型与来源](../architecture/optimization-technology-selection.md)。
 - 本轮只交付这三份文档；不运行迁移、不安装组件、不修改依赖/配置/业务代码/测试、不提交或推送。
 
@@ -325,6 +325,7 @@ git status --short
 | P1 | 已完成：删除 RulePlanner/LLMPlanner 与 rule 模式；MainAgent LLM-only；Gateway 必须配置 Orchestrator |
 | P2 | 部分完成：MySQL Store + 执行账本 Repository + 单测；真实 MySQL 集成 SKIP；Session/运行接线未完成 |
 | P3a | 已完成：Harness 预算/状态/上下文、Tool Descriptor/Broker、只读 workspace 工具、MemoryPolicy 接口 |
+| P3c | 部分完成：Memory MySQL 存储/候选/确认/CAS/遗忘与 Controller；短期记忆、工具、管理 API/UI、Redis 未完成 |
 | 业务代码/测试/配置/依赖 | P0 未修改；P1 已按阶段修改并验证 |
 | Redis/MySQL/真模型/浏览器/性能验收 | 未执行，不宣称通过 |
 | 上一轮临时回归测试 | 已撤回，不是现存测试套件；不能用其结果替本版架构验收 |

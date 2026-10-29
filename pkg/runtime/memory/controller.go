@@ -8,16 +8,16 @@ import (
 // Entry is the controller-facing long-term memory record. Status is one of
 // active|candidate|revoked|expired; candidates are never recalled.
 type Entry struct {
-	MemoryID   string    `json:"memoryId"`
-	ScopeKey   string    `json:"scopeKey"`
-	Kind       string    `json:"kind"`
-	LogicalKey string    `json:"logicalKey"`
-	Content    string    `json:"content"`
-	Revision   int       `json:"revision"`
-	Status     string    `json:"status"`
-	SourceRefs []string  `json:"sourceRefs"`
-	CreatedAt  time.Time `json:"createdAt"`
-	VerifiedAt time.Time `json:"verifiedAt"`
+	MemoryID   string     `json:"memoryId"`
+	ScopeKey   string     `json:"scopeKey"`
+	Kind       string     `json:"kind"`
+	LogicalKey string     `json:"logicalKey"`
+	Content    string     `json:"content"`
+	Revision   int        `json:"revision"`
+	Status     string     `json:"status"`
+	SourceRefs []string   `json:"sourceRefs"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	VerifiedAt time.Time  `json:"verifiedAt"`
 	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
 }
 
@@ -37,5 +37,6 @@ type Controller interface {
 	Recall(ctx context.Context, scope Scope, query string, limit int) ([]Entry, error)
 	Propose(ctx context.Context, scope Scope, entry Entry) (*Entry, error)
 	Confirm(ctx context.Context, scope Scope, memoryID string, expectedRevision int) (*Entry, error)
+	Update(ctx context.Context, scope Scope, memoryID, content string, expectedRevision int) (*Entry, error)
 	Forget(ctx context.Context, scope Scope, memoryID string) error
 }

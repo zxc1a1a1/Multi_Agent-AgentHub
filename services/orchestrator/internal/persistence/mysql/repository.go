@@ -238,6 +238,13 @@ func nullIfEmptyBytes(b []byte) any {
 	return b
 }
 
+func nullIfNilTime(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return *t
+}
+
 // AcquireLease increments fencingVersion and grants the lease when no live
 // holder exists. Expired owners cannot commit afterwards because every write
 // checks the fencing version.
