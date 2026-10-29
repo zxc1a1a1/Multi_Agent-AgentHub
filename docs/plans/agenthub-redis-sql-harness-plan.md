@@ -328,7 +328,7 @@ git status --short
 | P3b | 部分完成：SQL 状态/checkpoint/plan approval/预算/resume；已完成调用复用、工具许可、断连 durable run 未完成 |
 | P4 | 部分完成：Redis relay、SQL 回放、Gateway 恢复代理、requestId 幂等、Memory 工具/管理 API/UI；gRPC/投影游标/前端恢复/Memory 缓存未完成 |
 | P5 | 部分完成：apply_patch、Broker 审批门、SSRF/sandbox 接口/artifact；真实隔离执行、MCP、真实检索未完成 |
-| P6 | 部分完成：FakeModel Eval、前端单测/构建、真实 MySQL+Redis；独立进程/真模型/浏览器/race 未完成 |
+| P6 | 部分完成：FakeModel Eval、前端单测/构建、真实 MySQL+Redis、Memory 浏览器 E2E；独立进程/真模型/聊天浏览器/race 未完成 |
 | P7 | 部分完成：compose MySQL/Redis、版本锁定、镜像构建、最小栈健康/迁移 smoke 通过；完整业务 smoke/数据迁移未执行 |
 | P3c | 部分完成：Memory 存储/Controller、短期快照/装配、自动召回、工具/管理 API/UI；摘要任务、分支隔离、Redis 未完成 |
 | 业务代码/测试/配置/依赖 | P0 未修改；P1 已按阶段修改并验证 |

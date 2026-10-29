@@ -41,10 +41,29 @@ TestReplayProxyEndpoints                                   PASS
 TestMemoryToolsBindTrustedScope                            PASS
 TestMemoryProxyForwards                                    PASS
 TestIntegrationMemoryAdminAPI                              PASS（真实 MySQL：候选→确认→更新→冲突→遗忘）
+Browser Memory E2E                                         PASS（见第 4 节）
 MemoryPanel.test.tsx                                       PASS（6 tests：加载/确认/纠正冲突/遗忘/错误/模式）
 ```
 
-## 3. 未完成（P4 门禁未通过）
+## 3. 浏览器 Memory E2E（本轮执行）
+
+环境：compose 最小栈（MySQL/Redis/Orchestrator/Gateway，`MEMORY_MODE=scoped_long_term`）+ Vite dev server；浏览器 `127.0.0.1:5173`。
+
+实际步骤与结果：
+
+```text
+1. Memory 页加载：scope=dev/default/demo-user，mode=Scoped long-term，candidate 可见
+2. 点击 Confirm memory → "Memory confirmed and active."，status=active
+3. 纠正内容 → rev=2，内容更新，提示 "Memory corrected with a new revision."
+4. Forget memory → "Recall disabled: yes; purge status: pending."，status=revoked
+5. 模式切换 Off → UI 显示 Off / "No past session reuse"，再恢复 scoped
+6. 控制台 error/warn：无
+7. MySQL：entry revoked rev2；mutations propose/confirm/update=completed，forget purge_status=pending
+```
+
+发现的真实缺陷：`memory.Policy` 缺少 JSON tags，前端读取到 `Mode/Read/...` 导致模式显示 Off、PUT 失败；已补 camelCase tags 并重建验证。
+
+## 4. 未完成（P4 门禁未通过）
 
 1. **内部 gRPC**（StartRun/SubscribeRun/control）未实现；当前仍是 HTTP/SSE 兼容路径。
 2. **Gateway 事件投影与消费位置**：`event_projection_offsets` 表未接线；没有共享投影去重与 subIndex 游标。
@@ -53,6 +72,7 @@ MemoryPanel.test.tsx                                       PASS（6 tests：加�
 5. **Memory Redis 缓存**与失效事件未实现；前端管理 UI 已具备但未做浏览器 E2E。
 6. **取消语义**：普通断连仍会取消本地执行（未实现 durable run 继续/恢复）。
 7. `Redis Streams` 消费者侧去重与终态对账未接入 Gateway。
+8. 浏览器仅验证 Memory 管理；聊天/审批/断线重连/停止按钮未做浏览器 E2E。
 
 ## 4. 结论
 

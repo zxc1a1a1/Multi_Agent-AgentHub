@@ -257,6 +257,7 @@ services:
       DATABASE_URL: "root:${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}@tcp(mysql:3306)/agenthub?parseTime=true&loc=UTC&charset=utf8mb4"
       REDIS_URL: "redis://redis:6379/0"
       AGENTHUB_ENV: "docker"
+      MEMORY_MODE: "${MEMORY_MODE:-session_only}"
       ORCHESTRATOR_LLM_PROVIDER: "${ORCHESTRATOR_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
       ORCHESTRATOR_LLM_MODEL: "${ORCHESTRATOR_LLM_MODEL:-${LLM_MODEL}}"
       ORCHESTRATOR_LLM_API_KEY: "${ORCHESTRATOR_LLM_API_KEY:-${LLM_API_KEY}}"

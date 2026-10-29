@@ -20,7 +20,7 @@
 | 实际 MySQL/Redis | **PASS** | 全量测试含 MySQL 8.4/Redis 7.2 容器；见 P2/P4 报告 |
 | 独立进程故障测试 | **NOT RUN** | 未启动两个 Gateway/relay OS 进程 |
 | Race | **SKIP** | 本机 Go race 依赖的 `clang-22` 路径不存在，`gcc/clang` 包装器均指向缺失文件 |
-| 浏览器 E2E | **NOT RUN** | 未启动完整栈（无真实模型 key）；仅前端单测/构建 |
+| 浏览器 E2E | **PARTIAL** | Memory 管理全流程已通过浏览器验证；聊天/审批/重连因无真实模型未执行 |
 | 前端单测/构建 | **PASS** | Node v20.12.2：211 tests passed；`npm run build` 成功（chunk 1.43MB 警告） |
 | 基准 | **PASS（合成 FakeModel）** | `BenchmarkFakeModelEvaluation` ≈ 77µs/op；不代表真实模型/容量 |
 | 真模型合成集 | **NOT RUN** | 需要用户注入 key 与预算授权，报告不宣称质量 |
@@ -48,7 +48,7 @@ FAIL（build）：clang-22 missing；race 未执行
 
 1. 真模型任务完成率/工具选择/成本：未执行，不能用 FakeModel 结果替代。
 2. 两个 OS 进程的接管、旧 fencing 拒绝、relay/Gateway 崩溃恢复：未执行。
-3. 浏览器主路径、断线重连、审批、取消、工具事件、Memory 管理：未执行。
+3. 浏览器聊天主路径、断线重连、审批、取消、工具事件：未执行；Memory 管理已执行（P4 报告第 3 节）。
 4. 负载矩阵（1/10/50 并发、100/1k/10k 历史）：未执行，不承诺容量。
 5. Race：环境编译器缺失，不能声明通过。
 

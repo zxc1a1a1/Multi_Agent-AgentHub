@@ -57,18 +57,18 @@ func (s Scope) Key() string {
 }
 
 type Policy struct {
-	Mode                Mode
-	Read                bool
-	Propose             bool
-	Confirm             bool
-	Forget              bool
-	MaxInjectedEntries  int
-	MaxCoreEntries      int
-	MaxInjectedTokens   int
-	MaxEntryBytes       int
-	MaxActivePerScope   int
-	CandidateTTL        time.Duration
-	DefaultRecheckAfter time.Duration
+	Mode                Mode          `json:"mode"`
+	Read                bool          `json:"read"`
+	Propose             bool          `json:"propose"`
+	Confirm             bool          `json:"confirm"`
+	Forget              bool          `json:"forget"`
+	MaxInjectedEntries  int           `json:"maxInjectedEntries"`
+	MaxCoreEntries      int           `json:"maxCoreEntries"`
+	MaxInjectedTokens   int           `json:"maxInjectedTokens"`
+	MaxEntryBytes       int           `json:"maxEntryBytes"`
+	MaxActivePerScope   int           `json:"maxActivePerScope"`
+	CandidateTTL        time.Duration `json:"candidateTTL"`
+	DefaultRecheckAfter time.Duration `json:"defaultRecheckAfter"`
 }
 
 // DefaultPolicy is the frozen conservative default: session-only, no long-term
