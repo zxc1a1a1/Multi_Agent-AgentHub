@@ -466,3 +466,13 @@ The `event:` line is optional; the `type` field in the JSON payload is authorita
 ### Auto participant-change event rule
 
 For `main_agent_orchestration`, participant modifications are not approval. If the frontend sends `APPROVE_PLAN` with a `selectedParticipants` set that differs from the current proposal default, the backend MUST return `PARTICIPANT_CHANGE_REQUIRES_REVISION` and MUST NOT emit execution events. The correct flow is `REQUEST_PLAN_REVISION` followed by a new `confirm_plan` sequence on the existing SSE stream.
+
+
+## Public replay identity (v2)
+
+Gateway 分配的浏览器事件游标为 `(runId, seq, subIndex)`：
+
+- `seq` 从 1 单调递增，同一 `seq` 可映射多个公开事件（`subIndex`）。
+- 事件 payload 携带 `seq`/`subIndex`；前端可记录最后消费位置。
+- Gateway 的 `run_public_events` 为投影日志；`GET /api/runs/{id}/events?after=` 按 SQL 游标回放。
+- 历史水位/写入 socket 不等于浏览器已消费；重连游标只跳过该订阅已确认位置。

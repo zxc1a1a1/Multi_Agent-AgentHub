@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -492,6 +493,49 @@ func (s *MySQLStore) ImportMessage(ctx context.Context, msg Message, requestID, 
 		return fmt.Errorf("import message: %w", err)
 	}
 	return nil
+}
+
+// PublicEvent is one replayable browser event.
+type PublicEvent struct {
+	RunID     string          `json:"runId"`
+	Seq       int64           `json:"seq"`
+	SubIndex  int             `json:"subIndex"`
+	Type      string          `json:"type"`
+	Payload   json.RawMessage `json:"-"`
+	CreatedAt time.Time       `json:"createdAt"`
+}
+
+func (s *MySQLStore) AppendPublicEvent(ctx context.Context, event PublicEvent) error {
+	if event.RunID == "" || event.Seq < 1 || event.Type == "" || len(event.Payload) == 0 {
+		return fmt.Errorf("invalid public event")
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO run_public_events
+		(run_id, seq, sub_index, event_type, payload_json) VALUES (?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE payload_json = VALUES(payload_json), event_type = VALUES(event_type)`,
+		event.RunID, event.Seq, event.SubIndex, event.Type, event.Payload)
+	return err
+}
+
+func (s *MySQLStore) ListPublicEvents(ctx context.Context, runID string, afterSeq int64, limit int) ([]PublicEvent, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT run_id, seq, sub_index, event_type, payload_json, created_at
+		FROM run_public_events WHERE run_id = ? AND seq > ? ORDER BY seq ASC, sub_index ASC LIMIT ?`,
+		runID, afterSeq, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PublicEvent
+	for rows.Next() {
+		var event PublicEvent
+		if err := rows.Scan(&event.RunID, &event.Seq, &event.SubIndex, &event.Type, &event.Payload, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, event)
+	}
+	return out, rows.Err()
 }
 
 // UpdateChatRequestStatus records the terminal state of a chat request.

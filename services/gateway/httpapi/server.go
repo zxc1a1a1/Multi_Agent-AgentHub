@@ -32,6 +32,12 @@ type ChatRequestStore interface {
 	UpdateChatRequestStatus(ctx context.Context, requestID, status string) error
 }
 
+// PublicEventStore is an optional Store capability for browser event replay.
+type PublicEventStore interface {
+	AppendPublicEvent(ctx context.Context, event store.PublicEvent) error
+	ListPublicEvents(ctx context.Context, runID string, afterSeq int64, limit int) ([]store.PublicEvent, error)
+}
+
 // RunService is the injected runtime execution contract.
 type RunService interface {
 	Run(ctx context.Context, conversationID string, userContent *adk.Content) iter.Seq2[adk.Event, error]
@@ -813,6 +819,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	assistantText := strings.Builder{}
+	publicSeq := int64(0)
+	eventStore, _ := s.store.(PublicEventStore)
 
 	// A browser disconnect must not cancel an accepted durable run. The runner
 	// continues; if the socket is gone we drain events and persist the result.
@@ -848,6 +856,22 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+			// Public event journal: stable (runId, seq) for browser replay.
+			publicSeq++
+			item.Seq = publicSeq
+			item.SubIndex = 0
+			if eventStore != nil {
+				if payload, err := json.Marshal(item); err == nil {
+					persistCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					if err := eventStore.AppendPublicEvent(persistCtx, store.PublicEvent{
+						RunID: runID, Seq: publicSeq, SubIndex: 0, Type: item.Type, Payload: payload,
+					}); err != nil {
+						// Best-effort journal; the live stream still proceeds.
+					}
+					cancel()
+				}
+			}
+
 			// Mirror event to SQLite persistence (optional, best-effort).
 			if s.persistenceWriter != nil {
 				s.persistenceWriter.HandleEvent(ctx, req.ConversationID, item)

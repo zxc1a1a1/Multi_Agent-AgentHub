@@ -50,6 +50,8 @@ export interface ActivitySnapshot {
 
 export interface AGUIEvent {
   type: string
+  seq?: number
+  subIndex?: number
   id?: string
   messageId?: string
   runId?: string

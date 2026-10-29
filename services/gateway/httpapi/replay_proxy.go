@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,13 +26,13 @@ func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if s.replayService == nil {
-		writeJSONError(w, http.StatusServiceUnavailable, "replay unavailable")
-		return
-	}
 	runID, ok := runIDAndSuffix(r.URL.Path, "/status")
 	if !ok {
 		http.NotFound(w, r)
+		return
+	}
+	if s.replayService == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "replay unavailable")
 		return
 	}
 	body, err := s.replayService.GetRunStatus(r.Context(), runID)
@@ -50,10 +51,6 @@ func (s *Server) handleRunEvents(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if s.replayService == nil {
-		writeJSONError(w, http.StatusServiceUnavailable, "replay unavailable")
-		return
-	}
 	runID, ok := runIDAndSuffix(r.URL.Path, "/events")
 	if !ok {
 		http.NotFound(w, r)
@@ -61,6 +58,23 @@ func (s *Server) handleRunEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if local, ok := s.store.(PublicEventStore); ok {
+		events, err := local.ListPublicEvents(r.Context(), runID, after, limit)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "run events unavailable")
+			return
+		}
+		payload := make([]json.RawMessage, 0, len(events))
+		for _, event := range events {
+			payload = append(payload, event.Payload)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"runId": runID, "after": after, "events": payload})
+		return
+	}
+	if s.replayService == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "replay unavailable")
+		return
+	}
 	body, err := s.replayService.ListRunEvents(r.Context(), runID, after, limit)
 	if err != nil {
 		writeJSONError(w, http.StatusBadGateway, "run events unavailable")

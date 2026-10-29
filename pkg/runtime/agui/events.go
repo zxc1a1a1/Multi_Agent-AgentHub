@@ -8,6 +8,10 @@ import "encoding/json"
 type Event struct {
 	Type string `json:"type"`
 
+	// Public replay identity: (runId, seq, subIndex).
+	Seq      int64 `json:"seq,omitempty"`
+	SubIndex int   `json:"subIndex,omitempty"`
+
 	// AG-UI v1.0 standard identity fields
 	RunID     string `json:"runId,omitempty"`
 	ThreadID  string `json:"threadId,omitempty"`
@@ -152,9 +156,10 @@ type PlanOwner struct {
 // ExecutionOwner identifies who will execute the plan, determined by executionPath.
 //
 // Mapping:
-//   single_chat              → {type: "agent", agentName: <selectedAgent>}
-//   group_chat               → {type: "group", agentNames: <allowedAgents>}
-//   main_agent_orchestration → {type: "main_agent_orchestration", selectedParticipants: [...]}
+//
+//	single_chat              → {type: "agent", agentName: <selectedAgent>}
+//	group_chat               → {type: "group", agentNames: <allowedAgents>}
+//	main_agent_orchestration → {type: "main_agent_orchestration", selectedParticipants: [...]}
 type ExecutionOwner struct {
 	Type                 string   `json:"type"` // "agent" | "group" | "main_agent_orchestration"
 	AgentName            string   `json:"agentName,omitempty"`

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -188,5 +189,38 @@ func TestIntegrationConversationIsolation(t *testing.T) {
 	}
 	if _, err := s.AppendMessage(ctx, Message{ConversationID: a.ID, Author: "user", Role: "user", Text: ""}); err != ErrEmptyMessage {
 		t.Fatalf("empty message must be rejected, got %v", err)
+	}
+}
+
+func TestIntegrationPublicEventJournal(t *testing.T) {
+	s := openIntegrationStore(t)
+	ctx := context.Background()
+	runID := fmt.Sprintf("run-events-%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = s.DB().Exec("DELETE FROM run_public_events WHERE run_id = ?", runID)
+	})
+	for i := 1; i <= 2; i++ {
+		if err := s.AppendPublicEvent(ctx, PublicEvent{
+			RunID: runID, Seq: int64(i), Type: "TEXT_MESSAGE_CONTENT",
+			Payload: json.RawMessage(fmt.Sprintf(`{"seq":%d,"delta":"x"}`, i)),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := s.ListPublicEvents(ctx, runID, 0, 10)
+	if err != nil || len(events) != 2 {
+		t.Fatalf("list events: %v %#v", err, events)
+	}
+	events, err = s.ListPublicEvents(ctx, runID, 1, 10)
+	if err != nil || len(events) != 1 || events[0].Seq != 2 {
+		t.Fatalf("after cursor: %v %#v", err, events)
+	}
+	// Duplicate seq updates instead of duplicating.
+	if err := s.AppendPublicEvent(ctx, PublicEvent{RunID: runID, Seq: 1, Type: "TEXT_MESSAGE_END", Payload: json.RawMessage(`{"seq":1}`)}); err != nil {
+		t.Fatal(err)
+	}
+	events, _ = s.ListPublicEvents(ctx, runID, 0, 10)
+	if len(events) != 2 || events[0].Type != "TEXT_MESSAGE_END" {
+		t.Fatalf("idempotent event journal failed: %#v", events)
 	}
 }
