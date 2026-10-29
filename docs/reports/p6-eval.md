@@ -18,7 +18,7 @@
 | FakeModel 单元/契约 | **PASS** | `go test ./services/orchestrator/eval/...` 6 场景全过 |
 | Memory 存储/调用/控制 | **PASS（单元 + 真实 MySQL）** | `internal/memory`、`persistence/mysql` 集成用例 |
 | 实际 MySQL/Redis | **PASS** | 全量测试含 MySQL 8.4/Redis 7.2 容器；见 P2/P4 报告 |
-| 独立进程故障测试 | **NOT RUN** | 未启动两个 Gateway/relay OS 进程 |
+| 独立进程测试 | **PARTIAL** | 两个独立 Gateway OS 进程从同一 MySQL 回放同一 run 的 3 条事件；未做 live gRPC 订阅/崩溃接管 |
 | Race | **SKIP** | 本机 Go race 依赖的 `clang-22` 路径不存在，`gcc/clang` 包装器均指向缺失文件 |
 | 浏览器 E2E | **PARTIAL** | Memory 管理全流程已通过浏览器验证；聊天/审批/重连因无真实模型未执行 |
 | 前端单测/构建 | **PASS** | Node v20.12.2：220 tests passed；`npm run build` 成功（chunk 1.43MB 警告） |
@@ -42,12 +42,15 @@ tsc -b + vite build 成功
 
 $ CC=gcc go test -race ...
 FAIL（build）：clang-22 missing；race 未执行
+
+$ AGENTHUB_MYSQL_TEST_DSN=... go test ./services/gateway/httpapi/ -run TestTwoGatewayProcessesReplaySameRun -v
+PASS（2 个 OS 子进程各自收到 seq 1..3）
 ```
 
 ## 4. 未覆盖的验收
 
 1. 真模型任务完成率/工具选择/成本：未执行，不能用 FakeModel 结果替代。
-2. 两个 OS 进程的接管、旧 fencing 拒绝、relay/Gateway 崩溃恢复：未执行。
+2. 已做两个 OS 进程独立回放；live 订阅、崩溃接管、旧 fencing 拒绝、relay 崩溃恢复仍未执行。
 3. 浏览器聊天主路径、断线重连、审批、取消、工具事件：未执行；Memory 管理已执行（P4 报告第 3 节）。
 4. 负载矩阵（1/10/50 并发、100/1k/10k 历史）：未执行，不承诺容量。
 5. Race：环境编译器缺失，不能声明通过。
