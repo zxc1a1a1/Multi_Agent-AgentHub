@@ -18,7 +18,7 @@
 | FakeModel 单元/契约 | **PASS** | `go test ./services/orchestrator/eval/...` 6 场景全过 |
 | Memory 存储/调用/控制 | **PASS（单元 + 真实 MySQL）** | `internal/memory`、`persistence/mysql` 集成用例 |
 | 实际 MySQL/Redis | **PASS** | 全量测试含 MySQL 8.4/Redis 7.2 容器；见 P2/P4 报告 |
-| 独立进程测试 | **PARTIAL** | 两个独立 Gateway OS 进程从同一 MySQL 回放同一 run 的 3 条事件；未做 live gRPC 订阅/崩溃接管 |
+| 独立进程测试 | **PARTIAL** | 两个独立 Gateway OS 进程回放同一 run；两个 HTTP 订阅者各自从 SQL 游标收到完整事件；未做 gRPC live/崩溃接管 |
 | Race | **SKIP** | 本机 Go race 依赖的 `clang-22` 路径不存在，`gcc/clang` 包装器均指向缺失文件 |
 | 浏览器 E2E | **PARTIAL** | Memory 管理全流程已通过浏览器验证；聊天/审批/重连因无真实模型未执行 |
 | 前端单测/构建 | **PASS** | Node v20.12.2：220 tests passed；`npm run build` 成功（chunk 1.43MB 警告） |

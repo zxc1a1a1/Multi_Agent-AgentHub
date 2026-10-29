@@ -247,6 +247,10 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		s.handleRunsToolResult(w, r)
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/events/stream") {
+		s.handleRunEventStream(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/resume") {
 		s.handleRunResume(w, r)
 		return

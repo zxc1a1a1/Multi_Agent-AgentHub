@@ -16,6 +16,7 @@
 | Gateway requestId | `gateway/httpapi/server.go`、`orchestratorclient`、`runservice` | 生成 runId/requestId，写入 MySQL chat_requests，重复请求 409；runId/requestId 传给 Orchestrator |
 | 断连 durable run | `gateway/httpapi/server.go` | 浏览器断连不取消 runner；继续消费事件并持久化最终 assistant 消息 |
 | 公开事件日志 | Gateway `run_public_events`、`/api/runs/{id}/events` | 每个公开事件带 `(seq,subIndex)`，本地日志优先回放 |
+| 实时多订阅 | Gateway `/api/runs/{id}/events/stream` | 每个订阅者独立游标 tail SQL 事件；共享投影不抑制其他订阅 |
 | 前端游标恢复 | `frontend/src/agui/client.ts`、`recoverRun` | 记录 runId/lastSeq；流错误时按 after 游标拉取事件，终态停止 |
 | Memory 工具 | `pkg/runtime/tools/memory.go` | memory.search/read/propose；scope 由可信代码绑定，不从参数读取 |
 | Memory 缓存 | `internal/memory/cache_redis.go` | 键含 scopeID/epoch/limit/policy 摘要；每次召回从 SQL 取 epoch，旧缓存不复活 |
@@ -47,6 +48,8 @@ TestChatContinuesAndPersistsAfterDisconnect                PASS（写 socket 失
 TestChatJournalsPublicEventsAndReplays                     PASS（seq 1..n、本地 after 游标回放）
 TestIntegrationPublicEventJournal                          PASS（真实 MySQL：重复 seq 更新不重复）
 frontend recoverRun tests                                  PASS（3 tests：回放/状态终态/503）
+TestEventStreamDeliversToTwoSubscribers                    PASS（两个订阅者各自完整收到 seq 1..3）
+TestEventStreamHonorsAfterCursor                           PASS（after 游标过滤）
 TestMemoryToolsBindTrustedScope                            PASS
 TestMemoryProxyForwards                                    PASS
 TestIntegrationMemoryAdminAPI                              PASS（真实 MySQL：候选→确认→更新→冲突→单条/范围遗忘）
