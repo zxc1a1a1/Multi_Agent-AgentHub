@@ -63,6 +63,7 @@ PASS（2 个 OS 子进程各自收到 seq 1..3）
 3. code-agent 返回 mock 文本并显示在聊天流 → 批准→执行→SSE 回复链路通
 4. 新会话再次发送 → 计划卡点击 Cancel → "Plan cancelled: User cancelled"，Stop generation 消失
 5. 网络：POST /api/runs/{id}/confirm = 200（批准与拒绝各一次）
+6. MySQL executions：批准 run=completed、拒绝 run=cancelled；Stop 尝试的 run=failed（与 cancel 500 对应）
 ```
 
 发现的真实缺陷：`GRPCRunService` 未实现 Gateway HITL 所需的 `ConfirmRun`，点击批准返回 `501 HITL confirmation not supported by configured runner`。修复内容：
