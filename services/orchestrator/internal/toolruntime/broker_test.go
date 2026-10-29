@@ -5,15 +5,31 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/tools"
 	ledger "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/persistence/mysql"
 )
+
+type countingTool struct {
+	adk.Tool
+	calls int
+}
+
+func (c *countingTool) Execute(ctx context.Context, args json.RawMessage) (*adk.ToolResult, error) {
+	c.calls++
+	return c.Tool.Execute(ctx, args)
+}
+
+func (c *countingTool) Descriptor() tools.Descriptor {
+	return c.Tool.(interface{ Descriptor() tools.Descriptor }).Descriptor()
+}
 
 func hashArgs(t *testing.T, raw string) string {
 	t.Helper()
@@ -115,7 +131,7 @@ func (f *fixture) createApproval(t *testing.T, toolCallID, argsHash string) stri
 
 func TestLedgerBrokerAppliesApprovedPatchOnce(t *testing.T) {
 	f := newFixture(t)
-	tool := f.workspace.ApplyPatchTool()
+	tool := &countingTool{Tool: f.workspace.ApplyPatchTool()}
 	args := fmt.Sprintf(`{"path":"hello.txt","expectedSha256":%q,"content":"new\n"}`, hashFile(t, f.file))
 	argsHash := hashArgs(t, args)
 	approvalID := f.createApproval(t, "tc-1", argsHash)
@@ -130,6 +146,9 @@ func TestLedgerBrokerAppliesApprovedPatchOnce(t *testing.T) {
 	})
 	if err != nil || result.IsError {
 		t.Fatalf("approved patch failed: %v %#v", err, result)
+	}
+	if tool.calls != 1 {
+		t.Fatalf("expected one execution, got %d", tool.calls)
 	}
 	data, _ := os.ReadFile(f.file)
 	if string(data) != "new\n" {
@@ -148,15 +167,61 @@ func TestLedgerBrokerAppliesApprovedPatchOnce(t *testing.T) {
 		t.Fatalf("approval not consumed: %s", approvalStatus)
 	}
 
-	// Same toolCall/approval cannot be consumed twice.
-	if _, err := f.broker.Execute(context.Background(), Request{
+	// Same toolCall/approval replay returns the stored result without re-running.
+	replayed, err := f.broker.Execute(context.Background(), Request{
 		Envelope: env, Command: tool.Descriptor(), Tool: tool, Args: json.RawMessage(args),
-	}); err == nil {
-		t.Fatal("second execution with consumed approval must fail")
+	})
+	if err != nil || replayed == nil || replayed.IsError {
+		t.Fatalf("replay must return stored result: %v %#v", err, replayed)
+	}
+	if replayed.Content != result.Content {
+		t.Fatalf("replay content mismatch: %q vs %q", replayed.Content, result.Content)
+	}
+	if tool.calls != 1 {
+		t.Fatalf("replay re-executed the tool: %d calls", tool.calls)
 	}
 	data, _ = os.ReadFile(f.file)
 	if string(data) != "new\n" {
 		t.Fatalf("replayed approval modified file: %q", data)
+	}
+}
+
+func TestLedgerBrokerMarksUnknownAndDoesNotReexecute(t *testing.T) {
+	f := newFixture(t)
+	tool := &countingTool{Tool: f.workspace.ApplyPatchTool()}
+	args := fmt.Sprintf(`{"path":"hello.txt","expectedSha256":%q,"content":"x\n"}`, hashFile(t, f.file))
+	argsHash := hashArgs(t, args)
+	approvalID := f.createApproval(t, "tc-unknown", argsHash)
+	env := tools.Envelope{
+		RunID: f.runID, ToolCallID: "tc-unknown", ToolName: "workspace.apply_patch", ToolVersion: "1",
+		ArgsHash: argsHash, WorkspaceID: "ws", ApprovalID: approvalID, FencingVersion: f.fencing,
+		PrincipalID: "p", IdempotencyKey: "idem-tc-unknown",
+	}
+
+	// Simulate a crash after the dispatch transaction committed but before the
+	// tool produced a terminal result.
+	if err := f.repo.ConsumeApprovalAndDispatch(context.Background(), ledger.DispatchParams{
+		RunID: f.runID, FencingVersion: f.fencing, ApprovalID: approvalID,
+		ToolCallID: "tc-unknown", ToolName: "workspace.apply_patch", ToolVersion: "1",
+		ArgsHash: argsHash, IdempotencyKey: "idem-tc-unknown", BudgetJSON: []byte(`{"toolCalls":31}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := f.broker.Execute(context.Background(), Request{
+		Envelope: env, Command: tool.Descriptor(), Tool: tool, Args: json.RawMessage(args),
+	}); !errors.Is(err, ErrToolOutcomeUnknown) {
+		t.Fatalf("expected unknown outcome, got %v", err)
+	}
+	if tool.calls != 0 {
+		t.Fatalf("unknown dispatch must not re-execute, got %d calls", tool.calls)
+	}
+	var status string
+	if err := f.repo.DB().QueryRow("SELECT status FROM tool_calls WHERE run_id=? AND tool_call_id=?", f.runID, "tc-unknown").Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "unknown" {
+		t.Fatalf("expected ledger status unknown, got %s", status)
 	}
 }
 

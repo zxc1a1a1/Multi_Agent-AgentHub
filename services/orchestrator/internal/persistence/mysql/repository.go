@@ -594,6 +594,25 @@ type ToolResult struct {
 	ResultJSON []byte
 }
 
+type ToolCallState struct {
+	Status     string
+	ResultJSON string
+}
+
+// GetToolCall returns the current ledger state for a dispatched tool call.
+func (r *Repository) GetToolCall(ctx context.Context, runID, toolCallID string) (*ToolCallState, error) {
+	var state ToolCallState
+	err := r.db.QueryRowContext(ctx, `SELECT status, COALESCE(result_json, '')
+		FROM tool_calls WHERE run_id = ? AND tool_call_id = ?`, runID, toolCallID).Scan(&state.Status, &state.ResultJSON)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &state, nil
+}
+
 // RecordToolResult stores a terminal tool outcome. A result is never applied to
 // a call that is already terminal.
 func (r *Repository) RecordToolResult(ctx context.Context, res ToolResult) error {

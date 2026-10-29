@@ -7,12 +7,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/tools"
 	ledger "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/persistence/mysql"
 )
+
+// ErrToolOutcomeUnknown means a write was dispatched but has no terminal result.
+// The broker refuses to execute it again unless the caller starts a new call.
+var ErrToolOutcomeUnknown = errors.New("tool outcome unknown")
 
 type Broker struct {
 	repo  *ledger.Repository
@@ -74,6 +79,9 @@ func (b *Broker) Execute(ctx context.Context, req Request) (*adk.ToolResult, err
 			ArgsHash: req.Envelope.ArgsHash, IdempotencyKey: req.Envelope.IdempotencyKey,
 			BudgetJSON: budget,
 		}); err != nil {
+			if errors.Is(err, ledger.ErrApprovalConsumed) || errors.Is(err, ledger.ErrDuplicateToolCall) {
+				return b.recoverDispatch(ctx, req, err)
+			}
 			return nil, err
 		}
 	}
@@ -99,6 +107,30 @@ func (b *Broker) Execute(ctx context.Context, req Request) (*adk.ToolResult, err
 		return result, recordErr
 	}
 	return result, err
+}
+
+func (b *Broker) recoverDispatch(ctx context.Context, req Request, dispatchErr error) (*adk.ToolResult, error) {
+	call, err := b.repo.GetToolCall(ctx, req.Envelope.RunID, req.Envelope.ToolCallID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrToolOutcomeUnknown, dispatchErr)
+	}
+	switch call.Status {
+	case "succeeded", "failed":
+		content := call.ResultJSON
+		var stored string
+		if json.Unmarshal([]byte(call.ResultJSON), &stored) == nil {
+			content = stored
+		}
+		return &adk.ToolResult{Content: content, IsError: call.Status == "failed"}, nil
+	case "unknown":
+		return nil, fmt.Errorf("%w: tool call %s has no terminal result", ErrToolOutcomeUnknown, req.Envelope.ToolCallID)
+	default:
+		_ = b.repo.RecordToolResult(ctx, ledger.ToolResult{
+			RunID: req.Envelope.RunID, ToolCallID: req.Envelope.ToolCallID,
+			Status: "unknown", ResultJSON: []byte(`{}`),
+		})
+		return nil, fmt.Errorf("%w: tool call %s was dispatched but never completed", ErrToolOutcomeUnknown, req.Envelope.ToolCallID)
+	}
 }
 
 func canonicalJSON(raw json.RawMessage) []byte {
