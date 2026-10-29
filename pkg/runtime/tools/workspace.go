@@ -91,6 +91,7 @@ type workspaceTool struct {
 	name        string
 	description string
 	schema      json.RawMessage
+	descriptor  *Descriptor
 	run         func(context.Context, json.RawMessage) (*adk.ToolResult, error)
 }
 
@@ -386,6 +387,9 @@ func jsonResult(v any) (*adk.ToolResult, error) {
 
 // Descriptor returns the platform descriptor for a workspace tool.
 func (t *workspaceTool) Descriptor() Descriptor {
+	if t.descriptor != nil {
+		return *t.descriptor
+	}
 	return Descriptor{
 		Name:           t.name,
 		Version:        "1",

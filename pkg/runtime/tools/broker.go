@@ -2,8 +2,11 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 )
 
 var (
@@ -45,4 +48,23 @@ func (Guard) Authorize(_ context.Context, e Envelope, d Descriptor) error {
 		return fmt.Errorf("%w: %s", ErrApprovalRequired, d.Name)
 	}
 	return nil
+}
+
+// Execute authorizes and then runs a tool. Write tools cannot execute without
+// a successfully authorized envelope (including approval), so an unapproved
+// call never reaches the tool implementation.
+func Execute(ctx context.Context, broker Broker, e Envelope, d Descriptor, tool adk.Tool, args json.RawMessage) (*adk.ToolResult, error) {
+	if tool == nil {
+		return nil, fmt.Errorf("tool is nil")
+	}
+	if broker == nil {
+		broker = Guard{}
+	}
+	if err := d.Validate(); err != nil {
+		return nil, err
+	}
+	if err := broker.Authorize(ctx, e, d); err != nil {
+		return nil, err
+	}
+	return tool.Execute(ctx, args)
 }
