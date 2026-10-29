@@ -81,14 +81,14 @@ MemoryPanel.test.tsx                                       PASS（7 tests：加�
 
 ## 4. 未完成（P4 门禁未通过）
 
-1. 内部 gRPC 已实现并被 Gateway 聊天运行使用；审批/取消/回放/管理仍走 HTTP 兼容接口，尚未全部切到 gRPC。
+1. 内部 gRPC 已实现并被 Gateway 聊天运行使用；审批/取消已通过 gRPC（`ConfirmRun`/`CancelRun`）从 Gateway 转发，回放/管理仍走 HTTP 兼容接口。
 2. `event_projection_offsets` 表仍未被消费；公开事件日志已支持游标，但投影/消费位置尚未独立记录。
 3. **浏览器断线恢复**：前端未保存/发送 `(runId, seq, subIndex)` 游标；重连不会自动回放。
 4. **两个 Gateway OS 进程独立订阅**、慢订阅者有界队列、Redis 重启/清空恢复测试未做。
 5. Memory Redis 召回缓存已实现；缓存失效事件未单独发布，靠 SQL epoch 复核保证旧值不复用。
 6. 普通断连已不取消 run；前端 `recoverRun` 按 seq 游标回放，但未在真实模型聊天中做浏览器断线演练。
 7. `Redis Streams` 消费者侧去重与终态对账未接入 Gateway。
-8. 浏览器仅验证 Memory 管理；聊天/审批/断线重连/停止按钮未做浏览器 E2E。
+8. 浏览器已用 FakeModel + mock child agent 验证聊天计划卡批准/拒绝（见 P6 报告第 4 节）；真实模型聊天、断线重连、执行中停止按钮与工具事件未做浏览器 E2E，待审批时 Stop 仍返回 500。
 
 ## 4. 结论
 

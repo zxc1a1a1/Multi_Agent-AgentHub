@@ -65,6 +65,8 @@ message SubmitApprovalRequest {
   int32 revision = 6;
   string idempotency_key = 7;
   repeated string selected_participants = 8;
+  bool confirmed = 9;
+  string reject_reason = 10;
 }
 
 message ApprovalResult {

@@ -39,6 +39,58 @@ func NewGRPCRunServiceWithConn(conn *grpc.ClientConn) *GRPCRunService {
 	return &GRPCRunService{conn: conn, client: orchestratorv1.NewOrchestratorServiceClient(conn)}
 }
 
+// ConfirmRun sends a HITL plan decision over the gRPC control plane.
+func (s *GRPCRunService) ConfirmRun(ctx context.Context, req HITLConfirmRequest) error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("orchestrator gRPC service is nil")
+	}
+	action := strings.TrimSpace(req.Action)
+	confirmed := false
+	if req.Confirmed != nil {
+		confirmed = *req.Confirmed
+	}
+	if action == "" && req.Confirmed != nil {
+		if confirmed {
+			action = "approve"
+		} else {
+			action = "cancel"
+		}
+	}
+	result, err := s.client.SubmitApproval(ctx, &orchestratorv1.SubmitApprovalRequest{
+		RunId:                req.RunID,
+		ActionId:             req.ActionID,
+		PlanId:               req.PlanID,
+		Action:               action,
+		Feedback:             req.Feedback,
+		Revision:             int32(req.Revision),
+		IdempotencyKey:       req.IdempotencyKey,
+		SelectedParticipants: req.SelectedParticipants,
+		Confirmed:            confirmed,
+		RejectReason:         req.RejectReason,
+	})
+	if err != nil {
+		return fmt.Errorf("orchestrator approval failed: %w", err)
+	}
+	if result != nil && !result.GetAcknowledged() {
+		return fmt.Errorf("orchestrator approval not acknowledged")
+	}
+	return nil
+}
+
+func (s *GRPCRunService) CancelRun(ctx context.Context, runID string) error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("orchestrator gRPC service is nil")
+	}
+	result, err := s.client.CancelRun(ctx, &orchestratorv1.CancelRunRequest{RunId: runID})
+	if err != nil {
+		return fmt.Errorf("orchestrator cancel failed: %w", err)
+	}
+	if result != nil && !result.GetCancelled() {
+		return fmt.Errorf("orchestrator did not cancel run %s", runID)
+	}
+	return nil
+}
+
 func (s *GRPCRunService) Close() error {
 	if s == nil || s.conn == nil {
 		return nil
@@ -74,8 +126,8 @@ func (s *GRPCRunService) Run(ctx context.Context, conversationID string, userCon
 		start, err := s.client.StartRun(ctx, &orchestratorv1.StartRunRequest{
 			RunId: runID, RequestId: requestID, ConversationId: conversationID,
 			WorkspaceId: "default", PrincipalId: runservice.UserIDFromContext(ctx),
-			ExecutionPath: runservice.ExecutionPathFromContext(ctx),
-			AgentName:     runservice.AgentNameFromContext(ctx),
+			ExecutionPath:      runservice.ExecutionPathFromContext(ctx),
+			AgentName:          runservice.AgentNameFromContext(ctx),
 			SelectedAgentNames: runservice.SelectedAgentNamesFromContext(ctx),
 			Mentions:           runservice.MentionsFromContext(ctx),
 			PlanningMode:       string(runservice.PlanningModeFromContext(ctx)),

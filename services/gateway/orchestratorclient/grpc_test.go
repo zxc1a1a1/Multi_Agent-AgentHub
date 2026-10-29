@@ -17,8 +17,20 @@ import (
 
 type fakeOrchestratorGRPC struct {
 	orchestratorv1.UnimplementedOrchestratorServiceServer
-	started  *orchestratorv1.StartRunRequest
-	payloads [][]byte
+	started   *orchestratorv1.StartRunRequest
+	approval  *orchestratorv1.SubmitApprovalRequest
+	cancelled string
+	payloads  [][]byte
+}
+
+func (f *fakeOrchestratorGRPC) CancelRun(_ context.Context, req *orchestratorv1.CancelRunRequest) (*orchestratorv1.CancelRunResponse, error) {
+	f.cancelled = req.GetRunId()
+	return &orchestratorv1.CancelRunResponse{Cancelled: true}, nil
+}
+
+func (f *fakeOrchestratorGRPC) SubmitApproval(_ context.Context, req *orchestratorv1.SubmitApprovalRequest) (*orchestratorv1.ApprovalResult, error) {
+	f.approval = req
+	return &orchestratorv1.ApprovalResult{Acknowledged: true}, nil
 }
 
 func (f *fakeOrchestratorGRPC) StartRun(_ context.Context, req *orchestratorv1.StartRunRequest) (*orchestratorv1.StartRunResponse, error) {
@@ -81,5 +93,62 @@ func TestGRPCRunServiceStartsAndMapsEvents(t *testing.T) {
 	runID, _ := events[0].Metadata[agui.MetaRunID].(string)
 	if firstType != agui.InternalTypeRunStarted || runID != "run-g" {
 		t.Fatalf("event metadata wrong: %#v", events[0].Metadata)
+	}
+}
+
+func TestGRPCRunServiceConfirmRunMapsDecision(t *testing.T) {
+	fake := &fakeOrchestratorGRPC{}
+	lis := bufconn.Listen(1 << 20)
+	server := grpc.NewServer()
+	orchestratorv1.RegisterOrchestratorServiceServer(server, fake)
+	go func() { _ = server.Serve(lis) }()
+	defer server.Stop()
+	conn, err := grpc.NewClient("passthrough:///bufnet",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return lis.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	svc := NewGRPCRunServiceWithConn(conn)
+
+	confirmed := true
+	if err := svc.ConfirmRun(context.Background(), HITLConfirmRequest{
+		RunID: "run-g", ActionID: "plan-1", PlanID: "plan-1", Confirmed: &confirmed,
+		RejectReason: "not used", IdempotencyKey: "idem-1", Revision: 2,
+		SelectedParticipants: []string{"code-agent"},
+	}); err != nil {
+		t.Fatalf("confirm run: %v", err)
+	}
+	if fake.approval.GetAction() != "approve" || !fake.approval.GetConfirmed() {
+		t.Fatalf("approve decision lost: %#v", fake.approval)
+	}
+	if fake.approval.GetRunId() != "run-g" || fake.approval.GetIdempotencyKey() != "idem-1" || fake.approval.GetRevision() != 2 {
+		t.Fatalf("approval identity lost: %#v", fake.approval)
+	}
+	if len(fake.approval.GetSelectedParticipants()) != 1 || fake.approval.GetSelectedParticipants()[0] != "code-agent" {
+		t.Fatalf("participants lost: %#v", fake.approval.GetSelectedParticipants())
+	}
+
+	rejected := false
+	if err := svc.ConfirmRun(context.Background(), HITLConfirmRequest{
+		RunID: "run-g", ActionID: "plan-1", Confirmed: &rejected, RejectReason: "too broad",
+	}); err != nil {
+		t.Fatalf("reject run: %v", err)
+	}
+	if fake.approval.GetAction() != "cancel" || fake.approval.GetConfirmed() {
+		t.Fatalf("reject decision lost: %#v", fake.approval)
+	}
+	if fake.approval.GetRejectReason() != "too broad" {
+		t.Fatalf("reject reason lost: %#v", fake.approval)
+	}
+	if err := svc.CancelRun(context.Background(), "run-g"); err != nil {
+		t.Fatalf("cancel run: %v", err)
+	}
+	if fake.cancelled != "run-g" {
+		t.Fatalf("cancel target lost: %q", fake.cancelled)
 	}
 }

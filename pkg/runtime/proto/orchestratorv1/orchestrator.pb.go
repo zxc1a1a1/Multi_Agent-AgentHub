@@ -531,6 +531,8 @@ type SubmitApprovalRequest struct {
 	Revision             int32                  `protobuf:"varint,6,opt,name=revision,proto3" json:"revision,omitempty"`
 	IdempotencyKey       string                 `protobuf:"bytes,7,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	SelectedParticipants []string               `protobuf:"bytes,8,rep,name=selected_participants,json=selectedParticipants,proto3" json:"selected_participants,omitempty"`
+	Confirmed            bool                   `protobuf:"varint,9,opt,name=confirmed,proto3" json:"confirmed,omitempty"`
+	RejectReason         string                 `protobuf:"bytes,10,opt,name=reject_reason,json=rejectReason,proto3" json:"reject_reason,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -619,6 +621,20 @@ func (x *SubmitApprovalRequest) GetSelectedParticipants() []string {
 		return x.SelectedParticipants
 	}
 	return nil
+}
+
+func (x *SubmitApprovalRequest) GetConfirmed() bool {
+	if x != nil {
+		return x.Confirmed
+	}
+	return false
+}
+
+func (x *SubmitApprovalRequest) GetRejectReason() string {
+	if x != nil {
+		return x.RejectReason
+	}
+	return ""
 }
 
 type ApprovalResult struct {
@@ -963,7 +979,7 @@ const file_proto_orchestrator_v1_orchestrator_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1f\n" +
 	"\vcurrent_seq\x18\x03 \x01(\x03R\n" +
 	"currentSeq\x12'\n" +
-	"\x0fterminal_reason\x18\x04 \x01(\tR\x0eterminalReason\"\x92\x02\n" +
+	"\x0fterminal_reason\x18\x04 \x01(\tR\x0eterminalReason\"\xd5\x02\n" +
 	"\x15SubmitApprovalRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
 	"\taction_id\x18\x02 \x01(\tR\bactionId\x12\x17\n" +
@@ -972,7 +988,10 @@ const file_proto_orchestrator_v1_orchestrator_proto_rawDesc = "" +
 	"\bfeedback\x18\x05 \x01(\tR\bfeedback\x12\x1a\n" +
 	"\brevision\x18\x06 \x01(\x05R\brevision\x12'\n" +
 	"\x0fidempotency_key\x18\a \x01(\tR\x0eidempotencyKey\x123\n" +
-	"\x15selected_participants\x18\b \x03(\tR\x14selectedParticipants\"L\n" +
+	"\x15selected_participants\x18\b \x03(\tR\x14selectedParticipants\x12\x1c\n" +
+	"\tconfirmed\x18\t \x01(\bR\tconfirmed\x12#\n" +
+	"\rreject_reason\x18\n" +
+	" \x01(\tR\frejectReason\"L\n" +
 	"\x0eApprovalResult\x12\"\n" +
 	"\facknowledged\x18\x01 \x01(\bR\facknowledged\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\"A\n" +

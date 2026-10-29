@@ -22,6 +22,32 @@ import (
 	ledger "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/persistence/mysql"
 )
 
+func TestSubmitApprovalForwardsConfirmation(t *testing.T) {
+	var body map[string]any
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/orchestrator/hitl/confirm" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, _ = w.Write([]byte(`{"status":"acknowledged"}`))
+	}))
+	defer stub.Close()
+	server, err := New(Config{HTTPBaseURL: stub.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := server.SubmitApproval(context.Background(), &orchestratorv1.SubmitApprovalRequest{
+		RunId: "run-1", ActionId: "plan-1", Confirmed: true, RejectReason: "checked",
+	})
+	if err != nil || !result.GetAcknowledged() {
+		t.Fatalf("approval: %v %#v", err, result)
+	}
+	if body["confirmed"] != true || body["rejectReason"] != "checked" {
+		t.Fatalf("confirmation fields not forwarded: %#v", body)
+	}
+}
+
 func TestOrchestratorGRPCControlPlane(t *testing.T) {
 	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
 	if dsn == "" {
@@ -166,12 +192,16 @@ func TestOrchestratorGRPCControlPlane(t *testing.T) {
 	}
 	approval, err := client.SubmitApproval(ctx, &orchestratorv1.SubmitApprovalRequest{
 		RunId: runID, ActionId: "plan-1", PlanId: "plan-1", Action: "approve", Revision: 1, IdempotencyKey: "idem-1",
+		Confirmed: true, RejectReason: "checked",
 	})
 	if err != nil || !approval.GetAcknowledged() {
 		t.Fatalf("approval: %v %#v", err, approval)
 	}
 	if approvalBody["action"] != "approve" || approvalBody["planId"] != "plan-1" {
 		t.Fatalf("approval body lost: %#v", approvalBody)
+	}
+	if approvalBody["confirmed"] != true || approvalBody["rejectReason"] != "checked" {
+		t.Fatalf("approval confirmation lost: %#v", approvalBody)
 	}
 	cancel, err := client.CancelRun(ctx, &orchestratorv1.CancelRunRequest{RunId: runID})
 	if err != nil || !cancel.GetCancelled() {

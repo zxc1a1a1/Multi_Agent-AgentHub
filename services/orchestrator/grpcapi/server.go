@@ -207,6 +207,7 @@ func (s *Server) SubmitApproval(ctx context.Context, req *orchestratorv1.SubmitA
 		"runId": req.GetRunId(), "actionId": req.GetActionId(), "planId": req.GetPlanId(),
 		"action": req.GetAction(), "feedback": req.GetFeedback(), "revision": req.GetRevision(),
 		"idempotencyKey": req.GetIdempotencyKey(), "selectedParticipants": req.GetSelectedParticipants(),
+		"confirmed": req.GetConfirmed(), "rejectReason": req.GetRejectReason(),
 	}
 	code, _, err := s.doJSON(ctx, http.MethodPost, "/internal/orchestrator/hitl/confirm", body)
 	if err != nil {
