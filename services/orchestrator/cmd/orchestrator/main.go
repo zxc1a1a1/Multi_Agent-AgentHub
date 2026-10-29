@@ -231,6 +231,8 @@ func run() error {
 
 	var ledgerDB *sql.DB
 	var ledgerRepo *ledger.Repository
+	var memRepo *ledger.MemoryRepository
+	var memPolicy rtmemory.Policy
 	dsn := strings.TrimSpace(os.Getenv("ORCHESTRATOR_DATABASE_URL"))
 	if dsn == "" {
 		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
@@ -251,7 +253,7 @@ func run() error {
 		serverOpts = append(serverOpts, httpapi.WithExecutionStore(execution.NewMySQLStore(ledgerRepo)))
 		log.Printf("orchestrator: durable run ledger enabled")
 
-		memRepo := ledger.NewMemoryRepository(db)
+		memRepo = ledger.NewMemoryRepository(db)
 		mode, err := rtmemory.ParseMode(os.Getenv("MEMORY_MODE"))
 		if err != nil {
 			return err
@@ -265,6 +267,7 @@ func run() error {
 		policy.Propose = envBool("MEMORY_ALLOW_PROPOSE", policy.Propose)
 		policy.Confirm = envBool("MEMORY_ALLOW_CONFIRM", policy.Confirm)
 		policy.Forget = envBool("MEMORY_ALLOW_FORGET", policy.Forget)
+		memPolicy = policy
 		memController, err := memctl.New(memRepo, policy)
 		if err != nil {
 			return fmt.Errorf("create memory controller: %w", err)
@@ -295,6 +298,18 @@ func run() error {
 		stopRelay = cancel
 		go rel.Run(relayCtx, 250*time.Millisecond)
 		log.Printf("orchestrator: outbox relay enabled")
+		if memRepo != nil {
+			cache, err := memctl.NewRedisCache(redisClient)
+			if err != nil {
+				return fmt.Errorf("create memory cache: %w", err)
+			}
+			cached, err := memctl.NewCached(memRepo, memPolicy, cache)
+			if err != nil {
+				return fmt.Errorf("create cached memory controller: %w", err)
+			}
+			serverOpts = append(serverOpts, httpapi.WithMemory(memRepo, cached, memRepo))
+			log.Printf("orchestrator: memory recall cache enabled")
+		}
 	} else if ledgerRepo != nil {
 		log.Printf("WARN: REDIS_URL not set; outbox relay disabled (SQL remains authoritative)")
 	}

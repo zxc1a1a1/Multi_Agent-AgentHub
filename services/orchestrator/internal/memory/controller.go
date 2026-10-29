@@ -6,6 +6,7 @@ package memory
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -35,20 +36,31 @@ type Backend interface {
 	CountActive(ctx context.Context, scopeID string) (int, error)
 }
 
+// Cache is a versioned recall cache; keys must include scope and epoch.
+type Cache interface {
+	Get(ctx context.Context, key string) ([]rtmemory.Entry, bool)
+	Set(ctx context.Context, key string, entries []rtmemory.Entry, ttl time.Duration)
+}
+
 type Controller struct {
 	backend Backend
 	policy  rtmemory.Policy
 	now     func() time.Time
+	cache   Cache
 }
 
 func New(backend Backend, policy rtmemory.Policy) (*Controller, error) {
+	return NewCached(backend, policy, nil)
+}
+
+func NewCached(backend Backend, policy rtmemory.Policy, cache Cache) (*Controller, error) {
 	if backend == nil {
 		return nil, fmt.Errorf("memory backend is required")
 	}
 	if err := policy.Validate(); err != nil {
 		return nil, err
 	}
-	return &Controller{backend: backend, policy: policy, now: func() time.Time { return time.Now().UTC() }}, nil
+	return &Controller{backend: backend, policy: policy, cache: cache, now: func() time.Time { return time.Now().UTC() }}, nil
 }
 
 func (c *Controller) Policy() rtmemory.Policy { return c.policy }
@@ -71,14 +83,35 @@ func (c *Controller) Recall(ctx context.Context, scope rtmemory.Scope, query str
 	if limit <= 0 || limit > c.policy.MaxInjectedEntries {
 		limit = c.policy.MaxInjectedEntries
 	}
-	scopeID, err := c.ensureScope(ctx, scope)
+	scopeID, epoch, err := c.ensureScopeWithEpoch(ctx, scope)
 	if err != nil {
 		return nil, err
 	}
-	entries, err := c.backend.Recall(ctx, scopeID, strings.TrimSpace(query), limit*2)
+	normalizedQuery := strings.TrimSpace(query)
+	cacheKey := ""
+	if c.cache != nil {
+		sum := sha256.Sum256([]byte(normalizedQuery))
+		cacheKey = fmt.Sprintf("memory:recall:%s:%d:%d:%d:%x", scopeID, epoch, limit,
+			c.policy.MaxInjectedTokens, sum[:8])
+		if cached, ok := c.cache.Get(ctx, cacheKey); ok {
+			return c.filterRecall(cached, limit)
+		}
+	}
+	entries, err := c.backend.Recall(ctx, scopeID, normalizedQuery, limit*2)
 	if err != nil {
 		return nil, err
 	}
+	out, err := c.filterRecall(entries, limit)
+	if err != nil {
+		return nil, err
+	}
+	if c.cache != nil {
+		c.cache.Set(ctx, cacheKey, out, 5*time.Minute)
+	}
+	return out, nil
+}
+
+func (c *Controller) filterRecall(entries []rtmemory.Entry, limit int) ([]rtmemory.Entry, error) {
 	now := c.now()
 	out := make([]rtmemory.Entry, 0, limit)
 	seen := map[string]bool{}
@@ -234,12 +267,16 @@ func (c *Controller) Forget(ctx context.Context, scope rtmemory.Scope, memoryID 
 }
 
 func (c *Controller) ensureScope(ctx context.Context, scope rtmemory.Scope) (string, error) {
+	id, _, err := c.ensureScopeWithEpoch(ctx, scope)
+	return id, err
+}
+
+func (c *Controller) ensureScopeWithEpoch(ctx context.Context, scope rtmemory.Scope) (string, int64, error) {
 	policyJSON, err := json.Marshal(c.policy)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
-	scopeID, _, err := c.backend.EnsureScope(ctx, scope, c.policy.Mode, policyJSON)
-	return scopeID, err
+	return c.backend.EnsureScope(ctx, scope, c.policy.Mode, policyJSON)
 }
 
 func newID() string {
