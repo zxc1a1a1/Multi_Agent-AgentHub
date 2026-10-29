@@ -19,6 +19,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
+	memctl "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/memory"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
@@ -80,8 +81,12 @@ type Server struct {
 	runTaskRegistry   *registry.RunTaskRegistry          // runID → child task refs for cancel path
 	artifactStore     artifacts.Store                    // metadata-only artifact store; no file blobs
 	executionStore    execution.Store                    // durable run lifecycle/ledger (optional in tests)
-	instanceID        string                             // lease owner identity
-	budgetLimits      harness.Limits                     // per-run budget defaults
+	memoryMu          sync.RWMutex
+	memoryController  *memctl.Controller
+	memoryBackend     memctl.Backend
+	memoryRepo        memoryAdminStore
+	instanceID        string         // lease owner identity
+	budgetLimits      harness.Limits // per-run budget defaults
 }
 
 // Option customizes Server behavior.
@@ -171,6 +176,18 @@ func WithExecutionStore(st execution.Store) Option {
 	}
 }
 
+// WithMemory wires the MemoryController and its admin store.
+func WithMemory(backend memctl.Backend, controller *memctl.Controller, repo memoryAdminStore) Option {
+	return func(s *Server) {
+		if s == nil {
+			return
+		}
+		s.memoryBackend = backend
+		s.memoryController = controller
+		s.memoryRepo = repo
+	}
+}
+
 // WithInstanceID sets the lease owner identity.
 func WithInstanceID(id string) Option {
 	return func(s *Server) {
@@ -237,6 +254,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/internal/orchestrator/runs/stream", s.handleRunStream)
 	s.mux.HandleFunc("/internal/orchestrator/runs/", s.handleRunInspect)
+	s.mux.HandleFunc("/internal/memory/", s.handleMemory)
 	s.mux.HandleFunc("/internal/orchestrator/hitl/confirm", s.handleHITLConfirm)
 	s.mux.HandleFunc("/internal/orchestrator/agents", s.handleAgents)
 	s.mux.HandleFunc("/internal/orchestrator/agents/", s.handleAgentsByName)

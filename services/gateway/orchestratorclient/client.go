@@ -651,6 +651,34 @@ func extractUserText(content *adk.Content) (string, error) {
 	return strings.Join(texts, "\n"), nil
 }
 
+// DoMemory proxies an internal MemoryController request.
+func (s *OrchestratorRunService) DoMemory(ctx context.Context, method, path string, body []byte) (int, []byte, error) {
+	if s == nil {
+		return 0, nil, errors.New("orchestrator run service is nil")
+	}
+	if !strings.HasPrefix(path, "/internal/memory/") {
+		return 0, nil, errors.New("invalid memory path")
+	}
+	req, err := http.NewRequestWithContext(ctx, method, s.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.internalToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.internalToken)
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, data, nil
+}
+
 // GetRunStatus fetches SQL-authoritative run status for recovery.
 func (s *OrchestratorRunService) GetRunStatus(ctx context.Context, runID string) (json.RawMessage, error) {
 	if s == nil {

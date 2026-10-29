@@ -169,6 +169,7 @@ type Server struct {
 	persistenceWriter *PersistenceWriter
 	persistenceStore  *sqlite.Store
 	replayService     RunReplayService
+	memoryProxy       MemoryProxy
 }
 
 func NewServer(st Store, runner RunService, opts ...Option) (*Server, error) {
@@ -218,6 +219,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/agents/", s.handleAgentsByName)
 	s.mux.HandleFunc("/api/chat", s.handleChat)
 	s.mux.HandleFunc("/api/runs/", s.handleRuns)
+	s.mux.HandleFunc("/api/memory/", s.handleMemoryProxy)
 	s.mux.HandleFunc("/api/diffs/dry-run", s.handleDiffDryRun)
 	s.mux.HandleFunc("/api/diffs/apply", s.handleDiffApply)
 	s.mux.HandleFunc("/api/artifacts", s.handleArtifacts)
@@ -266,6 +268,16 @@ func WithRunReplayService(svc RunReplayService) Option {
 			return
 		}
 		s.replayService = svc
+	}
+}
+
+// WithMemoryProxy injects the Memory admin proxy.
+func WithMemoryProxy(p MemoryProxy) Option {
+	return func(s *Server) {
+		if s == nil || p == nil {
+			return
+		}
+		s.memoryProxy = p
 	}
 }
 

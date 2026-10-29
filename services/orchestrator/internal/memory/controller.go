@@ -53,6 +53,14 @@ func New(backend Backend, policy rtmemory.Policy) (*Controller, error) {
 
 func (c *Controller) Policy() rtmemory.Policy { return c.policy }
 
+// ScopeID resolves the durable scope id for admin reads.
+func (c *Controller) ScopeID(ctx context.Context, scope rtmemory.Scope) (string, error) {
+	if err := scope.Validate(); err != nil {
+		return "", err
+	}
+	return c.ensureScope(ctx, scope)
+}
+
 func (c *Controller) Recall(ctx context.Context, scope rtmemory.Scope, query string, limit int) ([]rtmemory.Entry, error) {
 	if !c.policy.AllowsLongTermRecall() {
 		return nil, nil
@@ -101,6 +109,33 @@ func (c *Controller) Recall(ctx context.Context, scope rtmemory.Scope, query str
 		}
 	}
 	return out, nil
+}
+
+func (c *Controller) Get(ctx context.Context, scope rtmemory.Scope, memoryID string) (*rtmemory.Entry, error) {
+	if !c.policy.AllowsLongTermRecall() {
+		return nil, ErrDenied
+	}
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	if memoryID == "" {
+		return nil, ErrInvalid
+	}
+	scopeID, err := c.ensureScope(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
+	entry, err := c.backend.Get(ctx, scopeID, memoryID)
+	if err != nil {
+		return nil, err
+	}
+	if entry.Status != "active" {
+		return nil, ErrDenied
+	}
+	if entry.ExpiresAt != nil && !entry.ExpiresAt.After(c.now()) {
+		return nil, ErrDenied
+	}
+	return entry, nil
 }
 
 func (c *Controller) Propose(ctx context.Context, scope rtmemory.Scope, entry rtmemory.Entry) (*rtmemory.Entry, error) {

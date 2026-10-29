@@ -14,6 +14,9 @@
 | SQL 回放接口 | `services/orchestrator/httpapi/handler_replay.go` | `GET /internal/orchestrator/runs/{id}/status`、`/events?after=&limit=` |
 | Gateway 恢复代理 | `services/gateway/httpapi/replay_proxy.go` | `GET /api/runs/{id}/status`、`/events` 转发 Orchestrator |
 | Gateway requestId | `gateway/httpapi/server.go`、`orchestratorclient`、`runservice` | 生成 runId/requestId，写入 MySQL chat_requests，重复请求 409；runId/requestId 传给 Orchestrator |
+| Memory 工具 | `pkg/runtime/tools/memory.go` | memory.search/read/propose；scope 由可信代码绑定，不从参数读取 |
+| Memory 管理 API | `httpapi/memory_admin.go` | entries/propose/confirm/update/forget/policy/mutations |
+| Gateway Memory 代理 | `httpapi/memory_proxy.go` | `/api/memory/*` 转发 Orchestrator，保留状态码 |
 | 测试 | relay、httpapi、orchestratorclient | 真实 Redis/MySQL 测试 + 单元测试 |
 
 ## 2. 验证
@@ -34,6 +37,9 @@ TestRunLedgerPersistsConversationalLifecycle               PASS
 TestChatRequestIdempotency                                 PASS（重复 requestId：409、不重复消息、不重复执行）
 TestReplayMethods                                          PASS
 TestReplayProxyEndpoints                                   PASS
+TestMemoryToolsBindTrustedScope                            PASS
+TestMemoryProxyForwards                                    PASS
+TestIntegrationMemoryAdminAPI                              PASS（真实 MySQL：候选→确认→更新→冲突→遗忘）
 ```
 
 ## 3. 未完成（P4 门禁未通过）
@@ -42,7 +48,7 @@ TestReplayProxyEndpoints                                   PASS
 2. **Gateway 事件投影与消费位置**：`event_projection_offsets` 表未接线；没有共享投影去重与 subIndex 游标。
 3. **浏览器断线恢复**：前端未保存/发送 `(runId, seq, subIndex)` 游标；重连不会自动回放。
 4. **两个 Gateway OS 进程独立订阅**、慢订阅者有界队列、Redis 重启/清空恢复测试未做。
-5. **Memory Redis 缓存**、失效事件、管理 API/UI 未实现。
+5. **Memory Redis 缓存**、失效事件、前端管理 UI 未实现（后端 API 已具备）。
 6. **取消语义**：普通断连仍会取消本地执行（未实现 durable run 继续/恢复）。
 7. `Redis Streams` 消费者侧去重与终态对账未接入 Gateway。
 

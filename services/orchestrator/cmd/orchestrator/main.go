@@ -16,10 +16,12 @@ import (
 
 	rtregistry "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
 
+	rtmemory "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/memory"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/httpapi"
+	memctl "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/memory"
 	ledger "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/persistence/mysql"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
@@ -248,6 +250,27 @@ func run() error {
 		ledgerRepo = ledger.NewRepository(db)
 		serverOpts = append(serverOpts, httpapi.WithExecutionStore(execution.NewMySQLStore(ledgerRepo)))
 		log.Printf("orchestrator: durable run ledger enabled")
+
+		memRepo := ledger.NewMemoryRepository(db)
+		mode, err := rtmemory.ParseMode(os.Getenv("MEMORY_MODE"))
+		if err != nil {
+			return err
+		}
+		policy := rtmemory.DefaultPolicy()
+		policy.Mode = mode
+		if mode == rtmemory.ModeScopedLongTerm {
+			policy.Read, policy.Propose, policy.Confirm, policy.Forget = true, true, true, true
+		}
+		policy.Read = envBool("MEMORY_ALLOW_READ", policy.Read)
+		policy.Propose = envBool("MEMORY_ALLOW_PROPOSE", policy.Propose)
+		policy.Confirm = envBool("MEMORY_ALLOW_CONFIRM", policy.Confirm)
+		policy.Forget = envBool("MEMORY_ALLOW_FORGET", policy.Forget)
+		memController, err := memctl.New(memRepo, policy)
+		if err != nil {
+			return fmt.Errorf("create memory controller: %w", err)
+		}
+		serverOpts = append(serverOpts, httpapi.WithMemory(memRepo, memController, memRepo))
+		log.Printf("orchestrator: memory controller enabled (mode=%s)", mode)
 	}
 
 	var redisClient *redis.Client
@@ -417,6 +440,14 @@ func buildDispatcherOptions() []dispatcher.Option {
 	}
 
 	return opts
+}
+
+func envBool(name string, fallback bool) bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	if raw == "" {
+		return fallback
+	}
+	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
 }
 
 // resolvePlannerAPIKey reads the LLM API key from the appropriate environment

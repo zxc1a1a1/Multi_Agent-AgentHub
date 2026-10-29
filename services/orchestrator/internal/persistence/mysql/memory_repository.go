@@ -304,6 +304,56 @@ func (r *MemoryRepository) Forget(ctx context.Context, scopeID, memoryID string)
 	return tx.Commit()
 }
 
+func (r *MemoryRepository) ListEntries(ctx context.Context, scopeID, status string, limit int) ([]rtmemory.Entry, error) {
+	if scopeID == "" {
+		return nil, ErrMemoryInvalid
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT e.memory_id, e.scope_id, e.kind, e.logical_key,
+		r.content, e.current_revision, e.status, e.source_refs, e.created_at,
+		COALESCE(e.verified_at, e.created_at), e.expires_at
+		FROM memory_entries e
+		JOIN memory_revisions r ON r.memory_id = e.memory_id AND r.revision = e.current_revision
+		WHERE e.scope_id = ? AND (? = '' OR e.status = ?)
+		ORDER BY e.created_at DESC, e.memory_id ASC LIMIT ?`, scopeID, status, status, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMemoryEntries(rows)
+}
+
+type Mutation struct {
+	MutationID  string
+	MemoryID    string
+	Operation   string
+	Status      string
+	PurgeStatus string
+	CreatedAt   time.Time
+	CompletedAt *time.Time
+}
+
+func (r *MemoryRepository) GetMutation(ctx context.Context, mutationID string) (*Mutation, error) {
+	var m Mutation
+	var memoryID sql.NullString
+	var completed sql.NullTime
+	if err := r.db.QueryRowContext(ctx, `SELECT mutation_id, memory_id, operation, status, purge_status, created_at, completed_at
+		FROM memory_mutations WHERE mutation_id = ?`, mutationID).Scan(
+		&m.MutationID, &memoryID, &m.Operation, &m.Status, &m.PurgeStatus, &m.CreatedAt, &completed); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrMemoryNotFound
+		}
+		return nil, err
+	}
+	m.MemoryID = memoryID.String
+	if completed.Valid {
+		m.CompletedAt = &completed.Time
+	}
+	return &m, nil
+}
+
 func (r *MemoryRepository) CountActive(ctx context.Context, scopeID string) (int, error) {
 	var count int
 	if err := r.db.QueryRowContext(ctx,

@@ -35,6 +35,7 @@ type Store interface {
 type Controller interface {
 	Policy() Policy
 	Recall(ctx context.Context, scope Scope, query string, limit int) ([]Entry, error)
+	Get(ctx context.Context, scope Scope, memoryID string) (*Entry, error)
 	Propose(ctx context.Context, scope Scope, entry Entry) (*Entry, error)
 	Confirm(ctx context.Context, scope Scope, memoryID string, expectedRevision int) (*Entry, error)
 	Update(ctx context.Context, scope Scope, memoryID, content string, expectedRevision int) (*Entry, error)
