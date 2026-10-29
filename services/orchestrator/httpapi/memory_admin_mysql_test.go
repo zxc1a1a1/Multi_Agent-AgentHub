@@ -96,6 +96,32 @@ func TestIntegrationMemoryAdminAPI(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "recallDisabled") {
 		t.Fatalf("forget failed: %d %s", rec.Code, rec.Body.String())
 	}
+	// Second entry is revoked by a scope-wide forget.
+	body2 := fmt.Sprintf(`{"scope":%s,"entry":{"kind":"fact","logicalKey":"k2-%s","content":"v2","sourceRefs":["msg-2"]}}`,
+		jsonString(scope), suffix)
+	rec = post("propose", body2)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("propose second: %d %s", rec.Code, rec.Body.String())
+	}
+	var proposed2 rtmemory.Entry
+	if err := json.Unmarshal(rec.Body.Bytes(), &proposed2); err != nil {
+		t.Fatal(err)
+	}
+	if rec = post("confirm", fmt.Sprintf(`{"scope":%s,"memoryId":%q,"expectedRevision":1}`, jsonString(scope), proposed2.MemoryID)); rec.Code != http.StatusOK {
+		t.Fatalf("confirm second: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = post("forget-scope", fmt.Sprintf(`{"scope":%s}`, jsonString(scope)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"revokedCount":1`) {
+		t.Fatalf("forget scope failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var revoked string
+	if err := db.QueryRow("SELECT status FROM memory_entries WHERE memory_id = ?", proposed2.MemoryID).Scan(&revoked); err != nil {
+		t.Fatal(err)
+	}
+	if revoked != "revoked" {
+		t.Fatalf("scope forget did not revoke entry: %s", revoked)
+	}
+
 	rec = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/internal/memory/policy", nil))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "scoped_long_term") {

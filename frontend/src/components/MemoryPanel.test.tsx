@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
   confirmMemory: vi.fn(),
   updateMemory: vi.fn(),
   forgetMemory: vi.fn(),
+  forgetMemoryScope: vi.fn(),
   memoryScopeSnapshot: vi.fn(() => ({ env: 'test', workspaceId: 'default', principalId: 'demo-user' })),
 }))
 
@@ -60,6 +61,7 @@ describe('MemoryPanel', () => {
     api.confirmMemory.mockResolvedValue({ ...candidate, status: 'active' })
     api.updateMemory.mockResolvedValue({ ...active, revision: 3 })
     api.forgetMemory.mockResolvedValue({ recallDisabled: true, purgeStatus: 'pending' })
+    api.forgetMemoryScope.mockResolvedValue({ revokedCount: 2, recallDisabled: true, purgeStatus: 'pending' })
     api.updateMemoryPolicy.mockResolvedValue(policy)
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('prompt', vi.fn(() => 'UTC+9'))
@@ -101,6 +103,14 @@ describe('MemoryPanel', () => {
     await waitFor(() => expect(api.forgetMemory).toHaveBeenCalledWith('m-active'))
     expect(await screen.findByText(/purge status: pending/)).toBeInTheDocument()
     expect(screen.getByText(/does not delete the original conversation/)).toBeInTheDocument()
+  })
+
+  it('forgets the whole scope and reports revoked count/purge status', async () => {
+    render(<MemoryPanel />)
+    await screen.findByText('favorite-lang')
+    fireEvent.click(screen.getByText('Forget all in this scope'))
+    await waitFor(() => expect(api.forgetMemoryScope).toHaveBeenCalled())
+    expect(await screen.findByText(/Revoked 2 memories/)).toBeInTheDocument()
   })
 
   it('shows load errors instead of an empty success state', async () => {

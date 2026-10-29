@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -126,6 +127,21 @@ func (f *fakeBackend) Update(_ context.Context, scopeID, memoryID, content strin
 	s.epoch++
 	copy := *e
 	return &copy, nil
+}
+
+func (f *fakeBackend) ForgetScope(_ context.Context, scopeID, _ string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s := f.scopes[scopeID]
+	count := 0
+	for _, e := range s.entries {
+		if e.Status == "active" || e.Status == "candidate" {
+			e.Status = "revoked"
+			count++
+		}
+	}
+	s.epoch++
+	return count, nil
 }
 
 func (f *fakeBackend) CountActive(_ context.Context, scopeID string) (int, error) {
@@ -364,5 +380,35 @@ func TestControllerRejectsStaleCandidate(t *testing.T) {
 	backend.scopes[scopeID].entries[entry.MemoryID].CreatedAt = time.Now().UTC().Add(-2 * time.Hour)
 	if _, err := c.Confirm(context.Background(), scope, entry.MemoryID, 1); !errors.Is(err, ErrCandidateStale) {
 		t.Fatalf("expected ErrCandidateStale, got %v", err)
+	}
+}
+
+func TestControllerForgetScope(t *testing.T) {
+	backend := newFakeBackend()
+	c, _ := New(backend, scopedPolicy())
+	scope := testScope("p")
+	for i := 0; i < 2; i++ {
+		entry, err := c.Propose(context.Background(), scope, rtmemory.Entry{
+			Kind: "fact", LogicalKey: fmt.Sprintf("k%d", i), Content: "v", SourceRefs: []string{"m"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Confirm(context.Background(), scope, entry.MemoryID, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count, err := c.ForgetScope(context.Background(), scope)
+	if err != nil || count != 2 {
+		t.Fatalf("forget scope: count=%d err=%v", count, err)
+	}
+	entries, _ := c.Recall(context.Background(), scope, "", 5)
+	if len(entries) != 0 {
+		t.Fatalf("scope memories must be revoked: %#v", entries)
+	}
+	denied := rtmemory.DefaultPolicy()
+	c2, _ := New(backend, denied)
+	if _, err := c2.ForgetScope(context.Background(), scope); !errors.Is(err, ErrDenied) {
+		t.Fatalf("session_only must deny forget-scope, got %v", err)
 	}
 }

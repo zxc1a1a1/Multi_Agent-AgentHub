@@ -602,3 +602,10 @@ export function memoryScopeSnapshot(): { env: string; workspaceId: string; princ
   const scope = memoryScope()
   return { env: scope.env, workspaceId: scope.workspaceId, principalId: scope.principalId }
 }
+
+export async function forgetMemoryScope(): Promise<{ revokedCount: number; recallDisabled: boolean; purgeStatus: string }> {
+  return memoryRequest<{ revokedCount: number; recallDisabled: boolean; purgeStatus: string }>('forget-scope', {
+    method: 'POST',
+    body: JSON.stringify({ scope: memoryScope() }),
+  })
+}

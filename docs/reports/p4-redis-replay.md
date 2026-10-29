@@ -21,7 +21,7 @@
 | Memory 缓存 | `internal/memory/cache_redis.go` | 键含 scopeID/epoch/limit/policy 摘要；每次召回从 SQL 取 epoch，旧缓存不复活 |
 | Memory 管理 API | `httpapi/memory_admin.go` | entries/propose/confirm/update/forget/policy/mutations |
 | Gateway Memory 代理 | `httpapi/memory_proxy.go` | `/api/memory/*` 转发 Orchestrator，保留状态码 |
-| Memory UI | `frontend/src/components/MemoryPanel.tsx` | 模式/scope/状态/修订/来源/到期；候选确认、纠正、遗忘与 purgeStatus |
+| Memory UI | `frontend/src/components/MemoryPanel.tsx` | 模式/scope/状态/修订/来源/到期；候选确认、纠正、单条/范围遗忘与 purgeStatus |
 | 测试 | relay、httpapi、orchestratorclient、MemoryPanel | 真实 Redis/MySQL 测试 + 前端组件测试 |
 
 ## 2. 验证
@@ -49,9 +49,9 @@ TestIntegrationPublicEventJournal                          PASS（真实 MySQL�
 frontend recoverRun tests                                  PASS（3 tests：回放/状态终态/503）
 TestMemoryToolsBindTrustedScope                            PASS
 TestMemoryProxyForwards                                    PASS
-TestIntegrationMemoryAdminAPI                              PASS（真实 MySQL：候选→确认→更新→冲突→遗忘）
+TestIntegrationMemoryAdminAPI                              PASS（真实 MySQL：候选→确认→更新→冲突→单条/范围遗忘）
 Browser Memory E2E                                         PASS（见第 4 节）
-MemoryPanel.test.tsx                                       PASS（6 tests：加载/确认/纠正冲突/遗忘/错误/模式）
+MemoryPanel.test.tsx                                       PASS（7 tests：加载/确认/纠正冲突/单条/范围遗忘/错误/模式）
 ```
 
 ## 3. 浏览器 Memory E2E（本轮执行）

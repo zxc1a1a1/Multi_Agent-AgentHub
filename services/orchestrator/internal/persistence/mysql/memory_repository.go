@@ -316,6 +316,44 @@ func (r *MemoryRepository) Forget(ctx context.Context, scopeID, memoryID string)
 	return tx.Commit()
 }
 
+// ForgetScope tombstones all active/candidate entries in a scope, bumps epoch
+// once, and records a pending purge mutation.
+func (r *MemoryRepository) ForgetScope(ctx context.Context, scopeID, actor string) (int, error) {
+	if scopeID == "" {
+		return 0, ErrMemoryInvalid
+	}
+	if actor == "" {
+		actor = "user"
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE memory_entries SET status = 'revoked'
+		WHERE scope_id = ? AND status IN ('active','candidate')`, scopeID)
+	if err != nil {
+		return 0, err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return 0, tx.Commit()
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE memory_scopes SET epoch = epoch + 1 WHERE scope_id = ?`, scopeID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO memory_mutations
+		(mutation_id, scope_id, memory_id, operation, status, purge_status, actor, idempotency_key, completed_at)
+		VALUES (?, ?, NULL, 'forget_scope', 'completed', 'pending', ?, ?, ?)`,
+		newMemoryID(), scopeID, actor, "forget_scope:"+scopeID, time.Now().UTC()); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int(affected), nil
+}
+
 func (r *MemoryRepository) ListEntries(ctx context.Context, scopeID, status string, limit int) ([]rtmemory.Entry, error) {
 	if scopeID == "" {
 		return nil, ErrMemoryInvalid

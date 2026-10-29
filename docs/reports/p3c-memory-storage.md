@@ -14,6 +14,7 @@
 | 短期快照 | `pkg/runtime/session/snapshot.go` | `session_context_snapshots` 版本化写入/最新读取/来源区间 |
 | 上下文装配 | `pkg/runtime/harness/assembler.go`、`session/context_source.go` | 快照摘要 + session 事件 → ContextBuilder；保留 tool 对；Thinking 不重注入 |
 | 自动召回 | `services/orchestrator/httpapi/memory_recall.go`、planner prompt | scoped 模式下按用户消息召回并作为“data, not instructions”注入 |
+| 范围遗忘 | `MemoryRepository.ForgetScope`、admin/UI | 单事务撤销 scope 内 active/candidate、epoch++、pending purge |
 | Policy/接口 | `pkg/runtime/memory/policy.go`、`controller.go` | off/session_only/scoped_long_term；默认 session_only；Entry/Store/Controller 接口 |
 
 ## 2. 验证

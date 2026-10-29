@@ -33,6 +33,7 @@ type Backend interface {
 	Confirm(ctx context.Context, scopeID, memoryID string, expectedRevision int) (*rtmemory.Entry, error)
 	Update(ctx context.Context, scopeID, memoryID, content string, expectedRevision int) (*rtmemory.Entry, error)
 	Forget(ctx context.Context, scopeID, memoryID string) error
+	ForgetScope(ctx context.Context, scopeID, actor string) (int, error)
 	CountActive(ctx context.Context, scopeID string) (int, error)
 }
 
@@ -264,6 +265,20 @@ func (c *Controller) Forget(ctx context.Context, scope rtmemory.Scope, memoryID 
 		return err
 	}
 	return c.backend.Forget(ctx, scopeID, memoryID)
+}
+
+func (c *Controller) ForgetScope(ctx context.Context, scope rtmemory.Scope) (int, error) {
+	if !c.policy.AllowsForget() {
+		return 0, ErrDenied
+	}
+	if err := scope.Validate(); err != nil {
+		return 0, err
+	}
+	scopeID, err := c.ensureScope(ctx, scope)
+	if err != nil {
+		return 0, err
+	}
+	return c.backend.ForgetScope(ctx, scopeID, "user")
 }
 
 func (c *Controller) ensureScope(ctx context.Context, scope rtmemory.Scope) (string, error) {

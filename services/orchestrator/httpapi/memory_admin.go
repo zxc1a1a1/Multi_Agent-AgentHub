@@ -123,6 +123,20 @@ func (s *Server) handleMemoryMutation(w http.ResponseWriter, r *http.Request, pa
 			return
 		}
 		writeJSON(w, http.StatusOK, entry)
+	case "forget-scope":
+		var req struct {
+			Scope memoryScopeDTO `json:"scope"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+			return
+		}
+		count, err := controller.ForgetScope(r.Context(), req.Scope.Scope())
+		if err != nil {
+			writeMemoryError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"revokedCount": count, "recallDisabled": true, "purgeStatus": "pending"})
 	case "confirm", "update", "forget":
 		var req struct {
 			Scope            memoryScopeDTO `json:"scope"`

@@ -3,6 +3,7 @@ import { AlertTriangle, Brain, Check, Pencil, RefreshCw, Trash2 } from 'lucide-r
 import {
   confirmMemory,
   forgetMemory,
+  forgetMemoryScope,
   getMemoryPolicy,
   listMemoryEntries,
   memoryScopeSnapshot,
@@ -90,6 +91,24 @@ export default function MemoryPanel() {
     }
   }
 
+  const forgetScope = async () => {
+    const ok = window.confirm(
+      'Forget all long-term memories in this scope? This does not delete source chats or backups.',
+    )
+    if (!ok) return
+    setError('')
+    setNotice('')
+    try {
+      const result = await forgetMemoryScope()
+      setNotice(
+        `Revoked ${result.revokedCount} memories; recall disabled: ${result.recallDisabled ? 'yes' : 'no'}; purge status: ${result.purgeStatus}.`,
+      )
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to forget scope')
+    }
+  }
+
   const forgetEntry = async (entry: MemoryEntry) => {
     const ok = window.confirm(
       'Stop recalling this memory? This does not delete the original chat or its source messages.',
@@ -153,6 +172,13 @@ export default function MemoryPanel() {
               {policy.mode === 'session_only' && 'Only the current authorized thread; no cross-session recall.'}
               {policy.mode === 'scoped_long_term' && 'Active memory in this scope only; new entries require confirmation.'}
             </p>
+            <button
+              type="button"
+              onClick={() => void forgetScope()}
+              className="mt-3 rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50"
+            >
+              Forget all in this scope
+            </button>
           </div>
         )}
 
