@@ -250,6 +250,9 @@ func (s *MySQLStore) AppendMessage(ctx context.Context, msg Message) (*Message, 
 	if msg.ConversationID == "" {
 		return nil, ErrConversationNotFound
 	}
+	if strings.TrimSpace(msg.Text) == "" {
+		return nil, ErrEmptyMessage
+	}
 	if msg.ID == "" {
 		msg.ID = newID()
 	}
@@ -335,6 +338,9 @@ type ChatRequest struct {
 func (s *MySQLStore) RecordChatRequest(ctx context.Context, req ChatRequest, msg Message) (*ChatRequest, bool, error) {
 	if req.RequestID == "" || req.ConversationID == "" {
 		return nil, false, fmt.Errorf("requestId and conversationId are required")
+	}
+	if strings.TrimSpace(msg.Text) == "" {
+		return nil, false, ErrEmptyMessage
 	}
 	if msg.ID == "" {
 		msg.ID = newID()
@@ -435,4 +441,55 @@ func nullTime(t *time.Time) any {
 func isDuplicateKey(err error) bool {
 	var me *mysql.MySQLError
 	return errors.As(err, &me) && me.Number == 1062
+}
+
+// ImportConversation inserts a conversation with its original id and
+// timestamps. It is intended for synthetic/offline migration and is
+// idempotent on the primary key.
+func (s *MySQLStore) ImportConversation(ctx context.Context, conv Conversation) error {
+	if conv.ID == "" {
+		return fmt.Errorf("conversation id is required")
+	}
+	if conv.CreatedAt.IsZero() {
+		conv.CreatedAt = time.Now().UTC()
+	}
+	if conv.UpdatedAt.IsZero() {
+		conv.UpdatedAt = conv.CreatedAt
+	}
+	userID := conv.UserID
+	_, err := s.db.ExecContext(ctx, `INSERT INTO conversations
+		(id, title, conversation_type, agent_name, user_id, workspace_id, pinned, pinned_at, created_at, updated_at)
+		VALUES (?, ?, 'single', ?, ?, 'default', ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE title = VALUES(title), agent_name = VALUES(agent_name),
+			pinned = VALUES(pinned), pinned_at = VALUES(pinned_at), updated_at = VALUES(updated_at)`,
+		conv.ID, conv.Title, nullString(conv.AgentName), userID, conv.Pinned, nullTime(conv.PinnedAt), conv.CreatedAt, conv.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("import conversation: %w", err)
+	}
+	return nil
+}
+
+// ImportMessage inserts a message with its original id/timestamp for migration.
+func (s *MySQLStore) ImportMessage(ctx context.Context, msg Message, requestID, runID string) error {
+	if msg.ID == "" || msg.ConversationID == "" {
+		return fmt.Errorf("message id and conversation id are required")
+	}
+	if msg.CreatedAt.IsZero() {
+		msg.CreatedAt = time.Now().UTC()
+	}
+	role := msg.Role
+	if role == "" {
+		role = msg.Author
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO messages
+		(id, conversation_id, sender_type, sender_name, content, request_id, run_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE content = VALUES(content), sender_type = VALUES(sender_type),
+			sender_name = VALUES(sender_name)`,
+		msg.ID, msg.ConversationID, role, nullString(msg.Author), msg.Text,
+		nullString(requestID), nullString(runID), msg.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("import message: %w", err)
+	}
+	return nil
 }

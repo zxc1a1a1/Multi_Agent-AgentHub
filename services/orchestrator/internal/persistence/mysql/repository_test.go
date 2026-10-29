@@ -196,8 +196,11 @@ func TestConsumeApprovalAndDispatchCommitsIntentAndBudget(t *testing.T) {
 	mock.ExpectExec("UPDATE approvals SET status = 'consumed'").
 		WithArgs(sqlmock.AnyArg(), "appr-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("UPDATE executions SET budget_json").
-		WithArgs(budget, "run-1", int64(2)).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT fencing_version FROM executions WHERE run_id = ? FOR UPDATE")).
+		WithArgs("run-1").
+		WillReturnRows(sqlmock.NewRows([]string{"fencing_version"}).AddRow(int64(2)))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE executions SET budget_json = ? WHERE run_id = ?")).
+		WithArgs(budget, "run-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO tool_calls").
 		WithArgs("run-1", "tc-1", nil, "workspace.read", "1", "hash", "idem-1", "appr-1", int64(2), sqlmock.AnyArg()).

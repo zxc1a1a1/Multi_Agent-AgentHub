@@ -1,48 +1,62 @@
-# P2 阶段报告：MySQL 主存储与执行账本（进行中）
+# P2 阶段报告：MySQL 主存储与执行账本
 
 - 日期：2026-10-29
-- 基线：`dev / ae28a96`（P1 完成后）
-- 状态：**部分完成（PARTIAL）**。执行账本与 Gateway MySQL Store 已落地；真实 MySQL 集成、Session MySQL 与 Orchestrator 运行接线未完成。
+- 基线：`dev / f978cf5`（P3c 部分完成后）
+- 状态：**存储层与真实 MySQL 门禁通过；跨服务 requestId→accept 接线仍未完成（P3b）**。
 
-## 1. 本轮交付
+## 1. 交付
 
 | 交付 | 路径 | 说明 |
 |---|---|---|
 | Orchestrator 执行账本迁移 | `services/orchestrator/internal/persistence/mysql/migrations/001_execution_ledger.sql` | executions/task/plan/approvals/tool_calls/checkpoints/events/outbox/catalog |
-| 执行账本 Repository | `services/orchestrator/internal/persistence/mysql/repository.go` | requestId 幂等、seq 分配、状态+事件+outbox 同事务、fencing、租约、checkpoint、审批一次性消费、工具 unknown |
-| MySQL 连接/迁移 | `db.go`、`migrate.go` | 固定 UTC、连接池、嵌入迁移 |
-| Gateway MySQL Store | `services/gateway/store/mysql.go` + `migrations/001_gateway.sql` | 会话/消息权威存储、请求幂等记录、运行视图/投影位置表 |
-| Gateway 启动切换 | `services/gateway/cmd/gateway/main.go` | 默认 `mysql`；`memory`/`sqlite` 仅显式 demo/test；缺 DSN 启动失败 |
-| 单元测试 | `repository_test.go`、`mysql_test.go` | sqlmock 覆盖幂等、seq、fencing、终态、审批过期/参数不匹配、消息写入 |
-| 集成测试（门控） | `integration_test.go`（两模块） | 设置 `AGENTHUB_MYSQL_TEST_DSN` 才运行 |
+| 执行账本 Repository | `.../mysql/repository.go` | requestId 幂等、seq 分配、状态+事件+outbox 同事务、fencing、租约、checkpoint、审批一次性消费、工具 unknown |
+| Memory 迁移/Repository | `.../mysql/migrations/002_memory.sql`、`memory_repository.go` | scope/entry/revision/mutation；候选/确认/CAS/遗忘 |
+| Gateway MySQL Store | `services/gateway/store/mysql.go` + `migrations/001_gateway.sql` | 会话/消息权威存储、请求幂等记录、空消息拒绝、迁移导入 |
+| Runtime Session MySQL schema | `pkg/runtime/session/migrations/001_mysql_schema.sql`、`mysql_schema.go` | sessions/session_events/session_context_snapshots |
+| Gateway 启动切换 | `services/gateway/cmd/gateway/main.go` | 默认 `mysql`；缺 DSN 启动失败；memory/sqlite 仅显式 demo/test |
+| 测试 | 单测 + DSN 门控集成测试 | 账本、Store、Session、SQLite→MySQL 字段映射 |
 
-## 2. 验证记录
+## 2. 真实 MySQL 验证（本次已执行）
+
+环境：Docker `mysql:8.4`，隔离数据库 `agenthub_test`，测试 DSN 通过 `AGENTHUB_MYSQL_TEST_DSN` 显式注入；容器密码为一次性测试值，未写入仓库。
 
 ```text
-$ go build ./services/gateway/... ./services/orchestrator/...
-exit=0
-
-$ go test ./services/gateway/... ./services/orchestrator/... -count=1
-PASS（各包均 ok；详见本轮输出）
-
-$ go test ./services/orchestrator/internal/persistence/mysql/ -count=1 -v
-PASS 9 个 sqlmock 用例
-SKIP 5 个 real-MySQL 集成用例：AGENTHUB_MYSQL_TEST_DSN 未设置
-
-$ go test ./services/gateway/store/... -count=1
-PASS 4 个 sqlmock 用例
-SKIP 2 个 real-MySQL 集成用例：AGENTHUB_MYSQL_TEST_DSN 未设置
+$ AGENTHUB_MYSQL_TEST_DSN=... go test ./pkg/adk/... ./pkg/runtime/... ./services/gateway/... ./services/orchestrator/... -count=1
+全部包 PASS
 ```
 
-## 3. 未执行/未通过项（不得视为 P2 完成）
+关键用例：
 
-1. **真实 MySQL 事务/唯一约束/并发测试未执行**：本机 Docker daemon 未运行，且未发现可用本地 `mysqld`；未启动外部服务，也未被授权启动 Docker Desktop。门控测试代码已存在，但 SKIP 不等于 PASS。
-2. **会话重启后读历史**未在真实 MySQL 上验证；Gateway 启动已切到 MySQL Store，但没有运行中的实例做端到端验证。
-3. **Orchestrator 运行未接入执行账本**：Repository 已存在，handler/Coordinator 尚未写入 executions/events/outbox（计划归入 P3b 整合）。
-4. **Runtime Session MySQL 适配**未开始（`pkg/runtime/session` 仍是现有实现）。
-5. **SQLite→MySQL 合成数据转换测试**未编写；真实数据导入留 P7。
-6. **原始 SQLite 路径缺陷回归**（跨 run 状态污染、重复内容追加、空消息终态）尚未在新投影上补测试。
+```text
+TestIntegrationDuplicateRequestIsIdempotent              PASS
+TestIntegrationConcurrentSeqAndStaleFencing              PASS
+TestIntegrationCheckpointFencing                         PASS
+TestIntegrationApprovalConsumedOnce                      PASS
+TestIntegrationToolResultUnknown                         PASS
+TestIntegrationFailedStateChangeLeavesNoHalfResult       PASS
+TestIntegrationMemoryLifecycle                           PASS
+TestIntegrationMemoryScopeIsolation                      PASS
+TestIntegrationMySQLStoreCRUD                            PASS
+TestIntegrationRecordChatRequestIdempotent               PASS
+TestIntegrationMySQLStoreSurvivesReopen                  PASS  (关闭连接→重开→读历史→继续写)
+TestIntegrationConversationIsolation                     PASS
+TestIntegrationSQLiteToMySQLFieldMapping                 PASS  (合成 SQLite→MySQL 字段映射)
+TestIntegrationMySQLSessionLifecycle                     PASS  (重启后 session/events/state 保留)
+```
+
+期间修复的真实缺陷：
+
+- `ConsumeApprovalAndDispatch` 用 `RowsAffected` 判断 fencing，预算值未变化时 0 行被误判为 stale；改为事务内 `SELECT ... FOR UPDATE` 校验 fencing。
+- `RenewLease` 同样存在“时间值未变化→0 行”误判；改为锁行校验 owner/fencing/status。
+- `GetOrCreate` 的 duplicate 判断改为大小写不敏感，兼容 MySQL `Duplicate entry`。
+
+## 3. 仍未完成
+
+1. **Gateway requestId → Orchestrator accept 接线**：Gateway 已能写 `chat_requests`，Orchestrator 已有 `AcceptRun`；HTTP handler/main 尚未注入执行 Repository，因此跨服务超时重试/查询未验证（计划归入 P3b）。
+2. Orchestrator 运行尚未写 executions/checkpoint/events/outbox；当前只是 Repository 层。
+3. 真实用户 SQLite 数据导入未执行（P7，需授权）；仅完成合成映射测试。
+4. 旧 SQLite 路径的“空助手消息终态”在 Gateway 投影层尚未专门回归；MySQL Store 已拒绝空消息作为新入口。
 
 ## 4. 结论
 
-P2 门禁 **未通过**，当前只能声明“执行账本接口与 Gateway MySQL 主 Store 已实现并有单测”；不能声明真实 MySQL 事务/并发/重启恢复已验证。下一步：获得可用 MySQL 实例后执行门控集成测试，再完成 Session 适配与 Orchestrator 接线。
+P2 的存储/事务/唯一约束/并发/重启恢复门禁在真实 MySQL 8.4 上通过；**不能**声明 P2 全部完成，因为跨服务 accept 与运行接线仍属于后续整合。

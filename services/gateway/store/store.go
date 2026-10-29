@@ -15,7 +15,9 @@ import (
 var (
 	// ErrConversationNotFound indicates missing conversation data.
 	ErrConversationNotFound = errors.New("conversation not found")
-	idCounter               uint64
+	// ErrEmptyMessage rejects blank messages that would create empty terminal bubbles.
+	ErrEmptyMessage = errors.New("message text is empty")
+	idCounter       uint64
 )
 
 type Conversation struct {
@@ -51,8 +53,8 @@ type Store interface {
 
 // ConversationPatch carries optional fields for updating a conversation.
 type ConversationPatch struct {
-	Title     *string `json:"title,omitempty"`
-	Pinned    *bool   `json:"pinned,omitempty"`
+	Title  *string `json:"title,omitempty"`
+	Pinned *bool   `json:"pinned,omitempty"`
 }
 
 type MemoryStore struct {

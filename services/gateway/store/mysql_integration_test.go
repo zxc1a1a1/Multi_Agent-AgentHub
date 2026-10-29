@@ -109,3 +109,84 @@ func TestIntegrationRecordChatRequestIdempotent(t *testing.T) {
 		t.Fatalf("duplicate request must not append another message, got %d", len(msgs))
 	}
 }
+
+func TestIntegrationMySQLStoreSurvivesReopen(t *testing.T) {
+	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
+	if dsn == "" {
+		t.Skip("SKIP real MySQL integration: set AGENTHUB_MYSQL_TEST_DSN")
+	}
+	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	first, err := OpenMySQL(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open first store: %v", err)
+	}
+	conv, err := first.CreateConversation(ctx, "user-"+suffix, "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if _, err := first.AppendMessage(ctx, Message{ConversationID: conv.ID, Author: "user", Role: "user", Text: "before restart"}); err != nil {
+		t.Fatalf("append before restart: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first store: %v", err)
+	}
+
+	second, err := OpenMySQL(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open second store: %v", err)
+	}
+	t.Cleanup(func() { _ = second.DeleteConversation(ctx, conv.ID); second.Close() })
+	reloaded, err := second.GetConversation(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("conversation lost after restart: %v", err)
+	}
+	if reloaded.ID != conv.ID {
+		t.Fatalf("unexpected conversation after restart: %#v", reloaded)
+	}
+	msgs, err := second.ListMessages(ctx, conv.ID)
+	if err != nil || len(msgs) != 1 || msgs[0].Text != "before restart" {
+		t.Fatalf("messages lost after restart: %v %#v", err, msgs)
+	}
+	if _, err := second.AppendMessage(ctx, Message{ConversationID: conv.ID, Author: "user", Role: "user", Text: "after restart"}); err != nil {
+		t.Fatalf("append after restart: %v", err)
+	}
+	msgs, _ = second.ListMessages(ctx, conv.ID)
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages after continuing chat, got %d", len(msgs))
+	}
+}
+
+func TestIntegrationConversationIsolation(t *testing.T) {
+	s := openIntegrationStore(t)
+	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	a, err := s.CreateConversation(ctx, "user-a-"+suffix, "code-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateConversation(ctx, "user-b-"+suffix, "code-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.DeleteConversation(ctx, a.ID); _ = s.DeleteConversation(ctx, b.ID) })
+
+	if _, err := s.AppendMessage(ctx, Message{ConversationID: a.ID, Author: "user", Role: "user", Text: "only-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AppendMessage(ctx, Message{ConversationID: b.ID, Author: "user", Role: "user", Text: "only-b"}); err != nil {
+		t.Fatal(err)
+	}
+	msgsA, _ := s.ListMessages(ctx, a.ID)
+	msgsB, _ := s.ListMessages(ctx, b.ID)
+	if len(msgsA) != 1 || msgsA[0].Text != "only-a" {
+		t.Fatalf("conversation A polluted: %#v", msgsA)
+	}
+	if len(msgsB) != 1 || msgsB[0].Text != "only-b" {
+		t.Fatalf("conversation B polluted: %#v", msgsB)
+	}
+	if _, err := s.AppendMessage(ctx, Message{ConversationID: a.ID, Author: "user", Role: "user", Text: ""}); err != ErrEmptyMessage {
+		t.Fatalf("empty message must be rejected, got %v", err)
+	}
+}

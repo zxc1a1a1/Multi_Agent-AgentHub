@@ -239,7 +239,7 @@ func (s *SQLSessionService) GetOrCreate(ctx context.Context, id string) (*adk.Se
 	_, err = s.db.ExecContext(ctx, insertSessionSQL, id, id, stateJSON, now, now)
 	if err != nil {
 		// Handle race: another goroutine may have created the session between Get and Insert.
-		if strings.Contains(err.Error(), "duplicate") {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate") {
 			session, getErr := s.Get(ctx, id)
 			if getErr != nil {
 				return nil, fmt.Errorf("get session after concurrent insert: %w", getErr)

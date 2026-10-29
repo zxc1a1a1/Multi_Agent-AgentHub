@@ -295,16 +295,30 @@ func (r *Repository) AcquireLease(ctx context.Context, runID, owner string, ttl 
 }
 
 func (r *Repository) RenewLease(ctx context.Context, runID, owner string, fencing int64, ttl time.Duration) error {
-	res, err := r.db.ExecContext(ctx,
-		"UPDATE executions SET lease_expires_at = ? WHERE run_id = ? AND lease_owner = ? AND fencing_version = ? AND status NOT IN ('completed','failed','cancelled')",
-		time.Now().UTC().Add(ttl), runID, owner, fencing)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n != 1 {
+	defer tx.Rollback()
+
+	var currentOwner, status string
+	var currentFencing int64
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COALESCE(lease_owner,''), fencing_version, status FROM executions WHERE run_id = ? FOR UPDATE",
+		runID).Scan(&currentOwner, &currentFencing, &status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if currentOwner != owner || currentFencing != fencing || IsTerminal(status) {
 		return ErrLeaseHeld
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE executions SET lease_expires_at = ? WHERE run_id = ?", time.Now().UTC().Add(ttl), runID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type CheckpointParams struct {
@@ -462,14 +476,20 @@ func (r *Repository) ConsumeApprovalAndDispatch(ctx context.Context, p DispatchP
 		return ErrApprovalConsumed
 	}
 
-	res, err = tx.ExecContext(ctx,
-		"UPDATE executions SET budget_json = ? WHERE run_id = ? AND fencing_version = ?",
-		budget, p.RunID, p.FencingVersion)
-	if err != nil {
+	var currentFencing int64
+	if err := tx.QueryRowContext(ctx,
+		"SELECT fencing_version FROM executions WHERE run_id = ? FOR UPDATE", p.RunID).Scan(&currentFencing); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
 		return err
 	}
-	if n, _ := res.RowsAffected(); n != 1 {
+	if currentFencing != p.FencingVersion {
 		return ErrStaleFencing
+	}
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE executions SET budget_json = ? WHERE run_id = ?", budget, p.RunID); err != nil {
+		return err
 	}
 
 	_, err = tx.ExecContext(ctx, `INSERT INTO tool_calls

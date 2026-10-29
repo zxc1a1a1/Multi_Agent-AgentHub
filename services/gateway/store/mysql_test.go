@@ -121,3 +121,13 @@ func TestRecordChatRequestWritesMessageAndRequest(t *testing.T) {
 		t.Fatal("expected generated user message id")
 	}
 }
+
+func TestAppendMessageRejectsEmptyText(t *testing.T) {
+	s, _ := newMockStore(t)
+	if _, err := s.AppendMessage(context.Background(), Message{ConversationID: "c", Author: "u", Role: "user", Text: "   "}); !errors.Is(err, ErrEmptyMessage) {
+		t.Fatalf("expected ErrEmptyMessage, got %v", err)
+	}
+	if _, _, err := s.RecordChatRequest(context.Background(), ChatRequest{RequestID: "r", ConversationID: "c"}, Message{ConversationID: "c", Role: "user", Text: ""}); !errors.Is(err, ErrEmptyMessage) {
+		t.Fatalf("expected ErrEmptyMessage, got %v", err)
+	}
+}

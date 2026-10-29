@@ -272,3 +272,35 @@ func TestIntegrationToolResultUnknown(t *testing.T) {
 		t.Fatalf("expected unknown status, got %s", status)
 	}
 }
+
+func TestIntegrationFailedStateChangeLeavesNoHalfResult(t *testing.T) {
+	repo := openIntegrationRepo(t)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	run := acceptIntegrationRun(t, repo, suffix)
+
+	// Pre-occupy the outbox unique key so the outbox insert fails after the
+	// execution update and event insert have run.
+	if _, err := repo.DB().Exec("INSERT INTO outbox (run_id, seq, event_type) VALUES (?, 1, 'state_update')", run.RunID); err != nil {
+		t.Fatalf("seed outbox conflict: %v", err)
+	}
+	if _, err := repo.AppendStateChange(context.Background(), StateChange{
+		RunID: run.RunID, FencingVersion: 0, Status: "executing", EventType: "state_update",
+	}); err == nil {
+		t.Fatal("expected transaction failure on outbox conflict")
+	}
+
+	exec, err := repo.GetExecution(context.Background(), run.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exec.CurrentSeq != 0 || exec.Status != "accepted" {
+		t.Fatalf("failed transaction left partial state: %#v", exec)
+	}
+	var events int
+	if err := repo.DB().QueryRow("SELECT COUNT(*) FROM execution_events WHERE run_id = ?", run.RunID).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if events != 0 {
+		t.Fatalf("failed transaction left events: %d", events)
+	}
+}
