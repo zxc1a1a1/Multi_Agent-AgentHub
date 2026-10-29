@@ -265,4 +265,21 @@ func TestIntegrationPublicEventJournal(t *testing.T) {
 	if len(events) != 2 || events[0].Type != "TEXT_MESSAGE_END" {
 		t.Fatalf("idempotent event journal failed: %#v", events)
 	}
+
+	for _, event := range []PublicEvent{
+		{RunID: runID, Seq: 3, SubIndex: 0, Type: "TEXT_MESSAGE_CONTENT", Payload: json.RawMessage(`{"seq":3,"subIndex":0}`)},
+		{RunID: runID, Seq: 3, SubIndex: 1, Type: "TEXT_MESSAGE_CONTENT", Payload: json.RawMessage(`{"seq":3,"subIndex":1}`)},
+		{RunID: runID, Seq: 4, SubIndex: 0, Type: "RUN_FINISHED", Payload: json.RawMessage(`{"seq":4}`)},
+	} {
+		if err := s.AppendPublicEvent(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err = s.ListPublicEventsAfter(ctx, runID, 3, 0, 10)
+	if err != nil || len(events) != 2 {
+		t.Fatalf("sub-index cursor: %v %#v", err, events)
+	}
+	if events[0].Seq != 3 || events[0].SubIndex != 1 || events[1].Seq != 4 {
+		t.Fatalf("sub-index cursor skipped remaining fragment: %#v", events)
+	}
 }

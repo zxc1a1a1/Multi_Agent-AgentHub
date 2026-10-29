@@ -22,11 +22,26 @@ describe('recoverRun', () => {
     mockFetch.mockResolvedValueOnce(jsonResponse(200, { events }))
     const seen: AGUIEvent[] = []
     const onComplete = vi.fn()
-    await recoverRun('run-1', 2, (event) => seen.push(event), onComplete)
+    await recoverRun('run-1', 2, 0, (event) => seen.push(event), onComplete)
     expect(mockFetch).toHaveBeenCalledTimes(1)
-    expect(mockFetch.mock.calls[0][0]).toBe('/api/runs/run-1/events?after=2&limit=1000')
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/runs/run-1/events?after=2&subIndex=0&limit=1000')
     expect(seen.map((e) => e.seq)).toEqual([3, 4])
     expect(onComplete).toHaveBeenCalledTimes(1)
+  })
+
+  it('replays remaining sub-index events at the cursor seq', async () => {
+    const events: AGUIEvent[] = [
+      { type: 'TEXT_MESSAGE_CONTENT', runId: 'run-4', seq: 2, subIndex: 0, delta: 'old' },
+      { type: 'TEXT_MESSAGE_CONTENT', runId: 'run-4', seq: 2, subIndex: 1, delta: 'tail' },
+      { type: 'RUN_FINISHED', runId: 'run-4', seq: 3, subIndex: 0 },
+    ]
+    mockFetch.mockResolvedValueOnce(jsonResponse(200, { events }))
+    const seen: AGUIEvent[] = []
+    await recoverRun('run-4', 2, 0, (event) => seen.push(event))
+    expect(seen.map((e) => [e.seq, e.subIndex])).toEqual([
+      [2, 1],
+      [3, 0],
+    ])
   })
 
   it('stops when the run status is terminal even without a terminal event', async () => {
@@ -34,13 +49,13 @@ describe('recoverRun', () => {
       .mockResolvedValueOnce(jsonResponse(200, { events: [] }))
       .mockResolvedValueOnce(jsonResponse(200, { status: 'completed' }))
     const onComplete = vi.fn()
-    await recoverRun('run-2', 5, () => {}, onComplete)
+    await recoverRun('run-2', 5, 0, () => {}, onComplete)
     expect(onComplete).toHaveBeenCalledTimes(1)
     expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 
   it('fails when replay endpoint is unavailable', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse(503, {}))
-    await expect(recoverRun('run-3', 0, () => {})).rejects.toThrow('replay failed')
+    await expect(recoverRun('run-3', 0, 0, () => {})).rejects.toThrow('replay failed')
   })
 })

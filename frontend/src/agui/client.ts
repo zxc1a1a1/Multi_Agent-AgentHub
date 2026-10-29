@@ -34,6 +34,7 @@ export function runAgent(
   const controller = new AbortController()
   let lastRunId = ''
   let lastSeq = 0
+  let lastSubIndex = 0
 
   fetch('/api/chat', {
     method: 'POST',
@@ -79,8 +80,20 @@ export function runAgent(
               // empty event — skip
               continue
             }
-            if (event.runId) lastRunId = event.runId
-            if (typeof event.seq === 'number' && event.seq > lastSeq) lastSeq = event.seq
+            if (event.runId && event.runId !== lastRunId) {
+              lastRunId = event.runId
+              lastSeq = 0
+              lastSubIndex = 0
+            }
+            if (typeof event.seq === 'number') {
+              const subIndex = typeof event.subIndex === 'number' ? event.subIndex : 0
+              if (event.seq > lastSeq) {
+                lastSeq = event.seq
+                lastSubIndex = subIndex
+              } else if (event.seq === lastSeq && subIndex > lastSubIndex) {
+                lastSubIndex = subIndex
+              }
+            }
             onEvent(event)
           } catch {
             // skip malformed JSON and continue streaming
@@ -94,7 +107,7 @@ export function runAgent(
       if (err.name === 'AbortError') return
       if (lastRunId) {
         try {
-          await recoverRun(lastRunId, lastSeq, onEvent, onComplete)
+          await recoverRun(lastRunId, lastSeq, lastSubIndex, onEvent, onComplete)
           return
         } catch {
           // Fall through to the original error.
@@ -159,24 +172,29 @@ function parseSSEBlock(block: string): { eventName: string; data: string | null 
 export async function recoverRun(
   runId: string,
   afterSeq: number,
+  afterSubIndex: number,
   onEvent: (event: AGUIEvent) => void,
   onComplete?: () => void,
   maxAttempts = 120,
 ): Promise<void> {
   if (!runId) throw new Error('runId is required')
   let cursor = afterSeq
+  let cursorSubIndex = afterSubIndex
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/events?after=${cursor}&limit=1000`, {
-      headers: authHeaders(),
-    })
+    const response = await fetch(
+      `/api/runs/${encodeURIComponent(runId)}/events?after=${cursor}&subIndex=${cursorSubIndex}&limit=1000`,
+      { headers: authHeaders() },
+    )
     if (!response.ok) throw new Error(`replay failed: HTTP ${response.status}`)
     const payload = (await response.json()) as { events?: AGUIEvent[] }
     const events = payload.events ?? []
     let terminal = false
     for (const event of events) {
       if (typeof event.seq === 'number') {
-        if (event.seq <= cursor) continue
+        const subIndex = typeof event.subIndex === 'number' ? event.subIndex : 0
+        if (event.seq < cursor || (event.seq === cursor && subIndex <= cursorSubIndex)) continue
         cursor = event.seq
+        cursorSubIndex = subIndex
       }
       onEvent(event)
       if (event.type === 'RUN_FINISHED' || event.type === 'RUN_ERROR') terminal = true

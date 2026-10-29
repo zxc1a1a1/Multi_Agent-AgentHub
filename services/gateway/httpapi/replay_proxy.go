@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
 )
 
 func runIDAndSuffix(path, suffix string) (string, bool) {
@@ -57,18 +59,36 @@ func (s *Server) handleRunEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+	afterSubIndex, _ := strconv.Atoi(r.URL.Query().Get("subIndex"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if local, ok := s.store.(PublicEventStore); ok {
-		events, err := local.ListPublicEvents(r.Context(), runID, after, limit)
+	if cursorStore, ok := s.store.(PublicEventCursorStore); ok {
+		events, err := cursorStore.ListPublicEventsAfter(r.Context(), runID, after, afterSubIndex, limit)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "run events unavailable")
 			return
 		}
-		payload := make([]json.RawMessage, 0, len(events))
-		for _, event := range events {
-			payload = append(payload, event.Payload)
+		writeReplayEvents(w, runID, after, afterSubIndex, events)
+		return
+	}
+	if local, ok := s.store.(PublicEventStore); ok {
+		// The seq-only capability cannot address parts of the cursor seq, so
+		// re-read it and filter by (seq, subIndex) locally.
+		fetchAfter := after
+		if fetchAfter > 0 {
+			fetchAfter--
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"runId": runID, "after": after, "events": payload})
+		events, err := local.ListPublicEvents(r.Context(), runID, fetchAfter, limit)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "run events unavailable")
+			return
+		}
+		filtered := make([]store.PublicEvent, 0, len(events))
+		for _, event := range events {
+			if event.Seq > after || (event.Seq == after && event.SubIndex > afterSubIndex) {
+				filtered = append(filtered, event)
+			}
+		}
+		writeReplayEvents(w, runID, after, afterSubIndex, filtered)
 		return
 	}
 	if s.replayService == nil {
@@ -82,4 +102,14 @@ func (s *Server) handleRunEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
+}
+
+func writeReplayEvents(w http.ResponseWriter, runID string, after int64, afterSubIndex int, events []store.PublicEvent) {
+	payload := make([]json.RawMessage, 0, len(events))
+	for _, event := range events {
+		payload = append(payload, event.Payload)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"runId": runID, "after": after, "afterSubIndex": afterSubIndex, "events": payload,
+	})
 }

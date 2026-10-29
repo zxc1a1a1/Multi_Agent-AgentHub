@@ -38,6 +38,12 @@ type PublicEventStore interface {
 	ListPublicEvents(ctx context.Context, runID string, afterSeq int64, limit int) ([]store.PublicEvent, error)
 }
 
+// PublicEventCursorStore is the (seq, subIndex) replay capability. Stores that
+// implement it can resume in the middle of one internal event's public parts.
+type PublicEventCursorStore interface {
+	ListPublicEventsAfter(ctx context.Context, runID string, afterSeq int64, afterSubIndex int, limit int) ([]store.PublicEvent, error)
+}
+
 // RunService is the injected runtime execution contract.
 type RunService interface {
 	Run(ctx context.Context, conversationID string, userContent *adk.Content) iter.Seq2[adk.Event, error]
@@ -838,6 +844,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	assistantText := strings.Builder{}
+	assistantAuthor := ""
 	publicSeq := int64(0)
 	eventStore, _ := s.store.(PublicEventStore)
 
@@ -864,6 +871,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			// Collect assistant text for persistence.
 			// v1.0 uses TEXT_MESSAGE_CONTENT with delta; legacy uses message/message.delta with text.
 			if item.Role == string(adk.RoleAssistant) {
+				if item.Sender != nil && strings.TrimSpace(item.Sender.Name) != "" {
+					assistantAuthor = item.Sender.Name
+				} else if author := strings.TrimSpace(item.Author); author != "" && author != "assistant" {
+					assistantAuthor = author
+				}
 				switch item.Type {
 				case "TEXT_MESSAGE_CONTENT", "message", "message.delta":
 					delta := item.Delta
@@ -934,11 +946,15 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if text == "" {
 		return
 	}
+	author := strings.TrimSpace(assistantAuthor)
+	if author == "" {
+		author = "assistant"
+	}
 	persistCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	msg := store.Message{
 		ConversationID: req.ConversationID,
-		Author:         "assistant",
+		Author:         author,
 		Role:           string(adk.RoleAssistant),
 		Text:           text,
 		RunID:          runID,

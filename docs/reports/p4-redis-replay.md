@@ -20,7 +20,7 @@
 | 实时多订阅 | Gateway `/api/runs/{id}/events/stream` | 每个订阅者独立游标 tail SQL 事件；共享投影不抑制其他订阅 |
 | 内部 gRPC | `services/orchestrator/grpcapi`、`pkg/runtime/proto` | StartRun/SubscribeRun/Status/Approval/Cancel/ListAgents；订阅读 SQL 公开事件 |
 | Gateway gRPC | `orchestratorclient/grpc.go` | `ORCHESTRATOR_GRPC_URL` 时聊天运行走 gRPC；HTTP 保留用于恢复/管理代理 |
-| 前端游标恢复 | `frontend/src/agui/client.ts`、`recoverRun` | 记录 runId/lastSeq；流错误时按 after 游标拉取事件，终态停止 |
+| 前端游标恢复 | `frontend/src/agui/client.ts`、`recoverRun` | 记录 `(runId, seq, subIndex)`；流错误时按双游标拉取事件，终态停止 |
 | Memory 工具 | `pkg/runtime/tools/memory.go` | memory.search/read/propose；scope 由可信代码绑定，不从参数读取 |
 | Memory 缓存 | `internal/memory/cache_redis.go` | 键含 scopeID/epoch/limit/policy 摘要；每次召回从 SQL 取 epoch，旧缓存不复活 |
 | Memory 管理 API | `httpapi/memory_admin.go` | entries/propose/confirm/update/forget/policy/mutations |
@@ -49,12 +49,13 @@ TestReplayProxyEndpoints                                   PASS
 TestIntegrationRedisRecallCacheUsesEpoch                   PASS（真实 MySQL+Redis：更新/删除后 epoch 变化绕过旧缓存）
 TestChatContinuesAndPersistsAfterDisconnect                PASS（写 socket 失败后仍完成并保存 assistant 消息）
 TestChatJournalsPublicEventsAndReplays                     PASS（seq 1..n、本地 after 游标回放）
-TestIntegrationPublicEventJournal                          PASS（真实 MySQL：重复 seq 更新不重复）
+TestIntegrationPublicEventJournal                          PASS（真实 MySQL：重复 seq 更新不重复，seq/subIndex 查询）
 TestIntegrationMySQLProjectionOffsetIsIdempotent           PASS（真实 MySQL：重复投影只写 1 条消息，offset=7）
 TestMemoryStoreProjectAssistantMessageIsIdempotent         PASS（重复/旧 seq 跳过，高 subIndex 追加）
-frontend recoverRun tests                                  PASS（3 tests：回放/状态终态/503）
+frontend recoverRun tests                                  PASS（4 tests：双游标回放/同 seq 剩余 subIndex/状态终态/503）
 TestEventStreamDeliversToTwoSubscribers                    PASS（两个订阅者各自完整收到 seq 1..3）
 TestEventStreamHonorsAfterCursor                           PASS（after 游标过滤）
+TestRunEventsReplayHonorsSubIndexCursor                    PASS（after=2&subIndex=0 返回同 seq 的 subIndex=1 与后续 seq）
 TestOrchestratorGRPCControlPlane                           PASS（真实 MySQL：Start dedup、Subscribe seq、Status/Approval/Cancel/List）
 TestGRPCRunServiceStartsAndMapsEvents                      PASS（Gateway gRPC Start/Subscribe 映射）
 TestMemoryToolsBindTrustedScope                            PASS
@@ -85,10 +86,10 @@ MemoryPanel.test.tsx                                       PASS（7 tests：加�
 ## 4. 未完成（P4 门禁未通过）
 
 1. 内部 gRPC 已实现并被 Gateway 聊天运行使用；审批/取消已通过 gRPC（`ConfirmRun`/`CancelRun`）从 Gateway 转发，回放/管理仍走 HTTP 兼容接口。
-2. **浏览器断线恢复**：前端未保存/发送 `(runId, seq, subIndex)` 游标；重连不会自动回放。
+2. **浏览器断线恢复**：同一页面内流错误已按 `(runId, seq, subIndex)` 双游标恢复；页面刷新后游标未持久化，不会自动续流。
 3. **两个 Gateway OS 进程独立订阅**、慢订阅者有界队列、Redis 重启/清空恢复测试未做。
 4. Memory Redis 召回缓存已实现；缓存失效事件未单独发布，靠 SQL epoch 复核保证旧值不复用。
-5. 普通断连已不取消 run；前端 `recoverRun` 按 seq 游标回放，但未在真实模型聊天中做浏览器断线演练。
+5. 普通断连已不取消 run；前端 `recoverRun` 按 `(seq, subIndex)` 回放，但未在真实模型聊天中做浏览器断线演练。
 6. `Redis Streams` 消费者侧去重与终态对账未接入 Gateway。
 7. 浏览器已用 FakeModel + mock child agent 验证聊天计划卡批准/拒绝（见 P6 报告第 4 节）；真实模型聊天、断线重连、执行中停止按钮与工具事件未做浏览器 E2E。待审批时 Stop 的 500 已修复并有单测，浏览器未复验。
 

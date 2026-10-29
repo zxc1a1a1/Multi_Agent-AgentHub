@@ -52,6 +52,66 @@ func (s *journalStore) ListPublicEvents(_ context.Context, runID string, afterSe
 	return out, nil
 }
 
+func (s *journalStore) ListPublicEventsAfter(_ context.Context, runID string, afterSeq int64, afterSubIndex int, limit int) ([]store.PublicEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []store.PublicEvent
+	for _, event := range s.events[runID] {
+		if event.Seq < afterSeq || (event.Seq == afterSeq && event.SubIndex <= afterSubIndex) {
+			continue
+		}
+		out = append(out, event)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func TestRunEventsReplayHonorsSubIndexCursor(t *testing.T) {
+	st := newJournalStore()
+	srv, err := NewServer(st, &mockRunService{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := []store.PublicEvent{
+		{RunID: "run-sub", Seq: 2, SubIndex: 0, Type: "TEXT_MESSAGE_CONTENT", Payload: json.RawMessage(`{"type":"TEXT_MESSAGE_CONTENT","seq":2,"subIndex":0,"delta":"old"}`)},
+		{RunID: "run-sub", Seq: 2, SubIndex: 1, Type: "TEXT_MESSAGE_CONTENT", Payload: json.RawMessage(`{"type":"TEXT_MESSAGE_CONTENT","seq":2,"subIndex":1,"delta":"tail"}`)},
+		{RunID: "run-sub", Seq: 3, SubIndex: 0, Type: "RUN_FINISHED", Payload: json.RawMessage(`{"type":"RUN_FINISHED","seq":3}`)},
+	}
+	for _, event := range events {
+		if err := st.AppendPublicEvent(context.Background(), event); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/runs/run-sub/events?after=2&subIndex=0&limit=10", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("replay failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		AfterSubIndex int               `json:"afterSubIndex"`
+		Events        []json.RawMessage `json:"events"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.AfterSubIndex != 0 {
+		t.Fatalf("afterSubIndex not echoed: %d", payload.AfterSubIndex)
+	}
+	if len(payload.Events) != 2 {
+		t.Fatalf("expected 2 remaining events, got %d: %s", len(payload.Events), rec.Body.String())
+	}
+	var first map[string]any
+	if err := json.Unmarshal(payload.Events[0], &first); err != nil {
+		t.Fatal(err)
+	}
+	if first["seq"] != float64(2) || first["subIndex"] != float64(1) || first["delta"] != "tail" {
+		t.Fatalf("mid-seq cursor lost the remaining fragment: %#v", first)
+	}
+}
+
 func TestChatJournalsPublicEventsAndReplays(t *testing.T) {
 	st := newJournalStore()
 	conv, err := st.CreateConversation(context.Background(), "user-1", "code-agent")
@@ -118,5 +178,23 @@ func TestChatJournalsPublicEventsAndReplays(t *testing.T) {
 	}
 	if replay.Events[0]["seq"] != float64(3) {
 		t.Fatalf("unexpected first replayed event: %#v", replay.Events[0])
+	}
+
+	// Reloaded history must keep agent attribution and the durable run id.
+	msgs, err := st.ListMessages(context.Background(), conv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var assistant *store.Message
+	for i := range msgs {
+		if msgs[i].Role == "assistant" {
+			assistant = &msgs[i]
+		}
+	}
+	if assistant == nil {
+		t.Fatal("assistant message not persisted")
+	}
+	if assistant.Author != "code-agent" || assistant.RunID != runID {
+		t.Fatalf("assistant attribution lost: author=%q run=%q want run=%q", assistant.Author, assistant.RunID, runID)
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
 )
 
 // handleRunEventStream tails the public event journal for a run. Each caller
@@ -27,6 +29,8 @@ func (s *Server) handleRunEventStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cursor, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+	cursorSub, _ := strconv.Atoi(r.URL.Query().Get("subIndex"))
+	cursorStore, hasCursorStore := s.store.(PublicEventCursorStore)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -37,7 +41,13 @@ func (s *Server) handleRunEventStream(w http.ResponseWriter, r *http.Request) {
 	defer ticker.Stop()
 	idle := 0
 	for {
-		events, err := local.ListPublicEvents(r.Context(), runID, cursor, 200)
+		var events []store.PublicEvent
+		var err error
+		if hasCursorStore {
+			events, err = cursorStore.ListPublicEventsAfter(r.Context(), runID, cursor, cursorSub, 200)
+		} else {
+			events, err = local.ListPublicEvents(r.Context(), runID, cursor, 200)
+		}
 		if err != nil {
 			return
 		}
@@ -51,11 +61,12 @@ func (s *Server) handleRunEventStream(w http.ResponseWriter, r *http.Request) {
 			idle = 0
 		}
 		for _, event := range events {
-			if event.Seq <= cursor {
+			if event.Seq < cursor || (event.Seq == cursor && event.SubIndex <= cursorSub) {
 				continue
 			}
 			fmt.Fprintf(w, "data: %s\n\n", event.Payload)
 			cursor = event.Seq
+			cursorSub = event.SubIndex
 			if flusher != nil {
 				flusher.Flush()
 			}

@@ -606,6 +606,30 @@ func (s *MySQLStore) ListPublicEvents(ctx context.Context, runID string, afterSe
 	return out, rows.Err()
 }
 
+func (s *MySQLStore) ListPublicEventsAfter(ctx context.Context, runID string, afterSeq int64, afterSubIndex int, limit int) ([]PublicEvent, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT run_id, seq, sub_index, event_type, payload_json, created_at
+		FROM run_public_events
+		WHERE run_id = ? AND (seq > ? OR (seq = ? AND sub_index > ?))
+		ORDER BY seq ASC, sub_index ASC LIMIT ?`,
+		runID, afterSeq, afterSeq, afterSubIndex, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PublicEvent
+	for rows.Next() {
+		var event PublicEvent
+		if err := rows.Scan(&event.RunID, &event.Seq, &event.SubIndex, &event.Type, &event.Payload, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, event)
+	}
+	return out, rows.Err()
+}
+
 // UpdateChatRequestStatus records the terminal state of a chat request.
 func (s *MySQLStore) UpdateChatRequestStatus(ctx context.Context, requestID, status string) error {
 	if requestID == "" || status == "" {
