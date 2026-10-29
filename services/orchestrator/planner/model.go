@@ -31,6 +31,7 @@ const (
 	ValCodeUnsupportedSequential = "unsupported_sequential"
 	ValCodeEmptyTasks            = "empty_tasks"
 	ValCodeEmptyAgent            = "empty_agent"
+	ValCodeOutOfBoundary         = "agent_out_of_boundary"
 )
 
 // ValError is a single validation/pipeline failure with a code and message.

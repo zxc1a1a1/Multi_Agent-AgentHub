@@ -110,6 +110,24 @@ func (m *MainAgent) runPipeline(raw string, input PlannerInput) (*plan.Orchestra
 			return nil, result.Errors
 		}
 	}
+	if len(input.AllowedAgents) > 0 {
+		allowed := make(map[string]bool, len(input.AllowedAgents))
+		for _, name := range input.AllowedAgents {
+			allowed[strings.ToLower(strings.TrimSpace(name))] = true
+		}
+		var failures []ValError
+		for i, task := range orchPlan.Tasks {
+			if !allowed[strings.ToLower(strings.TrimSpace(task.AgentName))] {
+				failures = append(failures, ValError{
+					Code: ValCodeOutOfBoundary, TaskIndex: i,
+					Message: "agent \"" + task.AgentName + "\" is outside the allowed boundary",
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return nil, failures
+		}
+	}
 	return orchPlan, nil
 }
 
