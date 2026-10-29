@@ -94,8 +94,24 @@ func TestValidateRuntimeConfigRequiresOrchestrator(t *testing.T) {
 	if err := validateRuntimeConfig(runtimeConfig{}); err == nil {
 		t.Fatal("expected error when ORCHESTRATOR_URL is empty")
 	}
-	if err := validateRuntimeConfig(runtimeConfig{OrchestratorURL: "http://orchestrator:8080"}); err != nil {
-		t.Fatalf("unexpected error with orchestrator URL: %v", err)
+	cfg := runtimeConfig{
+		OrchestratorURL: "http://orchestrator:8080",
+		StoreMode:       "mysql",
+		MySQLDSN:        "user:pass@tcp(127.0.0.1:3306)/agenthub",
+	}
+	if err := validateRuntimeConfig(cfg); err != nil {
+		t.Fatalf("unexpected error with orchestrator URL and MySQL DSN: %v", err)
+	}
+}
+
+func TestValidateRuntimeConfigRequiresMySQLDSN(t *testing.T) {
+	cfg := runtimeConfig{OrchestratorURL: "http://orchestrator:8080", StoreMode: "mysql"}
+	if err := validateRuntimeConfig(cfg); err == nil {
+		t.Fatal("expected error when mysql store has no DSN")
+	}
+	cfg.StoreMode = "unknown"
+	if err := validateRuntimeConfig(cfg); err == nil {
+		t.Fatal("expected error for unknown store mode")
 	}
 }
 

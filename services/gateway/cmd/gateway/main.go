@@ -45,6 +45,7 @@ type runtimeConfig struct {
 	OrchestratorToken string
 	StoreMode         string
 	SQLitePath        string
+	MySQLDSN          string
 }
 
 func main() {
@@ -64,18 +65,34 @@ func run() error {
 
 	var opts []httpapi.Option
 	var dbCleanup func() error
+	var primaryStore store.Store
 
-	if cfg.StoreMode == "sqlite" {
-		log.Printf("store mode: sqlite, db path: %s", cfg.SQLitePath)
+	switch cfg.StoreMode {
+	case "mysql":
+		log.Printf("store mode: mysql")
+		ms, err := store.OpenMySQL(context.Background(), cfg.MySQLDSN)
+		if err != nil {
+			return fmt.Errorf("mysql bootstrap failed: %w", err)
+		}
+		primaryStore = ms
+		dbCleanup = ms.Close
+	case "sqlite":
+		// Demo compatibility profile: memory is the API store while SQLite
+		// mirrors run/message projections. Not a target production topology.
+		log.Printf("store mode: sqlite (demo compatibility), db path: %s", cfg.SQLitePath)
 		_, sqliteStore, writer, cleanup, err := gateway.BootstrapPersistence(cfg.SQLitePath)
 		if err != nil {
 			return fmt.Errorf("sqlite bootstrap failed: %w", err)
 		}
+		primaryStore = store.NewMemoryStore()
 		dbCleanup = cleanup
 		opts = append(opts, httpapi.WithPersistenceWriter(writer))
 		opts = append(opts, httpapi.WithPersistenceStore(sqliteStore))
-	} else {
-		log.Printf("store mode: memory")
+	case "memory":
+		log.Printf("store mode: memory (tests/ephemeral only)")
+		primaryStore = store.NewMemoryStore()
+	default:
+		return fmt.Errorf("unsupported AGENTHUB_GATEWAY_STORE=%q", cfg.StoreMode)
 	}
 
 	if cfg.OrchestratorURL == "" {
@@ -100,7 +117,7 @@ func run() error {
 
 	gw, err := gateway.New(
 		cfg.Gateway,
-		store.NewMemoryStore(),
+		primaryStore,
 		runner,
 		opts...,
 	)
@@ -275,13 +292,17 @@ func loadRuntimeConfigFromEnv() (runtimeConfig, error) {
 	orchestratorURL := strings.TrimSpace(os.Getenv("ORCHESTRATOR_URL"))
 	orchestratorToken := strings.TrimSpace(os.Getenv("ORCHESTRATOR_INTERNAL_TOKEN"))
 
-	storeMode := strings.TrimSpace(os.Getenv("AGENTHUB_GATEWAY_STORE"))
+	storeMode := strings.ToLower(strings.TrimSpace(os.Getenv("AGENTHUB_GATEWAY_STORE")))
 	if storeMode == "" {
-		storeMode = "memory"
+		storeMode = "mysql"
 	}
 	sqlitePath := strings.TrimSpace(os.Getenv("AGENTHUB_SQLITE_PATH"))
 	if sqlitePath == "" && storeMode == "sqlite" {
 		sqlitePath = "/data/agenthub.db"
+	}
+	mysqlDSN := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if mysqlDSN == "" {
+		mysqlDSN = strings.TrimSpace(os.Getenv("AGENTHUB_MYSQL_DSN"))
 	}
 
 	cfg := runtimeConfig{
@@ -297,6 +318,7 @@ func loadRuntimeConfigFromEnv() (runtimeConfig, error) {
 		OrchestratorToken: orchestratorToken,
 		StoreMode:         storeMode,
 		SQLitePath:        sqlitePath,
+		MySQLDSN:          mysqlDSN,
 	}
 	if err := cfg.Gateway.Validate(); err != nil {
 		return runtimeConfig{}, err
@@ -307,6 +329,15 @@ func loadRuntimeConfigFromEnv() (runtimeConfig, error) {
 func validateRuntimeConfig(cfg runtimeConfig) error {
 	if strings.TrimSpace(cfg.OrchestratorURL) == "" {
 		return fmt.Errorf("ORCHESTRATOR_URL is required: static direct-to-agent routing was removed")
+	}
+	switch cfg.StoreMode {
+	case "mysql":
+		if strings.TrimSpace(cfg.MySQLDSN) == "" {
+			return fmt.Errorf("DATABASE_URL (MySQL DSN) is required when AGENTHUB_GATEWAY_STORE=mysql")
+		}
+	case "sqlite", "memory":
+	default:
+		return fmt.Errorf("unsupported AGENTHUB_GATEWAY_STORE=%q", cfg.StoreMode)
 	}
 	return nil
 }

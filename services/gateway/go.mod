@@ -3,12 +3,15 @@ module github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway
 go 1.26.0
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
+	github.com/go-sql-driver/mysql v1.9.3
 	github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk v0.0.0-20260603170953-5d7e0f6e1096
-	github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime v0.0.0-20260603170953-5d7e0f6e1096
+	github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime v0.0.0-20260610145334-8a44f9e47988
 	modernc.org/sqlite v1.51.0
 )
 
 require (
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
