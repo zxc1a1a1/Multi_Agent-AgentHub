@@ -111,6 +111,7 @@ func run() error {
 	opts = append(opts, httpapi.WithAgentProxy(runner))
 	opts = append(opts, httpapi.WithRunReplayService(runner))
 	opts = append(opts, httpapi.WithMemoryProxy(runner))
+	opts = append(opts, httpapi.WithRunResumeService(runner))
 
 	// Always build agent summaries for the frontend agent dropdown,
 	// regardless of whether we use the Orchestrator or static routing.

@@ -734,3 +734,24 @@ func (s *OrchestratorRunService) getJSON(ctx context.Context, endpoint string) (
 	}
 	return json.RawMessage(body), nil
 }
+
+// ResumeRun starts a paused durable run and returns the SSE response for
+// streaming back to the browser.
+func (s *OrchestratorRunService) ResumeRun(ctx context.Context, runID string) (*http.Response, error) {
+	if s == nil {
+		return nil, errors.New("orchestrator run service is nil")
+	}
+	if strings.TrimSpace(runID) == "" {
+		return nil, errors.New("runId is required")
+	}
+	endpoint := fmt.Sprintf("%s/internal/orchestrator/runs/%s/resume", s.baseURL, url.PathEscape(runID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	if s.internalToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.internalToken)
+	}
+	return s.httpClient.Do(req)
+}

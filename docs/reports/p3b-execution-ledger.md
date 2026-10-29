@@ -16,6 +16,7 @@
 | 模型预算 | `planner/planner.go`、`main_agent.go` | 模型调用/修复共享 run 预算；耗尽时停止 |
 | 计划审批 | `approvals` 表 + `ResolveApproval` | 绑定 run/plan/revision；一次性消费；过期不可批准；revise supersede |
 | 恢复入口 | `httpapi/resume.go`、`LoadResume` | paused→AcquireLease→恢复预算→校验计划/边界→executing→终态 |
+| Gateway 恢复代理 | Gateway `resume_proxy.go`、`ResumeRun` | `POST /api/runs/{id}/resume` 透传 SSE；错误状态透传 |
 | 测试 | `run_ledger_test.go`、`run_ledger_mysql_test.go`、planner 预算测试 | 存储失败阻止执行、真实 MySQL 生命周期/审批、恢复 |
 
 ## 2. 验证
@@ -43,6 +44,8 @@ TestIntegrationPlanApprovalLifecycle           PASS（真实 MySQL：批准幂�
 TestRunLedgerPersistsPlanApproval              PASS（确认请求→approvals=approved）
 TestResumePausedRunFromCheckpoint              PASS（paused→executing→completed，checkpoint 保存）
 TestResumeRejectsNonPausedRun                  PASS（409）
+TestResumeProxyStreamsSSE                      PASS（Gateway 透传 resume SSE）
+TestResumeProxyUnavailable                     PASS（无resume service 503）
 ```
 
 ## 3. 未完成

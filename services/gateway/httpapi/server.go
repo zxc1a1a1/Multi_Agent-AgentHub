@@ -176,6 +176,7 @@ type Server struct {
 	persistenceStore  *sqlite.Store
 	replayService     RunReplayService
 	memoryProxy       MemoryProxy
+	resumeService     RunResumeService
 }
 
 func NewServer(st Store, runner RunService, opts ...Option) (*Server, error) {
@@ -246,6 +247,10 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		s.handleRunsToolResult(w, r)
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/resume") {
+		s.handleRunResume(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/status") {
 		s.handleRunStatus(w, r)
 		return
@@ -274,6 +279,16 @@ func WithRunReplayService(svc RunReplayService) Option {
 			return
 		}
 		s.replayService = svc
+	}
+}
+
+// WithRunResumeService injects the durable-run resume proxy.
+func WithRunResumeService(svc RunResumeService) Option {
+	return func(s *Server) {
+		if s == nil || svc == nil {
+			return
+		}
+		s.resumeService = svc
 	}
 }
 
