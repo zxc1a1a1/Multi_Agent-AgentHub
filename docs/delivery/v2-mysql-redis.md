@@ -54,7 +54,20 @@ curl -fsS -X POST http://localhost:8080/api/conversations -H 'Content-Type: appl
 #   Redis: docker exec <redis> redis-cli --scan --pattern 'agenthub:*:run:*:events'
 ```
 
-## 5. 持久化、备份与回滚
+## 5. 数据迁移工具
+
+```bash
+# 先 dry-run 校验源库结构与计数（不写 MySQL）
+go run ./services/gateway/cmd/migrate-sqlite --sqlite /path/legacy.db --dry-run
+# 经明确授权后导入；DSN 由命令行显式传入，不读取 .env
+go run ./services/gateway/cmd/migrate-sqlite --sqlite /path/legacy.db --mysql-dsn "user:pass@tcp(host:3306)/agenthub?parseTime=true&loc=UTC"
+```
+
+- 导入保留 conversation/message ID、标题、pinned、时间与 metadata 中的 userId/agentName。
+- 幂等：重复运行不会重复消息。
+- 真实数据导入前必须备份并在合成/脱敏副本演练；本工具不自动读取本地 data 目录。
+
+## 6. 持久化、备份与回滚
 
 - MySQL 使用 `mysql-data` 卷；**单机部署**。未完成跨节点共享存储验证前，不声明多节点 artifact/恢复能力。
 - 备份：停写后 `mysqldump --single-transaction`；恢复前停止 Gateway/Orchestrator。
@@ -62,7 +75,7 @@ curl -fsS -X POST http://localhost:8080/api/conversations -H 'Content-Type: appl
 - **代码回滚 ≠ 数据库回滚**。新 schema 已接受新写后，不得启动旧 SQLite/rule 模式；应暂停入口，使用向前修复或经验证的导出恢复。
 - 破坏性清表、回退 migration、覆盖备份必须单独确认。
 
-## 6. 已知未完成
+## 7. 已知未完成
 
 1. 内部 gRPC 未实现，当前仍是 HTTP/SSE 兼容路径。
 2. 浏览器断线恢复/游标、Memory 管理 UI、投影 offsets 未接线。

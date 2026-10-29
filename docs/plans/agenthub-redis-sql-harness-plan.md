@@ -329,7 +329,7 @@ git status --short
 | P4 | 部分完成：Redis relay、SQL 回放、Gateway 恢复代理、requestId 幂等、断连 durable、Memory 工具/API/UI/epoch 缓存；gRPC/事件级游标未完成 |
 | P5 | 部分完成：apply_patch、Broker、SSRF、Docker 隔离执行、MCP allowlist、artifact；真实 MCP/账本接线/真实检索未完成 |
 | P6 | 部分完成：FakeModel Eval、前端单测/构建、真实 MySQL+Redis、Memory 浏览器 E2E；独立进程/真模型/聊天浏览器/race 未完成 |
-| P7 | 部分完成：compose MySQL/Redis、版本锁定、镜像构建、最小栈健康/迁移 smoke 通过；完整业务 smoke/数据迁移未执行 |
+| P7 | 部分完成：compose/版本/镜像/最小栈 smoke、SQLite→MySQL 迁移工具（合成验证）；完整业务 smoke/真实数据迁移未执行 |
 | P3c | 部分完成：Memory 存储/Controller、短期快照/装配、自动召回、工具/管理 API/UI；摘要任务、分支隔离、Redis 未完成 |
 | 业务代码/测试/配置/依赖 | P0 未修改；P1 已按阶段修改并验证 |
 | Redis/MySQL/真模型/浏览器/性能验收 | 未执行，不宣称通过 |

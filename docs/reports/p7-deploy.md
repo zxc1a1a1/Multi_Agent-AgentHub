@@ -15,7 +15,7 @@
 | 交付文档 | 完成 | `docs/delivery/v2-mysql-redis.md` |
 | 镜像构建 | **PASS** | gateway/orchestrator 镜像构建成功 |
 | 最小栈启动/健康/迁移 | **PASS** | MySQL/Redis/Orchestrator/Gateway；health ok；21 张表 |
-| SQLite→MySQL 真实数据导入 | 未执行 | 仅合成映射测试；需用户授权 |
+| SQLite→MySQL 迁移工具 | 完成（合成验证） | `cmd/migrate-sqlite`；测试使用临时 SQLite + 真实 MySQL，幂等；**真实用户数据未导入** |
 | 回滚流程 | 已文档化 | 代码回滚≠数据库回滚 |
 
 ## 2. 验证命令
@@ -44,7 +44,17 @@ $ POST /api/conversations → 200；MySQL conversations 行存在（userId=smoke
 
 说明：Orchestrator 使用占位 provider/model 启动（未发起模型请求）；日志提示未启动的 8 个 Agent unhealthy，符合 `--no-deps` 最小栈预期。
 
-## 3. 未通过的门禁
+## 3. 数据转换证据
+
+```text
+$ AGENTHUB_MYSQL_TEST_DSN=... go test ./services/gateway/migration/ -count=1 -v
+PASS
+- 临时 SQLite（真实 sqlite.Store）→ MySQL：会话/消息/用户/标题/pinned/时间字段
+- 第二次 Apply 幂等，不重复消息
+- CLI：services/gateway/cmd/migrate-sqlite（--sqlite --mysql-dsn --dry-run）
+```
+
+## 4. 未通过的门禁
 
 1. 完整 10-Agent 栈与真实模型未启动；聊天/审批/工具/取消/回放 smoke 未执行。
 2. 未验证 Redis 重启/清空、MySQL 重启后的恢复。
