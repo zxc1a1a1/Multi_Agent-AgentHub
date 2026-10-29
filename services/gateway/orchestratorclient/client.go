@@ -104,6 +104,7 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 		contextMessages := runservice.ContextMessagesFromContext(ctx)
 		runID := runservice.RunIDFromContext(ctx)
 		requestID := runservice.RequestIDFromContext(ctx)
+		userID := runservice.UserIDFromContext(ctx)
 		if planningMode == "" {
 			planningMode = runservice.PlanningModeAuto
 		}
@@ -151,6 +152,9 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 		}
 		if requestID != "" {
 			reqBody["requestId"] = requestID
+		}
+		if userID != "" {
+			reqBody["userId"] = userID
 		}
 		if replyTo != nil {
 			reqBody["replyTo"] = replyTo

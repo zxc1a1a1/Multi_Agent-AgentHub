@@ -421,3 +421,21 @@ func RequestIDFromContext(ctx context.Context) string {
 	raw, _ := ctx.Value(requestIDContextKey{}).(string)
 	return strings.TrimSpace(raw)
 }
+
+type userIDContextKey struct{}
+
+// WithUserID stores the authenticated conversation owner for downstream scope.
+func WithUserID(ctx context.Context, userID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, userIDContextKey{}, strings.TrimSpace(userID))
+}
+
+func UserIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	raw, _ := ctx.Value(userIDContextKey{}).(string)
+	return strings.TrimSpace(raw)
+}

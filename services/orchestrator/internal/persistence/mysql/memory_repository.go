@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
 
 	rtmemory "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/memory"
 )
@@ -74,16 +76,26 @@ func (r *MemoryRepository) Recall(ctx context.Context, scopeID string, query str
 		limit = 20
 	}
 	now := time.Now().UTC()
-	rows, err := r.db.QueryContext(ctx, `SELECT e.memory_id, e.scope_id, e.kind, e.logical_key,
+	sqlText := `SELECT e.memory_id, e.scope_id, e.kind, e.logical_key,
 		r.content, e.current_revision, e.status, e.source_refs, e.created_at,
 		COALESCE(e.verified_at, e.created_at), e.expires_at
 		FROM memory_entries e
 		JOIN memory_revisions r ON r.memory_id = e.memory_id AND r.revision = e.current_revision
 		WHERE e.scope_id = ? AND e.status = 'active'
-		  AND (e.expires_at IS NULL OR e.expires_at > ?)
-		  AND (? = '' OR INSTR(LOWER(r.content), LOWER(?)) > 0 OR INSTR(LOWER(e.logical_key), LOWER(?)) > 0)
-		ORDER BY e.verified_at DESC, e.memory_id ASC
-		LIMIT ?`, scopeID, now, query, query, query, limit)
+		  AND (e.expires_at IS NULL OR e.expires_at > ?)`
+	args := []any{scopeID, now}
+	if terms := tokenizeMemoryQuery(query); len(terms) > 0 {
+		clauses := make([]string, 0, len(terms))
+		for _, term := range terms {
+			clauses = append(clauses, "(INSTR(LOWER(r.content), ?) > 0 OR INSTR(LOWER(e.logical_key), ?) > 0)")
+			lowered := strings.ToLower(term)
+			args = append(args, lowered, lowered)
+		}
+		sqlText += " AND (" + strings.Join(clauses, " OR ") + ")"
+	}
+	sqlText += " ORDER BY e.verified_at DESC, e.memory_id ASC LIMIT ?"
+	args = append(args, limit)
+	rows, err := r.db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -390,4 +402,23 @@ func newMemoryID() string {
 		return fmt.Sprintf("mem_%d", time.Now().UnixNano())
 	}
 	return "mem_" + hex.EncodeToString(buf[:])
+}
+
+func tokenizeMemoryQuery(query string) []string {
+	fields := strings.FieldsFunc(strings.TrimSpace(query), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	out := make([]string, 0, len(fields))
+	seen := map[string]bool{}
+	for _, term := range fields {
+		if len([]rune(term)) < 2 || seen[term] {
+			continue
+		}
+		seen[term] = true
+		out = append(out, term)
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
 }

@@ -55,6 +55,7 @@ type captureRunner struct {
 	calls     int
 	requestID string
 	runID     string
+	userID    string
 	seq       iter.Seq2[adk.Event, error]
 }
 
@@ -62,6 +63,7 @@ func (r *captureRunner) Run(ctx context.Context, _ string, _ *adk.Content) iter.
 	r.calls++
 	r.requestID = runservice.RequestIDFromContext(ctx)
 	r.runID = runservice.RunIDFromContext(ctx)
+	r.userID = runservice.UserIDFromContext(ctx)
 	if r.seq == nil {
 		return func(yield func(adk.Event, error) bool) {}
 	}
@@ -94,8 +96,8 @@ func TestChatRequestIdempotency(t *testing.T) {
 	if first.Code != http.StatusOK {
 		t.Fatalf("first request: %d %s", first.Code, first.Body.String())
 	}
-	if runner.calls != 1 || runner.requestID != "req-fixed" || runner.runID == "" {
-		t.Fatalf("context not propagated: calls=%d requestId=%q runId=%q", runner.calls, runner.requestID, runner.runID)
+	if runner.calls != 1 || runner.requestID != "req-fixed" || runner.runID == "" || runner.userID != "user-1" {
+		t.Fatalf("context not propagated: calls=%d requestId=%q runId=%q userId=%q", runner.calls, runner.requestID, runner.runID, runner.userID)
 	}
 
 	second := httptest.NewRecorder()

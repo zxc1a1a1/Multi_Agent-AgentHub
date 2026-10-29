@@ -711,7 +711,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.store.GetConversation(r.Context(), req.ConversationID); err != nil {
+	conv, err := s.store.GetConversation(r.Context(), req.ConversationID)
+	if err != nil {
 		if errors.Is(err, store.ErrConversationNotFound) {
 			writeJSONError(w, http.StatusNotFound, "conversation not found")
 			return
@@ -721,6 +722,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	if conv != nil {
+		ctx = runservice.WithUserID(ctx, conv.UserID)
+	}
 	runID := newRunID()
 	requestID := strings.TrimSpace(req.RequestID)
 	if requestID == "" {

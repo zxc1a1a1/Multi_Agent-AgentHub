@@ -330,7 +330,7 @@ git status --short
 | P5 | 部分完成：apply_patch、Broker 审批门、SSRF/sandbox 接口/artifact；真实隔离执行、MCP、真实检索未完成 |
 | P6 | 部分完成：FakeModel Eval、前端单测/构建、真实 MySQL+Redis；独立进程/真模型/浏览器/race 未完成 |
 | P7 | 部分完成：compose MySQL/Redis、版本锁定、镜像构建、最小栈健康/迁移 smoke 通过；完整业务 smoke/数据迁移未执行 |
-| P3c | 部分完成：Memory MySQL 存储/候选/确认/CAS/遗忘与 Controller；短期记忆、工具、管理 API/UI、Redis 未完成 |
+| P3c | 部分完成：Memory 存储/Controller、短期快照/装配、自动召回、工具/管理 API/UI；摘要任务、分支隔离、Redis 未完成 |
 | 业务代码/测试/配置/依赖 | P0 未修改；P1 已按阶段修改并验证 |
 | Redis/MySQL/真模型/浏览器/性能验收 | 未执行，不宣称通过 |
 | 上一轮临时回归测试 | 已撤回，不是现存测试套件；不能用其结果替本版架构验收 |

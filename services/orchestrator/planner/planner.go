@@ -30,6 +30,17 @@ type PlannerInput struct {
 
 	// Budget is the shared per-run budget. When nil (unit tests), no accounting.
 	Budget *harness.Budget
+
+	// MemoryContext is authorized data returned by MemoryController. It is
+	// never treated as instructions.
+	MemoryContext []MemorySnippet
+}
+
+type MemorySnippet struct {
+	MemoryID   string
+	Revision   int
+	Content    string
+	SourceRefs []string
 }
 
 // Planner produces an OrchestrationPlan from a PlannerInput.

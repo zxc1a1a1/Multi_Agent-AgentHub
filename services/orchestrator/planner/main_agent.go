@@ -191,6 +191,9 @@ func (m *MainAgent) buildPromptBuilder(agents []AgentInfoLite, input PlannerInpu
 	if len(input.AllowedAgents) > 0 {
 		pb = pb.WithAllowedAgents(input.AllowedAgents)
 	}
+	if len(input.MemoryContext) > 0 {
+		pb = pb.WithMemoryContext(input.MemoryContext)
+	}
 	return pb
 }
 

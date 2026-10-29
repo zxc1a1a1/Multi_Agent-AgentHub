@@ -184,6 +184,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	if len(req.PinnedMessageIDs) > 0 {
 		log.Printf("orchestrator: run=%s applying %d pinnedMessageIds to context", runID, len(req.PinnedMessageIDs))
 	}
+	plannerInput.MemoryContext = s.recallMemory(r.Context(), req.UserID, userText)
 
 	// The planner must be wired with a real model at startup. Never construct a
 	// model-less planner per request and never dispatch without a validated plan.
