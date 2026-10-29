@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"iter"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
@@ -22,6 +25,13 @@ import (
 // Store aliases the gateway persistence interface.
 type Store = store.Store
 
+// ChatRequestStore is an optional Store capability for request-level
+// idempotency. MemoryStore does not implement it.
+type ChatRequestStore interface {
+	RecordChatRequest(ctx context.Context, req store.ChatRequest, msg store.Message) (*store.ChatRequest, bool, error)
+	UpdateChatRequestStatus(ctx context.Context, requestID, status string) error
+}
+
 // RunService is the injected runtime execution contract.
 type RunService interface {
 	Run(ctx context.Context, conversationID string, userContent *adk.Content) iter.Seq2[adk.Event, error]
@@ -31,6 +41,12 @@ type RunService interface {
 // may also satisfy for cancelling a running orchestration.
 type RunCancelService interface {
 	CancelRun(ctx context.Context, runID string) error
+}
+
+// RunReplayService is an optional recovery interface exposing SQL replay.
+type RunReplayService interface {
+	GetRunStatus(ctx context.Context, runID string) (json.RawMessage, error)
+	ListRunEvents(ctx context.Context, runID string, after int64, limit int) (json.RawMessage, error)
 }
 
 // RunToolResultService is an optional interface that RunService implementations
@@ -152,6 +168,7 @@ type Server struct {
 	mux               *http.ServeMux
 	persistenceWriter *PersistenceWriter
 	persistenceStore  *sqlite.Store
+	replayService     RunReplayService
 }
 
 func NewServer(st Store, runner RunService, opts ...Option) (*Server, error) {
@@ -221,6 +238,14 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		s.handleRunsToolResult(w, r)
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/status") {
+		s.handleRunStatus(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/events") {
+		s.handleRunEvents(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/regenerate") {
 		runID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/runs/"), "/regenerate")
 		runID = strings.Trim(runID, "/")
@@ -232,6 +257,16 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NotFound(w, r)
+}
+
+// WithRunReplayService injects SQL replay/status access for recovery endpoints.
+func WithRunReplayService(svc RunReplayService) Option {
+	return func(s *Server) {
+		if s == nil || svc == nil {
+			return
+		}
+		s.replayService = svc
+	}
 }
 
 // handleRunsCancel handles POST /api/runs/{runId}/cancel
@@ -634,17 +669,18 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ConversationID     string                    `json:"conversationId"`
-		Message            string                    `json:"message"`
-		AgentName          string                    `json:"agentName,omitempty"`
-		SelectedAgentNames []string                  `json:"selectedAgentNames,omitempty"`
-		Mentions           []string                  `json:"mentions,omitempty"`
-		PlanningMode       string                    `json:"planningMode,omitempty"`
-		RequestedPath      string                    `json:"requestedPath,omitempty"`
-		ReplyTo            *ReplyTo                  `json:"replyTo,omitempty"`
-		Quote              *Quote                    `json:"quote,omitempty"`
-		PinnedMessageIDs   []string                  `json:"pinnedMessageIds,omitempty"`
+		ConversationID     string                      `json:"conversationId"`
+		Message            string                      `json:"message"`
+		AgentName          string                      `json:"agentName,omitempty"`
+		SelectedAgentNames []string                    `json:"selectedAgentNames,omitempty"`
+		Mentions           []string                    `json:"mentions,omitempty"`
+		PlanningMode       string                      `json:"planningMode,omitempty"`
+		RequestedPath      string                      `json:"requestedPath,omitempty"`
+		ReplyTo            *ReplyTo                    `json:"replyTo,omitempty"`
+		Quote              *Quote                      `json:"quote,omitempty"`
+		PinnedMessageIDs   []string                    `json:"pinnedMessageIds,omitempty"`
 		ContextMessages    []runservice.ContextMessage `json:"contextMessages,omitempty"`
+		RequestID          string                      `json:"requestId,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid request body")
@@ -672,24 +708,53 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.store.AppendMessage(r.Context(), store.Message{
+	ctx := r.Context()
+	runID := newRunID()
+	requestID := strings.TrimSpace(req.RequestID)
+	if requestID == "" {
+		requestID = "req_" + runID
+	}
+	userMessage := store.Message{
 		ConversationID: req.ConversationID,
 		Author:         "user",
 		Role:           string(adk.RoleUser),
 		Text:           req.Message,
-	}); err != nil {
+	}
+	recorder, _ := s.store.(ChatRequestStore)
+	finalStatus := ""
+	if recorder != nil {
+		record, dedup, err := recorder.RecordChatRequest(ctx, store.ChatRequest{
+			RequestID: requestID, ConversationID: req.ConversationID, RunID: runID,
+		}, userMessage)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to record request")
+			return
+		}
+		if dedup {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": "request already accepted", "runId": record.RunID,
+				"messageId": record.UserMessageID, "status": record.Status,
+			})
+			return
+		}
+		finalStatus = "failed"
+		defer func() {
+			statusCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = recorder.UpdateChatRequestStatus(statusCtx, requestID, finalStatus)
+		}()
+	} else if _, err := s.store.AppendMessage(ctx, userMessage); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to append user message")
 		return
 	}
 
 	// Also persist user message to SQLite via PersistenceWriter (optional).
 	if s.persistenceWriter != nil {
-		_ = s.persistenceWriter.SaveUserMessage(r.Context(), req.ConversationID, req.Message)
+		_ = s.persistenceWriter.SaveUserMessage(ctx, req.ConversationID, req.Message)
 	}
 
 	sse.SetHeaders(w)
 	writer := sse.NewWriter(w)
-	ctx := r.Context()
 	if req.AgentName != "" && req.AgentName != "auto" {
 		ctx = runservice.WithAgentName(ctx, req.AgentName)
 	}
@@ -698,6 +763,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// planningMode is the legacy user-requested routing mode (auto/direct/manual/mention).
 	// executionPath is the new structured path (single_chat/group_chat/main_agent_orchestration).
 	planningMode := derivePlanningMode(req.AgentName, req.SelectedAgentNames, req.Mentions)
+	ctx = runservice.WithRunID(ctx, runID)
+	ctx = runservice.WithRequestID(ctx, requestID)
 	ctx = runservice.WithPlanningMode(ctx, planningMode)
 	ctx = runservice.WithRequestedPath(ctx, req.RequestedPath)
 	ctx = runservice.WithSelectedAgentNames(ctx, req.SelectedAgentNames)
@@ -809,6 +876,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		Role:           string(adk.RoleAssistant),
 		Text:           text,
 	})
+	if recorder != nil {
+		finalStatus = "completed"
+	}
+}
+
+func newRunID() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err == nil {
+		return "run_" + hex.EncodeToString(buf[:])
+	}
+	return fmt.Sprintf("run_%d", time.Now().UnixNano())
 }
 
 // extractConversationIDFromPath extracts a bare conversation ID from path

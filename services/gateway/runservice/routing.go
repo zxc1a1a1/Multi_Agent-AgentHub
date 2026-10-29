@@ -385,3 +385,39 @@ func ContextMessagesFromContext(ctx context.Context) []ContextMessage {
 	}
 	return msgs
 }
+
+type runIDContextKey struct{}
+
+// WithRunID stores the Gateway-allocated runId for idempotent acceptance.
+func WithRunID(ctx context.Context, runID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, runIDContextKey{}, strings.TrimSpace(runID))
+}
+
+func RunIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	raw, _ := ctx.Value(runIDContextKey{}).(string)
+	return strings.TrimSpace(raw)
+}
+
+type requestIDContextKey struct{}
+
+// WithRequestID stores the stable requestId used for duplicate suppression.
+func WithRequestID(ctx context.Context, requestID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, requestIDContextKey{}, strings.TrimSpace(requestID))
+}
+
+func RequestIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	raw, _ := ctx.Value(requestIDContextKey{}).(string)
+	return strings.TrimSpace(raw)
+}

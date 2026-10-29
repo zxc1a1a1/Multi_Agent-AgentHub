@@ -107,8 +107,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// Same instance acts as AgentManagementProxy for /api/agents* proxy.
+	// Same instance acts as AgentManagementProxy and replay proxy.
 	opts = append(opts, httpapi.WithAgentProxy(runner))
+	opts = append(opts, httpapi.WithRunReplayService(runner))
 
 	// Always build agent summaries for the frontend agent dropdown,
 	// regardless of whether we use the Orchestrator or static routing.

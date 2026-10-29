@@ -10,11 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
 	ledger "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/persistence/mysql"
+
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/relay"
 )
 
 func TestIntegrationRunLedgerLifecycleMySQL(t *testing.T) {
@@ -114,4 +117,80 @@ func TestIntegrationRunLedgerLifecycleMySQL(t *testing.T) {
 	if outboxCount != 3 {
 		t.Fatalf("outbox must mirror events, got %d", outboxCount)
 	}
+}
+
+func TestIntegrationOutboxRelayMySQLRedis(t *testing.T) {
+	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
+	redisAddr := os.Getenv("AGENTHUB_REDIS_TEST_ADDR")
+	if dsn == "" || redisAddr == "" {
+		t.Skip("SKIP real MySQL+Redis integration: set AGENTHUB_MYSQL_TEST_DSN and AGENTHUB_REDIS_TEST_ADDR")
+	}
+	ctx := context.Background()
+	db, err := ledger.Open(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ledger.RunMigrations(db); err != nil {
+		t.Fatal(err)
+	}
+	repo := ledger.NewRepository(db)
+	client := redis.NewClient(&redis.Options{Addr: redisAddr})
+	defer client.Close()
+	if err := client.Ping(ctx).Err(); err != nil {
+		t.Fatalf("ping redis: %v", err)
+	}
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	runID := "run-relay-it-" + suffix
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM outbox WHERE run_id = ?", runID)
+		_, _ = db.Exec("DELETE FROM execution_events WHERE run_id = ?", runID)
+		_, _ = db.Exec("DELETE FROM executions WHERE run_id = ?", runID)
+		_, _ = client.Del(context.Background(), fmt.Sprintf("agenthub:test:ws:run:%s:events", runID)).Result()
+	})
+	if _, _, err := repo.AcceptRun(ctx, ledger.AcceptRunParams{
+		RunID: runID, RequestID: "req-" + suffix, ConversationID: "conv", WorkspaceID: "ws",
+		PrincipalID: "p", ExecutionPath: "main_agent_orchestration",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i, status := range []string{"planning", "completed"} {
+		if _, err := repo.AppendStateChange(ctx, ledger.StateChange{
+			RunID: runID, FencingVersion: 0, Status: status, EventType: "state_update",
+			Payload: []byte(fmt.Sprintf(`{"step":%d}`, i+1)),
+		}); err != nil {
+			t.Fatalf("append %s: %v", status, err)
+		}
+	}
+	rel, err := relay.New(&runScopedRepository{Repository: repo, runID: runID}, client, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := rel.RunOnce(ctx, 10)
+	if err != nil || published != 2 {
+		t.Fatalf("relay run once: published=%d err=%v", published, err)
+	}
+	entries, err := client.XRange(ctx, fmt.Sprintf("agenthub:test:ws:run:%s:events", runID), "-", "+").Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 redis stream entries, got %d", len(entries))
+	}
+	var publishedCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM outbox WHERE run_id = ? AND status = 'published'", runID).Scan(&publishedCount); err != nil {
+		t.Fatal(err)
+	}
+	if publishedCount != 2 {
+		t.Fatalf("expected 2 published outbox rows, got %d", publishedCount)
+	}
+}
+
+type runScopedRepository struct {
+	*ledger.Repository
+	runID string
+}
+
+func (r *runScopedRepository) PendingOutbox(ctx context.Context, limit int) ([]ledger.OutboxItem, error) {
+	return r.Repository.PendingOutboxForRun(ctx, r.runID, limit)
 }

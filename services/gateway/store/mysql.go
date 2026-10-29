@@ -493,3 +493,13 @@ func (s *MySQLStore) ImportMessage(ctx context.Context, msg Message, requestID, 
 	}
 	return nil
 }
+
+// UpdateChatRequestStatus records the terminal state of a chat request.
+func (s *MySQLStore) UpdateChatRequestStatus(ctx context.Context, requestID, status string) error {
+	if requestID == "" || status == "" {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE chat_requests SET status = ? WHERE request_id = ?", status, requestID)
+	return err
+}

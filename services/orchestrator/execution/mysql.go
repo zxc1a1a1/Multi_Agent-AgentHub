@@ -47,3 +47,26 @@ func (s *MySQLStore) SaveCheckpoint(ctx context.Context, c Checkpoint) (int64, e
 func (s *MySQLStore) SavePlan(ctx context.Context, p Plan) error {
 	return s.repo.SavePlanRevision(ctx, p.RunID, p.PlanID, p.Revision, p.PlanJSON, p.PlanHash)
 }
+
+func (s *MySQLStore) GetRun(ctx context.Context, runID string) (*RunStatus, error) {
+	exec, err := s.repo.GetExecution(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	return &RunStatus{
+		RunID: exec.RunID, Status: exec.Status, CurrentSeq: exec.CurrentSeq,
+		FencingVersion: exec.FencingVersion, TerminalReason: exec.TerminalReason,
+	}, nil
+}
+
+func (s *MySQLStore) ListEventsAfter(ctx context.Context, runID string, afterSeq int64, limit int) ([]Event, error) {
+	rows, err := s.repo.ListEventsAfter(ctx, runID, afterSeq, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Event, len(rows))
+	for i, row := range rows {
+		out[i] = Event{Seq: row.Seq, Type: row.EventType, Payload: row.Payload, CreatedAt: row.CreatedAt}
+	}
+	return out, nil
+}

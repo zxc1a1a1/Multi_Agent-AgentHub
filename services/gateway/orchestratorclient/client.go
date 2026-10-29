@@ -11,6 +11,7 @@ import (
 	"iter"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -101,6 +102,8 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 		quote := runservice.QuoteFromContext(ctx)
 		pinnedMessageIDs := runservice.PinnedMessageIDsFromContext(ctx)
 		contextMessages := runservice.ContextMessagesFromContext(ctx)
+		runID := runservice.RunIDFromContext(ctx)
+		requestID := runservice.RequestIDFromContext(ctx)
 		if planningMode == "" {
 			planningMode = runservice.PlanningModeAuto
 		}
@@ -133,15 +136,21 @@ func (s *OrchestratorRunService) Run(ctx context.Context, conversationID string,
 		}
 
 		reqBody := map[string]any{
-			"conversationId":   conversationID,
-			"conversationType": "single",
-			"messages":         messages,
-			"planningMode":     string(planningMode),
+			"conversationId":     conversationID,
+			"conversationType":   "single",
+			"messages":           messages,
+			"planningMode":       string(planningMode),
 			"agentName":          agentName,
 			"selectedAgentNames": selectedAgentNames,
 			"mentions":           mentions,
 			"requestedPath":      requestedPath,
 			"pinnedMessageIds":   pinnedMessageIDs,
+		}
+		if runID != "" {
+			reqBody["runId"] = runID
+		}
+		if requestID != "" {
+			reqBody["requestId"] = requestID
 		}
 		if replyTo != nil {
 			reqBody["replyTo"] = replyTo
@@ -640,4 +649,56 @@ func extractUserText(content *adk.Content) (string, error) {
 		return "", errors.New("user content requires at least one non-empty text part")
 	}
 	return strings.Join(texts, "\n"), nil
+}
+
+// GetRunStatus fetches SQL-authoritative run status for recovery.
+func (s *OrchestratorRunService) GetRunStatus(ctx context.Context, runID string) (json.RawMessage, error) {
+	if s == nil {
+		return nil, errors.New("orchestrator run service is nil")
+	}
+	if strings.TrimSpace(runID) == "" {
+		return nil, errors.New("runId is required")
+	}
+	endpoint := fmt.Sprintf("%s/internal/orchestrator/runs/%s/status", s.baseURL, url.PathEscape(runID))
+	return s.getJSON(ctx, endpoint)
+}
+
+// ListRunEvents fetches replay events after a SQL seq.
+func (s *OrchestratorRunService) ListRunEvents(ctx context.Context, runID string, after int64, limit int) (json.RawMessage, error) {
+	if s == nil {
+		return nil, errors.New("orchestrator run service is nil")
+	}
+	if strings.TrimSpace(runID) == "" {
+		return nil, errors.New("runId is required")
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	endpoint := fmt.Sprintf("%s/internal/orchestrator/runs/%s/events?after=%d&limit=%d",
+		s.baseURL, url.PathEscape(runID), after, limit)
+	return s.getJSON(ctx, endpoint)
+}
+
+func (s *OrchestratorRunService) getJSON(ctx context.Context, endpoint string) (json.RawMessage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	if s.internalToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.internalToken)
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("orchestrator replay returned status %d", resp.StatusCode)
+	}
+	return json.RawMessage(body), nil
 }

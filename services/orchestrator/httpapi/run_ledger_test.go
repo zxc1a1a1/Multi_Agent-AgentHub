@@ -158,3 +158,19 @@ func TestRunLedgerBudgetLimitsPlanner(t *testing.T) {
 		t.Fatalf("expected run_finished, got: %s", rec.Body.String())
 	}
 }
+
+func (f *fakeExecutionStore) GetRun(_ context.Context, runID string) (*execution.RunStatus, error) {
+	return &execution.RunStatus{RunID: runID, Status: "completed", CurrentSeq: 3}, nil
+}
+
+func (f *fakeExecutionStore) ListEventsAfter(_ context.Context, runID string, after int64, _ int) ([]execution.Event, error) {
+	var out []execution.Event
+	for i, s := range f.states {
+		seq := int64(i + 1)
+		if seq <= after {
+			continue
+		}
+		out = append(out, execution.Event{Seq: seq, Type: s.EventType, Payload: s.Payload, CreatedAt: time.Now().UTC()})
+	}
+	return out, nil
+}

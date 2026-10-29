@@ -569,20 +569,23 @@ func (r *Repository) ListEventsAfter(ctx context.Context, runID string, afterSeq
 }
 
 type OutboxItem struct {
-	ID        int64
-	RunID     string
-	Seq       int64
-	EventType string
-	Attempts  int
+	ID          int64
+	RunID       string
+	Seq         int64
+	EventType   string
+	Attempts    int
+	WorkspaceID string
 }
 
 func (r *Repository) PendingOutbox(ctx context.Context, limit int) ([]OutboxItem, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, run_id, seq, event_type, attempts
-		FROM outbox WHERE status = 'pending' AND available_at <= NOW(3)
-		ORDER BY id ASC LIMIT ?`, limit)
+	rows, err := r.db.QueryContext(ctx, `SELECT o.id, o.run_id, o.seq, o.event_type, o.attempts,
+		COALESCE(e.workspace_id, 'default')
+		FROM outbox o LEFT JOIN executions e ON e.run_id = o.run_id
+		WHERE o.status = 'pending' AND o.available_at <= NOW(3)
+		ORDER BY o.id ASC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -591,7 +594,7 @@ func (r *Repository) PendingOutbox(ctx context.Context, limit int) ([]OutboxItem
 	var out []OutboxItem
 	for rows.Next() {
 		var item OutboxItem
-		if err := rows.Scan(&item.ID, &item.RunID, &item.Seq, &item.EventType, &item.Attempts); err != nil {
+		if err := rows.Scan(&item.ID, &item.RunID, &item.Seq, &item.EventType, &item.Attempts, &item.WorkspaceID); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -603,9 +606,11 @@ func (r *Repository) PendingOutboxForRun(ctx context.Context, runID string, limi
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, run_id, seq, event_type, attempts
-		FROM outbox WHERE status = 'pending' AND available_at <= NOW(3) AND run_id = ?
-		ORDER BY id ASC LIMIT ?`, runID, limit)
+	rows, err := r.db.QueryContext(ctx, `SELECT o.id, o.run_id, o.seq, o.event_type, o.attempts,
+		COALESCE(e.workspace_id, 'default')
+		FROM outbox o LEFT JOIN executions e ON e.run_id = o.run_id
+		WHERE o.status = 'pending' AND o.available_at <= NOW(3) AND o.run_id = ?
+		ORDER BY o.id ASC LIMIT ?`, runID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -614,12 +619,25 @@ func (r *Repository) PendingOutboxForRun(ctx context.Context, runID string, limi
 	var out []OutboxItem
 	for rows.Next() {
 		var item OutboxItem
-		if err := rows.Scan(&item.ID, &item.RunID, &item.Seq, &item.EventType, &item.Attempts); err != nil {
+		if err := rows.Scan(&item.ID, &item.RunID, &item.Seq, &item.EventType, &item.Attempts, &item.WorkspaceID); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+func (r *Repository) GetEvent(ctx context.Context, runID string, seq int64) (*Event, error) {
+	var e Event
+	if err := r.db.QueryRowContext(ctx, `SELECT run_id, seq, event_type, payload_json, created_at
+		FROM execution_events WHERE run_id = ? AND seq = ?`, runID, seq).Scan(
+		&e.RunID, &e.Seq, &e.EventType, &e.Payload, &e.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &e, nil
 }
 
 func (r *Repository) MarkOutboxPublished(ctx context.Context, id int64) error {

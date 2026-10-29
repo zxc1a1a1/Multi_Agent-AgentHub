@@ -23,7 +23,10 @@ import (
 	ledger "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/persistence/mysql"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/relay"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
+
+	"github.com/redis/go-redis/v9"
 
 	// Register model providers (openai, anthropic) into pkg/runtime/registry.
 	_ "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/model"
@@ -225,6 +228,7 @@ func run() error {
 	}
 
 	var ledgerDB *sql.DB
+	var ledgerRepo *ledger.Repository
 	dsn := strings.TrimSpace(os.Getenv("ORCHESTRATOR_DATABASE_URL"))
 	if dsn == "" {
 		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
@@ -241,8 +245,35 @@ func run() error {
 			return fmt.Errorf("run orchestrator migrations: %w", err)
 		}
 		ledgerDB = db
-		serverOpts = append(serverOpts, httpapi.WithExecutionStore(execution.NewMySQLStore(ledger.NewRepository(db))))
+		ledgerRepo = ledger.NewRepository(db)
+		serverOpts = append(serverOpts, httpapi.WithExecutionStore(execution.NewMySQLStore(ledgerRepo)))
 		log.Printf("orchestrator: durable run ledger enabled")
+	}
+
+	var redisClient *redis.Client
+	var stopRelay context.CancelFunc
+	if redisURL := strings.TrimSpace(os.Getenv("REDIS_URL")); redisURL != "" && ledgerRepo != nil {
+		opt, err := redis.ParseURL(redisURL)
+		if err != nil {
+			return fmt.Errorf("parse REDIS_URL: %w", err)
+		}
+		redisClient = redis.NewClient(opt)
+		if err := redisClient.Ping(context.Background()).Err(); err != nil {
+			redisClient.Close()
+			return fmt.Errorf("ping redis: %w", err)
+		}
+		env := strings.TrimSpace(os.Getenv("AGENTHUB_ENV"))
+		rel, err := relay.New(ledgerRepo, redisClient, env)
+		if err != nil {
+			redisClient.Close()
+			return fmt.Errorf("create relay: %w", err)
+		}
+		relayCtx, cancel := context.WithCancel(context.Background())
+		stopRelay = cancel
+		go rel.Run(relayCtx, 250*time.Millisecond)
+		log.Printf("orchestrator: outbox relay enabled")
+	} else if ledgerRepo != nil {
+		log.Printf("WARN: REDIS_URL not set; outbox relay disabled (SQL remains authoritative)")
 	}
 
 	// Phase 5: Wire DynamicAgentRegistry with JSON file store for agent management API.
@@ -332,6 +363,14 @@ func run() error {
 		return err
 	}
 
+	if stopRelay != nil {
+		stopRelay()
+	}
+	if redisClient != nil {
+		if err := redisClient.Close(); err != nil {
+			log.Printf("orchestrator: close redis: %v", err)
+		}
+	}
 	if ledgerDB != nil {
 		if err := ledgerDB.Close(); err != nil {
 			log.Printf("orchestrator: close ledger db: %v", err)
