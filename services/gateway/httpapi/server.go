@@ -814,7 +814,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	assistantText := strings.Builder{}
 
-	seq := s.runner.Run(ctx, req.ConversationID, &adk.Content{
+	// A browser disconnect must not cancel an accepted durable run. The runner
+	// continues; if the socket is gone we drain events and persist the result.
+	runCtx := context.WithoutCancel(ctx)
+	seq := s.runner.Run(runCtx, req.ConversationID, &adk.Content{
 		Role: adk.RoleUser,
 		Parts: []adk.Part{
 			adk.TextPart{Text: req.Message},
@@ -823,6 +826,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	var streamErr error
 	var runFailed bool
+	clientGone := false
 	seq(func(event adk.Event, eventErr error) bool {
 		if eventErr != nil {
 			streamErr = eventErr
@@ -853,9 +857,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			if item.Type == "RUN_ERROR" {
 				runFailed = true
 			}
-			if err := writer.WriteEvent(ctx, item); err != nil {
-				streamErr = err
-				return false
+			if !clientGone {
+				if err := writer.WriteEvent(ctx, item); err != nil {
+					clientGone = true
+				}
 			}
 			// Stop processing after RUN_ERROR — no further events should be sent.
 			if item.Type == "RUN_ERROR" {
@@ -866,35 +871,34 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if streamErr != nil {
-		// If a RUN_ERROR was already sent, do not overwrite it with a generic error.
 		if runFailed {
 			return
 		}
-		// Write a sanitized error that preserves diagnostic context from the
-		// underlying stream failure without exposing internal details.
-		safeMsg := sanitizeStreamError(streamErr)
-		_ = writer.WriteErrorWithCode(ctx, "RUN_ERROR", "ORCHESTRATOR_STREAM_ERROR", safeMsg)
+		if !clientGone {
+			safeMsg := sanitizeStreamError(streamErr)
+			_ = writer.WriteErrorWithCode(ctx, "RUN_ERROR", "ORCHESTRATOR_STREAM_ERROR", safeMsg)
+		}
 		return
 	}
-
-	// Do not persist assistant message if the run failed.
 	if runFailed {
 		return
+	}
+	if recorder != nil {
+		finalStatus = "completed"
 	}
 
 	text := strings.TrimSpace(assistantText.String())
 	if text == "" {
 		return
 	}
-	_, _ = s.store.AppendMessage(ctx, store.Message{
+	persistCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _ = s.store.AppendMessage(persistCtx, store.Message{
 		ConversationID: req.ConversationID,
 		Author:         "assistant",
 		Role:           string(adk.RoleAssistant),
 		Text:           text,
 	})
-	if recorder != nil {
-		finalStatus = "completed"
-	}
 }
 
 func newRunID() string {
