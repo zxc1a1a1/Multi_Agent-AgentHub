@@ -494,6 +494,33 @@ func (s *Server) deregisterChannel(runID string) {
 	s.hitlMu.Unlock()
 }
 
+// cancelPendingPlan signals a run that is blocked on plan confirmation. The run
+// handler owns the ledger transition and SSE termination; this only delivers
+// the cancel decision so Stop-during-approval is not a 404.
+func (s *Server) cancelPendingPlan(runID, reason string) bool {
+	s.hitlMu.Lock()
+	defer s.hitlMu.Unlock()
+
+	pp, hasPlan := s.pendingPlanStates[runID]
+	ch, hasCh := s.hitlChans[runID]
+	if !hasPlan || !hasCh {
+		return false
+	}
+	switch s.hitlStates[runID] {
+	case HITLPending, HITLRevising:
+	default:
+		return false
+	}
+	select {
+	case ch <- HITLConfirmResult{RunID: runID, Action: "cancel", Confirmed: false, RejectReason: reason}:
+	default:
+		return false
+	}
+	pp.Cancel()
+	s.hitlStates[runID] = HITLCancelled
+	return true
+}
+
 // hashHITLPayload computes a deterministic hash of idempotency-relevant fields.
 func hashHITLPayload(req HITLConfirmRequest) string {
 	h := sha256.New()
@@ -507,4 +534,3 @@ func hashHITLPayload(req HITLConfirmRequest) string {
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
-

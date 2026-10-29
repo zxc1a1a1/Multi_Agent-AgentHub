@@ -88,7 +88,7 @@ MemoryPanel.test.tsx                                       PASS（7 tests：加�
 5. Memory Redis 召回缓存已实现；缓存失效事件未单独发布，靠 SQL epoch 复核保证旧值不复用。
 6. 普通断连已不取消 run；前端 `recoverRun` 按 seq 游标回放，但未在真实模型聊天中做浏览器断线演练。
 7. `Redis Streams` 消费者侧去重与终态对账未接入 Gateway。
-8. 浏览器已用 FakeModel + mock child agent 验证聊天计划卡批准/拒绝（见 P6 报告第 4 节）；真实模型聊天、断线重连、执行中停止按钮与工具事件未做浏览器 E2E，待审批时 Stop 仍返回 500。
+8. 浏览器已用 FakeModel + mock child agent 验证聊天计划卡批准/拒绝（见 P6 报告第 4 节）；真实模型聊天、断线重连、执行中停止按钮与工具事件未做浏览器 E2E。待审批时 Stop 的 500 已修复并有单测，浏览器未复验。
 
 ## 4. 结论
 

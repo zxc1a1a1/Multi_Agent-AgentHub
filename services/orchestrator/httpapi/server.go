@@ -812,12 +812,26 @@ func (s *Server) handleRunCancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.runTaskRegistry == nil {
+		if s.cancelPendingPlan(runID, "run cancelled") {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"runId":  runID,
+				"status": "cancelled",
+			})
+			return
+		}
 		writeJSONError(w, http.StatusNotImplemented, "task registry not available")
 		return
 	}
 
 	refs, ok := s.runTaskRegistry.CancelRun(runID)
 	if !ok {
+		if s.cancelPendingPlan(runID, "run cancelled") {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"runId":  runID,
+				"status": "cancelled",
+			})
+			return
+		}
 		writeJSONError(w, http.StatusNotFound, "run not found")
 		return
 	}

@@ -20,7 +20,7 @@
 | 实际 MySQL/Redis | **PASS** | 全量测试含 MySQL 8.4/Redis 7.2 容器；见 P2/P4 报告 |
 | 独立进程测试 | **PARTIAL** | 两个独立 Gateway OS 进程回放同一 run；两个 HTTP 订阅者各自从 SQL 游标收到完整事件；未做 gRPC live/崩溃接管 |
 | Race | **SKIP** | 本机 Go race 依赖的 `clang-22` 路径不存在，`gcc/clang` 包装器均指向缺失文件 |
-| 浏览器 E2E | **PARTIAL（FakeModel + mock child agent）** | Chat 计划卡→批准→执行→回复、计划拒绝/取消已通过；Memory 管理通过；真实模型与 Stop-during-approval 未通过 |
+| 浏览器 E2E | **PARTIAL（FakeModel + mock child agent）** | Chat 计划卡→批准→执行→回复、计划拒绝/取消已通过；Memory 管理通过；真实模型未验证；Stop 修复仅单测 |
 | 前端单测/构建 | **PASS** | Node v20.12.2：220 tests passed；`npm run build` 成功（chunk 1.43MB 警告） |
 | 基准 | **PASS（合成 FakeModel）** | `BenchmarkFakeModelEvaluation` ≈ 77µs/op；不代表真实模型/容量 |
 | 真模型合成集 | **NOT RUN** | 需要用户注入 key 与预算授权，报告不宣称质量 |
@@ -73,7 +73,7 @@ PASS（2 个 OS 子进程各自收到 seq 1..3）
 - Orchestrator gRPC 服务转发 `confirmed`/`rejectReason`。
 - 单测：`TestGRPCRunServiceConfirmRunMapsDecision`、`TestSubmitApprovalForwardsConfirmation`。
 
-未通过项：计划待审批时点击 Stop generation（走 `/api/runs/{id}/cancel`）返回 500。原因：该 run 尚无 dispatched child task，Orchestrator cancel 返回 404；HTTP runner 也是同样行为，属于待审批阶段取消语义缺失，不是 gRPC 回归。计划卡内的 Cancel 按钮可正常取消。
+未通过项（已修复，浏览器未复验）：计划待审批时点击 Stop generation（走 `/api/runs/{id}/cancel`）曾返回 500。原因：该 run 尚无 dispatched child task，Orchestrator cancel 返回 404；HTTP runner 也是同样行为，不是 gRPC 回归。修复：`handleRunCancel` 在 task registry 无记录时取消 pending plan，返回 200，run handler 继续发出 cancelled 终态；`TestRunCancelCancelsPendingPlan` 覆盖 200、cancel 信号、PlanStatusCancelled 与二次取消 404。本轮未重启浏览器复验该按钮。
 
 ## 5. 未覆盖的验收
 
