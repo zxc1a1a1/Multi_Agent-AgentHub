@@ -23,6 +23,48 @@ func openIntegrationStore(t *testing.T) *MySQLStore {
 	return s
 }
 
+func TestIntegrationMySQLProjectionOffsetIsIdempotent(t *testing.T) {
+	s := openIntegrationStore(t)
+	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	conv, err := s.CreateConversation(ctx, "user-proj-"+suffix, "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	runID := "run-proj-" + suffix
+	t.Cleanup(func() {
+		_, _ = s.db.Exec("DELETE FROM messages WHERE conversation_id = ?", conv.ID)
+		_ = s.DeleteConversation(ctx, conv.ID)
+		_, _ = s.db.Exec("DELETE FROM event_projection_offsets WHERE run_id = ?", runID)
+	})
+
+	msg := Message{ConversationID: conv.ID, Author: "assistant", Role: "assistant", Text: "projected"}
+	inserted, err := s.ProjectAssistantMessage(ctx, msg, runID, 7, 0)
+	if err != nil || !inserted {
+		t.Fatalf("first projection: inserted=%v err=%v", inserted, err)
+	}
+	inserted, err = s.ProjectAssistantMessage(ctx, msg, runID, 7, 0)
+	if err != nil || inserted {
+		t.Fatalf("duplicate projection must be skipped: inserted=%v err=%v", inserted, err)
+	}
+
+	var count int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM messages WHERE conversation_id = ? AND run_id = ?", conv.ID, runID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 projected message, got %d", count)
+	}
+	var lastSeq int64
+	if err := s.db.QueryRowContext(ctx, `SELECT last_seq FROM event_projection_offsets WHERE run_id = ? AND consumer_key = ?`,
+		runID, ProjectionConsumerAssistantMessage).Scan(&lastSeq); err != nil {
+		t.Fatal(err)
+	}
+	if lastSeq != 7 {
+		t.Fatalf("expected offset 7, got %d", lastSeq)
+	}
+}
+
 func TestIntegrationMySQLStoreCRUD(t *testing.T) {
 	s := openIntegrationStore(t)
 	ctx := context.Background()

@@ -65,6 +65,54 @@ func TestListConversationsByUserID(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreProjectAssistantMessageIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	st := NewMemoryStore()
+	conv, err := st.CreateConversation(ctx, "user-1", "code-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := Message{ConversationID: conv.ID, Author: "assistant", Role: "assistant", Text: "answer"}
+
+	inserted, err := st.ProjectAssistantMessage(ctx, msg, "run-1", 4, 0)
+	if err != nil || !inserted {
+		t.Fatalf("first projection: inserted=%v err=%v", inserted, err)
+	}
+	inserted, err = st.ProjectAssistantMessage(ctx, msg, "run-1", 4, 0)
+	if err != nil || inserted {
+		t.Fatalf("duplicate projection must be skipped: inserted=%v err=%v", inserted, err)
+	}
+	inserted, err = st.ProjectAssistantMessage(ctx, msg, "run-1", 3, 0)
+	if err != nil || inserted {
+		t.Fatalf("older seq must be skipped: inserted=%v err=%v", inserted, err)
+	}
+	inserted, err = st.ProjectAssistantMessage(ctx, msg, "run-1", 4, 1)
+	if err != nil || !inserted {
+		t.Fatalf("higher sub-index must be projected: inserted=%v err=%v", inserted, err)
+	}
+
+	msgs, err := st.ListMessages(ctx, conv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 projected messages, got %d", len(msgs))
+	}
+	if msgs[0].RunID != "run-1" {
+		t.Fatalf("projection must persist run id, got %q", msgs[0].RunID)
+	}
+}
+
+func TestMemoryStoreProjectionRequiresExistingConversation(t *testing.T) {
+	st := NewMemoryStore()
+	inserted, err := st.ProjectAssistantMessage(context.Background(), Message{
+		ConversationID: "missing", Author: "assistant", Role: "assistant", Text: "answer",
+	}, "run-1", 1, 0)
+	if !errors.Is(err, ErrConversationNotFound) || inserted {
+		t.Fatalf("expected conversation not found, got inserted=%v err=%v", inserted, err)
+	}
+}
+
 func TestAppendAndListMessages(t *testing.T) {
 	st := NewMemoryStore()
 	conv, err := st.CreateConversation(context.Background(), "user-1", "code-agent")

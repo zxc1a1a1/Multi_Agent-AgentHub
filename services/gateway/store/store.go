@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,8 +38,18 @@ type Message struct {
 	Author         string    `json:"author"`
 	Role           string    `json:"role"`
 	Text           string    `json:"text"`
+	RunID          string    `json:"runId,omitempty"`
 	CreatedAt      time.Time `json:"createdAt"`
 }
+
+// ProjectionStore projects run events into conversation rows while recording a
+// per-run consumer offset. Implementations must not append the same event twice.
+type ProjectionStore interface {
+	ProjectAssistantMessage(ctx context.Context, msg Message, runID string, seq int64, subIndex int) (bool, error)
+}
+
+// ProjectionConsumerAssistantMessage is the offset key for assistant text.
+const ProjectionConsumerAssistantMessage = "assistant_message.v1"
 
 type Store interface {
 	CreateConversation(ctx context.Context, userID, agentName string) (*Conversation, error)
@@ -58,15 +69,22 @@ type ConversationPatch struct {
 }
 
 type MemoryStore struct {
-	mu            sync.RWMutex
-	conversations map[string]Conversation
-	messages      map[string][]Message
+	mu                sync.RWMutex
+	conversations     map[string]Conversation
+	messages          map[string][]Message
+	projectionOffsets map[string]projectionOffset
+}
+
+type projectionOffset struct {
+	seq      int64
+	subIndex int
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		conversations: make(map[string]Conversation),
-		messages:      make(map[string][]Message),
+		conversations:     make(map[string]Conversation),
+		messages:          make(map[string][]Message),
+		projectionOffsets: make(map[string]projectionOffset),
 	}
 }
 
@@ -210,6 +228,50 @@ func (s *MemoryStore) AppendMessage(ctx context.Context, msg Message) (*Message,
 	return &out, nil
 }
 
+func (s *MemoryStore) ProjectAssistantMessage(ctx context.Context, msg Message, runID string, seq int64, subIndex int) (bool, error) {
+	if err := contextErr(ctx); err != nil {
+		return false, err
+	}
+	if msg.ConversationID == "" {
+		return false, ErrConversationNotFound
+	}
+	if strings.TrimSpace(msg.Text) == "" {
+		return false, ErrEmptyMessage
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conv, ok := s.conversations[msg.ConversationID]
+	if !ok {
+		return false, ErrConversationNotFound
+	}
+	key := runID + "\x00" + ProjectionConsumerAssistantMessage
+	if offset, ok := s.projectionOffsets[key]; ok {
+		if offset.seq > seq || (offset.seq == seq && offset.subIndex >= subIndex) {
+			return false, nil
+		}
+	}
+	if msg.ID == "" {
+		msg.ID = newID()
+	}
+	if msg.CreatedAt.IsZero() {
+		msg.CreatedAt = time.Now().UTC()
+	}
+	if msg.RunID == "" {
+		msg.RunID = runID
+	}
+	msgCopy := copyMessage(msg)
+	s.messages[msg.ConversationID] = append(s.messages[msg.ConversationID], msgCopy)
+	conv.UpdatedAt = msgCopy.CreatedAt
+	s.conversations[msg.ConversationID] = conv
+	if s.projectionOffsets == nil {
+		s.projectionOffsets = make(map[string]projectionOffset)
+	}
+	s.projectionOffsets[key] = projectionOffset{seq: seq, subIndex: subIndex}
+	return true, nil
+}
+
 func (s *MemoryStore) ListMessages(ctx context.Context, conversationID string) ([]Message, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
@@ -270,6 +332,7 @@ func copyMessage(in Message) Message {
 		Author:         in.Author,
 		Role:           in.Role,
 		Text:           in.Text,
+		RunID:          in.RunID,
 		CreatedAt:      in.CreatedAt,
 	}
 }

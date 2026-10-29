@@ -326,7 +326,7 @@ git status --short
 | P2 | 存储层完成：MySQL Store/账本/Session/转换测试在真实 MySQL 通过；跨服务 accept 与运行接线待 P3b |
 | P3a | 已完成：Harness 预算/状态/上下文、Tool Descriptor/Broker、只读 workspace 工具、MemoryPolicy 接口 |
 | P3b | 部分完成：SQL 状态/checkpoint/plan approval/预算/resume（含 Gateway 代理）；已完成调用复用/断连恢复未完成 |
-| P4 | 部分完成：Redis relay、SQL/公开事件回放、SSE 多订阅游标、requestId 幂等、断连 durable、Memory 工具/API/UI/epoch 缓存；gRPC/真实模型断线浏览器未完成 |
+| P4 | 部分完成：Redis relay、SQL/公开事件回放、SSE 多订阅游标、requestId 幂等、断连 durable、assistant 投影游标、Memory 工具/API/UI/epoch 缓存、gRPC 审批/取消；真实模型断线/live 订阅未完成 |
 | P5 | 部分完成：apply_patch、Broker/账本、SSRF、Docker 隔离、MCP allowlist、artifact；Agent 工具接线/真实 MCP/真实检索未完成 |
 | P6 | 部分完成：FakeModel、前端、真实 MySQL+Redis、Memory E2E、两进程独立回放、FakeModel 浏览器批准/拒绝；真实模型/race/live 订阅未完成 |
 | P7 | 部分完成：compose/版本/镜像/最小栈 smoke、MySQL/Redis 重启恢复、SQLite→MySQL 迁移工具；完整业务 smoke/真实数据迁移未执行 |

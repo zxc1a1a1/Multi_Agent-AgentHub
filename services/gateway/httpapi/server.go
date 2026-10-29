@@ -936,12 +936,18 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	persistCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, _ = s.store.AppendMessage(persistCtx, store.Message{
+	msg := store.Message{
 		ConversationID: req.ConversationID,
 		Author:         "assistant",
 		Role:           string(adk.RoleAssistant),
 		Text:           text,
-	})
+		RunID:          runID,
+	}
+	if projector, ok := s.store.(store.ProjectionStore); ok {
+		_, _ = projector.ProjectAssistantMessage(persistCtx, msg, runID, publicSeq, 0)
+		return
+	}
+	_, _ = s.store.AppendMessage(persistCtx, msg)
 }
 
 func newRunID() string {

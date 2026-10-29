@@ -292,6 +292,74 @@ func (s *MySQLStore) AppendMessage(ctx context.Context, msg Message) (*Message, 
 	return &msg, nil
 }
 
+func (s *MySQLStore) ProjectAssistantMessage(ctx context.Context, msg Message, runID string, seq int64, subIndex int) (bool, error) {
+	if msg.ConversationID == "" {
+		return false, ErrConversationNotFound
+	}
+	if strings.TrimSpace(msg.Text) == "" {
+		return false, ErrEmptyMessage
+	}
+	if msg.ID == "" {
+		msg.ID = newID()
+	}
+	if msg.CreatedAt.IsZero() {
+		msg.CreatedAt = time.Now().UTC()
+	}
+	if msg.RunID == "" {
+		msg.RunID = runID
+	}
+	senderType := msg.Role
+	if senderType == "" {
+		senderType = msg.Author
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	var existingID string
+	if err := tx.QueryRowContext(ctx, "SELECT id FROM conversations WHERE id = ? FOR UPDATE", msg.ConversationID).Scan(&existingID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, ErrConversationNotFound
+		}
+		return false, err
+	}
+
+	var lastSeq int64
+	var lastSubIndex int
+	err = tx.QueryRowContext(ctx, `SELECT last_seq, last_sub_index FROM event_projection_offsets
+		WHERE run_id = ? AND consumer_key = ? FOR UPDATE`,
+		runID, ProjectionConsumerAssistantMessage).Scan(&lastSeq, &lastSubIndex)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	if err == nil && (lastSeq > seq || (lastSeq == seq && lastSubIndex >= subIndex)) {
+		return false, nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `UPDATE conversations SET updated_at = ? WHERE id = ?`, msg.CreatedAt, msg.ConversationID); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO messages
+		(id, conversation_id, sender_type, sender_name, content, metadata, request_id, run_id, created_at)
+		VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+		msg.ID, msg.ConversationID, senderType, nullString(msg.Author), msg.Text, msg.RunID, msg.CreatedAt); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO event_projection_offsets
+		(run_id, consumer_key, last_seq, last_sub_index) VALUES (?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE last_seq = VALUES(last_seq), last_sub_index = VALUES(last_sub_index)`,
+		runID, ProjectionConsumerAssistantMessage, seq, subIndex); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *MySQLStore) ListMessages(ctx context.Context, conversationID string) ([]Message, error) {
 	if _, err := s.GetConversation(ctx, conversationID); err != nil {
 		return nil, err
