@@ -1,45 +1,58 @@
 # Orchestration Plan Contract
 
-**Status:** Active
+**Status:** Active (v2)
 **Owner:** AgentHub
-**Primary source:** Module Separation & Runtime Redesign
-
+**Last updated:** 2026-10-29（P0：删除规则回退计划，冻结 revision/版本与拒绝语义）
 
 ## Authoritative source order
 
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. PDR product goals only, not old module layout
-4. Sprint/UML as supporting product/demo references only
-
-Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
-
+1. `docs/contracts/intent-orchestration.md`
+2. `docs/contracts/participant-boundary.md`
+3. `docs/contracts/runtime-harness.md`
 
 ## Shape
 
 ```json
 {
-  "mode": "single|sequential|ordered_parallel",
-  "intent": "brief user intent",
-  "steps": [
+  "version": "1.0",
+  "planId": "plan_...",
+  "runId": "run_...",
+  "conversationId": "conv_...",
+  "executionPath": "single_chat|group_chat|main_agent_orchestration",
+  "executionOwner": {"type": "agent|group|main_agent_orchestration", "agentName": "...", "agentNames": []},
+  "strategy": "single|sequential|ordered_parallel|conversational",
+  "intentSummary": "brief user intent",
+  "revision": 1,
+  "plannerSource": "main_agent",
+  "plannerModel": "provider/model",
+  "tasks": [
     {
-      "id": "step-1",
+      "taskId": "task-1",
       "agentName": "code-agent",
-      "input": "task for this agent",
+      "taskContent": "...",
       "dependsOn": [],
-      "expectedOutputs": ["text", "code"]
+      "priority": 1,
+      "timeoutMs": 60000,
+      "riskLevel": "low|medium|high"
     }
-  ]
+  ],
+  "allowedAgents": ["code-agent"],
+  "participants": [],
+  "candidateParticipants": [],
+  "defaultSelectedParticipants": [],
+  "fallback": {"enabled": false}
 }
 ```
 
-## Strategies
+## Frozen rules
 
-| Strategy | Description |
-|---|---|
-| `single` | Exactly 1 task, dispatched directly. |
-| `ordered_parallel` | 2+ tasks with no mutual dependencies, executed in priority order (serial). |
-| `sequential` | 1+ tasks, connected via `dependsOn` edges. Executor topologically sorts into waves; same-wave tasks run concurrently; later waves wait for upstream results. |
+1. `plannerSource` 生产只允许 `main_agent`；`fallback` 必须恒为 `{"enabled": false}`。任何 `fallback.enabled=true` 的计划在目标启动图视为非法。
+2. `revision` 从 1 开始单调递增；计划修订产生新 revision，旧审批/旧工具许可失效。
+3. `planId` 是运行内稳定标识；同一 revision 不得复用不同内容。
+4. 计划必须通过依赖无环校验（Kahn）与允许集合校验后才能执行。
+5. 任务数量默认上限 5（`ORCHESTRATOR_MAX_TASKS`）；并行度受 `runtime-harness.md` 预算约束。
+6. 模型返回未知 Agent、未知策略或非法依赖时，整个计划被拒绝；不猜测、不补默认任务、不固定派发 `code-agent`。
+7. `conversational` 仅表示当前轮不派发子任务（直接回答/澄清），不是规则路由结果。
 
 ## Sequential (DAG) semantics
 
@@ -48,12 +61,12 @@ Engineering details MUST follow the module separation redesign. Old `server/` an
 - Upstream task output is injected into downstream `taskContent` via `{{deps.{taskId}.output}}` placeholders.
 - If an upstream task fails, dependent downstream tasks are skipped with `ORCHESTRATOR_SKIPPED_DEP`.
 - Independent branches continue execution regardless of failures in other branches.
-- Task limit: default 5, configurable via `ORCHESTRATOR_MAX_TASKS` env.
 
 ## Validation
 
-- Every `agentName` must exist in Orchestrator registry and be healthy unless fallback explicitly applies.
+- Every `agentName` must exist in Orchestrator registry, be enabled/healthy, and be inside `AllowedAgents`.
 - `dependsOn` ids must reference other taskIds in the plan (no dangling refs, no self-loops).
 - `ordered_parallel` tasks must not have `dependsOn`.
 - The `dependsOn` graph must contain no cycles.
 - Frontend skills must support expected artifact outputs or Orchestrator must degrade to text.
+- 审批改变参与者集合必须走 revision，不得在批准动作中静默改写计划。

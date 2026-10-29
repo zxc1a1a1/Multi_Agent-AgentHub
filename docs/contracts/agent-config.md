@@ -50,3 +50,31 @@ context_pruning:
 - `model` references Runtime model registry.
 - `tools` use `type/set/func` paths.
 - `skills` reference Runtime Skill repository names.
+
+## v2 tool and memory config
+
+```yaml
+tools:
+  - name: workspace.read
+    type: native/workspace/read
+    readOnly: true
+    timeoutMs: 15000
+    maxOutputBytes: 65536
+  - name: workspace.apply_patch
+    type: native/workspace/apply_patch
+    readOnly: false
+    approval: always
+memory:
+  mode: session_only        # off | session_only | scoped_long_term
+  scope: derived_from_request
+budget:
+  modelCalls: 16
+  toolCalls: 32
+  executionSeconds: 180
+```
+
+- 工具声明只描述能力，不构成授权；实际调用仍经 Tool Broker。
+- `approval` 取 `none | confirm | always`；写工具默认 `always`。
+- Memory `mode` 默认 `session_only`；`off` 不删除已有聊天/checkpoint/审计。
+- 配置不能包含密钥；缺失模型配置必须启动/就绪失败，不得回退规则模式。
+- 子 Agent 默认不继承父级全部工具、全部历史或继续委派权限。

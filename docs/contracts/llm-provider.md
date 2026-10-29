@@ -32,4 +32,4 @@ Concrete providers live in `pkg/runtime/model`. ADK only defines `adk.Model`.
 - Providers are registered through Runtime model registry.
 - API keys come from env vars only.
 - Provider errors must be sanitized before reaching browser.
-- Planner may use an LLM provider, but RulePlanner remains fallback only.
+- Planner must use an LLM provider; there is no rule/keyword fallback. Missing model config fails startup/readiness (see `intent-orchestration.md`).

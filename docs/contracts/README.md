@@ -48,5 +48,13 @@ Contract → Implementation → Contract Test / Smoke Test → Review
 - `intent-orchestration.md`, `planner-input.md`, `orchestration-plan.md`
 - `frontend-runtime-skills.md`
 - `artifact-schema.md`
-- `data-model.md`, `mysql-schema.md`, `storage-profiles.md`
+- `data-model.md`, `mysql-schema.md`, `storage-profiles.md`, `redis-usage.md`
+- `runtime-harness.md`, `memory.md`, `tool-broker.md`, `event-replay.md`
 - `docker-compose-delivery.md`
+
+## v2 decisions
+
+- `docs/architecture/optimization-architecture.md`
+- `docs/architecture/optimization-technology-selection.md`
+- `docs/architecture/adr/ADR-V2-01-mysql-redis.md` … `ADR-V2-06-event-replay.md`
+- `docs/plans/agenthub-redis-sql-harness-plan.md`

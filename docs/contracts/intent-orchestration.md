@@ -1,36 +1,86 @@
 # Intent Orchestration Contract
 
-**Status:** Active
+**Status:** Active (v2)
 **Owner:** AgentHub
-**Primary source:** Module Separation & Runtime Redesign
-**Last updated:** 2026-06-08 (Phase 0.5 — added ChatExecutionPath, participant boundary, non-auto Planner constraint)
-
+**Primary source:** Module Separation & Runtime Redesign；v2 优化见 `docs/architecture/optimization-architecture.md`
+**Last updated:** 2026-10-29（P0：取消全部语义规则回退，冻结 MainAgent 动作 schema 与失败语义）
 
 ## Authoritative source order
 
-1. `docs/superpowers/specs/2026-05-26-module-separation-and-runtime-redesign.md`
-2. `docs/superpowers/specs/2026-05-27-module-separation-runtime-redesign.md`
-3. `docs/contracts/chat-execution-path.md`
-4. `docs/contracts/participant-boundary.md`
-5. PDR product goals only, not old module layout
-6. Sprint/UML as supporting product/demo references only
+1. `docs/architecture/optimization-architecture.md`（v2 决策）
+2. `docs/contracts/chat-execution-path.md`
+3. `docs/contracts/participant-boundary.md`
+4. `docs/contracts/planner-input.md`
+5. `docs/contracts/orchestration-plan.md`
+6. 旧 `docs/superpowers/specs/*` 仅作历史设计参考；与 v2 冲突时以 v2 为准
+7. PDR/Sprint/UML 只作产品参考
 
-Engineering details MUST follow the module separation redesign. Old `server/` and root `agents/` are legacy reference implementations unless a task explicitly says otherwise.
-
+旧 `server/` 与根目录 `agents/` 是 legacy 参考实现，不是目标路径。
 
 ## Scope
 
-Planning and execution live only in `services/orchestrator`.
+规划与执行只发生在 `services/orchestrator`。Planner 只产出结构化计划/动作，不直接读 Gateway 数据库、不调用 Child Agent、不执行工具。
 
-## Components
+## Decision entry（唯一语义入口）
 
 ```text
-internal/planner      intent → OrchestrationPlan
-internal/router       agent registry and capability match
-internal/executor     single/sequential/parallel execution
-internal/dispatcher   A2A calls to Child Agents
-internal/converter    A2A/ADK events → AG-UI events
+用户目标 + 有界历史 + 允许的 Agent/Tool 描述 + 已完成 observation
+  → MainAgent（LLM）
+  → 结构化动作
+  → Parser → Normalizer → Validator（确定性）→ Coordinator 执行
 ```
+
+- 生产启动图**只有一个 LLM 决策入口**：`MainAgent`。
+- **禁止**关键词评分、`RulePlanner`、模型失败时固定选择 `code-agent`、`llm_with_rule_fallback`、缺模型自动退回规则等任何语义回退。
+- 保留的确定性逻辑（鉴权、schema 校验、允许集合、预算、依赖调度、审批、终态）不是语义规则路由。
+- 离线测试只允许注入 FakeModel，FakeModel 不得因缺少配置在生产启用。
+
+## MainAgent 动作 schema（冻结）
+
+```json
+{
+  "action": "answer | clarify | tool_call | delegate | revise_plan | finish",
+  "reason": "short model rationale (not chain-of-thought)",
+  "answer": {"content": "..."},
+  "clarify": {"question": "..."},
+  "toolCall": {"toolName": "...", "arguments": {}},
+  "delegate": {"agentName": "...", "task": "...", "dependsOn": []},
+  "plan": {"strategy": "single|sequential|ordered_parallel", "tasks": []}
+}
+```
+
+规则：
+
+1. `action` 必填且只能取上列枚举；未知动作拒绝。
+2. `toolName` / `agentName` 只能来自本次请求的允许集合；越权或未知名称拒绝，不猜测、不填默认值。
+3. `delegate.agentName` 不得超出 `AllowedAgents`；`single_chat` / `group_chat` 下不得新增或替换 Agent。
+4. `plan.tasks[].agentName` 同样受允许集合约束；依赖必须引用已知 taskId 且无环。
+5. 模型输出必须通过 Parser → Normalizer → Validator；修复最多一次，且修复仍由模型执行，不换关键词规则。
+6. `reason` 只保存简短决策摘要，不保存模型隐藏思维链。
+
+## 失败语义（冻结）
+
+| 情况 | 处理 |
+|---|---|
+| 模型依赖缺失/不支持必需能力 | 启动或就绪检查失败；不退回 rule，不把 mock 接到生产 |
+| 模型暂时错误 | 预算内有限重试；仍失败返回脱敏的终止性错误 |
+| JSON/schema 错误 | 最多一次模型修复；仍错误则失败；不猜 Agent 名、不补默认任务 |
+| 意图不明确 | 返回 `clarify` 动作等待用户，不用关键词补路由 |
+| 工具不存在/越权 | 拒绝调用，记录受控 observation；模型可在预算内调整 |
+| Agent 不可用 | 模型重新规划或明确失败；不偷偷替换成默认 Agent |
+| 模型返回空/非法 Agent 集合 | 终止当前 run 并返回安全错误，派发次数必须为 0 |
+
+## ChatExecutionPath 与 Planner 约束
+
+| executionPath | Planner 角色 | AllowedAgents |
+|---|---|---|
+| `single_chat` | 路由到指定 Agent；不替代 Agent 自身规划 | `[currentAgent]` |
+| `group_chat` | 协调预选 Agent 的顺序/依赖；不新增 Agent | `selectedAgentNames ∩ mentions` |
+| `main_agent_orchestration` | 从完整 Agent 池推荐/选择 | 全部启用 Agent |
+
+- 非自动路径中，Planner **MUST NOT** 选择、添加或替换 `AllowedAgents` 之外的 Agent。
+- Validator **MUST reject** 任何 `task.agentName` 不在 `AllowedAgents` 的计划。
+- 用户显式 `@agent` 是权限/参与边界，不是关键词路由。
 
 ## Planning mode
 
@@ -39,44 +89,22 @@ internal/converter    A2A/ADK events → AG-UI events
 | `single` | One Child Agent handles the task. |
 | `sequential` | Ordered dependent steps. |
 | `parallel` | Independent steps may run concurrently. |
-| `ordered_parallel` | Temporary demo-safe mode: independent intent, deterministic ordered output. |
+| `ordered_parallel` | Independent intent, deterministic ordered output. |
 
-## Planner sources
-
-- Target: LLM planner using AgentCards and history.
-- Fallback: RulePlanner based on capabilities/keywords.
-
-RulePlanner may exist but must not be documented as the final intelligent planning implementation.
-
-## ChatExecutionPath and Planner constraints
-
-This contract recognizes three execution paths defined in `docs/contracts/chat-execution-path.md`:
-
-| executionPath | Planner role | AllowedAgents |
-|---|---|---|
-| `single_chat` | Routes plan_only/execute calls to the designated Agent. **Does NOT replace the Agent's own planning.** | `[currentAgent]` |
-| `group_chat` | Coordinates sequence/dependencies between pre-selected agents. **Does NOT add agents.** | `selectedAgentNames ∩ mentions` |
-| `main_agent_orchestration` | The main-agent recommends candidates from the full agent pool. **Only this path allows open-ended agent selection.** | All enabled available agents |
-
-### Non-auto Planner constraint
-
-In `single_chat` and `group_chat` modes:
-- The LLMPlanner / RulePlanner **MUST NOT** select, add, or substitute agents outside `AllowedAgents`.
-- The Planner **MUST NOT** change or widen the user's agent selection.
-- Validator **MUST reject** any plan where `task.agentName` is not in `AllowedAgents`.
-
-### Relationship to legacy `planningMode`
-
-The legacy `planningMode` field (`auto`/`direct`/`manual`/`mention`) is superseded by `executionPath`. See `docs/contracts/chat-execution-path.md` for the mapping.
+`planningMode`（`auto`/`direct`/`manual`/`mention`）已被 `executionPath` 取代。
 
 ## Participant boundary
 
-See `docs/contracts/participant-boundary.md` for full boundary rules:
 - `single_chat`: `AllowedAgents = [currentAgent]`.
-- `group_chat`: `AllowedAgents = selectedAgentNames ∩ mentions`. Intersection empty → `AGENT_SELECTION_CONFLICT`.
-- `main_agent_orchestration`: `AvailableBoundary = all enabled agents`. Main-agent sets `candidateParticipants` and `defaultSelectedParticipants`. They are proposals only; final `selectedParticipants` is created by approving the current proposal unchanged.
-
+- `group_chat`: `AllowedAgents = selectedAgentNames ∩ mentions`；交集为空 → `AGENT_SELECTION_CONFLICT`。
+- `main_agent_orchestration`: `AvailableBoundary = all enabled agents`。MainAgent 提出 `candidateParticipants` / `defaultSelectedParticipants`，它们是提案；最终 `selectedParticipants` 由原样批准产生。
 
 ## Auto participant-change rule
 
-In `main_agent_orchestration`, the main-agent proposes `candidateParticipants` and `defaultSelectedParticipants`. If the user changes that set or provides feedback, the action is `REQUEST_PLAN_REVISION`, not approval. `APPROVE_PLAN` with changed participants MUST be rejected with `PARTICIPANT_CHANGE_REQUIRES_REVISION`.
+`main_agent_orchestration` 中，用户修改候选集合或提供反馈时动作为 `REQUEST_PLAN_REVISION`，不是批准。带修改参与者的 `APPROVE_PLAN` 必须以 `PARTICIPANT_CHANGE_REQUIRES_REVISION` 拒绝。
+
+## 证据要求
+
+- 门禁以真实 handler 入口的派发调用计数为准：模型失败/无模型时 Child Agent 派发次数为 0。
+- 代码中残留 `RulePlanner` 字样必须能解释为历史文档或迁移遗留；启动图与调用断言优先于字符串计数。
+- FakeModel 测试通过不得表述为真实模型效果通过。

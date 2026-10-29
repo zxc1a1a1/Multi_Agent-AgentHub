@@ -84,7 +84,7 @@ This contract defines the three execution paths available in AgentHub, their ent
 ### Plan generation
 - The **designated Agent itself** generates the plan via `plan_only` mode.
 - The Orchestrator calls the Agent with `mode=plan_only` and presents its output as the PLAN_PROPOSAL.
-- The LLMPlanner / RulePlanner MUST NOT generate the plan on behalf of the Agent.
+- The MainAgent / Planner MUST NOT generate the plan on behalf of the Agent.
 
 ### Planning scope
 - The plan MUST only involve the designated Agent.
@@ -176,7 +176,7 @@ This contract defines the three execution paths available in AgentHub, their ent
 
 In `single_chat` and `group_chat` modes:
 
-- The LLMPlanner / RulePlanner / Planner MUST NOT select agents outside `AllowedAgents`.
+- The MainAgent / Planner MUST NOT select agents outside `AllowedAgents`.
 - The Planner MUST NOT change, widen, or override the user's agent selection.
 - The Planner's role in non-auto modes is limited to:
   - `single_chat`: routing the plan_only/execute calls to the designated Agent (not replacing the Agent's own planning).

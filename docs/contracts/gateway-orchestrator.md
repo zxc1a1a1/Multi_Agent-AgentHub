@@ -48,8 +48,18 @@ services/gateway  --gRPC streaming-->  services/orchestrator
 - Enforce agent selection boundaries per execution path (see `docs/contracts/participant-boundary.md`).
 - Execute single/sequential/parallel tasks through A2A Child Agents.
 - Convert internal/A2A events to AG-UI events with `agentName`.
-- Return only stream events; do not persist browser conversation state.
+- Persist execution state, approvals, budgets, tool ledger, checkpoints and event journal in its own MySQL schema; never persist browser conversation state.
 - Handle plan approval lifecycle: `confirm_plan` → wait → execute/revise/cancel.
+- Maintain durable runs: browser disconnect does not cancel; only explicit cancel does.
+
+## v2 internal operations
+
+目标协议为 gRPC（`StartRun` / `SubscribeRun` / `GetRunStatus` / `SubmitApproval` / `CancelRun` / `ListAgents`，见 `event-replay.md`）。迁移期 HTTP/SSE 必须标注 compatibility，不得作为目标架构。
+
+- `StartRun` 以 `requestId` 幂等；重复请求返回同一 runId。
+- `SubscribeRun` 携带 `(seq, subIndex)` 游标；断开不取消运行。
+- 事件以 SQL `(runId, seq)` 为权威；Redis 仅为短期副本。
+- Gateway 先幂等更新投影再发送公开事件；终态前确认投影已提交。
 
 ## Plan approval forwarding
 
