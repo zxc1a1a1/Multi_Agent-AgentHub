@@ -1037,8 +1037,8 @@ func ensureAutoFirst(agents []AgentSummary) []AgentSummary {
 //	agentName != "" && != "auto"   → direct
 //	otherwise                      → auto
 //
-// This is the user-facing planningMode (auto/direct/manual/mention),
-// distinct from the server-side plannerMode (rule/llm/llm_with_rule_fallback).
+// This is the user-facing planningMode (auto/direct/manual/mention), not a
+// server-side planner mode: the Orchestrator planner is LLM-only.
 func derivePlanningMode(agentName string, selectedAgentNames, mentions []string) runservice.PlanningMode {
 	if len(selectedAgentNames) > 1 {
 		return runservice.PlanningModeManual

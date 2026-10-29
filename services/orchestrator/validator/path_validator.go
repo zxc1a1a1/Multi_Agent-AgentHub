@@ -168,14 +168,14 @@ func (v *PathAwareValidator) validateParticipants(p *plan.OrchestrationPlan, all
 		}
 	}
 
-	// 4d. group_chat: must have at least one participant.
-	if v.executionPath == "group_chat" && len(p.Participants) == 0 {
+	// 4d. group_chat: must have at least one participant unless answering directly.
+	if v.executionPath == "group_chat" && p.Strategy != plan.StrategyConversational && len(p.Participants) == 0 {
 		r.addError("participants", "PATH_GROUP_CHAT_NO_PARTICIPANTS",
 			"group_chat requires at least one participant")
 	}
 
-	// 4e. main_agent_orchestration: at least one participant must be selected.
-	if v.executionPath == "main_agent_orchestration" && len(p.Participants) == 0 {
+	// 4e. main_agent_orchestration: at least one participant unless answering directly.
+	if v.executionPath == "main_agent_orchestration" && p.Strategy != plan.StrategyConversational && len(p.Participants) == 0 {
 		r.addError("participants", "PATH_AUTO_NO_PARTICIPANTS",
 			"main_agent_orchestration requires at least one participant")
 	}

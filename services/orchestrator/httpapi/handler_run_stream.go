@@ -185,9 +185,12 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		log.Printf("orchestrator: run=%s applying %d pinnedMessageIds to context", runID, len(req.PinnedMessageIDs))
 	}
 
-	// Ensure mainAgentPlanner has a production default.
+	// The planner must be wired with a real model at startup. Never construct a
+	// model-less planner per request and never dispatch without a validated plan.
 	if s.mainAgentPlanner == nil {
-		s.mainAgentPlanner = planner.NewMainAgent(nil, "", newResolverAgentLister(s.dispatchResolver()))
+		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_UNAVAILABLE",
+			"planner is not configured")
+		return
 	}
 
 	orchPlan, planErr := s.mainAgentPlanner.Plan(r.Context(), plannerInput)
@@ -615,6 +618,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	// registered later when the dispatcher receives them from child agents. Do
 	// not pre-register plan.TaskID as a remote A2A task ID.
 	execCtx, execCancel := context.WithCancel(r.Context())
+	defer execCancel()
 	if s.runTaskRegistry != nil {
 		s.runTaskRegistry.RegisterRun(runID, execCancel)
 		defer s.runTaskRegistry.RemoveRun(runID)
@@ -623,7 +627,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	switch orchPlan.Strategy {
 	case plan.StrategyConversational:
-		s.handleConversational(w, flusher, runID, msgID)
+		s.handleConversational(w, flusher, runID, msgID, orchPlan.Answer)
 	case plan.StrategySingle:
 		s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
 			executor.NewSingleExecutor(s.dispatchResolver(), s.dispatcher,
@@ -637,12 +641,14 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 }
 
-// handleConversational emits an orchestrator self-response for conversational
-// intents (greetings, capability questions). No child agents are dispatched.
-// The response is streamed in chunks so the frontend can show a thinking/typing
-// state before the full response arrives.
-func (s *Server) handleConversational(w http.ResponseWriter, flusher http.Flusher, runID, msgID string) {
-	response := conversationalResponse()
+// handleConversational streams the model's direct answer. No child agent is
+// dispatched. An empty answer is a planner failure, not a canned response.
+func (s *Server) handleConversational(w http.ResponseWriter, flusher http.Flusher, runID, msgID, response string) {
+	if strings.TrimSpace(response) == "" {
+		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_PLANNER_FAILED",
+			"conversational plan has no answer")
+		return
+	}
 
 	s.emitEvent(w, flusher, agui.InternalStreamEvent{
 		Type:      agui.InternalTypeMessageStart,
@@ -700,20 +706,6 @@ func splitConversationalResponse(text string) []string {
 		}
 	}
 	return result
-}
-
-// conversationalResponse returns the orchestrator self-introduction text.
-func conversationalResponse() string {
-	return "你好！我是 **AgentHub 自动编排助手**。\n\n" +
-		"我会根据你的任务自动进行规划，并调用合适的子 Agent 来完成任务，" +
-		"包括 **Code Agent**（代码生成）、**Web Agent**（页面生成）、" +
-		"**Document Agent**（文档生成）等。\n\n" +
-		"对于复杂任务，我会先生成执行计划并请你确认，确认后再调度多个 Agent 并行执行。\n\n" +
-		"你可以直接告诉我你想做什么，比如：\n" +
-		"- \"帮我写一个 Go REST API\"\n" +
-		"- \"做一个登录页面，同时生成后端登录接口和接口文档\"\n" +
-		"- \"审查这段代码的安全性\"\n\n" +
-		"有什么我可以帮你的吗？"
 }
 
 // executeViaStreamingExecutor delegates to a StreamingExecutor and converts each
@@ -1025,23 +1017,6 @@ func sanitizeForError(name string) string {
 		name = name[:64]
 	}
 	return name
-}
-
-func logLLMPlanFallback(err error) {
-	log.Printf("orchestrator: LLM planner failed, falling back to RulePlanner: %v", err)
-}
-
-func plannerSourceLabel(source string) string {
-	switch source {
-	case "llm":
-		return "AI 编排"
-	case "rule":
-		return "规则编排"
-	case "fallback":
-		return "降级编排"
-	default:
-		return source
-	}
 }
 
 // buildPlanState constructs the base plan state map for SSE events.

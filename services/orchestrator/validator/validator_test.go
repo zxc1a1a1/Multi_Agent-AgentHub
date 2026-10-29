@@ -1,12 +1,10 @@
 package validator
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
-	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 )
 
@@ -363,8 +361,8 @@ func TestValidateMediumRiskAccepted(t *testing.T) {
 func TestValidateAllErrorsCollected(t *testing.T) {
 	v := New(newStubRegistry())
 	p := &plan.OrchestrationPlan{
-		PlanID: "",
-		RunID:  "",
+		PlanID:   "",
+		RunID:    "",
 		Strategy: "invalid",
 		Tasks: []plan.TaskPlan{
 			{
@@ -470,16 +468,20 @@ func TestValidateProductionMetadataSingleCode(t *testing.T) {
 	reg := productionRegistry()
 	v := New(reg)
 
-	rp := planner.NewRulePlanner(reg.Names())
-	orchPlan, err := rp.Plan(context.Background(), planner.PlannerInput{
+	orchPlan := &plan.OrchestrationPlan{
+		PlanID:         plan.NewPlanID(),
 		RunID:          "run_prod_code",
 		ConversationID: "conv_prod_code",
-		AgentName:      "code-agent",
-		UserMessage:    "用 Go 写一个 HTTP API 接口",
-		AvailableAgents: reg.Names(),
-	})
-	if err != nil {
-		t.Fatalf("RulePlanner failed: %v", err)
+		Strategy:       plan.StrategySingle,
+		Tasks: []plan.TaskPlan{{
+			TaskID:          "task-1",
+			AgentName:       "code-agent",
+			CapabilityIDs:   []string{"code_generation"},
+			TaskContent:     "用 Go 写一个 HTTP API 接口",
+			ExpectedOutputs: []string{"code"},
+			TimeoutMs:       120000,
+			RiskLevel:       "low",
+		}},
 	}
 
 	result := v.Validate(orchPlan)
@@ -495,16 +497,20 @@ func TestValidateProductionMetadataSingleWeb(t *testing.T) {
 	reg := productionRegistry()
 	v := New(reg)
 
-	rp := planner.NewRulePlanner(reg.Names())
-	orchPlan, err := rp.Plan(context.Background(), planner.PlannerInput{
+	orchPlan := &plan.OrchestrationPlan{
+		PlanID:         plan.NewPlanID(),
 		RunID:          "run_prod_web",
 		ConversationID: "conv_prod_web",
-		AgentName:      "web-agent",
-		UserMessage:    "写一个 HTML 登录页面",
-		AvailableAgents: reg.Names(),
-	})
-	if err != nil {
-		t.Fatalf("RulePlanner failed: %v", err)
+		Strategy:       plan.StrategySingle,
+		Tasks: []plan.TaskPlan{{
+			TaskID:          "task-1",
+			AgentName:       "web-agent",
+			CapabilityIDs:   []string{"web_generation"},
+			TaskContent:     "写一个 HTML 登录页面",
+			ExpectedOutputs: []string{"html"},
+			TimeoutMs:       120000,
+			RiskLevel:       "low",
+		}},
 	}
 
 	result := v.Validate(orchPlan)
@@ -520,15 +526,34 @@ func TestValidateProductionMetadataMixedOrderedParallel(t *testing.T) {
 	reg := productionRegistry()
 	v := New(reg)
 
-	rp := planner.NewRulePlanner(reg.Names())
-	orchPlan, err := rp.Plan(context.Background(), planner.PlannerInput{
+	orchPlan := &plan.OrchestrationPlan{
+		PlanID:         plan.NewPlanID(),
 		RunID:          "run_prod_mixed",
 		ConversationID: "conv_prod_mixed",
-		UserMessage:    "写一个 HTML 登录页面，并实现 Go API 接口",
-		AvailableAgents: reg.Names(),
-	})
-	if err != nil {
-		t.Fatalf("RulePlanner failed: %v", err)
+		Strategy:       plan.StrategyOrderedParallel,
+		Aggregation:    plan.Aggregation{Required: true, Mode: "summary"},
+		Tasks: []plan.TaskPlan{
+			{
+				TaskID:          "task-1",
+				AgentName:       "web-agent",
+				CapabilityIDs:   []string{"web_generation"},
+				TaskContent:     "写一个 HTML 登录页面",
+				ExpectedOutputs: []string{"html"},
+				Priority:        1,
+				TimeoutMs:       120000,
+				RiskLevel:       "low",
+			},
+			{
+				TaskID:          "task-2",
+				AgentName:       "code-agent",
+				CapabilityIDs:   []string{"code_generation"},
+				TaskContent:     "实现 Go API 接口",
+				ExpectedOutputs: []string{"code"},
+				Priority:        2,
+				TimeoutMs:       120000,
+				RiskLevel:       "low",
+			},
+		},
 	}
 
 	result := v.Validate(orchPlan)
@@ -978,9 +1003,9 @@ func TestPlanValidator_AllNewErrorsCollected(t *testing.T) {
 			{
 				TaskID:      "t1", // duplicate
 				AgentName:   "code-agent",
-				TaskContent: "",    // empty
-				TimeoutMs:  120000,
-				RiskLevel:  "low",
+				TaskContent: "", // empty
+				TimeoutMs:   120000,
+				RiskLevel:   "low",
 			},
 		},
 	}

@@ -17,8 +17,8 @@ import (
 //   - LLM mode=parallel → StrategyOrderedParallel (compatibility mapping)
 //   - LLM mode=sequential → StrategySequential (validator rejects it)
 //
-// The normalizer does NOT call RulePlanner, fuzzyMatchAgent, defaultAgent,
-// or any other guessing logic. The output always has Validation.Validated=false;
+// The normalizer does NOT perform keyword matching, fuzzy agent matching,
+// or default-agent selection. The output always has Validation.Validated=false;
 // only the validator may set it to true.
 type PlanNormalizer struct{}
 
@@ -46,7 +46,34 @@ func (n *PlanNormalizer) Normalize(schema *PlanSchema, runID, conversationID, pl
 		return nil, err
 	}
 
-	// 3. Normalize each step — no agent name guessing.
+	// 3. Answer mode is a direct model reply, not an agent dispatch.
+	if strings.ToLower(strings.TrimSpace(schema.Mode)) == LLMModeAnswer {
+		if len(schema.Steps) > 0 {
+			return nil, fmt.Errorf("normalize: answer mode must not include steps")
+		}
+		answer := strings.TrimSpace(schema.Answer)
+		if answer == "" {
+			return nil, fmt.Errorf("normalize: answer mode requires a non-empty answer")
+		}
+		return &plan.OrchestrationPlan{
+			Version:        "v1",
+			PlanID:         plan.NewPlanID(),
+			RunID:          runID,
+			ConversationID: conversationID,
+			PlanningMode:   planningMode,
+			ExecutionPath:  executionPath,
+			Strategy:       plan.StrategyConversational,
+			IntentSummary:  truncateToLength(answer, 120),
+			Answer:         answer,
+			Tasks:          nil,
+			Aggregation:    plan.Aggregation{Required: false, Mode: "none"},
+			Fallback:       plan.Fallback{Enabled: false},
+			Validation:     plan.Validation{Validated: false},
+			Warnings:       schema.Warnings,
+		}, nil
+	}
+
+	// 4. Normalize each step — no agent name guessing.
 	tasks := make([]plan.TaskPlan, 0, len(schema.Steps))
 	for i, s := range schema.Steps {
 		task := n.normalizeStep(s, i)
@@ -127,6 +154,8 @@ func mapModeToStrategy(mode string) (string, error) {
 	case LLMModeSequential:
 		// Mapped to the constant so the validator produces a clear rejection.
 		return plan.StrategySequential, nil
+	case LLMModeAnswer:
+		return plan.StrategyConversational, nil
 	default:
 		return "", fmt.Errorf("normalize: unknown mode %q", mode)
 	}

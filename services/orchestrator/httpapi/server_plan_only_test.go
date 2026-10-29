@@ -297,11 +297,11 @@ func TestMainAgentOrchestration_UsesMainAgent(t *testing.T) {
 			Tasks: []plan.TaskPlan{
 				{TaskID: "task-1", AgentName: "code-agent", TaskContent: "write code", Priority: 1, TimeoutMs: 60000, RiskLevel: "low"},
 			},
-			PlannerSource:              "main_agent",
-			Participants:               []plan.PlanParticipant{{AgentName: "code-agent", Required: true, Selected: true}},
-			CandidateParticipants:      []plan.PlanParticipant{{AgentName: "code-agent", Required: true, Selected: true}, {AgentName: "web-agent", Required: false, Selected: false}},
+			PlannerSource:               "main_agent",
+			Participants:                []plan.PlanParticipant{{AgentName: "code-agent", Required: true, Selected: true}},
+			CandidateParticipants:       []plan.PlanParticipant{{AgentName: "code-agent", Required: true, Selected: true}, {AgentName: "web-agent", Required: false, Selected: false}},
 			DefaultSelectedParticipants: []plan.PlanParticipant{{AgentName: "code-agent", Required: true, Selected: true}},
-			PlanOwner:                  &plan.PlanOwner{Type: "main_agent", AgentName: "main-agent", IsMainAgent: true},
+			PlanOwner:                   &plan.PlanOwner{Type: "main_agent", AgentName: "main-agent", IsMainAgent: true},
 		},
 	}
 
@@ -405,70 +405,6 @@ func TestPlanBoundaryEnforcement(t *testing.T) {
 	}
 }
 
-// TestMainAgentPlannerDefault verifies that the production default MainAgent
-// is created when no WithMainAgentPlanner is provided.
-func TestMainAgentPlannerDefault(t *testing.T) {
-	t.Skip("Known SSE-blocking issue: httptest.Server.Close hangs on active SSE connections. See issue #SSE-TEST-09")
-	reg, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{
-		{Name: "code-agent", URL: "http://127.0.0.1:1"},
-	})
-	if err != nil {
-		t.Fatalf("create registry: %v", err)
-	}
-
-	srv := NewServer(WithRegistry(reg), WithDispatcher(dispatcher.NewA2ADispatcher()))
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	body := `{"runId":"run-default","conversationId":"conv-1","messages":[{"role":"user","text":"write Go code for an HTTP API"}],"requestedPath":"main_agent_orchestration"}`
-	resp, err := http.Post(ts.URL+"/internal/orchestrator/runs/stream", "application/json", strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("POST failed: %v", err)
-	}
-
-	resultCh := make(chan []sseEvent, 1)
-	go func() {
-		resultCh <- readSSEBody(t, resp.Body)
-	}()
-
-	planID := waitForPlanID(srv, "run-default", 3*time.Second)
-	if planID == "" {
-		t.Fatal("plan was not registered — default MainAgent should generate a plan")
-	}
-
-	cancelBody := fmt.Sprintf(`{"runId":"run-default","actionId":"%s","action":"cancel"}`, planID)
-	http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(cancelBody))
-
-	var events []sseEvent
-	select {
-	case events = <-resultCh:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out")
-	}
-
-	// Verify no run_error.
-	_, hasError := findEvent(events, "run_error")
-	if hasError {
-		t.Error("should not have run_error with default MainAgent")
-	}
-
-	// Verify activity_snapshot has planOwner.
-	var activityData string
-	for _, e := range events {
-		if e.eventType == "activity_snapshot" {
-			activityData = e.data
-			break
-		}
-	}
-	if activityData == "" {
-		t.Fatal("no activity_snapshot")
-	}
-	if !strings.Contains(activityData, "main_agent") {
-		t.Error("activity_snapshot should have planOwner with main_agent")
-	}
-}
-
-// TestGroupChatReviseSupported verifies that revise works for group_chat
 // through the shared confirmLoop using MainAgent.
 func TestGroupChatReviseSupported(t *testing.T) {
 	t.Skip("Known SSE-blocking issue: httptest.Server.Close hangs on active SSE connections. See issue #SSE-TEST-10")

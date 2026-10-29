@@ -82,21 +82,6 @@ Validator 能检查 depends_on 合法性和环
 
 如果这些不完整，validator 必须拒绝 sequential 并触发 repair。
 
-## 5. RulePlanner 定位
+## 5. RulePlanner 定位（v2 已删除）
 
-RulePlanner 只允许作为临时兜底：
-
-```text
-Deprecated transitional fallback only
-```
-
-禁止：
-
-```text
-新增关键词
-新增 agent 匹配规则
-扩大 RulePlanner 职责
-把 RulePlanner 当主路径
-```
-
-后续目标是删除 RulePlanner。
+RulePlanner 与 LLMPlanner 已在 v2 删除，生产与测试均不得恢复关键词评分、固定 Agent 回退或 `llm_with_rule_fallback`。模型失败必须显式失败或返回 clarify；确定性校验/预算/审批保留。

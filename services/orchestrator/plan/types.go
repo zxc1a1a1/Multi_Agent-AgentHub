@@ -19,16 +19,19 @@ type OrchestrationPlan struct {
 	ExecutionPath  string      `json:"executionPath"`  // ChatExecutionPath used for this plan
 	Strategy       string      `json:"strategy"`
 	IntentSummary  string      `json:"intentSummary"`
+	// Answer carries the model's direct reply for conversational plans.
+	// It is empty for plans that dispatch agents.
+	Answer         string      `json:"answer,omitempty"`
 	Tasks          []TaskPlan  `json:"tasks"`
 	Aggregation    Aggregation `json:"aggregation"`
 	Fallback       Fallback    `json:"fallback"`
 	Validation     Validation  `json:"validation"`
 	TraceID        string      `json:"traceId,omitempty"` // propagated from request through dispatcher to agents
 
-	// Planner metadata — populated by LLMPlanner, zero-value for RulePlanner.
-	PlannerReasoning string `json:"plannerReasoning,omitempty"` // LLM reasoning
+	// Planner metadata — populated by MainAgent.
+	PlannerReasoning string `json:"plannerReasoning,omitempty"` // short model rationale
 	PlannerModel     string `json:"plannerModel,omitempty"`     // model name used
-	PlannerSource    string `json:"plannerSource,omitempty"`    // "llm" | "rule" | "fallback"
+	PlannerSource    string `json:"plannerSource,omitempty"`    // "main_agent"
 	RepairCount      int    `json:"repairCount,omitempty"`      // number of repair attempts (max 1)
 
 	// AllowedAgents carries the participant boundary that was enforced at plan time.

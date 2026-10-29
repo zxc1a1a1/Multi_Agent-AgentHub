@@ -92,7 +92,7 @@ type planningModeContextKey struct{}
 
 // PlanningMode is the user-requested orchestration routing mode.
 // Valid values: "auto", "direct", "manual", "mention".
-// This is distinct from the server-side PlannerMode (rule/llm/llm_with_rule_fallback).
+// This is not a server-side planner mode: the Orchestrator planner is LLM-only.
 type PlanningMode string
 
 const (

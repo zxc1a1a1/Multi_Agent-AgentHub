@@ -58,6 +58,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := validateRuntimeConfig(cfg); err != nil {
+		return err
+	}
 
 	var opts []httpapi.Option
 	var dbCleanup func() error
@@ -75,32 +78,20 @@ func run() error {
 		log.Printf("store mode: memory")
 	}
 
-	var runner gateway.RunService
-
-	if cfg.OrchestratorURL != "" {
-		log.Printf("using orchestrator at %s", cfg.OrchestratorURL)
-		orchSvc, err := orchestratorclient.NewOrchestratorRunService(
-			cfg.OrchestratorURL,
-			cfg.OrchestratorToken,
-		)
-		if err != nil {
-			return err
-		}
-		runner = orchSvc
-		// Same instance acts as AgentManagementProxy for /api/agents* proxy.
-		opts = append(opts, httpapi.WithAgentProxy(orchSvc))
-	} else {
-		log.Printf("orchestrator URL not set, falling back to static routing")
-		registry, err := runservice.NewStaticAgentRegistry(cfg.AgentEndpoints)
-		if err != nil {
-			return err
-		}
-
-		runner, err = runservice.NewRoutingRunService(registry, cfg.DefaultAgentName)
-		if err != nil {
-			return err
-		}
+	if cfg.OrchestratorURL == "" {
+		return fmt.Errorf("ORCHESTRATOR_URL is required: static direct-to-agent routing was removed")
 	}
+
+	log.Printf("using orchestrator at %s", cfg.OrchestratorURL)
+	runner, err := orchestratorclient.NewOrchestratorRunService(
+		cfg.OrchestratorURL,
+		cfg.OrchestratorToken,
+	)
+	if err != nil {
+		return err
+	}
+	// Same instance acts as AgentManagementProxy for /api/agents* proxy.
+	opts = append(opts, httpapi.WithAgentProxy(runner))
 
 	// Always build agent summaries for the frontend agent dropdown,
 	// regardless of whether we use the Orchestrator or static routing.
@@ -311,6 +302,13 @@ func loadRuntimeConfigFromEnv() (runtimeConfig, error) {
 		return runtimeConfig{}, err
 	}
 	return cfg, nil
+}
+
+func validateRuntimeConfig(cfg runtimeConfig) error {
+	if strings.TrimSpace(cfg.OrchestratorURL) == "" {
+		return fmt.Errorf("ORCHESTRATOR_URL is required: static direct-to-agent routing was removed")
+	}
+	return nil
 }
 
 func toAgentSummaries(endpoints []runservice.AgentEndpoint) []httpapi.AgentSummary {

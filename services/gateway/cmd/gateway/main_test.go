@@ -90,6 +90,15 @@ func TestLoadRuntimeConfigFromEnvDefaults(t *testing.T) {
 	}
 }
 
+func TestValidateRuntimeConfigRequiresOrchestrator(t *testing.T) {
+	if err := validateRuntimeConfig(runtimeConfig{}); err == nil {
+		t.Fatal("expected error when ORCHESTRATOR_URL is empty")
+	}
+	if err := validateRuntimeConfig(runtimeConfig{OrchestratorURL: "http://orchestrator:8080"}); err != nil {
+		t.Fatalf("unexpected error with orchestrator URL: %v", err)
+	}
+}
+
 func TestLoadRuntimeConfigFromEnvEnableAuthWithoutToken(t *testing.T) {
 	t.Setenv("AGENTHUB_API_TOKEN", "")
 	t.Setenv("GATEWAY_ENABLE_AUTH", "true")

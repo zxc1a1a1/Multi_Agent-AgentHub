@@ -198,19 +198,6 @@ func TestTaskSummariesNil(t *testing.T) {
 	}
 }
 
-func TestConversationalResponse(t *testing.T) {
-	resp := conversationalResponse()
-	if !strings.Contains(resp, "AgentHub") {
-		t.Error("conversational response must mention AgentHub")
-	}
-	if !strings.Contains(resp, "自动编排") {
-		t.Error("conversational response must mention 自动编排")
-	}
-	if strings.Contains(resp, "code-agent") {
-		t.Error("conversational response must not expose internal agent names")
-	}
-}
-
 func TestConfirmArgsJSON(t *testing.T) {
 	p := testPlanMultiAgent()
 	args := map[string]any{

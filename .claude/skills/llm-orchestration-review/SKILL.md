@@ -66,10 +66,10 @@ Parser 是否独立
 Normalizer 是否只翻译不猜测
 Validator 是否确定性且完整
 Repairer 是否最多一次
-RulePlanner 是否 deprecated fallback only
+RulePlanner/LLMPlanner 是否已删除且无关键词回退
 Prompt 是否使用 registry agent 信息
 State metadata 是否可选且不破坏前端
-测试是否覆盖 repair/fallback
+测试是否覆盖 repair 与无回退失败路径
 ```
 
 ## 结论格式

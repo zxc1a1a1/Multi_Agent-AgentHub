@@ -81,14 +81,14 @@ func TestMainAgentOrchestration_SendsActivitySnapshotWithCandidates(t *testing.T
 	// Parse the first ACTIVITY_SNAPSHOT.
 	var wrapper struct {
 		Activity struct {
-			ActivityType              string              `json:"activityType"`
-			Status                    string              `json:"status"`
-			ExecutionPath             string              `json:"executionPath"`
-			CandidateParticipants     []plan.PlanParticipant `json:"candidateParticipants"`
+			ActivityType                string                 `json:"activityType"`
+			Status                      string                 `json:"status"`
+			ExecutionPath               string                 `json:"executionPath"`
+			CandidateParticipants       []plan.PlanParticipant `json:"candidateParticipants"`
 			DefaultSelectedParticipants []plan.PlanParticipant `json:"defaultSelectedParticipants"`
-			RequiredParticipants      []string              `json:"requiredParticipants"`
-			PlanOwner                 *plan.PlanOwner       `json:"planOwner"`
-			AllowedActions            []string              `json:"allowedActions"`
+			RequiredParticipants        []string               `json:"requiredParticipants"`
+			PlanOwner                   *plan.PlanOwner        `json:"planOwner"`
+			AllowedActions              []string               `json:"allowedActions"`
 		} `json:"activity"`
 	}
 	if err := json.Unmarshal([]byte(activitySnapshots[0]), &wrapper); err != nil {
@@ -161,133 +161,6 @@ func TestMainAgentOrchestration_SendsActivitySnapshotWithCandidates(t *testing.T
 	}
 }
 
-// TestMainAgentCapabilityKeywordMatching verifies the rule-based keyword
-// scoring produces correct default selections for different inputs.
-func TestMainAgentCapabilityKeywordMatching(t *testing.T) {
-	t.Skip("Known SSE-blocking issue: httptest.Server.Close hangs on active SSE connections. See issue #SSE-TEST-02")
-	reg, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{
-		{Name: "code-agent", URL: "http://127.0.0.1:1"},
-		{Name: "web-agent", URL: "http://127.0.0.1:2"},
-	})
-	if err != nil {
-		t.Fatalf("create registry: %v", err)
-	}
-
-	tests := []struct {
-		name                string
-		userMessage         string
-		wantDefaultSelected string // agent that should be in defaultSelected
-		wantDefaultNot      string // agent that should NOT be in defaultSelected
-		skipConfirm         bool   // true for conversational fallback (no HITL)
-	}{
-		{
-			name:                "code keyword selects code-agent",
-			userMessage:         "write a Go function",
-			wantDefaultSelected: "code-agent",
-			wantDefaultNot:      "",
-		},
-		{
-			name:                "web keyword selects web-agent",
-			userMessage:         "build a React frontend page",
-			wantDefaultSelected: "web-agent",
-			wantDefaultNot:      "code-agent",
-		},
-		{
-			name:                "no match conversational fallback",
-			userMessage:         "hello",
-			wantDefaultSelected: "",
-			wantDefaultNot:      "",
-			skipConfirm:         true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			srv := NewServer(WithRegistry(reg), WithDispatcher(dispatcher.NewA2ADispatcher()))
-			ts := httptest.NewServer(srv.Handler())
-			defer ts.Close()
-
-			runID := fmt.Sprintf("run-kw-%s", tt.name)
-			body := fmt.Sprintf(`{"runId":"%s","conversationId":"conv-1","messages":[{"role":"user","text":"%s"}],"requestedPath":"main_agent_orchestration"}`, runID, tt.userMessage)
-			resp, err := http.Post(ts.URL+"/internal/orchestrator/runs/stream", "application/json", strings.NewReader(body))
-			if err != nil {
-				t.Fatalf("POST failed: %v", err)
-			}
-
-			resultCh := make(chan []sseEvent, 1)
-			go func() {
-				resultCh <- readSSEBody(t, resp.Body)
-			}()
-
-			// Conversational fallback: no HITL confirmation needed.
-			if tt.skipConfirm {
-				var events []sseEvent
-				select {
-				case events = <-resultCh:
-				case <-time.After(5 * time.Second):
-					t.Fatal("timed out")
-				}
-				// Verify conversational path doesn't emit activity_snapshot.
-				for _, e := range events {
-					state := parseSSEState(e.data)
-					if state != nil && state["requiresConfirmation"] == true {
-						t.Error("conversational fallback should not require confirmation")
-					}
-				}
-				return
-			}
-
-			planID := waitForPlanID(srv, runID, 3*time.Second)
-			if planID == "" {
-				t.Fatal("plan should be registered")
-			}
-			cancelBody := fmt.Sprintf(`{"runId":"%s","actionId":"%s","action":"cancel"}`, runID, planID)
-			http.Post(ts.URL+"/internal/orchestrator/hitl/confirm", "application/json", strings.NewReader(cancelBody))
-
-			var events []sseEvent
-			select {
-			case events = <-resultCh:
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out")
-			}
-
-			var activityData string
-			for _, e := range events {
-				if e.eventType == "activity_snapshot" {
-					activityData = e.data
-					break
-				}
-			}
-			if activityData == "" {
-				t.Fatal("no activity_snapshot event")
-			}
-
-			var wrapper struct {
-				Activity struct {
-					DefaultSelectedParticipants []plan.PlanParticipant `json:"defaultSelectedParticipants"`
-				} `json:"activity"`
-			}
-			if err := json.Unmarshal([]byte(activityData), &wrapper); err != nil {
-				t.Fatalf("unmarshal: %v", err)
-			}
-
-			selected := make(map[string]bool)
-			for _, p := range wrapper.Activity.DefaultSelectedParticipants {
-				selected[p.AgentName] = true
-			}
-
-			if tt.wantDefaultSelected != "" && !selected[tt.wantDefaultSelected] {
-				t.Errorf("expected %s in defaultSelectedParticipants, got %v", tt.wantDefaultSelected, selected)
-			}
-			if tt.wantDefaultNot != "" && selected[tt.wantDefaultNot] {
-				t.Errorf("expected %s NOT in defaultSelectedParticipants", tt.wantDefaultNot)
-			}
-		})
-	}
-}
-
-// TestOptionalParticipantCanBeUnchecked verifies Phase 4 behavior: optional
-// participants can be unchecked directly on approve without requiring revision.
 func TestParticipantChangeRequiresRevision(t *testing.T) {
 	srv := NewServer()
 	ts := httptest.NewServer(srv.Handler())
@@ -427,15 +300,15 @@ func TestMainAgentPlanContainsAllFields(t *testing.T) {
 	var wrapper struct {
 		Type     string `json:"type"`
 		Activity struct {
-			ActivityID    string            `json:"activityId"`
-			ActivityType  string            `json:"activityType"`
-			Status        string            `json:"status"`
-			ExecutionPath string            `json:"executionPath"`
-			PlanID        string            `json:"planId"`
-			Revision      int               `json:"revision"`
-			PlanOwner     *plan.PlanOwner   `json:"planOwner"`
-			Tasks         []plan.TaskPlan   `json:"tasks"`
-			AllowedActions []string         `json:"allowedActions"`
+			ActivityID     string          `json:"activityId"`
+			ActivityType   string          `json:"activityType"`
+			Status         string          `json:"status"`
+			ExecutionPath  string          `json:"executionPath"`
+			PlanID         string          `json:"planId"`
+			Revision       int             `json:"revision"`
+			PlanOwner      *plan.PlanOwner `json:"planOwner"`
+			Tasks          []plan.TaskPlan `json:"tasks"`
+			AllowedActions []string        `json:"allowedActions"`
 		} `json:"activity"`
 	}
 	if err := json.Unmarshal([]byte(activityData), &wrapper); err != nil {

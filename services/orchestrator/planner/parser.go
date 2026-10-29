@@ -58,10 +58,18 @@ func (p *PlanParser) Parse(raw string) (*PlanSchema, error) {
 	}
 
 	// Step 5: reject missing required fields.
-	if strings.TrimSpace(schema.Mode) == "" {
+	mode := strings.ToLower(strings.TrimSpace(schema.Mode))
+	if mode == "" {
 		return nil, fmt.Errorf("parse: missing mode field")
 	}
-	if len(schema.Steps) == 0 {
+	if mode == LLMModeAnswer {
+		if len(schema.Steps) > 0 {
+			return nil, fmt.Errorf("parse: answer mode must not include steps")
+		}
+		if strings.TrimSpace(schema.Answer) == "" {
+			return nil, fmt.Errorf("parse: answer mode requires a non-empty answer")
+		}
+	} else if len(schema.Steps) == 0 {
 		return nil, fmt.Errorf("parse: missing steps (must be non-empty array)")
 	}
 

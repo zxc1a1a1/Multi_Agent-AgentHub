@@ -15,8 +15,13 @@ type PlanSchema struct {
 	// It is informational only and MUST NOT be the sole execution gate.
 	Confidence float64 `json:"confidence,omitempty"`
 
-	// Steps is the ordered list of execution steps. Required, non-empty.
+	// Steps is the ordered list of execution steps. Required and non-empty
+	// unless Mode is "answer".
 	Steps []PlanStep `json:"steps"`
+
+	// Answer is the direct assistant reply when Mode is "answer".
+	// Answer mode dispatches no child agent.
+	Answer string `json:"answer,omitempty"`
 
 	// UserVisibleSummary is a human-readable summary safe for display to users.
 	// It MUST NOT contain internal information such as URLs, keys, or raw prompts.
@@ -50,4 +55,5 @@ const (
 	LLMModeSingle     = "single"
 	LLMModeParallel   = "parallel"
 	LLMModeSequential = "sequential"
+	LLMModeAnswer     = "answer"
 )

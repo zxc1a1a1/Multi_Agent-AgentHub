@@ -159,13 +159,13 @@ Orchestrator 是核心编排层，需要知道所有 Agent 的地址。
 | `HITL_ENABLED` | 否 | (关) | 设为 `true` 启用高风险任务 HITL 确认 |
 | `ORCHESTRATOR_MAX_TASKS` | 否 | `5` | 单计划最大任务数 |
 
-**Orchestrator LLM 配置**（启用 LLM Planner + Synthesizer 时必填）：
+**Orchestrator LLM 配置**（LLM-only 编排，模型名与 API Key 为启动必需）：
 
 | 变量名 | 必填 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `ORCHESTRATOR_PLANNER_MODE` | 否 | `llm_with_rule_fallback` | 编排模式：`rule`（关键词）、`llm`（LLM 无回退）、`llm_with_rule_fallback`（LLM + Rule 回退） |
 | `ORCHESTRATOR_LLM_PROVIDER` | 否 | `anthropic` | LLM 提供商：`anthropic` / `openai` |
-| `ORCHESTRATOR_LLM_MODEL` | 否 | (空) | 模型名，如 `claude-sonnet-4-20250514` |
+| `ORCHESTRATOR_LLM_MODEL` | **是** | (空) | 模型名，如 `claude-sonnet-4-20250514`；缺失时启动失败 |
+| `ORCHESTRATOR_PLANNER_MODE` | 否 | (空) | 仅接受 `llm`；`rule` / `llm_with_rule_fallback` 已删除并会使启动失败 |
 | `ORCHESTRATOR_LLM_API_KEY` | 条件 | (空) | API Key（优先级最高） |
 | `ORCHESTRATOR_LLM_BASE_URL` | 否 | (空) | 自定义 Base URL |
 | `ANTHROPIC_API_KEY` | 条件 | (空) | Anthropic Key（`ORCHESTRATOR_LLM_API_KEY` 未设时回退） |

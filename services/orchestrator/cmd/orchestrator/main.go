@@ -234,86 +234,52 @@ func run() error {
 	serverOpts = append(serverOpts, httpapi.WithDynamicRegistry(dynamicReg))
 	log.Printf("orchestrator: dynamic agent registry wired (store=%s)", storePath)
 
-	// Planner mode via ORCHESTRATOR_PLANNER_MODE:
-	//   rule (default):     deterministic RulePlanner only, ignores API key
-	//   llm:                LLMPlanner only, fails on error (no silent fallback)
-	//   llm_with_rule_fallback: LLMPlanner with RulePlanner fallback on failure
-	plannerMode := strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_PLANNER_MODE")))
-	if plannerMode == "" {
-		plannerMode = "rule"
+	// The planner is LLM-only. There is no rule, keyword, or model-less mode.
+	// A removed legacy mode is rejected rather than silently downgraded.
+	if legacyMode := strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_PLANNER_MODE"))); legacyMode != "" && legacyMode != "llm" {
+		return fmt.Errorf("ORCHESTRATOR_PLANNER_MODE=%q is no longer supported; rule and llm_with_rule_fallback modes were removed", legacyMode)
 	}
 	requireConfirm := strings.ToLower(strings.TrimSpace(
 		os.Getenv("REQUIRE_PLAN_CONFIRMATION"))) == "true"
-	log.Printf("orchestrator config: plannerMode=%s, requirePlanConfirmation=%v", plannerMode, requireConfirm)
-	serverOpts = append(serverOpts, httpapi.WithPlannerMode(httpapi.PlannerMode(plannerMode)))
 
-	if plannerMode == "llm" || plannerMode == "llm_with_rule_fallback" {
-		provider := strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_PROVIDER")))
-		if provider == "" {
-			provider = "anthropic"
-		}
-		modelName := strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_MODEL"))
-		baseURL := strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_BASE_URL"))
-		apiKey := resolvePlannerAPIKey()
-
-		if apiKey == "" {
-			log.Printf("orchestrator planner: LLM mode requested but no API key found, starting in rule mode")
-			serverOpts = append(serverOpts, httpapi.WithPlannerMode(httpapi.PlannerModeRule))
-		} else {
-			// pkg/runtime/model providers read the key from an env var.
-			apiKeyEnv := "ORCHESTRATOR_LLM_API_KEY"
-			os.Setenv(apiKeyEnv, apiKey)
-
-			llmModel, err := rtregistry.CreateAndRegisterModel(context.Background(), rtregistry.ModelConfig{
-				Name:      "orchestrator-planner",
-				Provider:  provider,
-				Model:     modelName,
-				APIKeyEnv: apiKeyEnv,
-				BaseURL:   baseURL,
-				MaxTokens: 1024,
-			})
-			if err != nil {
-				log.Printf("orchestrator planner: failed to create model via pkg/runtime/model: %v, falling back to rule mode", err)
-				serverOpts = append(serverOpts, httpapi.WithPlannerMode(httpapi.PlannerModeRule))
-			} else {
-				llmClient := planner.NewADKModelAdapter(llmModel)
-				adapter := &registryAgentLister{reg: agentRegistry}
-				llmPlanner := planner.NewLLMPlanner(llmClient, modelName, adapter)
-				if plannerMode == "llm" {
-					llmPlanner.DisableFallback()
-				}
-				serverOpts = append(serverOpts, httpapi.WithPlanner(llmPlanner))
-
-				// Wire MainAgent with the same PlannerModel for path-aware LLM planning
-				// across ALL execution paths (single_chat, group_chat, main_agent_orchestration).
-				//
-				// MainAgent runtime behavior depends on PlannerModel availability:
-				//   LLM mode (ORCHESTRATOR_PLANNER_MODE=llm or llm_with_rule_fallback + API key):
-				//     MainAgent.Plan() → LLM pipeline (PromptBuilder → model.Generate →
-				//     Parser → Normalizer → Validator). This is the production path.
-				//   rule / no-key mode (default):
-				//     MainAgent.Plan() → keyword-based fallback with "[FALLBACK]" marker.
-				//     This is for dev/test only — plans are deterministic but coarse.
-				//
-				// To verify LLM MainAgent in integration testing, set:
-				//   ORCHESTRATOR_PLANNER_MODE=llm (or llm_with_rule_fallback)
-				//   ORCHESTRATOR_LLM_PROVIDER=anthropic (or openai)
-				//   ORCHESTRATOR_LLM_MODEL=<model-name>
-				//   ORCHESTRATOR_LLM_API_KEY=<key>
-				mainAgent := planner.NewMainAgent(llmClient, modelName, adapter)
-				serverOpts = append(serverOpts, httpapi.WithMainAgentPlanner(mainAgent))
-				log.Printf("orchestrator: MainAgent wired with PlannerModel (model=%s)", modelName)
-
-				// Wire LLM synthesizer for multi-agent result aggregation.
-				syn := synthesizer.NewLLMSynthesizer(llmClient, modelName)
-				serverOpts = append(serverOpts, httpapi.WithSynthesizer(syn))
-
-				log.Printf("orchestrator planner: mode=%s (provider=%s, model=%s)", plannerMode, provider, modelName)
-			}
-		}
-	} else {
-		log.Printf("orchestrator planner: rule mode (deterministic)")
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_PROVIDER")))
+	if provider == "" {
+		provider = "anthropic"
 	}
+	modelName := strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_MODEL"))
+	if modelName == "" {
+		return fmt.Errorf("ORCHESTRATOR_LLM_MODEL is required: the LLM-only planner has no rule fallback")
+	}
+	baseURL := strings.TrimSpace(os.Getenv("ORCHESTRATOR_LLM_BASE_URL"))
+	apiKey := resolvePlannerAPIKey()
+	if apiKey == "" {
+		return fmt.Errorf("planner API key is required: set ORCHESTRATOR_LLM_API_KEY (or the provider key env)")
+	}
+
+	// pkg/runtime/model providers read the key from an env var.
+	apiKeyEnv := "ORCHESTRATOR_LLM_API_KEY"
+	os.Setenv(apiKeyEnv, apiKey)
+
+	llmModel, err := rtregistry.CreateAndRegisterModel(context.Background(), rtregistry.ModelConfig{
+		Name:      "orchestrator-planner",
+		Provider:  provider,
+		Model:     modelName,
+		APIKeyEnv: apiKeyEnv,
+		BaseURL:   baseURL,
+		MaxTokens: 1024,
+	})
+	if err != nil {
+		return fmt.Errorf("create planner model: %w", err)
+	}
+
+	llmClient := planner.NewADKModelAdapter(llmModel)
+	adapter := &registryAgentLister{reg: agentRegistry}
+	mainAgent := planner.NewMainAgent(llmClient, modelName, adapter)
+	serverOpts = append(serverOpts, httpapi.WithMainAgentPlanner(mainAgent))
+	serverOpts = append(serverOpts, httpapi.WithSynthesizer(synthesizer.NewLLMSynthesizer(llmClient, modelName)))
+
+	log.Printf("orchestrator planner: LLM-only (provider=%s, model=%s, requirePlanConfirmation=%v)",
+		provider, modelName, requireConfirm)
 
 	server := &http.Server{
 		Addr:    cfg.Addr,
@@ -408,7 +374,7 @@ func resolvePlannerAPIKey() string {
 }
 
 // registryAgentLister adapts StaticAgentRegistry to planner.AgentLister
-// so the LLMPlanner can read agent metadata for prompt construction.
+// so MainAgent can read agent metadata for prompt construction and validation.
 type registryAgentLister struct {
 	reg *registry.StaticAgentRegistry
 }

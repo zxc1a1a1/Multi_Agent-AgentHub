@@ -9,9 +9,8 @@ import (
 // real agent information from the registry (via AgentLister) as the primary
 // source of agent capabilities, descriptions, and output modes.
 //
-// It does NOT rely on agentDefaults() as the primary agent information source.
-// If no agents are provided (nil or empty lister), a minimal fallback prompt
-// is generated with a warning.
+// If no agents are provided (nil or empty lister), a minimal prompt is
+// generated with a warning.
 type PromptBuilder struct {
 	agents           []AgentInfoLite
 	conversationType string
@@ -100,25 +99,25 @@ func (b *PromptBuilder) BuildSystemPrompt() string {
 	buf.WriteString(`## Execution Modes
 - "single": exactly one agent handles the entire request
 - "parallel": multiple agents work on independent sub-tasks concurrently
-- "sequential": agents execute in dependency order (each step depends on previous results)
+- "sequential": agents execute in dependency order (not enabled yet)
+- "answer": reply directly without dispatching any agent
 
 ## Rules
-1. Only use code-agent if it is listed in the Allowed Agent Boundary or Available Agents above.
-2. Only use web-agent if it is listed in the Allowed Agent Boundary or Available Agents above.
-3. Only use document-agent if it is listed in the Allowed Agent Boundary or Available Agents above.
-4. Each step's agent_name MUST be one of the agent names listed under "Available Agents" above.
-5. taskContent (the "input" field) should rephrase the user's request specifically for the target agent.
-6. If the user explicitly names an agent, always use "single" mode with that agent.
-7. If the best-fit agent is not in the boundary, do not add it; write a warning instead.
+1. Choose the mode and agents yourself from the user's goal, the agent descriptions, and the boundary above.
+2. Each step's agent_name MUST be one of the agent names listed under "Available Agents" above.
+3. The "input" field should rephrase the user's request specifically for the target agent.
+4. If the user explicitly names an agent, use "single" mode with that agent.
+5. If the best-fit agent is not in the boundary, do not add it; use "answer" or a warning instead.
+6. Use "answer" only when no agent or tool execution is needed; the answer must be self-contained.
+7. Never invent agent names, capabilities, or task results.
 8. Set "confidence" between 0.0 and 1.0 to indicate how sure you are about this plan.
-9. "user_visible_summary" should be a short, friendly message like "I will use the best-fit agent for your task."
-   Do NOT include internal configuration in user_visible_summary.
+9. "user_visible_summary" must not include internal configuration.
 
 ## Output Format
 Return ONLY a valid JSON object. No markdown, no explanation, no code fences:
 {
   "intent": "brief summary of the user's goal",
-  "mode": "single" | "parallel" | "sequential",
+  "mode": "single" | "parallel" | "sequential" | "answer",
   "confidence": 0.86,
   "steps": [
     {
@@ -129,6 +128,7 @@ Return ONLY a valid JSON object. No markdown, no explanation, no code fences:
       "reason": "why this agent was chosen"
     }
   ],
+  "answer": "direct reply, only when mode=answer",
   "user_visible_summary": "short friendly message for the user"
 }`)
 

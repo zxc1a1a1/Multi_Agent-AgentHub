@@ -22,15 +22,6 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
 )
 
-// PlannerMode controls which planner to use and fallback behavior.
-type PlannerMode string
-
-const (
-	PlannerModeRule                PlannerMode = "rule"
-	PlannerModeLLM                 PlannerMode = "llm"
-	PlannerModeLLMWithRuleFallback PlannerMode = "llm_with_rule_fallback"
-)
-
 // HITLConfirmResult is the outcome of a HITL confirmation request.
 type HITLConfirmResult struct {
 	RunID                string
@@ -71,13 +62,10 @@ type Server struct {
 	registry        *registry.StaticAgentRegistry
 	dynamicRegistry *registry.DynamicAgentRegistry
 	dispatcher      *dispatcher.A2ADispatcher
-	planner         planner.Planner // legacy LLMPlanner — superseded by mainAgentPlanner
-	plannerMode     PlannerMode
-	// mainAgentPlanner is the primary Planner for ALL execution paths.
-	// Production default: planner.NewMainAgent(model, modelName, lister) — *planner.MainAgent.
+	// mainAgentPlanner is the only Planner for ALL execution paths.
+	// Production: planner.NewMainAgent(model, modelName, lister) — requires a real model.
 	// Tests: FakeMainAgent (implements planner.Planner, lives in _test.go files).
-	// NEVER inject RulePlanner or LLMPlanner here — they are NOT path-aware and
-	// would silently break single_chat/group_chat boundary enforcement.
+	// A nil planner fails the run entry without dispatching any agent.
 	mainAgentPlanner  planner.Planner
 	synthesizer       synthesizer.Synthesizer
 	hitlMu            sync.RWMutex                       // protects pendingPlans, hitlChans, hitlStates, idempotencyCache
@@ -134,28 +122,6 @@ func WithDispatcher(d *dispatcher.A2ADispatcher) Option {
 	}
 }
 
-// WithPlanner injects a custom Planner. When nil or not called, the server
-// defaults to RulePlanner at request time.
-func WithPlanner(p planner.Planner) Option {
-	return func(s *Server) {
-		if s == nil {
-			return
-		}
-		s.planner = p
-	}
-}
-
-// WithPlannerMode sets the planner mode (rule, llm, llm_with_rule_fallback).
-// Default is PlannerModeRule.
-func WithPlannerMode(mode PlannerMode) Option {
-	return func(s *Server) {
-		if s == nil {
-			return
-		}
-		s.plannerMode = mode
-	}
-}
-
 // WithSynthesizer injects a synthesizer for multi-agent result aggregation.
 func WithSynthesizer(syn synthesizer.Synthesizer) Option {
 	return func(s *Server) {
@@ -188,9 +154,8 @@ func WithArtifactStore(store artifacts.Store) Option {
 	}
 }
 
-// WithMainAgentPlanner injects a MainAgent Planner instance.
-// When set, all execution paths (single_chat, group_chat, main_agent_orchestration)
-// use this planner for plan generation.
+// WithMainAgentPlanner injects the MainAgent Planner. It is required for run
+// handling; when absent the run endpoint fails without dispatching any agent.
 func WithMainAgentPlanner(p planner.Planner) Option {
 	return func(s *Server) {
 		if s == nil || p == nil {

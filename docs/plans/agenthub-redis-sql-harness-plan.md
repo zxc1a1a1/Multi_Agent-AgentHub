@@ -1,7 +1,7 @@
 # AgentHub v2 实施计划：Redis / MySQL / LLM-only / Tools / Harness / Memory
 
 - 日期：2026-10-29；源码基线：`dev / 8a44f9e`。
-- 状态：**P0 已完成（契约与接口冻结，2026-10-29）；P1 实施中；P2–P7 未开始**。
+- 状态：**P0、P1 已完成（2026-10-29）；P2 实施中；P3–P7 未开始**。
 - 输入：[架构方案](../architecture/optimization-architecture.md)、[技术选型与来源](../architecture/optimization-technology-selection.md)。
 - 本轮只交付这三份文档；不运行迁移、不安装组件、不修改依赖/配置/业务代码/测试、不提交或推送。
 
@@ -322,7 +322,8 @@ git status --short
 | 网上优秀项目 | 已查询官方文档；来源和取回限制见技术选型第 10 节 |
 | 文档 | 两份重写方案 + 本计划 + P0 契约冻结（含 4 份新契约与 6 份 ADR） |
 | P0 | 已完成：规则回退/存储/事件/Memory/Tool 契约与 ADR 已冻结 |
-| 业务代码/测试/配置/依赖 | P0 未修改；P1 起按阶段实施 |
+| P1 | 已完成：删除 RulePlanner/LLMPlanner 与 rule 模式；MainAgent LLM-only；Gateway 必须配置 Orchestrator |
+| 业务代码/测试/配置/依赖 | P0 未修改；P1 已按阶段修改并验证 |
 | Redis/MySQL/真模型/浏览器/性能验收 | 未执行，不宣称通过 |
 | 上一轮临时回归测试 | 已撤回，不是现存测试套件；不能用其结果替本版架构验收 |
 

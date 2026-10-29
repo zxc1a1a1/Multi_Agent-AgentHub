@@ -2,14 +2,17 @@ package planner
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
 
-// fakePlannerModel implements PlannerModel for testing.
+// fakePlannerModel implements PlannerModel for testing. When outputs has more
+// than one entry, each Generate call consumes the next entry.
 type fakePlannerModel struct {
-	output  string
-	err     error
+	outputs            []string
+	err                error
+	calls              int
 	latestSystemPrompt string
 	latestUserPrompt   string
 }
@@ -17,24 +20,29 @@ type fakePlannerModel struct {
 func (f *fakePlannerModel) Generate(_ context.Context, systemPrompt, userPrompt string) (string, error) {
 	f.latestSystemPrompt = systemPrompt
 	f.latestUserPrompt = userPrompt
+	f.calls++
 	if f.err != nil {
 		return "", f.err
 	}
-	return f.output, nil
+	if len(f.outputs) == 0 {
+		return "", errors.New("fake model has no output")
+	}
+	idx := f.calls - 1
+	if idx >= len(f.outputs) {
+		idx = len(f.outputs) - 1
+	}
+	return f.outputs[idx], nil
 }
 
 func validLLMResponse() string {
 	return `{"intent":"write a Go HTTP server","mode":"single","confidence":0.9,"steps":[{"agent_name":"code-agent","input":"write a Go HTTP server","reason":"code-agent handles code generation"}],"user_visible_summary":"I will ask code-agent to generate the server."}`
 }
 
-// TestProductionMainAgentUsesPlannerModel verifies that MainAgent.Plan calls the
-// PlannerModel when model != nil, and falls back to keyword-based matching when
-// model is nil.
-func TestProductionMainAgentUsesPlannerModel(t *testing.T) {
+func TestMainAgentUsesPlannerModel(t *testing.T) {
 	lister := &mockAgentLister{agents: testAgentInfos()}
 
 	t.Run("calls PlannerModel when model is set", func(t *testing.T) {
-		fakeModel := &fakePlannerModel{output: validLLMResponse()}
+		fakeModel := &fakePlannerModel{outputs: []string{validLLMResponse()}}
 		ma := NewMainAgent(fakeModel, "test-model", lister)
 
 		input := PlannerInput{
@@ -57,15 +65,18 @@ func TestProductionMainAgentUsesPlannerModel(t *testing.T) {
 			t.Errorf("expected PlannerModel='test-model', got %q", orchPlan.PlannerModel)
 		}
 		if orchPlan.Fallback.Enabled {
-			t.Error("fallback should NOT be enabled when LLM succeeds")
+			t.Error("fallback must never be enabled")
 		}
 		if orchPlan.PlanOwner == nil || !orchPlan.PlanOwner.IsMainAgent {
 			t.Error("PlanOwner.IsMainAgent must be true")
 		}
+		if fakeModel.calls != 1 {
+			t.Errorf("expected 1 model call, got %d", fakeModel.calls)
+		}
 	})
 
 	t.Run("LLM output includes path and boundary in prompts", func(t *testing.T) {
-		fakeModel := &fakePlannerModel{output: validLLMResponse()}
+		fakeModel := &fakePlannerModel{outputs: []string{validLLMResponse()}}
 		ma := NewMainAgent(fakeModel, "test-model", lister)
 
 		input := PlannerInput{
@@ -75,8 +86,7 @@ func TestProductionMainAgentUsesPlannerModel(t *testing.T) {
 			ExecutionPath:  "single_chat",
 			AllowedAgents:  []string{"code-agent"},
 		}
-		_, err := ma.Plan(context.Background(), input)
-		if err != nil {
+		if _, err := ma.Plan(context.Background(), input); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -94,79 +104,136 @@ func TestProductionMainAgentUsesPlannerModel(t *testing.T) {
 		}
 	})
 
-	t.Run("falls back to keyword matching when model is nil", func(t *testing.T) {
+	t.Run("missing model fails without a plan", func(t *testing.T) {
 		ma := NewMainAgent(nil, "", lister)
-
-		input := PlannerInput{
+		orchPlan, err := ma.Plan(context.Background(), PlannerInput{
 			RunID:          "run-3",
 			ConversationID: "conv-3",
-			UserMessage:    "write Go code for an HTTP API",
+			UserMessage:    "write Go code",
 			ExecutionPath:  "main_agent_orchestration",
+		})
+		if !errors.Is(err, ErrPlannerUnavailable) {
+			t.Fatalf("expected ErrPlannerUnavailable, got %v", err)
 		}
-		orchPlan, err := ma.Plan(context.Background(), input)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if orchPlan == nil {
-			t.Fatal("expected non-nil plan from fallback")
-		}
-		if orchPlan.PlannerSource != "fallback" {
-			t.Errorf("expected PlannerSource='fallback' when model is nil, got %q", orchPlan.PlannerSource)
-		}
-		if !orchPlan.Fallback.Enabled {
-			t.Error("fallback.Enabled should be true when model is nil")
+		if orchPlan != nil {
+			t.Fatal("model-less planner must not return a plan")
 		}
 	})
 
-	t.Run("falls back on model error", func(t *testing.T) {
+	t.Run("model error fails without a plan", func(t *testing.T) {
 		fakeModel := &fakePlannerModel{err: context.DeadlineExceeded}
 		ma := NewMainAgent(fakeModel, "test-model", lister)
 
-		input := PlannerInput{
+		orchPlan, err := ma.Plan(context.Background(), PlannerInput{
 			RunID:          "run-4",
 			ConversationID: "conv-4",
 			UserMessage:    "write code",
 			ExecutionPath:  "main_agent_orchestration",
+		})
+		if err == nil {
+			t.Fatal("expected an error on model failure")
 		}
-		orchPlan, err := ma.Plan(context.Background(), input)
-		if err != nil {
-			t.Fatalf("fallback should not return error: %v", err)
+		if orchPlan != nil {
+			t.Fatal("model failure must not produce a fallback plan")
 		}
-		if orchPlan.PlannerSource != "fallback" {
-			t.Errorf("expected PlannerSource='fallback' on model error, got %q", orchPlan.PlannerSource)
-		}
-		if !orchPlan.Fallback.Enabled {
-			t.Error("fallback.Enabled should be true on model error")
+		if fakeModel.calls != 1 {
+			t.Errorf("expected 1 model call, got %d", fakeModel.calls)
 		}
 	})
 }
 
-// TestMainAgentSchemaCarriesParticipantReasons verifies that participant reasons
-// flow from LLM schema through normalizer to MainAgent's buildParticipants.
-func TestMainAgentSchemaCarriesParticipantReasons(t *testing.T) {
+func TestMainAgentRepairsOnceThenSucceeds(t *testing.T) {
 	lister := &mockAgentLister{agents: testAgentInfos()}
-
-	// LLM output with reason fields.
-	llmOutput := `{"intent":"build full stack","mode":"parallel","confidence":0.85,"steps":[{"agent_name":"code-agent","input":"write API","reason":"chosen for backend work"},{"agent_name":"web-agent","input":"build UI","reason":"chosen for frontend work"}],"user_visible_summary":"Building the app with 2 agents."}`
-	fakeModel := &fakePlannerModel{output: llmOutput}
+	bad := `{"intent":"x","mode":"single","confidence":0.5,"steps":[{"agent_name":"ghost-agent","input":"do it"}]}`
+	fakeModel := &fakePlannerModel{outputs: []string{bad, validLLMResponse()}}
 	ma := NewMainAgent(fakeModel, "test-model", lister)
 
-	input := PlannerInput{
+	orchPlan, err := ma.Plan(context.Background(), PlannerInput{
+		RunID:          "run-repair",
+		ConversationID: "conv-repair",
+		UserMessage:    "write a server",
+		ExecutionPath:  "main_agent_orchestration",
+	})
+	if err != nil {
+		t.Fatalf("expected repair to succeed, got %v", err)
+	}
+	if fakeModel.calls != 2 {
+		t.Fatalf("expected exactly 2 model calls (initial + one repair), got %d", fakeModel.calls)
+	}
+	if orchPlan.RepairCount != 1 {
+		t.Errorf("expected RepairCount=1, got %d", orchPlan.RepairCount)
+	}
+	if len(orchPlan.Tasks) != 1 || orchPlan.Tasks[0].AgentName != "code-agent" {
+		t.Errorf("unexpected repaired tasks: %#v", orchPlan.Tasks)
+	}
+}
+
+func TestMainAgentRejectsInvalidOutputAfterOneRepair(t *testing.T) {
+	lister := &mockAgentLister{agents: testAgentInfos()}
+	bad := `{"intent":"x","mode":"single","confidence":0.5,"steps":[{"agent_name":"ghost-agent","input":"do it"}]}`
+	fakeModel := &fakePlannerModel{outputs: []string{bad, bad}}
+	ma := NewMainAgent(fakeModel, "test-model", lister)
+
+	orchPlan, err := ma.Plan(context.Background(), PlannerInput{
+		RunID:          "run-bad",
+		ConversationID: "conv-bad",
+		UserMessage:    "do something",
+		ExecutionPath:  "main_agent_orchestration",
+	})
+	if err == nil {
+		t.Fatal("expected rejection after repair")
+	}
+	if orchPlan != nil {
+		t.Fatal("invalid output must not be replaced by a default task")
+	}
+	if fakeModel.calls != 2 {
+		t.Errorf("repair must be one-shot; expected 2 model calls, got %d", fakeModel.calls)
+	}
+	if strings.Contains(err.Error(), "ghost-agent") {
+		t.Error("error must not echo unvalidated model agent names")
+	}
+}
+
+func TestMainAgentAnswerModeDispatchesNothing(t *testing.T) {
+	lister := &mockAgentLister{agents: testAgentInfos()}
+	fakeModel := &fakePlannerModel{outputs: []string{`{"intent":"greeting","mode":"answer","answer":"Hello!"}`}}
+	ma := NewMainAgent(fakeModel, "test-model", lister)
+
+	orchPlan, err := ma.Plan(context.Background(), PlannerInput{
+		RunID:          "run-answer",
+		ConversationID: "conv-answer",
+		UserMessage:    "hi",
+		ExecutionPath:  "main_agent_orchestration",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(orchPlan.Tasks) != 0 {
+		t.Fatalf("answer mode must not create tasks, got %#v", orchPlan.Tasks)
+	}
+	if orchPlan.Strategy != "conversational" || orchPlan.Answer != "Hello!" {
+		t.Fatalf("unexpected answer plan: strategy=%q answer=%q", orchPlan.Strategy, orchPlan.Answer)
+	}
+}
+
+func TestMainAgentSchemaCarriesParticipantReasons(t *testing.T) {
+	lister := &mockAgentLister{agents: testAgentInfos()}
+	llmOutput := `{"intent":"build full stack","mode":"parallel","confidence":0.85,"steps":[{"agent_name":"code-agent","input":"write API","reason":"chosen for backend work"},{"agent_name":"web-agent","input":"build UI","reason":"chosen for frontend work"}],"user_visible_summary":"Building the app with 2 agents."}`
+	fakeModel := &fakePlannerModel{outputs: []string{llmOutput}}
+	ma := NewMainAgent(fakeModel, "test-model", lister)
+
+	orchPlan, err := ma.Plan(context.Background(), PlannerInput{
 		RunID:          "run-reasons",
 		ConversationID: "conv-1",
 		UserMessage:    "build a full stack app",
 		ExecutionPath:  "main_agent_orchestration",
-	}
-	orchPlan, err := ma.Plan(context.Background(), input)
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	if len(orchPlan.Participants) != 2 {
 		t.Fatalf("expected 2 participants, got %d", len(orchPlan.Participants))
 	}
-
-	// Participant reasons must come from LLM step reasons.
 	if orchPlan.Participants[0].Reason != "chosen for backend work" {
 		t.Errorf("participant[0].Reason mismatch: %q", orchPlan.Participants[0].Reason)
 	}
@@ -175,11 +242,9 @@ func TestMainAgentSchemaCarriesParticipantReasons(t *testing.T) {
 	}
 }
 
-// TestMainAgent_NonAutoPathFiltersAgents ensures that for single_chat/group_chat,
-// only agents within AllowedAgents appear in the prompt.
 func TestMainAgent_NonAutoPathFiltersAgents(t *testing.T) {
-	lister := &mockAgentLister{agents: testAgentInfos()} // code-agent, web-agent
-	fakeModel := &fakePlannerModel{output: validLLMResponse()}
+	lister := &mockAgentLister{agents: testAgentInfos()}
+	fakeModel := &fakePlannerModel{outputs: []string{validLLMResponse()}}
 	ma := NewMainAgent(fakeModel, "test-model", lister)
 
 	input := PlannerInput{
@@ -187,28 +252,21 @@ func TestMainAgent_NonAutoPathFiltersAgents(t *testing.T) {
 		ConversationID: "conv-1",
 		UserMessage:    "write code",
 		ExecutionPath:  "single_chat",
-		AllowedAgents:  []string{"code-agent"}, // only code-agent allowed
+		AllowedAgents:  []string{"code-agent"},
 	}
-	_, err := ma.Plan(context.Background(), input)
-	if err != nil {
+	if _, err := ma.Plan(context.Background(), input); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// The prompt should contain code-agent but NOT web-agent in the agent listing.
-	// "web-agent" appears in rule descriptions (e.g. "For web UI..."), so we check
-	// for "name: web-agent" which only appears in the agent listing block.
 	if !strings.Contains(fakeModel.latestSystemPrompt, "name: code-agent") {
 		t.Error("prompt must list code-agent in agent block")
 	}
 	if strings.Contains(fakeModel.latestSystemPrompt, "name: web-agent") {
 		t.Error("prompt must NOT list web-agent in agent block for single_chat with code-agent boundary")
 	}
-
-	// Verify the boundary section lists only code-agent.
 	if !strings.Contains(fakeModel.latestSystemPrompt, "Allowed Agent Boundary") {
 		t.Fatal("expected Allowed Agent Boundary section")
 	}
-	// The boundary lists agents as "  - <name>".
 	if !strings.Contains(fakeModel.latestSystemPrompt, "  - code-agent") {
 		t.Error("boundary must contain code-agent")
 	}

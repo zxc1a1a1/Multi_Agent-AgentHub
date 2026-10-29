@@ -87,7 +87,7 @@ func (e *OrderedParallelExecutor) Execute(ctx context.Context, p *plan.Orchestra
 	}
 
 	// Sort tasks by priority ascending. Stable sort preserves insertion order
-	// for equal priorities, keeping RulePlanner's web-before-code default.
+	// for equal priorities, preserving the legacy priority order.
 	tasks := make([]plan.TaskPlan, len(p.Tasks))
 	copy(tasks, p.Tasks)
 	sort.SliceStable(tasks, func(i, j int) bool {

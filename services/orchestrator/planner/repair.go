@@ -6,12 +6,10 @@ import (
 	"strings"
 )
 
-// PlanRepairer attempts to fix an invalid LLM plan output via a single LLM call.
-// It constructs a focused repair prompt containing the original output, the
-// specific errors found, the list of available agents, the expected JSON schema,
-// and an instruction to return only corrected JSON.
-//
-// Repair is one-shot only — never loop.
+// PlanRepairer fixes an invalid model plan output via a single model call.
+// It constructs a focused repair prompt with the original output, the specific
+// errors, the allowed agents, the expected schema, and an instruction to return
+// only corrected JSON. Repair is one-shot; it never loops or invents agents.
 type PlanRepairer struct {
 	model PlannerModel
 }
@@ -79,7 +77,7 @@ func (r *PlanRepairer) buildRepairPrompt(originalOutput string, failures []ValEr
 	buf.WriteString(`## Expected JSON Schema
 {
   "intent": "brief summary of the user's goal",
-  "mode": "single" | "parallel" | "sequential",
+  "mode": "single" | "parallel" | "answer",
   "confidence": 0.86,
   "steps": [
     {
@@ -90,16 +88,18 @@ func (r *PlanRepairer) buildRepairPrompt(originalOutput string, failures []ValEr
       "reason": "why this agent was chosen"
     }
   ],
+  "answer": "direct reply, only when mode=answer",
   "user_visible_summary": "short friendly message for the user"
 }
 
 ## Instructions
 1. Return ONLY the corrected JSON object. No markdown, no explanation, no code fences.
 2. Every step's "agent_name" MUST exactly match one of the agents listed under "Available Agents" above.
-3. Valid modes are: "single" (one agent), "parallel" (multiple independent agents), "sequential" (agents with dependencies).
-   However, "sequential" is currently NOT SUPPORTED — do NOT use it.
-4. Every step must have a non-empty "input" field.
-5. The "steps" array must not be empty.
+3. Valid modes are: "single" (one agent), "parallel" (multiple independent agents), "answer" (direct reply, no steps).
+   "sequential" is NOT enabled — do NOT use it.
+4. Every non-answer step must have a non-empty "input" field.
+5. "steps" must be non-empty unless mode is "answer"; answer mode requires a non-empty "answer".
+6. Never invent an agent name to satisfy the schema; use "answer" instead.
 `)
 
 	return buf.String()

@@ -33,16 +33,15 @@ description: 用于在 Claude Code 中按阶段实现 AgentHub services/orchestr
 把 Orchestrator 编排升级为：
 
 ```text
-LLMPlanner
+MainAgent (LLM-only)
   -> Parser
   -> Normalizer
   -> Validator
   -> Repairer once
-  -> Deprecated RulePlanner transitional fallback
   -> Executor
 ```
 
-后续目标是删除 RulePlanner，因此本阶段禁止增强 RulePlanner 关键词规则。
+RulePlanner / LLMPlanner 与关键词回退已删除（v2 契约）。禁止重新引入关键词评分、固定 Agent 回退或 `llm_with_rule_fallback`。
 
 ## 必读 references
 
