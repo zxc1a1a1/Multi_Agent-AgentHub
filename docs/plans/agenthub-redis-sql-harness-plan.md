@@ -327,7 +327,7 @@ git status --short
 | P3a | 已完成：Harness 预算/状态/上下文、Tool Descriptor/Broker、只读 workspace 工具、MemoryPolicy 接口 |
 | P3b | 部分完成：SQL 状态/checkpoint/plan approval/预算/resume；已完成调用复用、工具许可、断连 durable run 未完成 |
 | P4 | 部分完成：Redis relay、SQL/公开事件回放、requestId 幂等、断连 durable、前端 seq 游标恢复、Memory 工具/API/UI/epoch 缓存；gRPC/真实模型断线浏览器未完成 |
-| P5 | 部分完成：apply_patch、Broker、SSRF、Docker 隔离执行、MCP allowlist、artifact；真实 MCP/账本接线/真实检索未完成 |
+| P5 | 部分完成：apply_patch、Broker/账本、SSRF、Docker 隔离、MCP allowlist、artifact；Agent 工具接线/真实 MCP/真实检索未完成 |
 | P6 | 部分完成：FakeModel Eval、前端单测/构建、真实 MySQL+Redis、Memory 浏览器 E2E；独立进程/真模型/聊天浏览器/race 未完成 |
 | P7 | 部分完成：compose/版本/镜像/最小栈 smoke、SQLite→MySQL 迁移工具（合成验证）；完整业务 smoke/真实数据迁移未执行 |
 | P3c | 部分完成：Memory 存储/Controller、短期快照/装配、自动召回、工具/管理 API/UI；摘要任务、分支隔离、Redis 未完成 |

@@ -26,6 +26,7 @@ type Envelope struct {
 	ApprovalID     string
 	FencingVersion int64
 	PrincipalID    string
+	IdempotencyKey string
 }
 
 // Broker authorizes calls. Side effects must not run before Authorize succeeds.
