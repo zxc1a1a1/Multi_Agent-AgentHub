@@ -32,6 +32,8 @@ export function runAgent(
   onComplete?: () => void,
 ): AbortController {
   const controller = new AbortController()
+  let lastRunId = ''
+  let lastSeq = 0
 
   fetch('/api/chat', {
     method: 'POST',
@@ -77,6 +79,8 @@ export function runAgent(
               // empty event — skip
               continue
             }
+            if (event.runId) lastRunId = event.runId
+            if (typeof event.seq === 'number' && event.seq > lastSeq) lastSeq = event.seq
             onEvent(event)
           } catch {
             // skip malformed JSON and continue streaming
@@ -86,10 +90,17 @@ export function runAgent(
 
       onComplete?.()
     })
-    .catch((err) => {
-      if (err.name !== 'AbortError') {
-        onError?.(err)
+    .catch(async (err) => {
+      if (err.name === 'AbortError') return
+      if (lastRunId) {
+        try {
+          await recoverRun(lastRunId, lastSeq, onEvent, onComplete)
+          return
+        } catch {
+          // Fall through to the original error.
+        }
       }
+      onError?.(err)
     })
 
   return controller
@@ -139,4 +150,50 @@ function parseSSEBlock(block: string): { eventName: string; data: string | null 
     return { eventName, data: null }
   }
   return { eventName, data: joined }
+}
+
+/**
+ * Replays missing public events after a disconnect using the SQL cursor.
+ * The run is durable; polling stops at a terminal status or RUN_FINISHED.
+ */
+export async function recoverRun(
+  runId: string,
+  afterSeq: number,
+  onEvent: (event: AGUIEvent) => void,
+  onComplete?: () => void,
+  maxAttempts = 120,
+): Promise<void> {
+  if (!runId) throw new Error('runId is required')
+  let cursor = afterSeq
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/events?after=${cursor}&limit=1000`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) throw new Error(`replay failed: HTTP ${response.status}`)
+    const payload = (await response.json()) as { events?: AGUIEvent[] }
+    const events = payload.events ?? []
+    let terminal = false
+    for (const event of events) {
+      if (typeof event.seq === 'number') {
+        if (event.seq <= cursor) continue
+        cursor = event.seq
+      }
+      onEvent(event)
+      if (event.type === 'RUN_FINISHED' || event.type === 'RUN_ERROR') terminal = true
+    }
+    if (terminal) {
+      onComplete?.()
+      return
+    }
+    const status = await fetch(`/api/runs/${encodeURIComponent(runId)}/status`, { headers: authHeaders() })
+    if (status.ok) {
+      const state = (await status.json()) as { status?: string }
+      if (state.status && ['completed', 'failed', 'cancelled'].includes(state.status)) {
+        onComplete?.()
+        return
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  throw new Error('replay timed out')
 }

@@ -16,6 +16,7 @@
 | Gateway requestId | `gateway/httpapi/server.go`、`orchestratorclient`、`runservice` | 生成 runId/requestId，写入 MySQL chat_requests，重复请求 409；runId/requestId 传给 Orchestrator |
 | 断连 durable run | `gateway/httpapi/server.go` | 浏览器断连不取消 runner；继续消费事件并持久化最终 assistant 消息 |
 | 公开事件日志 | Gateway `run_public_events`、`/api/runs/{id}/events` | 每个公开事件带 `(seq,subIndex)`，本地日志优先回放 |
+| 前端游标恢复 | `frontend/src/agui/client.ts`、`recoverRun` | 记录 runId/lastSeq；流错误时按 after 游标拉取事件，终态停止 |
 | Memory 工具 | `pkg/runtime/tools/memory.go` | memory.search/read/propose；scope 由可信代码绑定，不从参数读取 |
 | Memory 缓存 | `internal/memory/cache_redis.go` | 键含 scopeID/epoch/limit/policy 摘要；每次召回从 SQL 取 epoch，旧缓存不复活 |
 | Memory 管理 API | `httpapi/memory_admin.go` | entries/propose/confirm/update/forget/policy/mutations |
@@ -45,6 +46,7 @@ TestIntegrationRedisRecallCacheUsesEpoch                   PASS（真实 MySQL+R
 TestChatContinuesAndPersistsAfterDisconnect                PASS（写 socket 失败后仍完成并保存 assistant 消息）
 TestChatJournalsPublicEventsAndReplays                     PASS（seq 1..n、本地 after 游标回放）
 TestIntegrationPublicEventJournal                          PASS（真实 MySQL：重复 seq 更新不重复）
+frontend recoverRun tests                                  PASS（3 tests：回放/状态终态/503）
 TestMemoryToolsBindTrustedScope                            PASS
 TestMemoryProxyForwards                                    PASS
 TestIntegrationMemoryAdminAPI                              PASS（真实 MySQL：候选→确认→更新→冲突→遗忘）
@@ -77,7 +79,7 @@ MemoryPanel.test.tsx                                       PASS（6 tests：加�
 3. **浏览器断线恢复**：前端未保存/发送 `(runId, seq, subIndex)` 游标；重连不会自动回放。
 4. **两个 Gateway OS 进程独立订阅**、慢订阅者有界队列、Redis 重启/清空恢复测试未做。
 5. Memory Redis 召回缓存已实现；缓存失效事件未单独发布，靠 SQL epoch 复核保证旧值不复用。
-6. 普通断连已不取消 run，会保存消息并写入公开事件日志；前端已支持 `seq` 字段但尚未实现自动断线续传 UI。
+6. 普通断连已不取消 run；前端 `recoverRun` 按 seq 游标回放，但未在真实模型聊天中做浏览器断线演练。
 7. `Redis Streams` 消费者侧去重与终态对账未接入 Gateway。
 8. 浏览器仅验证 Memory 管理；聊天/审批/断线重连/停止按钮未做浏览器 E2E。
 

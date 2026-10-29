@@ -21,7 +21,7 @@
 | 独立进程故障测试 | **NOT RUN** | 未启动两个 Gateway/relay OS 进程 |
 | Race | **SKIP** | 本机 Go race 依赖的 `clang-22` 路径不存在，`gcc/clang` 包装器均指向缺失文件 |
 | 浏览器 E2E | **PARTIAL** | Memory 管理全流程已通过浏览器验证；聊天/审批/重连因无真实模型未执行 |
-| 前端单测/构建 | **PASS** | Node v20.12.2：211 tests passed；`npm run build` 成功（chunk 1.43MB 警告） |
+| 前端单测/构建 | **PASS** | Node v20.12.2：220 tests passed；`npm run build` 成功（chunk 1.43MB 警告） |
 | 基准 | **PASS（合成 FakeModel）** | `BenchmarkFakeModelEvaluation` ≈ 77µs/op；不代表真实模型/容量 |
 | 真模型合成集 | **NOT RUN** | 需要用户注入 key 与预算授权，报告不宣称质量 |
 
@@ -35,7 +35,7 @@ $ go test ./services/orchestrator/eval/... -run '^$' -bench . -benchmem
 BenchmarkFakeModelEvaluation-…  ~77µs/op
 
 $ (frontend) PATH=/e/node_js:$PATH npm test -- --run
-20 files / 211 tests passed
+20 files / 220 tests passed
 
 $ (frontend) PATH=/e/node_js:$PATH npm run build
 tsc -b + vite build 成功
