@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,6 +21,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/grpcapi"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/httpapi"
 	memctl "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/memory"
 	ledger "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/persistence/mysql"
@@ -29,6 +31,8 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
 
 	"github.com/redis/go-redis/v9"
+	orchestratorv1 "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/proto/orchestratorv1"
+	"google.golang.org/grpc"
 
 	// Register model providers (openai, anthropic) into pkg/runtime/registry.
 	_ "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/model"
@@ -379,6 +383,38 @@ func run() error {
 		Handler: httpapi.NewServer(serverOpts...).Handler(),
 	}
 
+	grpcAddr := strings.TrimSpace(os.Getenv("ORCHESTRATOR_GRPC_ADDR"))
+	if grpcAddr == "" {
+		grpcAddr = ":9090"
+	}
+	host, port, splitErr := net.SplitHostPort(cfg.Addr)
+	if splitErr != nil {
+		host, port = "", "8080"
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	grpcSrv, err := grpcapi.New(grpcapi.Config{
+		HTTPBaseURL:   "http://" + net.JoinHostPort(host, port),
+		InternalToken: internalToken,
+		Repo:          ledgerRepo,
+	})
+	if err != nil {
+		return fmt.Errorf("create grpc api: %w", err)
+	}
+	grpcListener, err := net.Listen("tcp", grpcAddr)
+	if err != nil {
+		return fmt.Errorf("listen grpc %s: %w", grpcAddr, err)
+	}
+	grpcServer := grpc.NewServer()
+	orchestratorv1.RegisterOrchestratorServiceServer(grpcServer, grpcSrv)
+	go func() {
+		log.Printf("orchestrator grpc listening on %s", grpcAddr)
+		if err := grpcServer.Serve(grpcListener); err != nil {
+			log.Printf("orchestrator grpc server stopped: %v", err)
+		}
+	}()
+
 	go func() {
 		log.Printf("orchestrator listening on %s", cfg.Addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -401,6 +437,7 @@ func run() error {
 		return err
 	}
 
+	grpcServer.GracefulStop()
 	if stopRelay != nil {
 		stopRelay()
 	}

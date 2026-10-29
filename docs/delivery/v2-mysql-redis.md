@@ -9,7 +9,7 @@
 ```text
 Frontend(3000) → Gateway(8080)
                   ├─ MySQL(3306)：conversations/messages/chat_requests/run_views/projections
-                  └─ Orchestrator(8090 HTTP/SSE 兼容)
+                  └─ Orchestrator(8090 HTTP / 9090 gRPC)
                         ├─ MySQL：executions/approvals/tool_calls/checkpoints/events/outbox/Memory
                         ├─ Redis(6379)：outbox relay 短期 Stream 副本
                         └─ 10 个 Child Agents(8081-8090)

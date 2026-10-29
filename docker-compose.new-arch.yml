@@ -241,6 +241,7 @@ services:
       dockerfile: services/orchestrator/Dockerfile
     environment:
       ORCHESTRATOR_ADDR: ":8080"
+      ORCHESTRATOR_GRPC_ADDR: ":9090"
       INTERNAL_SERVICE_TOKEN: "dev-internal-token"
       CODE_AGENT_URL: "http://code-agent-new:8080"
       WEB_AGENT_URL: "http://web-agent-new:8080"
@@ -264,6 +265,7 @@ services:
       ORCHESTRATOR_LLM_BASE_URL: "${ORCHESTRATOR_LLM_BASE_URL:-${LLM_BASE_URL}}"
     ports:
       - "8090:8080"
+      - "9090:9090"
     depends_on:
       mysql:
         condition: service_healthy
@@ -290,6 +292,7 @@ services:
     environment:
       GATEWAY_ADDR: ":8080"
       ORCHESTRATOR_URL: "http://orchestrator-new:8080"
+      ORCHESTRATOR_GRPC_URL: "orchestrator-new:9090"
       ORCHESTRATOR_INTERNAL_TOKEN: "dev-internal-token"
       GATEWAY_ENABLE_AUTH: "false"
       GATEWAY_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"

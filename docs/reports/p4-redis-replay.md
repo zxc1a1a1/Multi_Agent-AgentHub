@@ -17,6 +17,8 @@
 | 断连 durable run | `gateway/httpapi/server.go` | 浏览器断连不取消 runner；继续消费事件并持久化最终 assistant 消息 |
 | 公开事件日志 | Gateway `run_public_events`、`/api/runs/{id}/events` | 每个公开事件带 `(seq,subIndex)`，本地日志优先回放 |
 | 实时多订阅 | Gateway `/api/runs/{id}/events/stream` | 每个订阅者独立游标 tail SQL 事件；共享投影不抑制其他订阅 |
+| 内部 gRPC | `services/orchestrator/grpcapi`、`pkg/runtime/proto` | StartRun/SubscribeRun/Status/Approval/Cancel/ListAgents；订阅读 SQL 公开事件 |
+| Gateway gRPC | `orchestratorclient/grpc.go` | `ORCHESTRATOR_GRPC_URL` 时聊天运行走 gRPC；HTTP 保留用于恢复/管理代理 |
 | 前端游标恢复 | `frontend/src/agui/client.ts`、`recoverRun` | 记录 runId/lastSeq；流错误时按 after 游标拉取事件，终态停止 |
 | Memory 工具 | `pkg/runtime/tools/memory.go` | memory.search/read/propose；scope 由可信代码绑定，不从参数读取 |
 | Memory 缓存 | `internal/memory/cache_redis.go` | 键含 scopeID/epoch/limit/policy 摘要；每次召回从 SQL 取 epoch，旧缓存不复活 |
@@ -50,6 +52,8 @@ TestIntegrationPublicEventJournal                          PASS（真实 MySQL�
 frontend recoverRun tests                                  PASS（3 tests：回放/状态终态/503）
 TestEventStreamDeliversToTwoSubscribers                    PASS（两个订阅者各自完整收到 seq 1..3）
 TestEventStreamHonorsAfterCursor                           PASS（after 游标过滤）
+TestOrchestratorGRPCControlPlane                           PASS（真实 MySQL：Start dedup、Subscribe seq、Status/Approval/Cancel/List）
+TestGRPCRunServiceStartsAndMapsEvents                      PASS（Gateway gRPC Start/Subscribe 映射）
 TestMemoryToolsBindTrustedScope                            PASS
 TestMemoryProxyForwards                                    PASS
 TestIntegrationMemoryAdminAPI                              PASS（真实 MySQL：候选→确认→更新→冲突→单条/范围遗忘）
@@ -77,8 +81,8 @@ MemoryPanel.test.tsx                                       PASS（7 tests：加�
 
 ## 4. 未完成（P4 门禁未通过）
 
-1. **内部 gRPC**（StartRun/SubscribeRun/control）未实现；当前仍是 HTTP/SSE 兼容路径。
-2. **Gateway 事件投影与消费位置**：`event_projection_offsets` 表未接线；没有共享投影去重与 subIndex 游标。
+1. 内部 gRPC 已实现并被 Gateway 聊天运行使用；审批/取消/回放/管理仍走 HTTP 兼容接口，尚未全部切到 gRPC。
+2. `event_projection_offsets` 表仍未被消费；公开事件日志已支持游标，但投影/消费位置尚未独立记录。
 3. **浏览器断线恢复**：前端未保存/发送 `(runId, seq, subIndex)` 游标；重连不会自动回放。
 4. **两个 Gateway OS 进程独立订阅**、慢订阅者有界队列、Redis 重启/清空恢复测试未做。
 5. Memory Redis 召回缓存已实现；缓存失效事件未单独发布，靠 SQL epoch 复核保证旧值不复用。

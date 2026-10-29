@@ -719,6 +719,47 @@ func (r *Repository) GetEvent(ctx context.Context, runID string, seq int64) (*Ev
 	return &e, nil
 }
 
+type PublicEvent struct {
+	RunID     string
+	Seq       int64
+	EventType string
+	Payload   []byte
+	CreatedAt time.Time
+}
+
+func (r *Repository) AppendPublicEvent(ctx context.Context, event PublicEvent) error {
+	if event.RunID == "" || event.Seq < 1 || event.EventType == "" || len(event.Payload) == 0 {
+		return fmt.Errorf("invalid public event")
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO orchestrator_public_events
+		(run_id, seq, event_type, payload_json) VALUES (?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE event_type = VALUES(event_type), payload_json = VALUES(payload_json)`,
+		event.RunID, event.Seq, event.EventType, event.Payload)
+	return err
+}
+
+func (r *Repository) ListPublicEvents(ctx context.Context, runID string, afterSeq int64, limit int) ([]PublicEvent, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT run_id, seq, event_type, payload_json, created_at
+		FROM orchestrator_public_events WHERE run_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?`,
+		runID, afterSeq, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PublicEvent
+	for rows.Next() {
+		var e PublicEvent
+		if err := rows.Scan(&e.RunID, &e.Seq, &e.EventType, &e.Payload, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) MarkOutboxPublished(ctx context.Context, id int64) error {
 	_, err := r.db.ExecContext(ctx,
 		"UPDATE outbox SET status = 'published', published_at = ? WHERE id = ?", time.Now().UTC(), id)

@@ -100,18 +100,29 @@ func run() error {
 	}
 
 	log.Printf("using orchestrator at %s", cfg.OrchestratorURL)
-	runner, err := orchestratorclient.NewOrchestratorRunService(
+	httpService, err := orchestratorclient.NewOrchestratorRunService(
 		cfg.OrchestratorURL,
 		cfg.OrchestratorToken,
 	)
 	if err != nil {
 		return err
 	}
-	// Same instance acts as AgentManagementProxy and replay proxy.
-	opts = append(opts, httpapi.WithAgentProxy(runner))
-	opts = append(opts, httpapi.WithRunReplayService(runner))
-	opts = append(opts, httpapi.WithMemoryProxy(runner))
-	opts = append(opts, httpapi.WithRunResumeService(runner))
+	// HTTP client remains for replay/memory/agent/resume management proxies.
+	opts = append(opts, httpapi.WithAgentProxy(httpService))
+	opts = append(opts, httpapi.WithRunReplayService(httpService))
+	opts = append(opts, httpapi.WithMemoryProxy(httpService))
+	opts = append(opts, httpapi.WithRunResumeService(httpService))
+
+	var runner gateway.RunService = httpService
+	var grpcRunner *orchestratorclient.GRPCRunService
+	if grpcURL := strings.TrimSpace(os.Getenv("ORCHESTRATOR_GRPC_URL")); grpcURL != "" {
+		grpcRunner, err = orchestratorclient.NewGRPCRunService(grpcURL)
+		if err != nil {
+			return fmt.Errorf("connect orchestrator grpc: %w", err)
+		}
+		runner = grpcRunner
+		log.Printf("using orchestrator gRPC at %s", grpcURL)
+	}
 
 	// Always build agent summaries for the frontend agent dropdown,
 	// regardless of whether we use the Orchestrator or static routing.
@@ -155,6 +166,11 @@ func run() error {
 		return fmt.Errorf("server shutdown failed: %w", err)
 	}
 
+	if grpcRunner != nil {
+		if err := grpcRunner.Close(); err != nil {
+			log.Printf("gateway: close orchestrator grpc: %v", err)
+		}
+	}
 	if dbCleanup != nil {
 		if err := dbCleanup(); err != nil {
 			return fmt.Errorf("sqlite db close failed: %w", err)

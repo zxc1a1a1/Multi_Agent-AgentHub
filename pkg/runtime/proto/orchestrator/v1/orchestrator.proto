@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package agenthub.orchestrator.v1;
+
+option go_package = "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/proto/orchestratorv1;orchestratorv1";
+
+message MessageInput {
+  string id = 1;
+  string role = 2;
+  string text = 3;
+}
+
+message StartRunRequest {
+  string request_id = 1;
+  string run_id = 2;
+  string conversation_id = 3;
+  string workspace_id = 4;
+  string principal_id = 5;
+  string execution_path = 6;
+  repeated MessageInput messages = 7;
+  repeated string allowed_agents = 8;
+  string agent_name = 9;
+  repeated string selected_agent_names = 10;
+  repeated string mentions = 11;
+  string planning_mode = 12;
+  string trace_id = 13;
+}
+
+message StartRunResponse {
+  string run_id = 1;
+  bool accepted = 2;
+  bool deduplicated = 3;
+  string status = 4;
+}
+
+message SubscribeRunRequest {
+  string run_id = 1;
+  int64 after_seq = 2;
+}
+
+message InternalEvent {
+  string run_id = 1;
+  int64 seq = 2;
+  string type = 3;
+  bytes payload = 4;
+}
+
+message GetRunStatusRequest {
+  string run_id = 1;
+}
+
+message RunStatus {
+  string run_id = 1;
+  string status = 2;
+  int64 current_seq = 3;
+  string terminal_reason = 4;
+}
+
+message SubmitApprovalRequest {
+  string run_id = 1;
+  string action_id = 2;
+  string plan_id = 3;
+  string action = 4;
+  string feedback = 5;
+  int32 revision = 6;
+  string idempotency_key = 7;
+  repeated string selected_participants = 8;
+}
+
+message ApprovalResult {
+  bool acknowledged = 1;
+  string status = 2;
+}
+
+message CancelRunRequest {
+  string run_id = 1;
+  string reason = 2;
+}
+
+message CancelRunResponse {
+  bool cancelled = 1;
+}
+
+message ListAgentsRequest {}
+
+message AgentInfo {
+  string name = 1;
+  string description = 2;
+  repeated string capabilities = 3;
+  repeated string output_modes = 4;
+}
+
+message ListAgentsResponse {
+  repeated AgentInfo agents = 1;
+}
+
+service OrchestratorService {
+  rpc StartRun(StartRunRequest) returns (StartRunResponse);
+  rpc SubscribeRun(SubscribeRunRequest) returns (stream InternalEvent);
+  rpc GetRunStatus(GetRunStatusRequest) returns (RunStatus);
+  rpc SubmitApproval(SubmitApprovalRequest) returns (ApprovalResult);
+  rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+}
