@@ -21,6 +21,88 @@ function authHeaders(): Record<string, string> {
   return h
 }
 
+export interface ActiveRunCursor {
+  runId: string
+  conversationId: string
+  seq: number
+  subIndex: number
+  updatedAt: number
+}
+
+const ACTIVE_RUN_PREFIX = 'agenthub.activeRun.'
+const ACTIVE_RUN_TTL_MS = 30 * 60 * 1000
+
+function activeRunStorage(): Storage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage
+  } catch {
+    return null
+  }
+}
+
+export function saveActiveRun(conversationId: string, runId: string, seq: number, subIndex: number): void {
+  if (!conversationId || !runId) return
+  const storage = activeRunStorage()
+  if (!storage) return
+  try {
+    const cursor: ActiveRunCursor = {
+      runId,
+      conversationId,
+      seq,
+      subIndex,
+      updatedAt: Date.now(),
+    }
+    storage.setItem(ACTIVE_RUN_PREFIX + conversationId, JSON.stringify(cursor))
+  } catch {
+    // Storage may be unavailable or full; live streaming still works.
+  }
+}
+
+export function loadActiveRun(conversationId: string): ActiveRunCursor | null {
+  const storage = activeRunStorage()
+  if (!storage || !conversationId) return null
+  try {
+    const raw = storage.getItem(ACTIVE_RUN_PREFIX + conversationId)
+    if (!raw) return null
+    const cursor = JSON.parse(raw) as ActiveRunCursor
+    if (!cursor.runId || Date.now() - cursor.updatedAt > ACTIVE_RUN_TTL_MS) {
+      storage.removeItem(ACTIVE_RUN_PREFIX + conversationId)
+      return null
+    }
+    return {
+      ...cursor,
+      conversationId,
+      seq: typeof cursor.seq === 'number' ? cursor.seq : 0,
+      subIndex: typeof cursor.subIndex === 'number' ? cursor.subIndex : 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function clearActiveRun(conversationId: string): void {
+  const storage = activeRunStorage()
+  if (!storage || !conversationId) return
+  try {
+    storage.removeItem(ACTIVE_RUN_PREFIX + conversationId)
+  } catch {
+    // ignore
+  }
+}
+
+/** Returns the SQL-authoritative run status, or null when unavailable. */
+export async function getRunStatus(runId: string): Promise<string | null> {
+  if (!runId) return null
+  try {
+    const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/status`, { headers: authHeaders() })
+    if (!response.ok) return null
+    const state = (await response.json()) as { status?: string }
+    return state.status || null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Sends a chat request to Gateway /api/chat and streams SSE events back.
  * Uses fetch + ReadableStream for POST-based SSE (EventSource only supports GET).
@@ -94,6 +176,9 @@ export function runAgent(
                 lastSubIndex = subIndex
               }
             }
+            if (lastRunId) {
+              saveActiveRun(request.conversationId, lastRunId, lastSeq, lastSubIndex)
+            }
             onEvent(event)
           } catch {
             // skip malformed JSON and continue streaming
@@ -101,16 +186,24 @@ export function runAgent(
         }
       }
 
+      clearActiveRun(request.conversationId)
       onComplete?.()
     })
     .catch(async (err) => {
-      if (err.name === 'AbortError') return
+      if (err.name === 'AbortError') {
+        clearActiveRun(request.conversationId)
+        return
+      }
       if (lastRunId) {
         try {
           await recoverRun(lastRunId, lastSeq, lastSubIndex, onEvent, onComplete)
+          const status = await getRunStatus(lastRunId)
+          if (!status || ['completed', 'failed', 'cancelled'].includes(status)) {
+            clearActiveRun(request.conversationId)
+          }
           return
         } catch {
-          // Fall through to the original error.
+          // Fall through to the original error; the cursor stays for a reload.
         }
       }
       onError?.(err)
@@ -208,6 +301,10 @@ export async function recoverRun(
       const state = (await status.json()) as { status?: string }
       if (state.status && ['completed', 'failed', 'cancelled'].includes(state.status)) {
         onComplete?.()
+        return
+      }
+      if (state.status && ['awaiting_approval', 'awaiting_input'].includes(state.status)) {
+        // Paused runs keep their cursor so the next load can resume from here.
         return
       }
     }

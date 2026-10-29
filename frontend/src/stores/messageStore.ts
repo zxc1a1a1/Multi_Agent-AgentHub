@@ -2,12 +2,14 @@ import { create } from 'zustand'
 import type { Message, AGUIEvent, CodeBlock, WebPreviewBlock, SkillCardData, OrchestrationSummaryData, ActivitySnapshot } from '../types'
 import type { AgentName } from '../lib/agents'
 import * as api from '../services/api'
-import { runAgent, type AGUIChatRequest } from '../agui/client'
+import { runAgent, recoverRun, loadActiveRun, saveActiveRun, clearActiveRun, getRunStatus, type AGUIChatRequest } from '../agui/client'
 import { DEFAULT_AGENT_NAME, getAgentDisplayName, isConcreteAgentName, isSupportedAgentName, normalizeAgentName } from '../lib/agents'
 import type { OrchestrationInfo } from '../components/OrchestrationCard'
 import { useConversationStore } from './conversationStore'
 import { persistTitle } from '../lib/conversationTitles'
 import { useActivityStore } from './activityStore'
+
+const resumingRuns = new Set<string>()
 
 interface SendMessageOptions {
   agentName?: AgentName
@@ -40,6 +42,35 @@ export interface PendingConfirmation {
   rejectReason?: string
 }
 
+function confirmationFromActivity(activity: ActivitySnapshot, runId: string): PendingConfirmation {
+  return {
+    runId,
+    actionId: activity.planId,
+    planId: activity.planId,
+    revision: activity.revision,
+    executionPath: activity.executionPath,
+    planOwner: activity.planOwner as PendingConfirmation['planOwner'],
+    agentNames: activity.participants?.map((p) => p.agentName) || [],
+    participants: activity.participants?.map((p) => ({
+      agentName: p.agentName,
+      role: 'executor',
+      required: p.required,
+      selected: p.selected,
+    })) || [],
+    tasks: activity.tasks?.map((t) => ({
+      taskId: t.taskId,
+      agentName: t.agentName,
+      content: t.content,
+      priority: t.priority,
+      riskLevel: t.riskLevel,
+    })) || [],
+    intentSummary: activity.summary || activity.title || '',
+    strategy: '',
+    warnings: activity.warnings || [],
+    status: 'pending' as const,
+  }
+}
+
 interface MessageState {
   messages: Record<string, Message[]> // conversationId -> messages[]
   streamingByConversation: Record<string, boolean>
@@ -49,6 +80,7 @@ interface MessageState {
   pinnedMessageIdsByConversation: Record<string, string[]>
 
   loadMessages: (conversationId: string) => Promise<void>
+  resumeActiveRun: (conversationId: string) => Promise<void>
   sendMessage: (conversationId: string, content: string, options?: SendMessageOptions) => void
   togglePinMessage: (conversationId: string, messageId: string) => void
   regenerateMessage: (conversationId: string, messageId: string) => Promise<void>
@@ -400,8 +432,131 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       set((s) => ({
         messages: { ...s.messages, [conversationId]: formatted },
       }))
+      void get().resumeActiveRun(conversationId)
     } catch {
       // ignore load errors silently
+    }
+  },
+
+  resumeActiveRun: async (conversationId: string) => {
+    if (get().streamingByConversation[conversationId]) return
+    const active = loadActiveRun(conversationId)
+    if (!active) return
+    if (resumingRuns.has(active.runId)) return
+    resumingRuns.add(active.runId)
+
+    const { runId } = active
+    const placeholderId = `resume-${runId}`
+    let content = ''
+    let senderName = ''
+    let completed = false
+
+    const upsert = (status: Message['status']) => {
+      set((s) => {
+        const list = s.messages[conversationId] || []
+        const existing = list.find((m) => m.id === placeholderId)
+        const agentName = isSupportedAgentName(senderName)
+          ? normalizeAgentName(senderName)
+          : existing?.agentName
+        const next: Message = {
+          id: placeholderId,
+          conversationId,
+          senderType: 'agent',
+          senderName: senderName || existing?.senderName,
+          agentName,
+          content,
+          status,
+          runId,
+          createdAt: existing?.createdAt || new Date().toISOString(),
+        }
+        return {
+          messages: {
+            ...s.messages,
+            [conversationId]: existing
+              ? list.map((m) => (m.id === placeholderId ? next : m))
+              : [...list, next],
+          },
+          streamingByConversation: {
+            ...s.streamingByConversation,
+            [conversationId]: status === 'streaming',
+          },
+        }
+      })
+    }
+
+    const handleEvent = (event: AGUIEvent) => {
+      if (event.sender?.name) senderName = event.sender.name
+      else if (event.senderName) senderName = event.senderName
+      switch (event.type) {
+        case 'TEXT_MESSAGE_START':
+        case 'AGENT_TURN_STARTED':
+          content = ''
+          upsert('streaming')
+          break
+        case 'TEXT_MESSAGE_CONTENT':
+        case 'AGENT_TURN_CONTENT':
+        case 'message':
+        case 'message.delta': {
+          const chunk = resolveContentChunk(event)
+          if (chunk) content += chunk
+          upsert('streaming')
+          break
+        }
+        case 'TEXT_MESSAGE_END':
+        case 'AGENT_TURN_FINISHED':
+        case 'message.end':
+          upsert('sent')
+          break
+        case 'ACTIVITY_SNAPSHOT': {
+          const activity = event.activity
+          if (activity) {
+            useActivityStore.getState().setActivity(conversationId, activity)
+            if (activity.activityType === 'plan_approval' && activity.status === 'awaiting_confirmation') {
+              set((s) => ({
+                confirmationByConversation: {
+                  ...s.confirmationByConversation,
+                  [conversationId]: confirmationFromActivity(activity, event.runId || runId),
+                },
+              }))
+            }
+          }
+          break
+        }
+        case 'RUN_ERROR':
+          upsert('failed')
+          break
+      }
+      if (event.runId && typeof event.seq === 'number') {
+        saveActiveRun(conversationId, event.runId, event.seq, typeof event.subIndex === 'number' ? event.subIndex : 0)
+      }
+    }
+
+    const finish = () => {
+      completed = true
+      clearActiveRun(conversationId)
+      set((s) => ({
+        streamingByConversation: { ...s.streamingByConversation, [conversationId]: false },
+      }))
+      void get().loadMessages(conversationId)
+    }
+
+    try {
+      const status = await getRunStatus(runId)
+      if (status && ['completed', 'failed', 'cancelled'].includes(status)) {
+        clearActiveRun(conversationId)
+        await get().loadMessages(conversationId)
+        return
+      }
+      await recoverRun(runId, active.seq, active.subIndex, handleEvent, finish)
+      if (completed) return
+      const finalStatus = await getRunStatus(runId)
+      if (!finalStatus || ['completed', 'failed', 'cancelled'].includes(finalStatus)) {
+        finish()
+      }
+    } catch {
+      // Keep the cursor so the next conversation load can retry.
+    } finally {
+      resumingRuns.delete(runId)
     }
   },
 
@@ -1259,36 +1414,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             const activity = event.activity
             if (activity) {
               useActivityStore.getState().setActivity(conversationId, activity)
-              if (activity.activityType === 'plan_approval') {
+              if (activity.activityType === 'plan_approval' && activity.status === 'awaiting_confirmation') {
                 set((s) => ({
                   confirmationByConversation: {
                     ...s.confirmationByConversation,
-                    [conversationId]: {
-                      runId: event.runId || '',
-                      actionId: activity.planId,
-                      planId: activity.planId,
-                      revision: activity.revision,
-                      executionPath: activity.executionPath,
-                      planOwner: activity.planOwner as PendingConfirmation['planOwner'],
-                      agentNames: activity.participants?.map((p) => p.agentName) || [],
-                      participants: activity.participants?.map((p) => ({
-                        agentName: p.agentName,
-                        role: 'executor',
-                        required: p.required,
-                        selected: p.selected,
-                      })) || [],
-                      tasks: activity.tasks?.map((t) => ({
-                        taskId: t.taskId,
-                        agentName: t.agentName,
-                        content: t.content,
-                        priority: t.priority,
-                        riskLevel: t.riskLevel,
-                      })) || [],
-                      intentSummary: activity.summary || activity.title || '',
-                      strategy: '',
-                      warnings: activity.warnings || [],
-                      status: 'pending' as const,
-                    },
+                    [conversationId]: confirmationFromActivity(activity, event.runId || ''),
                   },
                 }))
               }

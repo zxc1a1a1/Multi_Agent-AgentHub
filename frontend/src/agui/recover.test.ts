@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { recoverRun } from './client'
+import { recoverRun, saveActiveRun, loadActiveRun, clearActiveRun } from './client'
 import type { AGUIEvent } from '../types'
 
 const mockFetch = vi.fn()
@@ -57,5 +57,33 @@ describe('recoverRun', () => {
   it('fails when replay endpoint is unavailable', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse(503, {}))
     await expect(recoverRun('run-3', 0, 0, () => {})).rejects.toThrow('replay failed')
+  })
+})
+
+describe('active run cursor', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('round-trips and clears the cursor', () => {
+    saveActiveRun('conv-1', 'run-1', 5, 2)
+    expect(loadActiveRun('conv-1')).toMatchObject({
+      runId: 'run-1',
+      conversationId: 'conv-1',
+      seq: 5,
+      subIndex: 2,
+    })
+    clearActiveRun('conv-1')
+    expect(loadActiveRun('conv-1')).toBeNull()
+  })
+
+  it('drops expired cursors', () => {
+    saveActiveRun('conv-2', 'run-2', 1, 0)
+    const key = 'agenthub.activeRun.conv-2'
+    const cursor = JSON.parse(localStorage.getItem(key) || '{}')
+    cursor.updatedAt = Date.now() - 31 * 60 * 1000
+    localStorage.setItem(key, JSON.stringify(cursor))
+    expect(loadActiveRun('conv-2')).toBeNull()
+    expect(localStorage.getItem(key)).toBeNull()
   })
 })
