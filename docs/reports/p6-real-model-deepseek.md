@@ -1,7 +1,7 @@
 # P6 真模型浏览器验收：DeepSeek（部分）
 
 - 日期：2026-10-30
-- 模型：用户指定的 DeepSeek 4.1 Flash；实际 API 接受 `deepseek-chat` 别名
+- 模型：DeepSeek 4.1 Flash，官方 API model id `deepseek-flash`
 - Provider：`openai` 兼容协议，`https://api.deepseek.com/v1`
 - 密钥：来自用户已配置的 `.env`，通过 Compose 注入；未读取、未打印、未写入仓库
 
@@ -9,15 +9,17 @@
 
 ```text
 LLM_PROVIDER=openai
-LLM_MODEL=deepseek-chat
+LLM_MODEL=deepseek-flash
 LLM_BASE_URL=https://api.deepseek.com/v1
 ORCHESTRATOR_LLM_PROVIDER=openai
-ORCHESTRATOR_LLM_MODEL=deepseek-chat
+ORCHESTRATOR_LLM_MODEL=deepseek-flash
 ORCHESTRATOR_LLM_BASE_URL=https://api.deepseek.com/v1
 docker compose --env-file .env -f docker-compose.new-arch.yml up -d ...
 ```
 
-说明：最初使用 `deepseek-4.1-flash`，Orchestrator 返回 `ORCHESTRATOR_PLANNER_FAILED`；改用该服务接受的 `deepseek-chat` 后规划与子 Agent 均成功。具体模型 ID 以供应商账号可用列表为准。
+模型 id 依据官方公告：V4.1 Flash 使用 `deepseek-flash`。`deepseek-chat` 是 Pro 别名；`deepseek-4.1-flash` 会被 API 拒绝。
+
+工具限制：DeepSeek Flash 在请求附带 `tools` 时返回 HTTP 400，因此 code-agent 默认不暴露模型工具；provider 已支持发送 tools，需用支持工具调用的模型并设置 `CODE_AGENT_ENABLE_TOOLS=true` 再验收。
 
 ## 2. 浏览器主路径（真实模型）
 
@@ -55,6 +57,7 @@ docker compose --env-file .env -f docker-compose.new-arch.yml up -d ...
 
 ## 5. 未覆盖
 
+- §2/§3 的首次主路径与刷新恢复使用 `deepseek-chat`（Pro）完成；其后已用 `deepseek-flash` 复验基础“计划→批准→code-agent 输出”（`func add`），但 **Flash 的刷新恢复路径尚未重跑**。
 - 仅单轮代码生成场景；未做多 Agent、工具调用、长上下文、并发/负载。
-- 未验证 DeepSeek 4.1 Flash 的官方精确 model id；本报告只声明 `deepseek-chat` 别名成功。
+- DeepSeek Flash 附带 tools 返回 HTTP 400，工具路径未在本模型验收。
 - 未计费/未统计 token 成本；未做失败重试/限流矩阵。

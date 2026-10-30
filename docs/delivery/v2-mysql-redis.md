@@ -34,14 +34,15 @@ cp .env.example .env
 # 在 .env 填入（不要提交）：
 #   MYSQL_ROOT_PASSWORD=...
 #   LLM_API_KEY=...
-# 默认模型为 DeepSeek 4.1 Flash（OpenAI 兼容接口的 deepseek-chat 别名）：
+# 默认模型为 DeepSeek 4.1 Flash（OpenAI 兼容接口的 deepseek-flash）：
 #   LLM_PROVIDER=openai
-#   LLM_MODEL=deepseek-chat
+#   LLM_MODEL=deepseek-flash
 #   LLM_BASE_URL=https://api.deepseek.com/v1
 docker compose -f docker-compose.new-arch.yml up -d --build
 ```
 
-- 若账号提供的 DeepSeek 4.1 Flash model id 不是 `deepseek-chat`，覆盖 `LLM_MODEL`（以及 `ORCHESTRATOR_LLM_MODEL`）即可；已实测 `deepseek-4.1-flash` 会被该 API 拒绝。
+- `deepseek-chat` 是 Pro 别名；`deepseek-4.1-flash` 会被 API 拒绝，均不要用于 Flash 验收。
+- DeepSeek Flash 在附带 `tools` 时曾返回 HTTP 400，因此 code-agent 的模型工具默认关闭；仅在确认模型/接口支持工具时设置 `CODE_AGENT_ENABLE_TOOLS=true`。
 - 密钥只来自 `.env`/环境变量，镜像、compose 和文档不得包含真实值。
 
 - Orchestrator 在 `DATABASE_URL` 存在时启动迁移并启用执行账本；`REDIS_URL` 存在时启动 outbox relay。

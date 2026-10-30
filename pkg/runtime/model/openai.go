@@ -89,6 +89,17 @@ type openAIRequestToolFunction struct {
 	Arguments string `json:"arguments"`
 }
 
+type openAIRequestTool struct {
+	Type     string                `json:"type"`
+	Function openAIRequestToolSpec `json:"function"`
+}
+
+type openAIRequestToolSpec struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+
 type openAIChatRequest struct {
 	Model       string              `json:"model"`
 	Messages    []openAIChatMessage `json:"messages"`
@@ -96,6 +107,7 @@ type openAIChatRequest struct {
 	Temperature *float64            `json:"temperature,omitempty"`
 	TopP        *float64            `json:"top_p,omitempty"`
 	Stop        []string            `json:"stop,omitempty"`
+	Tools       []openAIRequestTool `json:"tools,omitempty"`
 }
 
 type openAIChatResponse struct {
@@ -128,6 +140,7 @@ type openAIChatStreamRequest struct {
 	Temperature *float64            `json:"temperature,omitempty"`
 	TopP        *float64            `json:"top_p,omitempty"`
 	Stop        []string            `json:"stop,omitempty"`
+	Tools       []openAIRequestTool `json:"tools,omitempty"`
 	Stream      bool                `json:"stream"`
 }
 
@@ -206,6 +219,7 @@ func (m *openAICompatibleModel) Generate(ctx context.Context, req *adk.GenerateR
 		Model:     m.modelName,
 		Messages:  messages,
 		MaxTokens: maxTokens,
+		Tools:     buildOpenAITools(req.Tools),
 	}
 
 	if req.Config != nil {
@@ -307,6 +321,7 @@ func (m *openAICompatibleModel) GenerateStream(ctx context.Context, req *adk.Gen
 			Model:     m.modelName,
 			Messages:  messages,
 			MaxTokens: m.maxTokens,
+			Tools:     buildOpenAITools(req.Tools),
 			Stream:    true,
 		}
 		if req.Config != nil {
@@ -430,6 +445,29 @@ func (m *openAICompatibleModel) GenerateStream(ctx context.Context, req *adk.Gen
 		// from accumulated parts. The partial events already carried text chunks.
 		_ = parts
 	}
+}
+
+func buildOpenAITools(tools []adk.Tool) []openAIRequestTool {
+	out := make([]openAIRequestTool, 0, len(tools))
+	for _, tool := range tools {
+		if tool == nil || strings.TrimSpace(tool.Name()) == "" {
+			continue
+		}
+		params := json.RawMessage(tool.Schema())
+		var probe any
+		if len(params) == 0 || json.Unmarshal(params, &probe) != nil {
+			params = json.RawMessage(`{"type":"object","properties":{}}`)
+		}
+		out = append(out, openAIRequestTool{
+			Type: "function",
+			Function: openAIRequestToolSpec{
+				Name:        tool.Name(),
+				Description: tool.Description(),
+				Parameters:  params,
+			},
+		})
+	}
+	return out
 }
 
 func buildOpenAIMessages(contents []*adk.Content) []openAIChatMessage {

@@ -1,7 +1,7 @@
 # AgentHub v2 实施计划：Redis / MySQL / LLM-only / Tools / Harness / Memory
 
 - 日期：2026-10-29；源码基线：`dev / 8a44f9e`。
-- 状态：**P0、P1 已完成；P2 存储层与真实 MySQL 门禁通过；P3a 已完成；P3b–P7 部分完成；真实 DeepSeek 单轮浏览器与刷新恢复通过，独立进程 live/race/多 Agent 工具验收仍缺失（2026-10-30）**。
+- 状态：**P0、P1 已完成；P2 存储层与真实 MySQL 门禁通过；P3a 已完成；P3b–P7 部分完成；DeepSeek Flash 单轮通过、deepseek-chat 刷新恢复通过；Flash 刷新/工具、独立进程 live/race/多 Agent 验收仍缺失（2026-10-30）**。
 - 输入：[架构方案](../architecture/optimization-architecture.md)、[技术选型与来源](../architecture/optimization-technology-selection.md)。
 - 本轮只交付这三份文档；不运行迁移、不安装组件、不修改依赖/配置/业务代码/测试、不提交或推送。
 
@@ -326,10 +326,10 @@ git status --short
 | P2 | 存储层完成：MySQL Store/账本/Session/转换测试在真实 MySQL 通过；跨服务 accept 与运行接线待 P3b |
 | P3a | 已完成：Harness 预算/状态/上下文、Tool Descriptor/Broker、只读 workspace 工具、MemoryPolicy 接口 |
 | P3b | 部分完成：SQL 状态/checkpoint/plan approval/预算/resume（含 Gateway 代理）；已完成调用复用/断连恢复未完成 |
-| P4 | 部分完成：Redis relay、SQL/公开事件回放、SSE 多订阅游标、requestId 幂等、断连 durable、assistant 投影游标、seq/subIndex 重连与刷新恢复（真实 DeepSeek 刷新→批准→输出通过）、Memory 工具/API/UI/epoch 缓存、gRPC 审批/取消；live 订阅/多 Agent 工具未完成 |
+| P4 | 部分完成：Redis relay、SQL/公开事件回放、SSE 多订阅游标、requestId 幂等、断连 durable、assistant 投影游标、seq/subIndex 重连与刷新恢复（deepseek-chat/Pro 验证；Flash 刷新待复验）、Memory 工具/API/UI/epoch 缓存、gRPC 审批/取消；live 订阅/多 Agent 工具未完成 |
 | P5 | 部分完成：apply_patch、Broker/账本、写调用重放/unknown、SSRF、Docker 隔离、MCP allowlist、artifact；Agent 工具接线/真实 MCP/真实检索未完成 |
-| P6 | 部分完成：FakeModel、前端、真实 MySQL+Redis、Memory E2E、两进程独立回放、FakeModel 批准/拒绝、真实 DeepSeek 浏览器主路径与刷新批准；race/live/负载/多 Agent 工具未完成 |
-| P7 | 部分完成：compose/版本/镜像/最小栈 smoke、MySQL/Redis 重启恢复、真实 DeepSeek 浏览器主路径、SQLite→MySQL 迁移工具；完整 10-Agent/真实数据迁移未执行 |
+| P6 | 部分完成：FakeModel、前端、真实 MySQL+Redis、Memory E2E、两进程独立回放、FakeModel 批准/拒绝、DeepSeek Flash 单轮、deepseek-chat 刷新批准；Flash 刷新/工具、race/live/负载未完成 |
+| P7 | 部分完成：compose/版本/镜像/最小栈 smoke、MySQL/Redis 重启恢复、DeepSeek Flash 浏览器主路径、SQLite→MySQL 迁移工具；完整 10-Agent/真实数据迁移未执行 |
 | P3c | 部分完成：Memory 存储/Controller、短期快照/装配、自动召回、工具/管理 API/UI；摘要任务、分支隔离、Redis 未完成 |
 | 业务代码/测试/配置/依赖 | P0 未修改；P1 已按阶段修改并验证 |
 | Redis/MySQL/浏览器/性能验收 | Redis/MySQL 已执行；浏览器仅 FakeModel+Memory 路径；真模型/性能/live 未执行，不宣称通过 |

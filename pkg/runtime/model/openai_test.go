@@ -254,6 +254,52 @@ func TestOpenAIModel_RequestIncludesConfig(t *testing.T) {
 	}
 }
 
+type modelTestTool struct{}
+
+func (modelTestTool) Name() string        { return "lookup" }
+func (modelTestTool) Description() string { return "Look up a record" }
+func (modelTestTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}},"required":["q"]}`)
+}
+func (modelTestTool) Execute(context.Context, json.RawMessage) (*adk.ToolResult, error) {
+	return &adk.ToolResult{Content: "ok"}, nil
+}
+
+func TestOpenAIModel_RequestIncludesTools(t *testing.T) {
+	var gotReq openAIChatRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	defer srv.Close()
+
+	model := newOpenAITestModel(t, srv.URL)
+	if _, err := model.Generate(context.Background(), &adk.GenerateRequest{
+		Contents: []*adk.Content{{Role: adk.RoleUser, Parts: []adk.Part{adk.TextPart{Text: "hello"}}}},
+		Tools:    []adk.Tool{modelTestTool{}},
+	}); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	if len(gotReq.Tools) != 1 {
+		t.Fatalf("expected one tool, got %#v", gotReq.Tools)
+	}
+	tool := gotReq.Tools[0]
+	if tool.Type != "function" || tool.Function.Name != "lookup" || tool.Function.Description != "Look up a record" {
+		t.Fatalf("tool definition lost: %#v", tool)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(tool.Function.Parameters, &schema); err != nil {
+		t.Fatalf("tool schema invalid: %v", err)
+	}
+	if schema["type"] != "object" {
+		t.Fatalf("tool schema type lost: %#v", schema)
+	}
+}
+
 func TestOpenAIModel_HTTPErrorSanitized(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

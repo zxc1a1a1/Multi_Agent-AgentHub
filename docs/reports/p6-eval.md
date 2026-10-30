@@ -2,7 +2,7 @@
 
 - 日期：2026-10-29
 - 基线：`dev / 4dc1127`（P5 部分完成后）
-- 状态：**FakeModel Eval Harness、真实 MySQL/Redis 集成、FakeModel 浏览器聊天/审批/拒绝、真实 DeepSeek 浏览器主路径/刷新批准、前端单测/构建已执行；独立进程 live、race、负载未完成**。
+- 状态：**FakeModel Eval Harness、真实 MySQL/Redis 集成、FakeModel 浏览器聊天/审批/拒绝、DeepSeek Flash 单轮、deepseek-chat 刷新恢复、前端单测/构建已执行；独立进程 live、race、负载未完成**。
 
 ## 1. 本轮交付
 
@@ -20,7 +20,7 @@
 | 实际 MySQL/Redis | **PASS** | 全量测试含 MySQL 8.4/Redis 7.2 容器；见 P2/P4 报告 |
 | 独立进程测试 | **PARTIAL** | 两个独立 Gateway OS 进程回放同一 run；两个 HTTP 订阅者各自从 SQL 游标收到完整事件；未做 gRPC live/崩溃接管 |
 | Race | **SKIP** | 本机 Go race 依赖的 `clang-22` 路径不存在，`gcc/clang` 包装器均指向缺失文件 |
-| 浏览器 E2E | **PASS（单轮）** | FakeModel 批准/拒绝；真实 DeepSeek 计划→批准→code-agent 输出→MySQL 历史，含刷新后恢复→批准；工具/多 Agent/真实模型断线未覆盖 |
+| 浏览器 E2E | **PASS（单轮）** | FakeModel 批准/拒绝；DeepSeek Flash 计划→批准→code-agent 输出→MySQL 历史；刷新恢复用 deepseek-chat(Pro) 验证；Flash 刷新/工具/多 Agent 未覆盖 |
 | 前端单测/构建 | **PASS** | Node v20.12.2：220 tests passed；`npm run build` 成功（chunk 1.43MB 警告） |
 | 基准 | **PASS（合成 FakeModel）** | `BenchmarkFakeModelEvaluation` ≈ 77µs/op；不代表真实模型/容量 |
 | 真模型合成集 | **NOT RUN** | 需要用户注入 key 与预算授权，报告不宣称质量 |
@@ -75,7 +75,7 @@ PASS（2 个 OS 子进程各自收到 seq 1..3）
 
 未通过项（已修复，浏览器未复验）：计划待审批时点击 Stop generation（走 `/api/runs/{id}/cancel`）曾返回 500。原因：该 run 尚无 dispatched child task，Orchestrator cancel 返回 404；HTTP runner 也是同样行为，不是 gRPC 回归。修复：`handleRunCancel` 在 task registry 无记录时取消 pending plan，返回 200，run handler 继续发出 cancelled 终态；`TestRunCancelCancelsPendingPlan` 覆盖 200、cancel 信号、PlanStatusCancelled 与二次取消 404。本轮未重启浏览器复验该按钮。
 
-刷新恢复复验（2026-10-30，真实 DeepSeek）：等待计划卡时刷新页面，会话自动恢复选中，计划卡与 `(runId, seq, subIndex)` 游标恢复，点击批准后 code-agent 真实模型输出写入页面与 MySQL assistant 历史。此前 FakeModel 出现的空输出根因是 Gateway 未收集 `AGENT_TURN_CONTENT` 事件；已修复并新增 `TestChatPersistsAssistantTextWithoutRole`。真模型配置与两次浏览器路径见 `docs/reports/p6-real-model-deepseek.md`。
+刷新恢复复验（2026-10-30，deepseek-chat/Pro）：等待计划卡时刷新页面，会话自动恢复选中，计划卡与 `(runId, seq, subIndex)` 游标恢复，点击批准后 code-agent 输出写入页面与 MySQL assistant 历史。此前 FakeModel 出现的空输出根因是 Gateway 未收集 `AGENT_TURN_CONTENT` 事件；已修复并新增 `TestChatPersistsAssistantTextWithoutRole`。DeepSeek Flash 已单独验证单轮主路径（`func add`），但 Flash 刷新路径与 tools 仍未通过；详见 `docs/reports/p6-real-model-deepseek.md`。
 
 ## 5. 未覆盖的验收
 
@@ -87,4 +87,4 @@ PASS（2 个 OS 子进程各自收到 seq 1..3）
 
 ## 6. 结论
 
-P6 已具备 FakeModel/前端/真实 MySQL+Redis/FakeModel 浏览器 HITL 与真实 DeepSeek 单轮浏览器证据；独立进程 live、race、负载与多 Agent/工具真模型门禁未通过，P6 未完成。
+P6 已具备 FakeModel/前端/真实 MySQL+Redis/FakeModel 浏览器 HITL、DeepSeek Flash 单轮与 deepseek-chat 刷新恢复证据；独立进程 live、race、负载与 Flash 工具/多 Agent 门禁未通过，P6 未完成。

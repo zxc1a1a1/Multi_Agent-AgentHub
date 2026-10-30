@@ -10,9 +10,9 @@ import (
 	"time"
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
-	codeagent "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/agents/code-agent"
 	_ "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/model" // register model providers
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
+	codeagent "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/agents/code-agent"
 )
 
 const (
@@ -48,6 +48,10 @@ func buildHandler(publicURL string) (http.Handler, error) {
 	}
 
 	cfg := codeagent.ServerConfig{URL: resolvedURL}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("CODE_AGENT_ENABLE_TOOLS")), "true") {
+		cfg.Tools = codeagent.DefaultTools()
+		log.Printf("INFO: code-agent model tools enabled")
+	}
 
 	// Try to initialize an LLM Model for the agent.
 	if modelName := strings.TrimSpace(os.Getenv("CODE_AGENT_LLM_MODEL")); modelName != "" {
@@ -106,10 +110,10 @@ func createModelDirect(providerName, apiKey, modelName, baseURL string) (adk.Mod
 	defer cancel()
 
 	return registry.CreateAndRegisterModel(ctx, registry.ModelConfig{
-		Name:     "code-agent-model",
-		Provider: providerName,
-		Model:    modelName,
-		BaseURL:  baseURL,
+		Name:      "code-agent-model",
+		Provider:  providerName,
+		Model:     modelName,
+		BaseURL:   baseURL,
 		APIKeyEnv: envKey,
 	})
 }
