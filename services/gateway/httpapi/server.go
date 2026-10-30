@@ -870,21 +870,28 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		for _, item := range mapped {
 			// Collect assistant text for persistence.
 			// v1.0 uses TEXT_MESSAGE_CONTENT with delta; legacy uses message/message.delta with text.
-			if item.Role == string(adk.RoleAssistant) {
+			isUserEvent := item.Role == "user" || (item.Sender != nil && item.Sender.Type == "user")
+			switch item.Type {
+			case "TEXT_MESSAGE_CONTENT", "AGENT_TURN_CONTENT", "message", "message.delta":
+				if isUserEvent {
+					break
+				}
 				if item.Sender != nil && strings.TrimSpace(item.Sender.Name) != "" {
 					assistantAuthor = item.Sender.Name
-				} else if author := strings.TrimSpace(item.Author); author != "" && author != "assistant" {
+				} else if author := strings.TrimSpace(item.Author); author != "" && author != "assistant" && author != "user" {
 					assistantAuthor = author
 				}
-				switch item.Type {
-				case "TEXT_MESSAGE_CONTENT", "message", "message.delta":
-					delta := item.Delta
-					if delta == "" {
-						delta = item.Text
+				if assistantAuthor == "" || assistantAuthor == "assistant" {
+					if name, ok := event.Metadata[agui.MetaSenderName].(string); ok && strings.TrimSpace(name) != "" {
+						assistantAuthor = strings.TrimSpace(name)
 					}
-					if delta != "" {
-						assistantText.WriteString(delta)
-					}
+				}
+				delta := item.Delta
+				if delta == "" {
+					delta = item.Text
+				}
+				if delta != "" {
+					assistantText.WriteString(delta)
 				}
 			}
 			// Public event journal: stable (runId, seq) for browser replay.

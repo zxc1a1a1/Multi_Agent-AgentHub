@@ -68,6 +68,44 @@ func (s *journalStore) ListPublicEventsAfter(_ context.Context, runID string, af
 	return out, nil
 }
 
+func TestChatPersistsAssistantTextWithoutRole(t *testing.T) {
+	st := newJournalStore()
+	conv, err := st.CreateConversation(context.Background(), "user-role", "code-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &mockRunService{seq: seqEvents(
+		adk.Event{Metadata: metadata("run_started", "run-norole", "", "", "agent", "orchestrator")},
+		adk.Event{Metadata: metadata("agent_turn_content", "run-norole", "msg-1", "", "agent", "code-agent"),
+			Content: &adk.Content{Parts: []adk.Part{adk.TextPart{Text: "text without role"}}}},
+		adk.Event{Metadata: metadata("run_finished", "run-norole", "", "", "agent", "orchestrator")},
+	)}
+	srv, err := NewServer(st, runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"conversationId":"` + conv.ID + `","message":"hello"}`
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("chat failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	msgs, err := st.ListMessages(context.Background(), conv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, msg := range msgs {
+		if msg.Role == "assistant" {
+			if msg.Text != "text without role" || msg.Author != "code-agent" {
+				t.Fatalf("assistant persistence lost: %#v", msg)
+			}
+			return
+		}
+	}
+	t.Fatalf("assistant message not persisted: %#v", msgs)
+}
+
 func TestRunEventsReplayHonorsSubIndexCursor(t *testing.T) {
 	st := newJournalStore()
 	srv, err := NewServer(st, &mockRunService{})
