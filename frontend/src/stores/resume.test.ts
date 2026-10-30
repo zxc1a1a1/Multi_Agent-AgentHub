@@ -102,8 +102,8 @@ describe('resumeActiveRun', () => {
     })
     expect(mocks.recoverRun).toHaveBeenCalledWith(
       'run-paused',
-      3,
-      1,
+      0,
+      0,
       expect.any(Function),
       expect.any(Function),
     )
@@ -126,6 +126,39 @@ describe('resumeActiveRun', () => {
     })
 
     await useMessageStore.getState().loadMessages(conversationId)
+    await vi.waitFor(() => {
+      expect(
+        useMessageStore.getState().messages[conversationId]?.some((m) => m.content === 'persisted answer'),
+      ).toBe(true)
+    })
+    expect(mocks.clearActiveRun).toHaveBeenCalled()
+  })
+
+  it('follows a recovered run to completion after approval', async () => {
+    mocks.active = {
+      runId: 'run-follow',
+      conversationId,
+      seq: 4,
+      subIndex: 0,
+      updatedAt: Date.now(),
+    }
+    mocks.getRunStatus.mockResolvedValueOnce('executing').mockResolvedValue('completed')
+    mocks.listMessages.mockResolvedValue([userMessage, assistantMessage])
+    useMessageStore.setState({
+      confirmationByConversation: {
+        [conversationId]: {
+          runId: 'run-follow',
+          actionId: 'plan-1',
+          planId: 'plan-1',
+          agentNames: [],
+          tasks: [],
+          status: 'pending',
+        },
+      },
+    })
+
+    await useMessageStore.getState().confirmPlan(conversationId, 'run-follow', 'plan-1', true)
+
     await vi.waitFor(() => {
       expect(
         useMessageStore.getState().messages[conversationId]?.some((m) => m.content === 'persisted answer'),

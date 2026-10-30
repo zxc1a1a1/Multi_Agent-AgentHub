@@ -29,9 +29,29 @@ function sortConversations(conversations: Conversation[]): Conversation[] {
   })
 }
 
-export const useConversationStore = create<ConversationState>((set) => ({
+const ACTIVE_CONVERSATION_KEY = 'agenthub.activeConversation'
+
+function readStoredActiveId(): string | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage.getItem(ACTIVE_CONVERSATION_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeStoredActiveId(id: string | null): void {
+  try {
+    if (typeof window === 'undefined') return
+    if (id) window.localStorage.setItem(ACTIVE_CONVERSATION_KEY, id)
+    else window.localStorage.removeItem(ACTIVE_CONVERSATION_KEY)
+  } catch {
+    // Storage may be unavailable; selection still works in memory.
+  }
+}
+
+export const useConversationStore = create<ConversationState>((set, get) => ({
   conversations: [],
-  activeId: null,
+  activeId: readStoredActiveId(),
   loading: false,
   searchQuery: '',
 
@@ -41,6 +61,11 @@ export const useConversationStore = create<ConversationState>((set) => ({
       const rawConversations = await api.listConversations()
       const conversations = sortConversations(overlayLocalTitles(rawConversations))
       set({ conversations, loading: false })
+      const activeId = get().activeId
+      if (activeId && !conversations.some((conv) => conv.id === activeId)) {
+        writeStoredActiveId(null)
+        set({ activeId: null })
+      }
     } catch {
       set({ loading: false })
     }
@@ -48,6 +73,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
 
   create: async (agentName: AgentName) => {
     const conv = await api.createConversation(agentName)
+    writeStoredActiveId(conv.id)
     set((s) => ({
       conversations: sortConversations([conv, ...s.conversations]),
       activeId: conv.id,
@@ -56,6 +82,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
   },
 
   setActive: (id: string) => {
+    writeStoredActiveId(id)
     set({ activeId: id })
   },
 
@@ -76,6 +103,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
       let nextActiveId = s.activeId
       if (s.activeId === id) {
         nextActiveId = remaining.length > 0 ? remaining[0].id : null
+        writeStoredActiveId(nextActiveId)
       }
       return {
         conversations: remaining,

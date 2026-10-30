@@ -8,9 +8,49 @@ vi.mock('../services/api', () => ({
   deleteConversation: vi.fn(),
 }))
 
+describe('conversationStore active selection persistence', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    useConversationStore.setState({
+      conversations: [],
+      activeId: null,
+      loading: false,
+    })
+  })
+
+  it('persists the active conversation and clears a stale id on load', async () => {
+    useConversationStore.getState().setActive('conv-stale')
+    expect(localStorage.getItem('agenthub.activeConversation')).toBe('conv-stale')
+
+    vi.mocked(api.listConversations).mockResolvedValue([])
+    await useConversationStore.getState().load()
+
+    expect(useConversationStore.getState().activeId).toBeNull()
+    expect(localStorage.getItem('agenthub.activeConversation')).toBeNull()
+  })
+
+  it('keeps a stored conversation that still exists', async () => {
+    const conv = {
+      id: 'conv-live',
+      title: 'Live',
+      agentName: 'code-agent',
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-02',
+    }
+    useConversationStore.setState({ activeId: 'conv-live' })
+    vi.mocked(api.listConversations).mockResolvedValue([conv])
+
+    await useConversationStore.getState().load()
+
+    expect(useConversationStore.getState().activeId).toBe('conv-live')
+  })
+})
+
 describe('conversationStore.delete', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
     useConversationStore.setState({
       conversations: [],
       activeId: null,

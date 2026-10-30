@@ -75,6 +75,8 @@ PASS（2 个 OS 子进程各自收到 seq 1..3）
 
 未通过项（已修复，浏览器未复验）：计划待审批时点击 Stop generation（走 `/api/runs/{id}/cancel`）曾返回 500。原因：该 run 尚无 dispatched child task，Orchestrator cancel 返回 404；HTTP runner 也是同样行为，不是 gRPC 回归。修复：`handleRunCancel` 在 task registry 无记录时取消 pending plan，返回 200，run handler 继续发出 cancelled 终态；`TestRunCancelCancelsPendingPlan` 覆盖 200、cancel 信号、PlanStatusCancelled 与二次取消 404。本轮未重启浏览器复验该按钮。
 
+刷新恢复复验（2026-10-30，FakeModel + mock code-agent）：等待计划卡时刷新页面，会话自动恢复选中，计划卡与 `(runId, seq, subIndex)` 游标恢复，点击批准返回成功；但批准后 run 虽为 `completed`，Gateway messages 无 assistant、Orchestrator public events 只有 `agent_turn_started/finished` 而无 content，另一次复验出现 `run_error`。即“刷新后恢复计划卡”通过，“刷新后批准的 child agent 输出”未通过，P4/P6 门禁仍未闭合。
+
 ## 5. 未覆盖的验收
 
 1. 真模型任务完成率/工具选择/成本：未执行，不能用 FakeModel 结果替代。

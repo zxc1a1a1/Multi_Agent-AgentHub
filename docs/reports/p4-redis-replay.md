@@ -21,7 +21,7 @@
 | 内部 gRPC | `services/orchestrator/grpcapi`、`pkg/runtime/proto` | StartRun/SubscribeRun/Status/Approval/Cancel/ListAgents；订阅读 SQL 公开事件 |
 | Gateway gRPC | `orchestratorclient/grpc.go` | `ORCHESTRATOR_GRPC_URL` 时聊天运行走 gRPC；HTTP 保留用于恢复/管理代理 |
 | 前端游标恢复 | `frontend/src/agui/client.ts`、`recoverRun` | 记录 `(runId, seq, subIndex)`；流错误时按双游标拉取事件，终态停止 |
-| 刷新恢复 | `frontend/src/stores/messageStore.ts` | 活跃游标写入 localStorage（30 分钟 TTL）；会话加载时自动重放，awaiting_approval 保留计划卡，完成后重载历史 |
+| 刷新恢复 | `frontend/src/stores/messageStore.ts` | 活跃游标写入 localStorage（30 分钟 TTL）；会话加载时自动重放，awaiting_approval 保留计划卡，完成后重载历史；批准后执行输出仍有缺陷（见第 4 节） |
 | Memory 工具 | `pkg/runtime/tools/memory.go` | memory.search/read/propose；scope 由可信代码绑定，不从参数读取 |
 | Memory 缓存 | `internal/memory/cache_redis.go` | 键含 scopeID/epoch/limit/policy 摘要；每次召回从 SQL 取 epoch，旧缓存不复活 |
 | Memory 管理 API | `httpapi/memory_admin.go` | entries/propose/confirm/update/forget/policy/mutations |
@@ -88,7 +88,7 @@ MemoryPanel.test.tsx                                       PASS（7 tests：加�
 ## 4. 未完成（P4 门禁未通过）
 
 1. 内部 gRPC 已实现并被 Gateway 聊天运行使用；审批/取消已通过 gRPC（`ConfirmRun`/`CancelRun`）从 Gateway 转发，回放/管理仍走 HTTP 兼容接口。
-2. **浏览器断线恢复**：同页流错误与页面刷新均已按 `(runId, seq, subIndex)` 恢复（localStorage 30 分钟 TTL，暂停时保留计划卡）；尚未在真实模型浏览器刷新中演练，工具/artifact 卡片的重建未验证。
+2. **浏览器断线恢复**：同页流错误与页面刷新均已按 `(runId, seq, subIndex)` 恢复；FakeModel 浏览器复验了刷新后自动选中会话并恢复计划卡、批准提交成功。但批准后 run 虽到 `completed`，child agent 输出为空（public events 只有 agent_turn_started/finished，无 content；另一次为 run_error，gateway messages 无 assistant），审批后的执行输出仍未通过。
 3. **两个 Gateway OS 进程独立订阅**、慢订阅者有界队列、Redis 重启/清空恢复测试未做。
 4. Memory Redis 召回缓存已实现；缓存失效事件未单独发布，靠 SQL epoch 复核保证旧值不复用。
 5. 普通断连已不取消 run；前端 `recoverRun` 按 `(seq, subIndex)` 回放，但未在真实模型聊天中做浏览器断线演练。

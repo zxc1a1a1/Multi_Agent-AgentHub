@@ -21,6 +21,11 @@ type StreamHarness = {
 const streamByConversation = new Map<string, StreamHarness>()
 
 vi.mock('../agui/client', () => ({
+  loadActiveRun: vi.fn(() => null),
+  saveActiveRun: vi.fn(),
+  clearActiveRun: vi.fn(),
+  getRunStatus: vi.fn().mockResolvedValue(null),
+  recoverRun: vi.fn(),
   runAgent: vi.fn(
     (
       request: AGUIChatRequest,

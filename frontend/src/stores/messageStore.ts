@@ -81,6 +81,7 @@ interface MessageState {
 
   loadMessages: (conversationId: string) => Promise<void>
   resumeActiveRun: (conversationId: string) => Promise<void>
+  followRunToCompletion: (conversationId: string) => Promise<void>
   sendMessage: (conversationId: string, content: string, options?: SendMessageOptions) => void
   togglePinMessage: (conversationId: string, messageId: string) => void
   regenerateMessage: (conversationId: string, messageId: string) => Promise<void>
@@ -450,6 +451,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     let content = ''
     let senderName = ''
     let completed = false
+    let allowPlanCard = false
 
     const upsert = (status: Message['status']) => {
       set((s) => {
@@ -511,7 +513,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           const activity = event.activity
           if (activity) {
             useActivityStore.getState().setActivity(conversationId, activity)
-            if (activity.activityType === 'plan_approval' && activity.status === 'awaiting_confirmation') {
+            if (activity.activityType === 'plan_approval' && activity.status === 'awaiting_confirmation' && allowPlanCard) {
               set((s) => ({
                 confirmationByConversation: {
                   ...s.confirmationByConversation,
@@ -542,12 +544,15 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     try {
       const status = await getRunStatus(runId)
-      if (status && ['completed', 'failed', 'cancelled'].includes(status)) {
-        clearActiveRun(conversationId)
+      if (!status || ['completed', 'failed', 'cancelled'].includes(status)) {
+        if (status) clearActiveRun(conversationId)
         await get().loadMessages(conversationId)
         return
       }
-      await recoverRun(runId, active.seq, active.subIndex, handleEvent, finish)
+      allowPlanCard = status === 'awaiting_approval'
+      // Replay from the beginning so paused UI state (plan snapshot) is rebuilt;
+      // the stored cursor still advances as events are applied.
+      await recoverRun(runId, 0, 0, handleEvent, finish)
       if (completed) return
       const finalStatus = await getRunStatus(runId)
       if (!finalStatus || ['completed', 'failed', 'cancelled'].includes(finalStatus)) {
@@ -641,6 +646,28 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       agentName: normalizeAgentName(message.agentName || DEFAULT_AGENT_NAME),
       contextMessages: regenResp.context,
     })
+  },
+
+  followRunToCompletion: async (conversationId: string) => {
+    const active = loadActiveRun(conversationId)
+    if (!active) return
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const status = await getRunStatus(active.runId)
+      if (!status) return
+      if (['completed', 'failed', 'cancelled'].includes(status)) {
+        clearActiveRun(conversationId)
+        // The gateway may project the assistant message just after the run
+        // reaches a terminal ledger state; retry briefly before giving up.
+        for (let refresh = 0; refresh < 5; refresh++) {
+          await get().loadMessages(conversationId)
+          const list = get().messages[conversationId] || []
+          if (list.some((message) => message.senderType === 'agent')) return
+          await new Promise((resolve) => setTimeout(resolve, 300))
+        }
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
   },
 
   sendMessage: (conversationId: string, content: string, options?: SendMessageOptions) => {
@@ -1657,6 +1684,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           },
         },
       }))
+      if (!isRevise && !get().streamingByConversation[conversationId]) {
+        void get().followRunToCompletion(conversationId)
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Confirmation failed'
       // Sanitize error — no internal URLs, tokens, or stack traces
