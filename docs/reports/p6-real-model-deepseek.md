@@ -28,6 +28,7 @@ docker compose --env-file .env -f docker-compose.new-arch.yml up -d ...
 2. MainAgent 通过 DeepSeek 生成计划卡（code-agent / 1 task），页面显示 Approve & Execute
 3. 点击批准 → code-agent 通过 DeepSeek 返回 Go 代码（func isEven）
 4. MySQL：messages 存在 sender_type=assistant、sender_name=code-agent、run_id=run_59d3cdd4cfa17393 的记录
+5. 刷新已完成的会话：历史从 MySQL 恢复，显示 Code Agent 与返回的代码（无活跃游标时直接读历史）
 ```
 
 ## 3. 刷新恢复 + 批准（真实模型）

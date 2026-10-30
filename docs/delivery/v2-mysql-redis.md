@@ -33,9 +33,16 @@ Frontend(3000) → Gateway(8080)
 cp .env.example .env
 # 在 .env 填入（不要提交）：
 #   MYSQL_ROOT_PASSWORD=...
-#   LLM_API_KEY=... LLM_MODEL=...
+#   LLM_API_KEY=...
+# 默认模型为 DeepSeek 4.1 Flash（OpenAI 兼容接口的 deepseek-chat 别名）：
+#   LLM_PROVIDER=openai
+#   LLM_MODEL=deepseek-chat
+#   LLM_BASE_URL=https://api.deepseek.com/v1
 docker compose -f docker-compose.new-arch.yml up -d --build
 ```
+
+- 若账号提供的 DeepSeek 4.1 Flash model id 不是 `deepseek-chat`，覆盖 `LLM_MODEL`（以及 `ORCHESTRATOR_LLM_MODEL`）即可；已实测 `deepseek-4.1-flash` 会被该 API 拒绝。
+- 密钥只来自 `.env`/环境变量，镜像、compose 和文档不得包含真实值。
 
 - Orchestrator 在 `DATABASE_URL` 存在时启动迁移并启用执行账本；`REDIS_URL` 存在时启动 outbox relay。
 - Gateway 默认 `AGENTHUB_GATEWAY_STORE=mysql`；缺少 `DATABASE_URL` 启动失败。
