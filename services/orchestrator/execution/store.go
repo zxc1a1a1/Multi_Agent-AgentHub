@@ -3,6 +3,7 @@
 package execution
 
 import (
+	"errors"
 	"context"
 	"encoding/json"
 	"time"
@@ -97,6 +98,8 @@ type Store interface {
 	ListRunTasks(ctx context.Context, runID string) ([]TaskRef, error)
 	RequestRunCancel(ctx context.Context, runID string) error
 	RunCancelRequested(ctx context.Context, runID string) (bool, error)
+	BeginConfirm(ctx context.Context, runID, key, requestHash string) (*ConfirmRecord, bool, error)
+	CompleteConfirm(ctx context.Context, runID, key, status string, httpStatus int, response []byte) error
 }
 
 // TaskRef is one dispatched remote A2A task, shared across instances.
@@ -104,6 +107,21 @@ type TaskRef struct {
 	TaskID    string
 	AgentName string
 	AgentURL  string
+}
+
+var (
+	// ErrConfirmConflict means an idempotency key was reused with a different body.
+	ErrConfirmConflict = errors.New("idempotency key reused with a different request")
+	// ErrConfirmInFlight means another instance is processing the same key.
+	ErrConfirmInFlight = errors.New("confirmation is already in flight")
+)
+
+// ConfirmRecord is a stored HITL confirmation result for one idempotency key.
+type ConfirmRecord struct {
+	Status       string
+	HTTPStatus   int
+	ResponseJSON []byte
+	CreatedAt    time.Time
 }
 
 // Signal is a durable HITL decision written by any instance and claimed by the

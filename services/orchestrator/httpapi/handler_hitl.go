@@ -1,12 +1,15 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
@@ -100,6 +103,53 @@ func (s *Server) handleHITLConfirm(w http.ResponseWriter, r *http.Request) {
 			"error": errMsg,
 		})
 		return
+	}
+
+	// SQL idempotency: the first request with a key owns processing; repeats
+	// replay the stored response even when they land on another instance.
+	if s.executionStore != nil && strings.TrimSpace(req.IdempotencyKey) != "" {
+		record, claimed, idemErr := s.executionStore.BeginConfirm(
+			r.Context(), req.RunID, strings.TrimSpace(req.IdempotencyKey), hashHITLPayload(req))
+		if idemErr != nil {
+			switch {
+			case errors.Is(idemErr, execution.ErrConfirmConflict):
+				writeJSON(w, http.StatusConflict, map[string]string{
+					"error": "IDEMPOTENCY_KEY_CONFLICT: same key with different payload",
+				})
+			case errors.Is(idemErr, execution.ErrConfirmInFlight):
+				writeJSON(w, http.StatusConflict, map[string]string{
+					"error": "CONFIRM_IN_FLIGHT: the same confirmation is already being processed",
+				})
+			default:
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "confirmation store unavailable"})
+			}
+			return
+		}
+		if !claimed {
+			if record != nil && record.HTTPStatus > 0 && len(record.ResponseJSON) > 0 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(record.HTTPStatus)
+				_, _ = w.Write(record.ResponseJSON)
+				return
+			}
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "CONFIRM_IN_FLIGHT"})
+			return
+		}
+		capture := &captureResponseWriter{ResponseWriter: w}
+		w = capture
+		defer func() {
+			if capture.status == 0 {
+				return
+			}
+			recordStatus := "completed"
+			if capture.status >= http.StatusInternalServerError {
+				recordStatus = "failed"
+			}
+			persistCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = s.executionStore.CompleteConfirm(persistCtx, req.RunID, strings.TrimSpace(req.IdempotencyKey),
+				recordStatus, capture.status, capture.body.Bytes())
+		}()
 	}
 
 	// Lookup pending confirmation state — prefer new PendingPlan, fall back to legacy.

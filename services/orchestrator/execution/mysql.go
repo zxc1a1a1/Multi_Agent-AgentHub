@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"errors"
 	"context"
 	"fmt"
 	"time"
@@ -149,6 +150,27 @@ func (s *MySQLStore) RequestRunCancel(ctx context.Context, runID string) error {
 
 func (s *MySQLStore) RunCancelRequested(ctx context.Context, runID string) (bool, error) {
 	return s.repo.RunCancelRequested(ctx, runID)
+}
+
+func (s *MySQLStore) BeginConfirm(ctx context.Context, runID, key, requestHash string) (*ConfirmRecord, bool, error) {
+	record, claimed, err := s.repo.BeginConfirm(ctx, runID, key, requestHash)
+	if err != nil {
+		if errors.Is(err, ledger.ErrConfirmIdempotencyConflict) {
+			return nil, false, ErrConfirmConflict
+		}
+		if errors.Is(err, ledger.ErrConfirmInFlight) {
+			return nil, false, ErrConfirmInFlight
+		}
+		return nil, false, err
+	}
+	return &ConfirmRecord{
+		Status: record.Status, HTTPStatus: record.HTTPStatus,
+		ResponseJSON: record.ResponseJSON, CreatedAt: record.CreatedAt,
+	}, claimed, nil
+}
+
+func (s *MySQLStore) CompleteConfirm(ctx context.Context, runID, key, status string, httpStatus int, response []byte) error {
+	return s.repo.CompleteConfirm(ctx, runID, key, status, httpStatus, response)
 }
 
 func (s *MySQLStore) ListEventsAfter(ctx context.Context, runID string, afterSeq int64, limit int) ([]Event, error) {

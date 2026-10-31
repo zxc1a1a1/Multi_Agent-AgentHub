@@ -1011,3 +1011,87 @@ func (r *Repository) RunCancelRequested(ctx context.Context, runID string) (bool
 	}
 	return true, nil
 }
+
+// ErrConfirmIdempotencyConflict means a key was reused with a different body.
+var ErrConfirmIdempotencyConflict = errors.New("idempotency key reused with a different request")
+
+// ErrConfirmInFlight means another request with the same key is processing.
+var ErrConfirmInFlight = errors.New("confirmation is already in flight")
+
+// ConfirmRecord is a stored HITL confirmation result.
+type ConfirmRecord struct {
+	Status       string
+	HTTPStatus   int
+	ResponseJSON []byte
+	CreatedAt    time.Time
+}
+
+// BeginConfirm claims an idempotency key. claimed=false with a completed record
+// means the caller must replay the stored response.
+func (r *Repository) BeginConfirm(ctx context.Context, runID, key, requestHash string) (*ConfirmRecord, bool, error) {
+	if runID == "" || key == "" || requestHash == "" {
+		return nil, false, fmt.Errorf("runId, key and request hash are required")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `INSERT IGNORE INTO hitl_confirmations
+		(run_id, idempotency_key, request_hash, status) VALUES (?, ?, ?, 'processing')`,
+		runID, key, requestHash); err != nil {
+		return nil, false, err
+	}
+	var record ConfirmRecord
+	var response []byte
+	var storedHash string
+	if err := tx.QueryRowContext(ctx, `SELECT request_hash, status, http_status, response_json, created_at
+		FROM hitl_confirmations WHERE run_id = ? AND idempotency_key = ? FOR UPDATE`,
+		runID, key).Scan(&storedHash, &record.Status, &record.HTTPStatus, &response, &record.CreatedAt); err != nil {
+		return nil, false, err
+	}
+	if storedHash != requestHash {
+		return nil, false, ErrConfirmIdempotencyConflict
+	}
+	record.ResponseJSON = response
+	if record.Status == "completed" || record.Status == "failed" {
+		if err := tx.Commit(); err != nil {
+			return nil, false, err
+		}
+		return &record, false, nil
+	}
+	// A processing row older than two minutes is treated as abandoned and may
+	// be retried; a fresh row means another instance is currently handling it.
+	if time.Since(record.CreatedAt) < 2*time.Minute {
+		if err := tx.Commit(); err != nil {
+			return nil, false, err
+		}
+		return &record, false, ErrConfirmInFlight
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE hitl_confirmations
+		SET status = 'processing', request_hash = ?, http_status = 0, response_json = NULL,
+			created_at = ? WHERE run_id = ? AND idempotency_key = ?`,
+		requestHash, time.Now().UTC(), runID, key); err != nil {
+		return nil, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	return &record, true, nil
+}
+
+// CompleteConfirm stores the response for a claimed idempotency key.
+func (r *Repository) CompleteConfirm(ctx context.Context, runID, key, status string, httpStatus int, response []byte) error {
+	if status != "completed" && status != "failed" {
+		return fmt.Errorf("invalid confirmation status %q", status)
+	}
+	if len(response) == 0 {
+		response = []byte(`{}`)
+	}
+	_, err := r.db.ExecContext(ctx, `UPDATE hitl_confirmations
+		SET status = ?, http_status = ?, response_json = ?
+		WHERE run_id = ? AND idempotency_key = ?`,
+		status, httpStatus, response, runID, key)
+	return err
+}

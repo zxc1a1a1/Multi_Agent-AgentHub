@@ -214,6 +214,19 @@ CREATE TABLE run_cancels (
   consumed_at DATETIME(3) NULL
 ) ENGINE=InnoDB;
 
+-- A1-05: cross-instance confirm idempotency response cache.
+CREATE TABLE hitl_confirmations (
+  run_id VARCHAR(64) NOT NULL,
+  idempotency_key VARCHAR(128) NOT NULL,
+  request_hash CHAR(64) NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'processing',
+  http_status INT NOT NULL DEFAULT 0,
+  response_json JSON NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (run_id, idempotency_key)
+) ENGINE=InnoDB;
+
 CREATE TABLE tool_calls (
   run_id VARCHAR(64) NOT NULL,
   tool_call_id VARCHAR(64) NOT NULL,

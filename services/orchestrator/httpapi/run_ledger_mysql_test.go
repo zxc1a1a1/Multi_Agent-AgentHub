@@ -382,3 +382,40 @@ func TestIntegrationRunTaskRefsAndCancel(t *testing.T) {
 		t.Fatalf("cancel request not persisted: requested=%v err=%v", requested, err)
 	}
 }
+
+func TestIntegrationHITLConfirmIdempotency(t *testing.T) {
+	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
+	if dsn == "" {
+		t.Skip("SKIP real MySQL integration: set AGENTHUB_MYSQL_TEST_DSN")
+	}
+	ctx := context.Background()
+	db, err := ledger.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open mysql: %v", err)
+	}
+	defer db.Close()
+	if err := ledger.RunMigrations(db); err != nil {
+		t.Fatalf("migrations: %v", err)
+	}
+	runID := fmt.Sprintf("run-idem-%d", time.Now().UnixNano())
+	t.Cleanup(func() { _, _ = db.Exec("DELETE FROM hitl_confirmations WHERE run_id = ?", runID) })
+	repo := ledger.NewRepository(db)
+
+	record, claimed, err := repo.BeginConfirm(ctx, runID, "key-1", "hash-1")
+	if err != nil || !claimed || record.Status != "processing" {
+		t.Fatalf("first claim: record=%#v claimed=%v err=%v", record, claimed, err)
+	}
+	if _, _, err := repo.BeginConfirm(ctx, runID, "key-1", "hash-1"); !errors.Is(err, ledger.ErrConfirmInFlight) {
+		t.Fatalf("concurrent duplicate must be in flight, got %v", err)
+	}
+	if err := repo.CompleteConfirm(ctx, runID, "key-1", "completed", 202, []byte(`{"status":"accepted"}`)); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	record, claimed, err = repo.BeginConfirm(ctx, runID, "key-1", "hash-1")
+	if err != nil || claimed || record.HTTPStatus != 202 || string(record.ResponseJSON) != `{"status":"accepted"}` {
+		t.Fatalf("replay: record=%#v claimed=%v err=%v", record, claimed, err)
+	}
+	if _, _, err := repo.BeginConfirm(ctx, runID, "key-1", "hash-2"); !errors.Is(err, ledger.ErrConfirmIdempotencyConflict) {
+		t.Fatalf("different payload must conflict, got %v", err)
+	}
+}

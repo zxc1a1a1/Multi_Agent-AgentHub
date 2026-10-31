@@ -37,6 +37,47 @@ type fakeExecutionStore struct {
 	signals         []execution.Signal
 	taskRefs        map[string][]execution.TaskRef
 	cancelRequested map[string]bool
+	confirmRecords  map[string]*execution.ConfirmRecord
+	confirmHashes   map[string]string
+}
+
+func (f *fakeExecutionStore) BeginConfirm(_ context.Context, runID, key, requestHash string) (*execution.ConfirmRecord, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	mapKey := runID + "|" + key
+	if f.confirmRecords == nil {
+		f.confirmRecords = map[string]*execution.ConfirmRecord{}
+		f.confirmHashes = map[string]string{}
+	}
+	record, ok := f.confirmRecords[mapKey]
+	if !ok {
+		record = &execution.ConfirmRecord{Status: "processing", CreatedAt: time.Now().UTC()}
+		f.confirmRecords[mapKey] = record
+		f.confirmHashes[mapKey] = requestHash
+		return record, true, nil
+	}
+	if f.confirmHashes[mapKey] != requestHash {
+		return nil, false, execution.ErrConfirmConflict
+	}
+	if record.Status == "completed" || record.Status == "failed" {
+		return record, false, nil
+	}
+	return record, false, execution.ErrConfirmInFlight
+}
+
+func (f *fakeExecutionStore) CompleteConfirm(_ context.Context, runID, key, status string, httpStatus int, response []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	mapKey := runID + "|" + key
+	record := f.confirmRecords[mapKey]
+	if record == nil {
+		record = &execution.ConfirmRecord{}
+		f.confirmRecords[mapKey] = record
+	}
+	record.Status = status
+	record.HTTPStatus = httpStatus
+	record.ResponseJSON = append([]byte(nil), response...)
+	return nil
 }
 
 func (f *fakeExecutionStore) RegisterRunTask(_ context.Context, runID string, ref execution.TaskRef) error {
@@ -611,10 +652,14 @@ func TestDurableHITLConfirmFromSecondInstance(t *testing.T) {
 		t.Fatalf("second instance confirm failed: %d %s", rec.Code, rec.Body.String())
 	}
 
+	firstBody := rec.Body.String()
 	rec = httptest.NewRecorder()
 	srvB.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/hitl/confirm", strings.NewReader(confirmBody)))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("idempotent confirm must return 200, got %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("idempotent confirm must replay the stored 202 response, got %d %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != firstBody {
+		t.Fatalf("idempotent confirm must replay the stored body: first=%s second=%s", firstBody, rec.Body.String())
 	}
 
 	select {
@@ -748,5 +793,32 @@ func TestCancelWatcherStopsLocalRun(t *testing.T) {
 	case <-stopped:
 	case <-time.After(2 * time.Second):
 		t.Fatal("persisted cancel request did not stop the local run")
+	}
+}
+
+func TestConfirmIdempotencyRejectsDifferentPayload(t *testing.T) {
+	p := makeTestPlan("run-idem-conflict", plan.StrategySingle, []plan.TaskPlan{makeTaskPlan("t1", "code-agent", "do it")})
+	p.Revision = 1
+	planJSON, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeExecutionStore{resumeState: &execution.ResumeState{
+		Status: "awaiting_approval", PlanJSON: planJSON,
+		BudgetJSON: []byte(`{}`), CheckpointJSON: []byte(`{}`),
+	}}
+	srv := NewServer(WithExecutionStore(store), WithInstanceID("instance-b"))
+	approve := fmt.Sprintf(`{"runId":"run-idem-conflict","actionId":%q,"planId":%q,"action":"approve","revision":1,"idempotencyKey":"same-key"}`, p.PlanID, p.PlanID)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/hitl/confirm", strings.NewReader(approve)))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("first confirm failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	cancel := fmt.Sprintf(`{"runId":"run-idem-conflict","actionId":%q,"planId":%q,"action":"cancel","revision":1,"idempotencyKey":"same-key"}`, p.PlanID, p.PlanID)
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/hitl/confirm", strings.NewReader(cancel)))
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "IDEMPOTENCY_KEY_CONFLICT") {
+		t.Fatalf("key reuse with different payload must be rejected: %d %s", rec.Code, rec.Body.String())
 	}
 }
