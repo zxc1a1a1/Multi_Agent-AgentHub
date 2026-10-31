@@ -360,9 +360,37 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		heartbeatTicker := time.NewTicker(15 * time.Second)
 		defer heartbeatTicker.Stop()
 
+		// A confirm may be handled by another Orchestrator instance. Poll the
+		// durable signal table and feed it into the same channel path so both
+		// local and cross-instance confirms share one validation/execution flow.
+		var signalCh <-chan time.Time
+		if ledger.enrolled() {
+			pollInterval := s.hitlPollInterval
+			if pollInterval <= 0 {
+				pollInterval = 250 * time.Millisecond
+			}
+			signalTicker := time.NewTicker(pollInterval)
+			defer signalTicker.Stop()
+			signalCh = signalTicker.C
+		}
+
 	confirmLoop:
 		for {
 			select {
+			case <-signalCh:
+				sig, claimErr := s.executionStore.ClaimRunSignal(r.Context(), runID)
+				if claimErr != nil {
+					log.Printf("orchestrator: run=%s claim HITL signal failed: %v", runID, claimErr)
+					continue
+				}
+				if sig == nil {
+					continue
+				}
+				select {
+				case confirmCh <- hitlResultFromSignal(sig):
+				case <-r.Context().Done():
+					return
+				}
 			case result := <-confirmCh:
 				// Revise: re-plan with feedback and emit revised ACTIVITY_SNAPSHOT.
 				if result.Action == "revise" {
@@ -1382,6 +1410,17 @@ func (s *Server) handlePlanOnlySingleChat(w http.ResponseWriter, flusher http.Fl
 	var approved bool
 	executeUserText := userText // always use original userText for full execute
 
+	var signalCh <-chan time.Time
+	if s.executionStore != nil {
+		pollInterval := s.hitlPollInterval
+		if pollInterval <= 0 {
+			pollInterval = 250 * time.Millisecond
+		}
+		signalTicker := time.NewTicker(pollInterval)
+		defer signalTicker.Stop()
+		signalCh = signalTicker.C
+	}
+
 confirmLoop:
 	for {
 		select {
@@ -1701,6 +1740,20 @@ confirmLoop:
 					RunID: runID,
 					State: map[string]any{"status": "cancelled"},
 				})
+				return
+			}
+		case <-signalCh:
+			sig, claimErr := s.executionStore.ClaimRunSignal(r.Context(), runID)
+			if claimErr != nil {
+				log.Printf("orchestrator: run=%s claim HITL signal failed: %v", runID, claimErr)
+				continue
+			}
+			if sig == nil {
+				continue
+			}
+			select {
+			case confirmCh <- hitlResultFromSignal(sig):
+			case <-r.Context().Done():
 				return
 			}
 		case <-heartbeatTicker.C:

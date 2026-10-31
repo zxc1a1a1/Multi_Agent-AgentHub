@@ -89,6 +89,7 @@ type Server struct {
 	budgetLimits        harness.Limits // per-run budget defaults
 	leaseTTL            time.Duration  // run lease lifetime
 	leaseRenewInterval  time.Duration  // how often the lease is renewed
+	hitlPollInterval    time.Duration  // cross-instance HITL signal poll cadence
 }
 
 // Option customizes Server behavior.
@@ -235,6 +236,7 @@ func NewServer(opts ...Option) *Server {
 		budgetLimits:       harness.DefaultLimits(),
 		leaseTTL:           15 * time.Minute,
 		leaseRenewInterval: 5 * time.Minute,
+		hitlPollInterval:   250 * time.Millisecond,
 	}
 	for _, opt := range opts {
 		if opt == nil {

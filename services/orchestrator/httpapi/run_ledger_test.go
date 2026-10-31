@@ -32,6 +32,37 @@ type fakeExecutionStore struct {
 	failOnStatus string
 	renewCalls   int32
 	renewErr     error
+	signals      []execution.Signal
+}
+
+func (f *fakeExecutionStore) AppendRunSignal(_ context.Context, sig execution.Signal) (int64, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if sig.IdempotencyKey != "" {
+		for _, existing := range f.signals {
+			if existing.IdempotencyKey == sig.IdempotencyKey {
+				return existing.ID, true, nil
+			}
+		}
+	}
+	sig.ID = int64(len(f.signals) + 1)
+	sig.Status = "pending"
+	f.signals = append(f.signals, sig)
+	return sig.ID, false, nil
+}
+
+func (f *fakeExecutionStore) ClaimRunSignal(_ context.Context, runID string) (*execution.Signal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.signals {
+		if f.signals[i].RunID != runID || f.signals[i].Status != "pending" {
+			continue
+		}
+		f.signals[i].Status = "consumed"
+		sig := f.signals[i]
+		return &sig, nil
+	}
+	return nil, nil
 }
 
 func (f *fakeExecutionStore) AcceptRun(_ context.Context, p execution.Accept) (bool, error) {
@@ -482,5 +513,106 @@ func TestRunHandlerRenewsLeaseDuringExecution(t *testing.T) {
 
 	if got := atomic.LoadInt32(&store.renewCalls); got == 0 {
 		t.Fatalf("run handler did not renew the lease during execution; body=%s", rec.Body.String())
+	}
+}
+
+func TestDurableHITLConfirmFromSecondInstance(t *testing.T) {
+	p := makeTestPlan("run-cross", plan.StrategySingle, []plan.TaskPlan{makeTaskPlan("t1", "code-agent", "do it")})
+	p.Revision = 1
+	p.Participants = []plan.PlanParticipant{{AgentName: "code-agent", Required: true, Selected: true}}
+	p.CandidateParticipants = p.Participants
+	p.DefaultSelectedParticipants = p.Participants
+	planJSON, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeExecutionStore{resumeState: &execution.ResumeState{
+		Status: "awaiting_approval", PlanJSON: planJSON,
+		BudgetJSON: []byte(`{}`), CheckpointJSON: []byte(`{"status":"awaiting_approval"}`),
+	}}
+	srvA := newLedgerTestServer(t, store, &FakeMainAgent{PlanToReturn: p})
+	srvA.hitlPollInterval = 5 * time.Millisecond
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		body := `{"runId":"run-cross","conversationId":"conv","messages":[{"role":"user","text":"do it"}],"requestedPath":"main_agent_orchestration"}`
+		srvA.Handler().ServeHTTP(httptest.NewRecorder(),
+			httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/stream", strings.NewReader(body)))
+	}()
+
+	var planID string
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		srvA.hitlMu.RLock()
+		pending := srvA.pendingPlans["run-cross"]
+		srvA.hitlMu.RUnlock()
+		if pending != nil {
+			planID = pending.PlanID
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if planID == "" {
+		t.Fatal("plan was not registered for approval")
+	}
+
+	srvB := NewServer(WithExecutionStore(store), WithInstanceID("instance-b"))
+	confirmBody := fmt.Sprintf(`{"runId":"run-cross","actionId":%q,"planId":%q,"action":"approve","revision":1,"idempotencyKey":"idem-cross","selectedParticipants":["code-agent"]}`, planID, planID)
+	rec := httptest.NewRecorder()
+	srvB.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/hitl/confirm", strings.NewReader(confirmBody)))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("second instance confirm failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	srvB.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/hitl/confirm", strings.NewReader(confirmBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("idempotent confirm must return 200, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("owning instance did not consume the durable signal")
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.signals) != 1 {
+		t.Fatalf("expected one durable signal, got %d", len(store.signals))
+	}
+	if store.signals[0].Status != "consumed" {
+		t.Fatalf("signal status=%q, want consumed", store.signals[0].Status)
+	}
+	for id, status := range store.approvals {
+		if status != "approved" {
+			t.Fatalf("approval %s status=%s, want approved", id, status)
+		}
+	}
+}
+
+func TestDurableHITLConfirmRejectsRevisionMismatch(t *testing.T) {
+	p := makeTestPlan("run-cross-bad", plan.StrategySingle, []plan.TaskPlan{makeTaskPlan("t1", "code-agent", "do it")})
+	p.Revision = 1
+	planJSON, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeExecutionStore{resumeState: &execution.ResumeState{
+		Status: "awaiting_approval", PlanJSON: planJSON,
+		BudgetJSON: []byte(`{}`), CheckpointJSON: []byte(`{}`),
+	}}
+	srvB := NewServer(WithExecutionStore(store), WithInstanceID("instance-b"))
+	body := fmt.Sprintf(`{"runId":"run-cross-bad","actionId":%q,"planId":%q,"action":"approve","revision":2,"idempotencyKey":"idem-bad"}`, p.PlanID, p.PlanID)
+	rec := httptest.NewRecorder()
+	srvB.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/hitl/confirm", strings.NewReader(body)))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("revision mismatch must be rejected, got %d %s", rec.Code, rec.Body.String())
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.signals) != 0 {
+		t.Fatal("rejected confirmation must not append a signal")
 	}
 }

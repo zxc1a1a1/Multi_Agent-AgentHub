@@ -90,4 +90,23 @@ type Store interface {
 	LoadResume(ctx context.Context, runID string) (*ResumeState, error)
 	GetRun(ctx context.Context, runID string) (*RunStatus, error)
 	ListEventsAfter(ctx context.Context, runID string, afterSeq int64, limit int) ([]Event, error)
+	AppendRunSignal(ctx context.Context, s Signal) (id int64, duplicate bool, err error)
+	ClaimRunSignal(ctx context.Context, runID string) (*Signal, error)
+}
+
+// Signal is a durable HITL decision written by any instance and claimed by the
+// instance waiting on the run.
+type Signal struct {
+	ID                   int64
+	RunID                string
+	ActionID             string
+	PlanID               string
+	Revision             int
+	Action               string
+	Feedback             string
+	RejectReason         string
+	SelectedParticipants []string
+	IdempotencyKey       string
+	Status               string
+	CreatedAt            time.Time
 }

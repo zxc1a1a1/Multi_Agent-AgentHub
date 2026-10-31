@@ -812,3 +812,114 @@ func (r *Repository) UpsertAgentCatalog(ctx context.Context, name, version strin
 		name, version, descriptor, enabled)
 	return err
 }
+
+// SignalParams is a durable HITL decision appended by a confirm handler.
+type SignalParams struct {
+	RunID                string
+	ActionID             string
+	PlanID               string
+	PlanRevision         int
+	Action               string
+	Feedback             string
+	RejectReason         string
+	SelectedParticipants []string
+	IdempotencyKey       string
+}
+
+// SignalRow is a pending or consumed HITL signal.
+type SignalRow struct {
+	ID                   int64
+	RunID                string
+	ActionID             string
+	PlanID               string
+	PlanRevision         int
+	Action               string
+	Feedback             string
+	RejectReason         string
+	SelectedParticipants []string
+	IdempotencyKey       string
+	Status               string
+	CreatedAt            time.Time
+}
+
+// AppendRunSignal records a HITL decision. Replaying the same idempotency key
+// returns duplicate=true without creating a second signal.
+func (r *Repository) AppendRunSignal(ctx context.Context, p SignalParams) (int64, bool, error) {
+	if p.RunID == "" || p.ActionID == "" || p.PlanID == "" || p.Action == "" {
+		return 0, false, fmt.Errorf("runId, actionId, planId and action are required")
+	}
+	var participants any
+	if len(p.SelectedParticipants) > 0 {
+		data, err := json.Marshal(p.SelectedParticipants)
+		if err != nil {
+			return 0, false, err
+		}
+		participants = data
+	}
+	var idempotency any
+	if p.IdempotencyKey != "" {
+		idempotency = p.IdempotencyKey
+	}
+	res, err := r.db.ExecContext(ctx, `INSERT INTO run_signals
+		(run_id, action_id, plan_id, plan_revision, action, feedback, reject_reason,
+		 selected_participants, idempotency_key, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+		p.RunID, p.ActionID, p.PlanID, p.PlanRevision, p.Action,
+		nullIfEmpty(p.Feedback), nullIfEmpty(p.RejectReason), participants, idempotency)
+	if err != nil {
+		if isDuplicateKey(err) {
+			return 0, true, nil
+		}
+		return 0, false, err
+	}
+	id, err := res.LastInsertId()
+	return id, false, err
+}
+
+// ClaimRunSignal atomically takes the oldest pending signal for a run. Multiple
+// pollers cannot claim the same row because of FOR UPDATE SKIP LOCKED.
+func (r *Repository) ClaimRunSignal(ctx context.Context, runID string) (*SignalRow, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var sig SignalRow
+	var feedback, rejectReason, idempotency sql.NullString
+	var participants []byte
+	if err := tx.QueryRowContext(ctx, `SELECT id, run_id, action_id, plan_id, plan_revision, action,
+		feedback, reject_reason, selected_participants, idempotency_key, status, created_at
+		FROM run_signals WHERE run_id = ? AND status = 'pending'
+		ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED`, runID).Scan(
+		&sig.ID, &sig.RunID, &sig.ActionID, &sig.PlanID, &sig.PlanRevision, &sig.Action,
+		&feedback, &rejectReason, &participants, &idempotency, &sig.Status, &sig.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if feedback.Valid {
+		sig.Feedback = feedback.String
+	}
+	if rejectReason.Valid {
+		sig.RejectReason = rejectReason.String
+	}
+	if idempotency.Valid {
+		sig.IdempotencyKey = idempotency.String
+	}
+	if len(participants) > 0 {
+		if err := json.Unmarshal(participants, &sig.SelectedParticipants); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE run_signals SET status = 'consumed', consumed_at = ?
+		WHERE id = ? AND status = 'pending'`, time.Now().UTC(), sig.ID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	sig.Status = "consumed"
+	return &sig, nil
+}

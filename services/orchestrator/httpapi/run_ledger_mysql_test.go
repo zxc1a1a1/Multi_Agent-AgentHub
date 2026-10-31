@@ -241,3 +241,55 @@ func TestIntegrationLeaseRenewalAndStaleFencing(t *testing.T) {
 		t.Fatalf("stale owner must not renew: %v", err)
 	}
 }
+
+func TestIntegrationRunSignals(t *testing.T) {
+	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
+	if dsn == "" {
+		t.Skip("SKIP real MySQL integration: set AGENTHUB_MYSQL_TEST_DSN")
+	}
+	ctx := context.Background()
+	db, err := ledger.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open mysql: %v", err)
+	}
+	defer db.Close()
+	if err := ledger.RunMigrations(db); err != nil {
+		t.Fatalf("migrations: %v", err)
+	}
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	runID := "run-signal-" + suffix
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM run_signals WHERE run_id = ?", runID)
+		_, _ = db.Exec("DELETE FROM executions WHERE run_id = ?", runID)
+	})
+	repo := ledger.NewRepository(db)
+	if _, _, err := repo.AcceptRun(ctx, ledger.AcceptRunParams{
+		RunID: runID, RequestID: "req-signal-" + suffix, ConversationID: "conv-signal-" + suffix,
+		WorkspaceID: "default", PrincipalID: "user-signal", ExecutionPath: "main_agent_orchestration",
+	}); err != nil {
+		t.Fatalf("accept run: %v", err)
+	}
+	params := ledger.SignalParams{
+		RunID: runID, ActionID: "plan-1", PlanID: "plan-1", PlanRevision: 1,
+		Action: "approve", SelectedParticipants: []string{"code-agent"}, IdempotencyKey: "idem-" + suffix,
+	}
+	id, duplicate, err := repo.AppendRunSignal(ctx, params)
+	if err != nil || duplicate || id == 0 {
+		t.Fatalf("append signal: id=%d dup=%v err=%v", id, duplicate, err)
+	}
+	again, duplicate, err := repo.AppendRunSignal(ctx, params)
+	if err != nil || !duplicate || again != id {
+		t.Fatalf("duplicate signal: id=%d dup=%v err=%v", again, duplicate, err)
+	}
+	claimed, err := repo.ClaimRunSignal(ctx, runID)
+	if err != nil || claimed == nil {
+		t.Fatalf("claim signal: %#v err=%v", claimed, err)
+	}
+	if claimed.Action != "approve" || len(claimed.SelectedParticipants) != 1 || claimed.SelectedParticipants[0] != "code-agent" {
+		t.Fatalf("unexpected claimed signal: %#v", claimed)
+	}
+	second, err := repo.ClaimRunSignal(ctx, runID)
+	if err != nil || second != nil {
+		t.Fatalf("signal must be claimed once: %#v err=%v", second, err)
+	}
+}

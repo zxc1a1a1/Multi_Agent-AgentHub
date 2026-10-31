@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 )
 
@@ -114,8 +116,12 @@ func (s *Server) handleHITLConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Legacy path: no PendingPlan yet — use old validation for backward compat.
+	// No local waiter: the run may be owned by another Orchestrator instance.
+	// Persist the decision as a durable signal for the owning instance.
 	if !chExists {
+		if s.handleDurableHITLConfirm(w, r, req, action) {
+			return
+		}
 		log.Printf("hitl: no pending confirmation for runId=%s", req.RunID)
 		writeJSON(w, http.StatusNotFound, map[string]string{
 			"error": "no pending confirmation for this runId",
@@ -192,6 +198,165 @@ func (s *Server) handleHITLConfirm(w http.ResponseWriter, r *http.Request) {
 //
 // This ensures duplicate same-key requests after approve returns the cached 200
 // response, not 409 INVALID_RUN_STATE.
+func hitlResultFromSignal(sig *execution.Signal) HITLConfirmResult {
+	if sig == nil {
+		return HITLConfirmResult{}
+	}
+	return HITLConfirmResult{
+		RunID:                sig.RunID,
+		ActionID:             sig.ActionID,
+		PlanID:               sig.PlanID,
+		Confirmed:            sig.Action == "approve",
+		Action:               sig.Action,
+		Feedback:             sig.Feedback,
+		Revision:             sig.Revision,
+		RejectReason:         sig.RejectReason,
+		IdempotencyKey:       sig.IdempotencyKey,
+		SelectedParticipants: sig.SelectedParticipants,
+	}
+}
+
+// handleDurableHITLConfirm validates a confirm against the persisted plan and
+// appends a signal for the instance that owns the run. It returns true when it
+// wrote a response.
+func (s *Server) handleDurableHITLConfirm(w http.ResponseWriter, r *http.Request, req HITLConfirmRequest, action string) bool {
+	if s.executionStore == nil {
+		return false
+	}
+	state, err := s.executionStore.LoadResume(r.Context(), req.RunID)
+	if err != nil {
+		return false
+	}
+	if state.Status != "awaiting_approval" {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "INVALID_RUN_STATE: run is not awaiting approval",
+		})
+		return true
+	}
+	var p plan.OrchestrationPlan
+	if err := json.Unmarshal(state.PlanJSON, &p); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "persisted plan is unreadable",
+		})
+		return true
+	}
+	revision := p.Revision
+	if revision < 1 {
+		revision = 1
+	}
+	if strings.TrimSpace(req.PlanID) == "" || req.PlanID != p.PlanID {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "PLAN_NOT_FOUND"})
+		return true
+	}
+	if req.Revision != revision {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "PLAN_REVISION_MISMATCH"})
+		return true
+	}
+	if action == "revise" && strings.TrimSpace(req.Feedback) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "REVISION_INPUT_REQUIRED: feedback is required when action=revise",
+		})
+		return true
+	}
+
+	selected := req.SelectedParticipants
+	if action == "approve" {
+		var code string
+		var status int
+		selected, code, status = validateDurableApproval(&p, req)
+		if code != "" {
+			writeJSON(w, status, map[string]string{"error": code})
+			return true
+		}
+	}
+
+	id, duplicate, err := s.executionStore.AppendRunSignal(r.Context(), execution.Signal{
+		RunID: req.RunID, ActionID: req.ActionID, PlanID: p.PlanID, Revision: revision,
+		Action: action, Feedback: req.Feedback, RejectReason: req.RejectReason,
+		SelectedParticipants: selected, IdempotencyKey: req.IdempotencyKey,
+	})
+	if err != nil {
+		log.Printf("hitl: run=%s persist durable signal failed: %v", req.RunID, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to persist confirmation",
+		})
+		return true
+	}
+	status := http.StatusAccepted
+	if duplicate {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, map[string]any{
+		"status":   "accepted",
+		"runId":    req.RunID,
+		"planId":   p.PlanID,
+		"revision": revision,
+		"signalId": id,
+		"duplicate": duplicate,
+	})
+	return true
+}
+
+// validateDurableApproval mirrors the in-memory approve checks against the
+// persisted plan so a remote instance cannot bypass the participant boundary.
+func validateDurableApproval(p *plan.OrchestrationPlan, req HITLConfirmRequest) ([]string, string, int) {
+	selected := append([]string(nil), req.SelectedParticipants...)
+	if len(selected) == 0 {
+		for _, participant := range p.Participants {
+			if participant.Required {
+				selected = append(selected, participant.AgentName)
+			}
+		}
+		if len(selected) == 0 && len(p.AllowedAgents) == 1 {
+			selected = append(selected, p.AllowedAgents[0])
+		}
+	}
+	if p.ExecutionPath == string(executionpath.PathMainAgentOrchestration) && len(req.SelectedParticipants) > 0 {
+		if msg := validateMainAgentParticipants(p, selected); msg != "" {
+			return selected, msg, http.StatusConflict
+		}
+	}
+	participantSet := make(map[string]bool, len(p.Participants))
+	for _, participant := range p.Participants {
+		participantSet[participant.AgentName] = true
+	}
+	for _, name := range selected {
+		if len(participantSet) > 0 && !participantSet[name] {
+			return selected, "AGENT_BOUNDARY_VIOLATION", http.StatusConflict
+		}
+	}
+	for _, participant := range p.Participants {
+		if !participant.Required {
+			continue
+		}
+		found := false
+		for _, name := range selected {
+			if strings.EqualFold(name, participant.AgentName) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return selected, "REQUIRED_PARTICIPANT_MISSING", http.StatusBadRequest
+		}
+	}
+	if len(p.AllowedAgents) > 0 {
+		boundary := make(map[string]bool, len(p.AllowedAgents))
+		for _, name := range p.AllowedAgents {
+			boundary[name] = true
+		}
+		for _, name := range selected {
+			if !boundary[name] {
+				return selected, "AGENT_BOUNDARY_VIOLATION", http.StatusConflict
+			}
+		}
+	}
+	if p.ExecutionPath == "single_chat" && len(selected) != 1 {
+		return selected, "AGENT_BOUNDARY_VIOLATION", http.StatusConflict
+	}
+	return selected, "", 0
+}
+
 func (s *Server) handleHITLConfirmWithPendingPlan(w http.ResponseWriter, r *http.Request, req HITLConfirmRequest, pp *PendingPlan, ch chan HITLConfirmResult, chExists bool, action string, confirmed bool) {
 	// Step 1: Basic field checks — no PendingPlan state access, no lock needed.
 	if v := ValidateBasicFields(req, action); v.ErrorCode != "" {

@@ -99,6 +99,28 @@ func (s *MySQLStore) GetRun(ctx context.Context, runID string) (*RunStatus, erro
 	}, nil
 }
 
+func (s *MySQLStore) AppendRunSignal(ctx context.Context, sig Signal) (int64, bool, error) {
+	return s.repo.AppendRunSignal(ctx, ledger.SignalParams{
+		RunID: sig.RunID, ActionID: sig.ActionID, PlanID: sig.PlanID,
+		PlanRevision: sig.Revision, Action: sig.Action, Feedback: sig.Feedback,
+		RejectReason: sig.RejectReason, SelectedParticipants: sig.SelectedParticipants,
+		IdempotencyKey: sig.IdempotencyKey,
+	})
+}
+
+func (s *MySQLStore) ClaimRunSignal(ctx context.Context, runID string) (*Signal, error) {
+	row, err := s.repo.ClaimRunSignal(ctx, runID)
+	if err != nil || row == nil {
+		return nil, err
+	}
+	return &Signal{
+		ID: row.ID, RunID: row.RunID, ActionID: row.ActionID, PlanID: row.PlanID,
+		Revision: row.PlanRevision, Action: row.Action, Feedback: row.Feedback,
+		RejectReason: row.RejectReason, SelectedParticipants: row.SelectedParticipants,
+		IdempotencyKey: row.IdempotencyKey, Status: row.Status, CreatedAt: row.CreatedAt,
+	}, nil
+}
+
 func (s *MySQLStore) ListEventsAfter(ctx context.Context, runID string, afterSeq int64, limit int) ([]Event, error) {
 	rows, err := s.repo.ListEventsAfter(ctx, runID, afterSeq, limit)
 	if err != nil {
