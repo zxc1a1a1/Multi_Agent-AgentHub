@@ -149,6 +149,7 @@ func (s *MySQLStore) CreateConversation(ctx context.Context, userID, agentName s
 	now := time.Now().UTC()
 	conv := Conversation{
 		ID:        newID(),
+		Type:      ConversationTypeSingle,
 		UserID:    userID,
 		AgentName: agentName,
 		CreatedAt: now,
@@ -165,7 +166,7 @@ func (s *MySQLStore) CreateConversation(ctx context.Context, userID, agentName s
 }
 
 func (s *MySQLStore) GetConversation(ctx context.Context, id string) (*Conversation, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, title, agent_name, user_id, pinned, pinned_at, created_at, updated_at
+	row := s.db.QueryRowContext(ctx, `SELECT id, title, conversation_type, agent_name, user_id, pinned, pinned_at, created_at, updated_at
 		FROM conversations WHERE id = ?`, id)
 	conv, err := scanConversation(row)
 	if err != nil {
@@ -178,7 +179,7 @@ func (s *MySQLStore) GetConversation(ctx context.Context, id string) (*Conversat
 }
 
 func (s *MySQLStore) ListConversations(ctx context.Context, userID string) ([]Conversation, error) {
-	query := `SELECT id, title, agent_name, user_id, pinned, pinned_at, created_at, updated_at
+	query := `SELECT id, title, conversation_type, agent_name, user_id, pinned, pinned_at, created_at, updated_at
 		FROM conversations`
 	args := []any{}
 	if userID != "" {
@@ -210,7 +211,7 @@ func (s *MySQLStore) UpdateConversation(ctx context.Context, id string, patch Co
 	defer tx.Rollback()
 
 	var current Conversation
-	row := tx.QueryRowContext(ctx, `SELECT id, title, agent_name, user_id, pinned, pinned_at, created_at, updated_at
+	row := tx.QueryRowContext(ctx, `SELECT id, title, conversation_type, agent_name, user_id, pinned, pinned_at, created_at, updated_at
 		FROM conversations WHERE id = ? FOR UPDATE`, id)
 	conv, err := scanConversation(row)
 	if err != nil {
@@ -245,6 +246,88 @@ func (s *MySQLStore) UpdateConversation(ctx context.Context, id string, patch Co
 
 func (s *MySQLStore) UpdateConversationPin(ctx context.Context, id string, pinned bool) (*Conversation, error) {
 	return s.UpdateConversation(ctx, id, ConversationPatch{Pinned: &pinned})
+}
+
+// SetConversationParticipants replaces the conversation roster and its type in
+// one transaction. Replaying the same request is idempotent.
+func (s *MySQLStore) SetConversationParticipants(ctx context.Context, id, conversationType string, participants []Participant) (*Conversation, error) {
+	if conversationType == "" {
+		conversationType = ConversationTypeGroup
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var current Conversation
+	row := tx.QueryRowContext(ctx, `SELECT id, title, conversation_type, agent_name, user_id, pinned, pinned_at, created_at, updated_at
+		FROM conversations WHERE id = ? FOR UPDATE`, id)
+	conv, err := scanConversation(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrConversationNotFound
+		}
+		return nil, err
+	}
+	current = *conv
+	now := time.Now().UTC()
+	agentName := current.AgentName
+	if len(participants) > 0 {
+		agentName = participants[0].AgentName
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE conversations
+		SET conversation_type = ?, agent_name = ?, updated_at = ? WHERE id = ?`,
+		conversationType, nullString(agentName), now, id); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM conversation_participants WHERE conversation_id = ?`, id); err != nil {
+		return nil, err
+	}
+	for i, p := range participants {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO conversation_participants
+			(conversation_id, agent_name, role, selected, required, sort_order)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			id, p.AgentName, participantRole(p.Role), p.Selected, p.Required, i); err != nil {
+			return nil, fmt.Errorf("insert participant %s: %w", p.AgentName, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	current.Type = conversationType
+	current.AgentName = agentName
+	current.Participants = cloneParticipants(participants)
+	current.UpdatedAt = now
+	return &current, nil
+}
+
+func (s *MySQLStore) ListConversationParticipants(ctx context.Context, id string) ([]Participant, error) {
+	if _, err := s.GetConversation(ctx, id); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT agent_name, role, selected, required
+		FROM conversation_participants WHERE conversation_id = ? ORDER BY sort_order, agent_name`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]Participant, 0)
+	for rows.Next() {
+		var p Participant
+		if err := rows.Scan(&p.AgentName, &p.Role, &p.Selected, &p.Required); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func participantRole(role string) string {
+	if role == "" {
+		return "member"
+	}
+	return role
 }
 
 func (s *MySQLStore) AppendMessage(ctx context.Context, msg Message) (*Message, error) {
@@ -482,7 +565,7 @@ func scanConversation(row scanner) (*Conversation, error) {
 	var conv Conversation
 	var agentName sql.NullString
 	var pinnedAt sql.NullTime
-	if err := row.Scan(&conv.ID, &conv.Title, &agentName, &conv.UserID, &conv.Pinned, &pinnedAt,
+	if err := row.Scan(&conv.ID, &conv.Title, &conv.Type, &agentName, &conv.UserID, &conv.Pinned, &pinnedAt,
 		&conv.CreatedAt, &conv.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -526,12 +609,17 @@ func (s *MySQLStore) ImportConversation(ctx context.Context, conv Conversation) 
 		conv.UpdatedAt = conv.CreatedAt
 	}
 	userID := conv.UserID
+	conversationType := conv.Type
+	if conversationType == "" {
+		conversationType = ConversationTypeSingle
+	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO conversations
 		(id, title, conversation_type, agent_name, user_id, workspace_id, pinned, pinned_at, created_at, updated_at)
-		VALUES (?, ?, 'single', ?, ?, 'default', ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE title = VALUES(title), agent_name = VALUES(agent_name),
-			pinned = VALUES(pinned), pinned_at = VALUES(pinned_at), updated_at = VALUES(updated_at)`,
-		conv.ID, conv.Title, nullString(conv.AgentName), userID, conv.Pinned, nullTime(conv.PinnedAt), conv.CreatedAt, conv.UpdatedAt)
+		VALUES (?, ?, ?, ?, ?, 'default', ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE title = VALUES(title), conversation_type = VALUES(conversation_type),
+			agent_name = VALUES(agent_name), pinned = VALUES(pinned), pinned_at = VALUES(pinned_at),
+			updated_at = VALUES(updated_at)`,
+		conv.ID, conv.Title, conversationType, nullString(conv.AgentName), userID, conv.Pinned, nullTime(conv.PinnedAt), conv.CreatedAt, conv.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("import conversation: %w", err)
 	}

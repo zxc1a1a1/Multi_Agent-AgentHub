@@ -283,3 +283,54 @@ func TestIntegrationPublicEventJournal(t *testing.T) {
 		t.Fatalf("sub-index cursor skipped remaining fragment: %#v", events)
 	}
 }
+
+func TestIntegrationMySQLConversationParticipants(t *testing.T) {
+	s := openIntegrationStore(t)
+	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	conv, err := s.CreateConversation(ctx, "user-group-"+suffix, "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	t.Cleanup(func() { _ = s.DeleteConversation(ctx, conv.ID) })
+
+	roster := []Participant{
+		{AgentName: "code-agent", Role: "owner", Selected: true},
+		{AgentName: "review-agent", Role: "member", Selected: true},
+	}
+	updated, err := s.SetConversationParticipants(ctx, conv.ID, ConversationTypeGroup, roster)
+	if err != nil {
+		t.Fatalf("set participants: %v", err)
+	}
+	if updated.Type != ConversationTypeGroup {
+		t.Fatalf("conversation type=%q, want group", updated.Type)
+	}
+	if len(updated.Participants) != 2 {
+		t.Fatalf("participants=%d, want 2", len(updated.Participants))
+	}
+	got, err := s.ListConversationParticipants(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("list participants: %v", err)
+	}
+	if len(got) != 2 || got[0].AgentName != "code-agent" || got[0].Role != "owner" || got[1].AgentName != "review-agent" {
+		t.Fatalf("unexpected roster: %#v", got)
+	}
+	// Replaying the same roster must not duplicate members.
+	if _, err := s.SetConversationParticipants(ctx, conv.ID, ConversationTypeGroup, roster); err != nil {
+		t.Fatalf("replay participants: %v", err)
+	}
+	got, err = s.ListConversationParticipants(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("list after replay: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("replay duplicated participants: %#v", got)
+	}
+	loaded, err := s.GetConversation(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("get conversation: %v", err)
+	}
+	if loaded.Type != ConversationTypeGroup {
+		t.Fatalf("persisted type=%q, want group", loaded.Type)
+	}
+}

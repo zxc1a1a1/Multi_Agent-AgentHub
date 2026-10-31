@@ -272,3 +272,59 @@ func TestConcurrentCreateAppendList(t *testing.T) {
 		t.Fatalf("expected %d messages, got %d", workers, len(msgs))
 	}
 }
+
+func TestMemoryStoreConversationParticipantsRoundTrip(t *testing.T) {
+	st := NewMemoryStore()
+	ctx := context.Background()
+	conv, err := st.CreateConversation(ctx, "user-1", "code-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conv.Type != ConversationTypeSingle {
+		t.Fatalf("default type=%q, want single", conv.Type)
+	}
+	roster := []Participant{
+		{AgentName: "code-agent", Role: "owner", Selected: true},
+		{AgentName: "review-agent", Role: "member", Selected: true},
+	}
+	updated, err := st.SetConversationParticipants(ctx, conv.ID, ConversationTypeGroup, roster)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Type != ConversationTypeGroup || len(updated.Participants) != 2 {
+		t.Fatalf("unexpected conversation: %#v", updated)
+	}
+	loaded, err := st.GetConversation(ctx, conv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Type != ConversationTypeGroup || len(loaded.Participants) != 2 {
+		t.Fatalf("participants not persisted: %#v", loaded)
+	}
+	list, err := st.ListConversationParticipants(ctx, conv.ID)
+	if err != nil || len(list) != 2 || list[1].AgentName != "review-agent" {
+		t.Fatalf("unexpected roster: %#v err=%v", list, err)
+	}
+	// Replacing the roster is idempotent by member name.
+	single := []Participant{{AgentName: "review-agent", Role: "owner", Selected: true}}
+	if _, err := st.SetConversationParticipants(ctx, conv.ID, ConversationTypeSingle, single); err != nil {
+		t.Fatal(err)
+	}
+	list, err = st.ListConversationParticipants(ctx, conv.ID)
+	if err != nil || len(list) != 1 || list[0].AgentName != "review-agent" {
+		t.Fatalf("roster not replaced: %#v err=%v", list, err)
+	}
+	if err := st.DeleteConversation(ctx, conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ListConversationParticipants(ctx, conv.ID); !errors.Is(err, ErrConversationNotFound) {
+		t.Fatalf("participants must be deleted with the conversation, got %v", err)
+	}
+}
+
+func TestMemoryStoreParticipantsUnknownConversation(t *testing.T) {
+	st := NewMemoryStore()
+	if _, err := st.ListConversationParticipants(context.Background(), "missing"); !errors.Is(err, ErrConversationNotFound) {
+		t.Fatalf("expected ErrConversationNotFound, got %v", err)
+	}
+}

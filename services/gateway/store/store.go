@@ -22,14 +22,31 @@ var (
 )
 
 type Conversation struct {
-	ID        string     `json:"id"`
-	Title     string     `json:"title,omitempty"`
-	UserID    string     `json:"userId"`
-	AgentName string     `json:"agentName"`
-	Pinned    bool       `json:"pinned"`
-	PinnedAt  *time.Time `json:"pinnedAt,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
-	UpdatedAt time.Time  `json:"updatedAt"`
+	ID           string        `json:"id"`
+	Title        string        `json:"title,omitempty"`
+	Type         string        `json:"type"`
+	UserID       string        `json:"userId"`
+	AgentName    string        `json:"agentName"`
+	Pinned       bool          `json:"pinned"`
+	PinnedAt     *time.Time    `json:"pinnedAt,omitempty"`
+	Participants []Participant `json:"participants,omitempty"`
+	CreatedAt    time.Time     `json:"createdAt"`
+	UpdatedAt    time.Time     `json:"updatedAt"`
+}
+
+// Conversation types.
+const (
+	ConversationTypeSingle = "single"
+	ConversationTypeGroup  = "group"
+)
+
+// Participant is one group-chat member. The roster is user-owned: the platform
+// never adds a member that the user did not select.
+type Participant struct {
+	AgentName string `json:"agentName"`
+	Role      string `json:"role,omitempty"`
+	Selected  bool   `json:"selected"`
+	Required  bool   `json:"required,omitempty"`
 }
 
 type Message struct {
@@ -62,6 +79,13 @@ type Store interface {
 	DeleteConversation(ctx context.Context, id string) error
 }
 
+// ParticipantStore is the optional group-chat capability of a Store. Handlers
+// type-assert so legacy stores stay compatible.
+type ParticipantStore interface {
+	SetConversationParticipants(ctx context.Context, conversationID, conversationType string, participants []Participant) (*Conversation, error)
+	ListConversationParticipants(ctx context.Context, conversationID string) ([]Participant, error)
+}
+
 // ConversationPatch carries optional fields for updating a conversation.
 type ConversationPatch struct {
 	Title  *string `json:"title,omitempty"`
@@ -72,6 +96,7 @@ type MemoryStore struct {
 	mu                sync.RWMutex
 	conversations     map[string]Conversation
 	messages          map[string][]Message
+	participants      map[string][]Participant
 	projectionOffsets map[string]projectionOffset
 }
 
@@ -84,6 +109,7 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		conversations:     make(map[string]Conversation),
 		messages:          make(map[string][]Message),
+		participants:      make(map[string][]Participant),
 		projectionOffsets: make(map[string]projectionOffset),
 	}
 }
@@ -95,6 +121,7 @@ func (s *MemoryStore) CreateConversation(ctx context.Context, userID, agentName 
 	now := time.Now().UTC()
 	conv := Conversation{
 		ID:        newID(),
+		Type:      ConversationTypeSingle,
 		UserID:    userID,
 		AgentName: agentName,
 		CreatedAt: now,
@@ -123,6 +150,7 @@ func (s *MemoryStore) GetConversation(ctx context.Context, id string) (*Conversa
 		return nil, ErrConversationNotFound
 	}
 	out := copyConversation(conv)
+	out.Participants = cloneParticipants(s.participants[id])
 	return &out, nil
 }
 
@@ -135,11 +163,13 @@ func (s *MemoryStore) ListConversations(ctx context.Context, userID string) ([]C
 	defer s.mu.RUnlock()
 
 	out := make([]Conversation, 0)
-	for _, conv := range s.conversations {
+	for id, conv := range s.conversations {
 		if userID != "" && conv.UserID != userID {
 			continue
 		}
-		out = append(out, copyConversation(conv))
+		item := copyConversation(conv)
+		item.Participants = cloneParticipants(s.participants[id])
+		out = append(out, item)
 	}
 	sortConversations(out)
 	return out, nil
@@ -179,6 +209,43 @@ func (s *MemoryStore) UpdateConversation(ctx context.Context, id string, patch C
 
 func (s *MemoryStore) UpdateConversationPin(ctx context.Context, id string, pinned bool) (*Conversation, error) {
 	return s.UpdateConversation(ctx, id, ConversationPatch{Pinned: &pinned})
+}
+
+func (s *MemoryStore) SetConversationParticipants(ctx context.Context, id, conversationType string, participants []Participant) (*Conversation, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	conv, ok := s.conversations[id]
+	if !ok {
+		return nil, ErrConversationNotFound
+	}
+	if conversationType == "" {
+		conversationType = ConversationTypeGroup
+	}
+	conv.Type = conversationType
+	conv.Participants = cloneParticipants(participants)
+	if len(participants) > 0 {
+		conv.AgentName = participants[0].AgentName
+	}
+	conv.UpdatedAt = time.Now().UTC()
+	s.conversations[id] = conv
+	s.participants[id] = cloneParticipants(participants)
+	out := copyConversation(conv)
+	return &out, nil
+}
+
+func (s *MemoryStore) ListConversationParticipants(ctx context.Context, id string) ([]Participant, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.conversations[id]; !ok {
+		return nil, ErrConversationNotFound
+	}
+	return cloneParticipants(s.participants[id]), nil
 }
 
 func sortConversations(out []Conversation) {
@@ -304,7 +371,15 @@ func (s *MemoryStore) DeleteConversation(ctx context.Context, id string) error {
 	}
 	delete(s.conversations, id)
 	delete(s.messages, id)
+	delete(s.participants, id)
 	return nil
+}
+
+func cloneParticipants(in []Participant) []Participant {
+	if len(in) == 0 {
+		return nil
+	}
+	return append([]Participant(nil), in...)
 }
 
 func copyConversation(in Conversation) Conversation {
@@ -314,14 +389,16 @@ func copyConversation(in Conversation) Conversation {
 		pinnedAt = &t
 	}
 	return Conversation{
-		ID:        in.ID,
-		Title:     in.Title,
-		UserID:    in.UserID,
-		AgentName: in.AgentName,
-		Pinned:    in.Pinned,
-		PinnedAt:  pinnedAt,
-		CreatedAt: in.CreatedAt,
-		UpdatedAt: in.UpdatedAt,
+		ID:           in.ID,
+		Title:        in.Title,
+		Type:         in.Type,
+		UserID:       in.UserID,
+		AgentName:    in.AgentName,
+		Pinned:       in.Pinned,
+		PinnedAt:     pinnedAt,
+		Participants: cloneParticipants(in.Participants),
+		CreatedAt:    in.CreatedAt,
+		UpdatedAt:    in.UpdatedAt,
 	}
 }
 
