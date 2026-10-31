@@ -29,6 +29,22 @@ CREATE TABLE conversations (
   KEY idx_conversations_updated (updated_at DESC)
 ) ENGINE=InnoDB;
 
+-- A0-02: group roster, user-owned, replace-on-write.
+CREATE TABLE conversation_participants (
+  conversation_id VARCHAR(64) NOT NULL,
+  agent_name VARCHAR(128) NOT NULL,
+  role VARCHAR(32) NOT NULL DEFAULT 'member',
+  selected TINYINT(1) NOT NULL DEFAULT 1,
+  required TINYINT(1) NOT NULL DEFAULT 0,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (conversation_id, agent_name),
+  KEY idx_conversation_participants_agent (agent_name),
+  CONSTRAINT fk_conversation_participants_conversation FOREIGN KEY (conversation_id)
+    REFERENCES conversations(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE messages (
   id VARCHAR(64) PRIMARY KEY,
   conversation_id VARCHAR(64) NOT NULL,
@@ -160,6 +176,25 @@ CREATE TABLE approvals (
   UNIQUE KEY uniq_approvals_idempotency (idempotency_key),
   KEY idx_approvals_run_tool (run_id, tool_call_id),
   KEY idx_approvals_status (status, expires_at)
+) ENGINE=InnoDB;
+
+-- A0-06: durable HITL decision; any instance may append, the owner claims.
+CREATE TABLE run_signals (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  run_id VARCHAR(64) NOT NULL,
+  action_id VARCHAR(64) NOT NULL,
+  plan_id VARCHAR(64) NOT NULL,
+  plan_revision INT NOT NULL DEFAULT 0,
+  action VARCHAR(32) NOT NULL,
+  feedback TEXT NULL,
+  reject_reason VARCHAR(512) NULL,
+  selected_participants JSON NULL,
+  idempotency_key VARCHAR(128) NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'pending',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  consumed_at DATETIME(3) NULL,
+  UNIQUE KEY uniq_run_signals_idempotency (run_id, idempotency_key),
+  KEY idx_run_signals_pending (run_id, status, id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE tool_calls (

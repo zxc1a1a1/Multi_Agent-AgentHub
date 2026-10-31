@@ -93,3 +93,21 @@ agenthub:{env}:instance:{id}:heartbeat              # 心跳
 - SQL 回放切换 Redis 窗口只产生一条终态；Redis 重启后 SQL 能恢复审批/终态/事件。
 - Gateway 投影提交前/后崩溃均可恢复；同 seq 中间 subIndex 断开不漏不重。
 - 浏览器验证断连重连、手动取消、审批、历史回放、Agent 归属与控制台/网络异常。
+
+## 9. 群聊 AGENT_TURN 投影（v3 A0-05）
+
+- 公开事件按 `(runId, seq, subIndex)` 写入 `run_public_events`；同一 turn 的
+  content 事件共享 `messageId/turnIndex`。
+- 投影 consumer 固定为 `assistant_message.v1`，游标表
+  `event_projection_offsets(run_id, consumer_key)` 记录 `last_seq/last_sub_index`。
+- 投影单位是“完整 turn”：`AGENT_TURN_FINISHED`（或终态）到达后，将该 turn
+  的全部 content 合成一条 assistant 消息；`AGENT_TURN_STARTED` 本身不落消息。
+- 崩溃恢复：Gateway 在 journal 已提交、投影未提交时退出，另一个实例的投影
+  worker 从 offsets 续读并补齐；同一 `(seq, subIndex)` 不重复插入。
+- 投影偏移只用于避免重复写库，不用于抑制其他订阅者；每个 SSE 订阅仍有独立
+  发送游标。
+- 多 Agent run 刷新后必须是多条消息，按 `turnIndex` 排序；合并成一条即视为
+  投影缺陷。
+- 证据：`services/gateway/store/mysql_integration_test.go`
+  `TestIntegrationMySQLProjectionOffsetIsIdempotent`；投影 worker 的接管测试
+  在 A1-09b 落地前记为 `未实现`。

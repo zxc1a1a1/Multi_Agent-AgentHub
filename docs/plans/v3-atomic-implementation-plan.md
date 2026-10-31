@@ -1,0 +1,346 @@
+# AgentHub v3 最小原子实施计划（完整版）
+
+- 状态：**实施中（2026-10-31 起；P0 契约已冻结，P1/P2/P3 部分原子任务已落地）**
+- 日期：2026-10-31
+- 代码基线：`dev / 18b57df`
+- 输入：`docs/architecture/v3/12-deployment-topologies.md` 至 `17-routing-harness-patterns.md`
+- 约束：每个原子功能独立可验收、独立提交；不把“设计完成”写成“功能完成”
+
+## 1. 计划目标
+
+把 v3 的 6 个方向拆成可执行的最小原子功能：
+
+1. **正确性优先**：审批、取消、预算、租约、事件投影在多实例下不丢、不重、不误取消。
+2. **工具真实化**：先把 Tool Broker 接到执行路径，再逐个接真实工具。
+3. **群聊可用**：先做 G1 计划扇出，做到群成员/每轮发言可持久化，再做 G2 讨论。
+4. **Markdown 能力**：新增确定性 markdown-agent，补 Mermaid/KaTeX/导出。
+5. **前端渲染**：先 XSS 安全，再换 Shiki/diff2html/Mermaid/KaTeX。
+6. **部署可演进**：单机先稳，再对象存储/多副本/多节点。
+7. **路由可解释**：先路由审计与真并行，再考虑群聊发言者选择与受控 handoff。
+
+## 2. “最小原子功能”的定义
+
+一个原子功能必须同时满足：
+
+- **单一行为**：只改变一个可描述的用户/系统行为。
+- **可独立验收**：有自己的测试或可复现命令，不依赖后续任务“顺便修好”。
+- **可回滚**：优先 feature flag/兼容读；数据库迁移向前兼容，不删旧列。
+- **提交边界清晰**：一个原子功能一个 commit；不混格式化、重构、无关修复。
+- **不过度跨层**：允许“schema + repository + handler + test”作为一个垂直切片，但不把三个功能塞进一个提交。
+- **有证据**：验收记录 PASS/FAIL/SKIP；SKIP 必须写原因，不能算通过。
+
+如果一个任务需要同时改 Gateway、Orchestrator、前端和数据库，先拆成“契约/后端/前端/验收”四个原子任务。
+
+## 3. 决策默认值（需确认）
+
+没有这些决策，不进入代码阶段。推荐默认值如下：
+
+| ID | 决策 | 推荐默认 | 影响 |
+|---|---|---|---|
+| D1 | gRPC 内部鉴权 | 立即加 token interceptor | A1-07 |
+| D2 | Tool Broker 接线 | 本轮接线，先于真实写工具 | A2-02 |
+| D3 | 制品存储 | 先本地卷 adapter，再做 S3/MinIO | A6-02/A6-03 |
+| D4 | IM 渠道 | 本计划不实施，另立计划 | 08/09 |
+| D5 | 外部编码 Agent | 本计划不实施，另立计划 | 10 |
+| D6 | Temporal | 不引入 | 05 |
+| D7 | TanStack Query | 不阻塞本计划，单独前端优化 | 06 |
+| D8 | 长连接/入口 | 单机先上 Nginx，SSE 关闭缓冲 | A6-01 |
+| D9 | 群聊 | 先 G1 计划扇出，后 G2 讨论 | A3/A4 |
+| D10 | Markdown | 新增独立 markdown-agent（确定性工具） | A5-01 |
+| D11 | 渲染 | Shiki + diff2html + Mermaid + KaTeX | A5-08..A5-10b |
+| D12 | 部署目标 | 单机单副本优先，A1 完成后再多副本 | A6 |
+| D13 | 路由 | supervisor + G1；受控 handoff 后置，不做自由 swarm | A4 |
+
+## 4. 阶段与依赖
+
+```text
+P0 契约/决策冻结
+  │
+  ├─ P1 正确性 & 多实例状态 ───────────────┐
+  │     └─ G1 多实例门禁                    │
+  │                                         ▼
+  ├─ P2 工具安全 ── G2 工具门禁 ── P3 群聊 ── G3 群聊门禁
+  │                                         │
+  ├─ P4 路由/Harness ── G4 路由门禁 ◄───────┘
+  │
+  ├─ P5 Markdown + 前端渲染 ── G5 渲染门禁
+  │
+  └─ P6 部署/对象存储/观测 ── G6 部署门禁
+
+独立后置：IM 渠道（08/09）、外部编码 Agent（10）、Temporal/向量库（05）、TanStack Query（06）
+```
+
+硬依赖：
+
+- **P1 必须先于 P6 多副本**：审批/取消/投影不落 SQL，多副本没有意义。
+- **P2 必须先于真实写工具**：否则审批策略不会生效。
+- **P3 依赖 P0 的会话/参与者契约**；P4 的发言者选择依赖 P3 的每轮消息。
+- **P5 的 Markdown Agent 依赖 P2 的 Broker**（导出/写文件需要审批与沙箱）。
+- **P6 的对象存储依赖 P0 的 artifact 元数据契约**。
+
+## 5. 原子任务清单
+
+### P0：契约与决策冻结（只改文档，不写代码）
+
+| ID | 原子功能 | 允许文件 | 验收 | 依赖 |
+|---|---|---|---|---|
+| A0-01 | 确认 D1-D13 默认值 | `docs/architecture/v3/00-INDEX.md`、本计划 | 决策表签字；未决项列明 | 无 |
+| A0-02 | 冻结会话/参与者/轮次契约 | `docs/contracts/`、schema | `conversation_participants`、`run_turns` 字段/唯一键/权限明确 | A0-01 |
+| A0-03 | 冻结路由决策契约 | `docs/contracts/intent-orchestration.md`、新 schema | `route_decisions` 字段、生产者、消费者、保留期明确 | A0-01 |
+| A0-04 | 冻结 Artifact 元数据契约 | `docs/contracts/artifact-schema.md`、`artifact-type-registry.md` | `storage_ref/checksum/content_type/size/version` 明确 | A0-01 |
+| A0-05 | 冻结事件投影契约 | `docs/contracts/agui-events.md`、`event-replay.md` | 群聊每轮 `AGENT_TURN_*` 的持久化/游标语义明确 | A0-02 |
+| A0-06 | 冻结工具执行契约 | `docs/contracts/tool-broker.md`、`tool-action-risk-policy.md` | 审批、预算、fencing、unknown、幂等键明确 | A0-01 |
+| A0-07 | 集成测试环境门禁 | `.github/workflows/*`、`docs/contracts/ci-quality-gates.md` | MySQL/Redis 集成测试不再默认 SKIP | A0-01 |
+
+**G0 门禁**：契约无矛盾；每个新增字段有生产者/消费者/测试；未批准不得改业务代码。
+
+### P1：正确性与多实例状态（P0）
+
+| ID | 原子功能 | 主要文件 | 验收 | 依赖 |
+|---|---|---|---|---|
+| A1-01 | 预算恢复失败即终止，不新建 Budget | `services/orchestrator/httpapi/resume.go` | 反序列化失败/超限返回错误；回归测试还原修复会 FAIL | G0 |
+| A1-02 | 租约续租 | `httpapi/run_ledger.go`、`persistence/mysql/repository.go` | 超 15 分钟运行不失租；旧 fencing 被拒 | A1-01 |
+| A1-03 | 待审批计划落 SQL | 新 migration、`handler_hitl.go`、repository | 两个 Orchestrator 实例 confirm 都成功 | G0 |
+| A1-04 | HITL 信号跨实例 | SQL 信号表 + 短轮询（最小）；Redis 后续优化 | 实例 A 创建、实例 B 确认，执行继续 | A1-03 |
+| A1-05 | 审批幂等缓存落 SQL | `approvals`/新表 + handler | 并发重复 confirm 只消费一次 | A1-03 |
+| A1-06 | 运行任务引用/取消跨实例 | `run_task_registry.go` + 新表/Redis | 实例 B cancel 能终止实例 A 的远端任务 | A1-03 |
+| A1-07 | gRPC 内部鉴权 + trace metadata | `grpcapi/server.go`、Gateway client | 无 token 请求被拒；traceId 可传 | G0 |
+| A1-08 | 统一 fencing 语义 | `pkg/runtime/tools/broker.go`、ledger | `0` 值行为一致；测试覆盖 | A1-01 |
+| A1-09a | 投影游标表/consumer 语义 | Gateway migration、store | 每个 run/consumer 有独立游标 | G0 |
+| A1-09b | 事件投影 worker | Gateway 新 worker + `run_public_events` | kill 处理 `/api/chat` 的 Gateway，另一个实例继续投影 | A1-09a |
+| A1-09c | 助手消息投影接管 | worker + `ProjectAssistantMessage` | Gateway 崩溃后，最终助手消息仍落库 | A1-09b |
+| A1-10 | 优雅停机/释放租约 | Orchestrator main | SIGTERM 不留下永久租约 | A1-02 |
+
+**G1 门禁**：
+- 2 个 Orchestrator 实例，confirm/cancel/resume 都成功。
+- kill Gateway 后，事件无缺口，助手消息最终落库。
+- 预算恢复不重置；15 分钟以上运行不失租。
+- 所有集成测试在 CI 或显式环境执行，记录 PASS/FAIL/SKIP。
+
+### P2：工具执行安全（P0/P1）
+
+| ID | 原子功能 | 主要文件 | 验收 | 依赖 |
+|---|---|---|---|---|
+| A2-00 | 平台工具执行位置 ADR | `docs/contracts/tool-broker.md` | 明确 agent-side authorize/result 还是 orchestrator-side execution；权限/幂等/审计 | G0 |
+| A2-01 | ADK 工具执行前强制 Guard | `pkg/adk/runner.go` 或工具包装层 | 无 envelope/无审批的写工具 0 调用 | G0 |
+| A2-02 | 按 A2-00 接入授权/结果账本 | `internal/toolruntime/broker.go` + 选定执行路径 | 审批/预算/fencing/unknown 生效 | A2-00、A2-01、A1-08 |
+| A2-03 | 工具预算真实扣减 | broker + budget | 超预算拒绝；恢复不重置 | A2-02 |
+| A2-04 | 只读 workspace 工具接入 code-agent | `pkg/runtime/tools`、code-agent | 能读真实文件；无写权限 | A2-01 |
+| A2-05 | apply_patch + sandbox.run_tests | 同上 + Docker | 未审批 0 调用；沙箱内执行 | A2-04 |
+| A2-06 | diff-agent 真实 unified diff | `agents/diff-agent` | 多行 diff 正确；不再 1 行模板 | A2-01 |
+| A2-07a | security 真实扫描器 | security-agent + 工具 | 已知密钥/CVE 样例能复现 | A2-02 |
+| A2-07b | test 真实覆盖率/失败解析 | test-agent + 工具 | 已知测试日志/覆盖率能复现 | A2-02 |
+| A2-08 | MCP 真实传输 + allowlist | `pkg/runtime/tools/mcp.go` | 未注册工具拒绝；调用可审计 | A2-02 |
+
+**G2 门禁**：未授权写工具 0 调用；unknown 不重做；沙箱不可用不宿主执行；工具结果可追溯。
+
+说明：A2-00 若选择 **agent-side authorize/result**，工具仍在 Agent 内执行，只是执行前后调用 Orchestrator 授权/记账；若选择 **orchestrator-side execution**，A2-04/A2-05 的注册位置改为 Orchestrator Tool Runtime，Agent 只发 tool call。两条路线不能混用。
+
+### P3：群聊 G1（P1）
+
+| ID | 原子功能 | 主要文件 | 验收 | 依赖 |
+|---|---|---|---|---|
+| A3-01 | 会话类型 + 参与者表 | Gateway migration/store | `conversation_type=group` 可写入/读取 | G0 |
+| A3-02 | 创建/更新会话 API 支持参与者 | `httpapi/server.go`、store | 创建群聊后可查询参与者 | A3-01 |
+| A3-03 | 前端群成员持久化/恢复 | `ChatWindow.tsx`、`messageStore` | 刷新后多选 Agent 仍在 | A3-02 |
+| A3-04 | Picker 过滤 enabled/healthy + 注册后刷新 | `AgentPicker.tsx`、`agentStore.ts` | 禁用 Agent 不可选；新注册可见 | A3-02 |
+| A3-05 | 每轮消息投影 | Gateway 投影 + migration | 刷新后多个 Agent 发言按轮次重建 | A3-01、A1-09c |
+| A3-06 | 群计划参与者勾选 | `GroupPlanCard.tsx`、confirm API | 取消可选参与者后不派发 | A3-02 |
+| A3-07 | 群聊 E2E | Playwright/Vitest | 创建→发送→刷新→历史→取消 | A3-03..A3-06 |
+
+**G3 门禁**：群聊刷新不丢参与者；历史不合并成一条；取消能终止所有未完成 Agent。
+
+### P4：路由与 Harness（P1/P2）
+
+| ID | 原子功能 | 主要文件 | 验收 | 依赖 |
+|---|---|---|---|---|
+| A4-01 | 路由决策落库 | `route_decisions` + planner/executionpath | 每次 run 可查 path/候选/选中/拒绝原因 | G0 |
+| A4-02 | DAG/ready queue 真执行 | `executor/dag_executor.go` + handler | 依赖未完成不领取；波次正确 | A4-01 |
+| A4-03 | 并行预算/取消传播 | executor + budget | 并发不超上限；取消传播到所有任务 | A4-02 |
+| A4-04 | 群聊 round-robin 发言 | new speaker selector | max_rounds 生效；不连续同一人 | A3-05 |
+| A4-05 | 模型选择发言者（G2） | selector + planner | 选择理由入 route_decisions；可终止 | A4-04 |
+| A4-06 | 受控 handoff（可选） | 新工具 + allowlist | 非白名单拒绝；预算/上下文不越界 | A4-03 |
+| A4-07 | 路由指标/评测 | metrics + eval | 选中率/拒绝率/循环/成本可查 | A4-01 |
+
+**G4 门禁**：路由可解释；并行有证据；群聊有轮次和终止；无自由 swarm。
+
+### P5：Markdown Agent 与前端渲染（P1/P2）
+
+| ID | 原子功能 | 主要文件 | 验收 | 依赖 |
+|---|---|---|---|---|
+| A5-01 | markdown-agent 骨架/A2A/AgentCard | 新 `services/agents/markdown-agent` | 可注册、可健康检查、默认不启用 | G0 |
+| A5-02a | markdown.render | markdown-agent + goldmark | 样例 HTML 正确；原始 HTML 默认不执行 | A5-01 |
+| A5-02b | markdown.lint | markdown-agent | 标题/空链接/代码块语言可报行/列 | A5-02a |
+| A5-02c | frontmatter 解析/校验 | markdown-agent | YAML 合法/非法都有结果 | A5-02a |
+| A5-02d | TOC 生成 | markdown-agent | 锚点与渲染一致 | A5-02a |
+| A5-03a | Mermaid 语法校验 | markdown-agent/前端 | 错误图有行/列提示 | A5-02a |
+| A5-03b | Mermaid 渲染（strict/sandbox） | markdown-agent/前端 | 恶意脚本不执行 | A5-03a |
+| A5-04 | KaTeX render | markdown-agent/前端 | `trust:false`；危险命令被拒 | A5-02a |
+| A5-05 | 导出 PDF | markdown-agent + Playwright 沙箱 | 沙箱内导出；无内网访问 | A5-03b |
+| A5-06 | link check | markdown-agent + 沙箱 | 私网/重定向被拒 | A5-02a |
+| A5-07 | 前端 XSS sanitize | `StreamingText/CodePreview/WebPreview` | 恶意 HTML/Mermaid 不执行 | A5-02a |
+| A5-08 | Shiki 替换 hljs | `CodePreview.tsx` | 包体不增；高亮正确 | A5-07 |
+| A5-09 | diff2html 渲染层 | `DiffPreview.tsx` | dry-run/apply 不变 | A5-07 |
+| A5-10a | Mermaid 前端懒加载 | 前端 | 仅出现时加载；失败不白屏 | A5-03b |
+| A5-10b | KaTeX 前端懒加载 | 前端 | 仅出现时加载；失败显示原文 | A5-04 |
+| A5-11 | Playwright 截图 artifact | web/test agent + artifact | 截图可跨节点读 | A5-07 |
+| A5-12 | 消息列表虚拟化（可选） | `ChatWindow.tsx` | 长会话滚动/内存达标 | A5-08 |
+
+**G5 门禁**：XSS 样例 0 执行；Mermaid/KaTeX 安全；首屏 JS ≤500KB gzip；Markdown 导出可用。
+
+### P6：部署、对象存储与观测（P2）
+
+| ID | 原子功能 | 主要文件 | 验收 | 依赖 |
+|---|---|---|---|---|
+| A6-01 | 单机 Nginx/卷/备份 | compose、nginx、docs | SSE 不缓冲；重启数据仍在 | G1 |
+| A6-02 | ArtifactStore 接口 + 本地卷 | `pkg/runtime/tools`、orchestrator | 替换临时 JSON；重启可读 | G0 |
+| A6-03 | S3/MinIO adapter | artifact adapter | 跨节点读写；签名 URL | A6-02 |
+| A6-04 | 投影 worker 多副本部署/幂等验证 | A1-09 worker | 多 worker 不重复写 | A1-09 |
+| A6-05 | 多 Orchestrator owner/共享状态 | A1-03..A1-06 | 2 副本 confirm/cancel 正常 | G1 |
+| A6-06 | OTel trace | Gateway/Orchestrator/Agent | 同一 run 可串联 | A1-07 |
+| A6-07 | 指标与告警 | metrics | 路由/审批/工具/SSE 有指标 | A4-07 |
+| A6-08 | Runbook | docs | 故障有操作步骤 | A6-01..A6-07 |
+
+**G6 门禁**：kill Gateway/Orchestrator 有明确结果；跨节点 artifact 可读；trace 可串联。
+
+## 6. 每任务执行模板
+
+每个原子任务实施时，报告必须包含：
+
+```text
+任务 ID：
+目标行为：
+改动文件（实际）：
+未改文件（确认）：
+契约变更：
+测试命令：
+结果：PASS / FAIL / SKIP（SKIP 写原因）
+失败证据：
+回归风险：
+回滚方式：
+提交：
+```
+
+提交规范：
+
+- 一个任务一个 commit；`feat/fix/refactor/test/docs` 前缀。
+- 只 `git add` 本任务文件；禁止 `git add .`。
+- 提交前执行 `git diff --staged --check` 与密钥扫描。
+- 不修改真实 `.env`，不提交构建产物。
+
+## 7. 测试矩阵
+
+| 层 | 范围 | 必跑 |
+|---|---|---|
+| 单元 | 预算、fencing、路由派生、投影 reducer、渲染安全 | 每次任务 |
+| 集成 | MySQL/Redis 审批、取消、重放、artifact | 每个 P1/P6 任务 |
+| 协议 | gRPC 鉴权、A2A、AG-UI 游标 | A1/A2/A3 |
+| E2E | 群聊刷新、审批、取消、Markdown 渲染 | G3/G5 |
+| 真机 | 真实模型主路径、SSE 断线 | 阶段门禁 |
+
+硬规则：
+
+- 缺 `AGENTHUB_MYSQL_TEST_DSN`/`AGENTHUB_REDIS_TEST_ADDR` 时，集成测试 SKIP；**SKIP 不算通过**。
+- 修复型任务必须有“还原修复会 FAIL”的回归测试。
+- 前端安全任务必须有恶意样例。
+
+## 8. 阶段门禁汇总
+
+| 门禁 | 必须证明 | 不通过则 |
+|---|---|---|
+| G0 | 契约/决策冻结 | 不写代码 |
+| G1 | 多实例审批/取消/投影/预算/租约 | 不扩副本、不进入 P6 |
+| G2 | 工具未授权 0 调用、unknown 不重做 | 不开放真实写工具 |
+| G3 | 群聊成员/历史/取消可用 | 不做 G2 讨论 |
+| G4 | 路由可解释、真并行、有终止 | 不做 handoff |
+| G5 | XSS 0、渲染/导出可用 | 不替换现有渲染 |
+| G6 | 单机稳定、跨节点制品可读 | 不上多节点 |
+
+## 9. 风险与回滚
+
+| 风险 | 影响 | 缓解 |
+|---|---|---|
+| 审批状态迁移遗漏 | confirm 404 | 双读写过渡；旧内存路径保留一个版本 |
+| 投影 worker 重复写 | 前端重复文本 | `(run_id,seq,sub_index)` 唯一键 + 幂等投影 |
+| 群聊历史迁移 | 旧消息作者/轮次丢失 | 新列可空；旧消息按单 Agent 读取 |
+| Broker 接线改变工具行为 | 现有工具失败 | feature flag；先只读、后写 |
+| Shiki/Mermaid 包体上涨 | 首屏变慢 | 懒加载 + 构建预算门禁 |
+| Mermaid XSS | 脚本执行 | strict/sandbox + sanitize + 回归样例 |
+| 多副本 owner 路由错误 | 确认/取消错实例 | owner 表 + 失败回退；先 2 实例测试 |
+
+## 10. 本计划不做
+
+- 不实现 IM 渠道（08/09）；另立计划，依赖 D4。
+- 不接入 Claude Code 等外部编码 Agent（10）；另立计划，依赖 D5。
+- 不引入 Temporal/Kafka/Service Mesh/向量库（05）。
+- 不重写前端状态管理（TanStack Query）到本计划；单独前端计划。
+- 不做自由 swarm / 无限群聊 / 任意 handoff。
+- 不修改 `server/`、根目录 `agents/` 等 legacy 实现。
+- 不读取或提交 `.env`、真实密钥、真实 DSN。
+
+## 11. 推荐的第一个批次
+
+如果只先做一批，按这个顺序：
+
+1. **A1-01** 预算恢复 fail-closed（最小、独立、可测试）。
+2. **A1-03** 待审批计划落 SQL（多实例前提）。
+3. **A1-09b** 投影 worker（Gateway 崩溃可恢复）。
+4. **A2-01/A2-02** 工具 Guard/Broker 接线（安全前提）。
+5. **A3-01/A3-02** 群聊成员持久化（产品前提）。
+
+这五项完成后，再决定是继续 G1 群聊、还是先做 P5 渲染；不要同时开三条跨层大改。
+
+## 12. 完成定义
+
+本计划完成不是“文档写完”，而是：
+
+- G0-G6 门禁全部有 PASS 证据；
+- 每个原子任务有独立 commit 和测试记录；
+- 多实例、群聊、工具安全、Markdown、渲染、部署各有可复现验收；
+- 没有未登记的 SKIP；
+- 没有密钥/真实凭据进入仓库；
+- v3 文档与实际实现一致，差异有记录。
+
+---
+
+## 13. 实施记录（2026-10-31）
+
+记录规则：只写实际执行并验证过的结果；SKIP 必须写原因；测试数量与通过数分开。
+
+| 任务 | 状态 | 提交 | 验证证据 |
+|---|---|---|---|
+| A0-01 | PASS | 待随文档提交 | D1-D13 采纳值写入 `00-INDEX.md` §7，未决项列明 |
+| A0-02 | PASS（契约） | 待随文档提交 | 新增 `docs/contracts/conversation-participants.md`；`mysql-schema.md` 增加参与者表 |
+| A0-03 | PASS（契约） | 待随文档提交 | `intent-orchestration.md` 新增 route_decisions 字段/生产者/消费者/保留期 |
+| A0-04 | PASS（契约） | 待随文档提交 | `artifact-schema.md`、`artifact-type-registry.md` 增加 storageRef/checksum/contentType/size/version |
+| A0-05 | PASS（契约） | 待随文档提交 | `agui-events.md`、`event-replay.md` 增加 AGENT_TURN 持久化与游标语义 |
+| A0-06 | PASS（契约） | 待随文档提交 | `tool-broker.md` 增加执行位置决策、预算/fencing/unknown/幂等语义 |
+| A0-07 | PASS（配置） | 待随文档提交 | 新增 `.github/workflows/v3-integration-gates.yml`；SKIP 即失败 |
+| A1-01 | PASS | `e2ec0c9` | 3 个回归测试；还原修复后超限场景 FAIL |
+| A1-02 | PASS（单测） | `581099e` | 周期续租/失租取消/handler 接线测试通过；MySQL 集成测试 SKIP（无 DSN） |
+| A1-03 | PASS（单测） | `1fe4d5f` | 跨实例确认 202、幂等 200、revision 冲突 409；MySQL 集成测试 SKIP（无 DSN） |
+| A1-04 | PASS（单测） | `1fe4d5f` | 持有实例 Claim 信号并继续执行；禁用 Claim 后测试 FAIL；MySQL 集成测试 SKIP（无 DSN） |
+| A1-05 | 未完成 | — | 仅实现 `(run_id, idempotency_key)` 信号级幂等；完整响应缓存未落 SQL |
+| A1-06 | 未完成 | — | — |
+| A1-07 | 未完成 | — | — |
+| A1-08 | 未完成 | — | — |
+| A1-09a | 部分实现（既有） | — | 投影偏移表存在，幂等测试需 DSN（默认 SKIP） |
+| A1-09b | 未完成 | — | — |
+| A1-09c | 未完成 | — | — |
+| A1-10 | 未完成 | — | — |
+| A2-00 | PASS（决策） | 待随文档提交 | 选择 agent-side authorize/result；生产接线未完成 |
+| A2-01 | PASS | `b9bfaf2` | 无 Guard 的副作用工具 0 调用；绕过 authorizeTool 后 3 个测试 FAIL |
+| A2-02 | 未完成 | — | ADK 本地防线已实现；SQL 授权/结果入口未接线 |
+| A3-01 | PASS（单测） | `ccf6ed8` | 内存参与者往返/替换/级联删除；MySQL 集成测试 SKIP（无 DSN） |
+| A3-02 | PASS | `0bd8460` | 群聊创建/查询/替换/非法输入/404 测试通过 |
+| A3-03 | PASS | `32bfb2f` | 服务端名单恢复 + 本地缓存回退；禁用恢复后测试 FAIL |
+| A3-04 | PASS | `146e892` | 禁用 Agent 不可选；注册后 picker 重载；禁用判断移除后测试 FAIL |
+| A3-05..A3-07 | 未完成 | — | — |
+| P4/P5/P6 | 未开始 | — | — |
+
+### 已知 SKIP / 环境限制
+
+- 所有 MySQL/Redis 集成测试在本机执行时因缺少 `AGENTHUB_MYSQL_TEST_DSN` /
+  `AGENTHUB_REDIS_TEST_ADDR` 而 SKIP；不计入通过。CI 门禁见 A0-07。
+- 前端测试需显式使用 `/e/node_js/node.exe`；`npm` PATH shim 在本机不可用。
+- `vite build` 通过，但主 chunk gzip 447KB，已接近 G5 的 500KB 预算。

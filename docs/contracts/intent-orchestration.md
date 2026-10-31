@@ -108,3 +108,37 @@
 - 门禁以真实 handler 入口的派发调用计数为准：模型失败/无模型时 Child Agent 派发次数为 0。
 - 代码中残留 `RulePlanner` 字样必须能解释为历史文档或迁移遗留；启动图与调用断言优先于字符串计数。
 - FakeModel 测试通过不得表述为真实模型效果通过。
+
+## 路由决策契约（v3 A0-03 冻结）
+
+每次 run 必须能回答：走了哪条路径、考虑过哪些 Agent、为什么选中、为什么拒绝。
+状态等级：`未实现`（本合约先冻结字段，`route_decisions` 写入在 A4-01 落地）。
+
+### 表 `route_decisions`
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `run_id` | `VARCHAR(64)` | 主键组成部分 |
+| `decision_seq` | `INT` | 同一 run 内单调递增，从 0 开始 |
+| `execution_path` | `VARCHAR(32)` | `single_chat` / `group_chat` / `main_agent_orchestration` |
+| `strategy` | `VARCHAR(32)` | `single` / `sequential` / `ordered_parallel` / `conversational` |
+| `candidates_json` | `JSON` | 候选 Agent 名称数组（确定性排序） |
+| `selected_json` | `JSON` | 实际派发 Agent 名称数组 |
+| `rejected_json` | `JSON` | `[{agentName, reasonCode}]`；reasonCode 稳定枚举 |
+| `planner_source` | `VARCHAR(32)` | `main_agent`（生产唯一入口） |
+| `reason_summary` | `VARCHAR(512)` | 模型给出的简短理由，不含思维链 |
+| `created_at` | `DATETIME(3)` | 服务端 UTC |
+
+唯一键：`PRIMARY KEY (run_id, decision_seq)`。保留期：与 `execution_events` 同级；MVP 不做自动裁剪。
+
+### 生产者 / 消费者
+
+- 生产者：`services/orchestrator` 的路径派生与 `MainAgent` planner 结果落库（A4-01）。
+- 消费者：run 排查接口、路由指标（A4-07）、评测 harness。
+- 禁止：把候选/拒绝原因直接透传浏览器；对外只暴露脱敏摘要。
+
+### 验收
+
+- 每次 run 至少一条决策；`selected_json` 必须等于实际派发的 Agent 集合。
+- 拒绝原因使用稳定 code，不写自由文本堆栈。
+- 无 `route_decisions` 时指标必须显示“缺失”，不能默认为 100% 命中。

@@ -1,0 +1,79 @@
+name: V3 Integration Gates
+
+on:
+  push:
+    branches:
+      - dev
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-password
+          MYSQL_DATABASE: agenthub_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-only-password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      AGENTHUB_MYSQL_TEST_DSN: root:ci-only-password@tcp(127.0.0.1:3306)/agenthub_test?parseTime=true&loc=UTC
+      AGENTHUB_REDIS_TEST_ADDR: 127.0.0.1:6379
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: services/orchestrator/go.mod
+          cache: false
+
+      - name: Go version
+        run: go version
+
+      - name: Run MySQL/Redis integration tests
+        run: |
+          set -o pipefail
+          go test -v -count=1 -run 'TestIntegration' \
+            ./services/orchestrator/... \
+            ./services/gateway/... \
+            2>&1 | tee integration.log
+
+      - name: Fail on skipped integration tests
+        run: |
+          if grep -q -- "--- SKIP" integration.log; then
+            echo "FAIL: integration tests were skipped despite a configured MySQL/Redis test environment"
+            grep -- "--- SKIP" integration.log
+            exit 1
+          fi
+          if ! grep -q -- "--- PASS" integration.log; then
+            echo "FAIL: no integration test passed"
+            exit 1
+          fi
+          echo "PASS: MySQL/Redis integration tests ran without SKIP"
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          tail -n 200 integration.log || true

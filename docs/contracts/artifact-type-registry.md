@@ -24,3 +24,11 @@ Engineering details MUST follow the module separation redesign. Old `server/` an
 | `file` | future | any | `file_download` |
 | `terminal` | future | code/deploy agent | `terminal_output` |
 | `image` | future | multimodal agent | `image_preview` |
+
+## Required storage metadata（v3 A0-04）
+
+Every artifact of type `file` / `diff` / `image` must carry the fields frozen in
+`docs/contracts/artifact-schema.md`: `storageRef`, `checksum`, `contentType`,
+`size`, `version`. Artifacts missing `storageRef` or `checksum` are metadata-only
+and must render as non-downloadable cards. Type-to-skill mapping is unchanged by
+storage profile; local volume and S3/MinIO share the same registry.

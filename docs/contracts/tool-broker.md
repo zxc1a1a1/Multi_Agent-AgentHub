@@ -87,3 +87,34 @@ principalId, credentialScope(never included)
 | `unknown` | 已派发但结果缺失/进程崩溃 | 不自动重放，先核对真实状态 |
 
 - 对外错误脱敏：不含内部 URL、stack trace、DSN、凭据、原始 provider 错误全文。
+
+## 9. 执行位置决策（v3 A0-06/A2-00）
+
+**决策：agent-side authorize/result，Orchestrator 持有审批、预算、账本。**
+
+- 工具仍在 Child Agent 进程内执行；模型只产出 tool call，不能自报 envelope。
+- Agent 在执行任何 `readOnly=false` 工具前，必须调用平台授权入口；无 envelope /
+  无审批 / fencing 过期 → 该调用执行次数为 0。
+- 执行结果（succeeded/failed/unknown）回报 Orchestrator 账本；结果未知不得自动
+  重试，必须先核对真实状态。
+- ADK 层已强制：`SideEffectTool.SideEffect()==true` 且无 `ToolGuard` 时不执行
+  （`pkg/adk/runner.go`）；这是本地防线，不替代 SQL 账本。
+- 状态：授权入口与结果回报的生产接线为 `未实现`（A2-02）；在接线完成前，写工具
+  不得注册到生产模型工具集。
+
+## 10. 预算、fencing 与幂等（A0-06 冻结语义）
+
+| 概念 | 冻结语义 |
+|---|---|
+| `budgetReservationId` | 平台生成；同一次派发只预留一次；恢复 run 时沿用已用额度，不重置 |
+| `fencingVersion` | 每次租约接管递增；`0` 不是合法的生产 fencing 值；所有写事务校验当前值 |
+| `approvalId` | 一次性消费；参数 hash 变化使旧审批失效；跨实例确认走 `run_signals` 幂等键 |
+| `idempotencyKey` | 写调用必填；`(run_id, idempotency_key)` 唯一；重放返回已存结果 |
+| `unknown` | 已派发但无终态；不重做、不伪造成功；对外标记需人工/自动核对 |
+
+验收：
+
+- 未授权写工具调用次数为 0（ADK guard 测试 + Broker 测试）。
+- 并发重复 confirm 只消费一次（`run_signals` 唯一键 + 内存路径）。
+- 同一写调用重放返回原结果；`unknown` 重放返回 `ErrToolOutcomeUnknown`。
+- 超出预算的调用在实际执行前被拒绝；resume 不重置预算（A1-01）。

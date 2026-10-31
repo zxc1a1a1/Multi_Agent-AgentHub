@@ -268,6 +268,26 @@ For `group_chat` and `main_agent_orchestration` modes, each agent's output is wr
 - `turnIndex` provides ordering for the turn sequence.
 - In `single_chat` mode, AGENT_TURN events are optional (text events alone suffice — one agent, one implicit turn).
 
+### AGENT_TURN persistence and replay（v3 A0-05 冻结）
+
+- Each turn is persisted as one assistant message keyed by the turn `messageId`
+  (unique per `(runId, turnIndex)`), with `author = agentName` and `runId`.
+- Projection idempotency key: `(runId, seq, subIndex)` + consumer
+  `assistant_message.v1`; replaying the same event must not append text twice.
+- A run with several agents must produce several history rows after refresh;
+  merging turns into one message is a defect, not a rendering choice.
+- Public journal ordering is `(seq, subIndex)`. `AGENT_TURN_STARTED` must be
+  replayable before its content; `AGENT_TURN_FINISHED` is the commit marker for
+  that turn's message.
+- If a Gateway dies between journal append and projection, the projection worker
+  (A1-09b) must rebuild the same rows from `run_public_events` without
+  duplicating already-projected turns.
+- The browser cursor is `(runId, seq, subIndex)`; a projection offset is
+  separate and never used to suppress replay to another subscriber.
+- Cancelled turns keep their partial content only if
+  `AGENT_TURN_FINISHED` was committed; otherwise the turn is rendered as
+  cancelled/incomplete, not silently dropped.
+
 ## ACTIVITY_SNAPSHOT (v1.3)
 
 `ACTIVITY_SNAPSHOT` replaces the v1.1/v1.2 `confirm_plan` TOOL_CALL events for plan-level HITL confirmation. `TOOL_CALL_START/ARGS/END` are reserved exclusively for real agent tool invocations (shell, browser, file operations, etc.).
