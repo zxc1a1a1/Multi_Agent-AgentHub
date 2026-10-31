@@ -283,8 +283,12 @@ func TestIntegrationFailedStateChangeLeavesNoHalfResult(t *testing.T) {
 	if _, err := repo.DB().Exec("INSERT INTO outbox (run_id, seq, event_type) VALUES (?, 1, 'state_update')", run.RunID); err != nil {
 		t.Fatalf("seed outbox conflict: %v", err)
 	}
+	fencing, err := repo.AcquireLease(context.Background(), run.RunID, "worker-a", time.Minute)
+	if err != nil {
+		t.Fatalf("acquire lease: %v", err)
+	}
 	if _, err := repo.AppendStateChange(context.Background(), StateChange{
-		RunID: run.RunID, FencingVersion: 0, Status: "executing", EventType: "state_update",
+		RunID: run.RunID, FencingVersion: fencing, Status: "executing", EventType: "state_update",
 	}); err == nil {
 		t.Fatal("expected transaction failure on outbox conflict")
 	}

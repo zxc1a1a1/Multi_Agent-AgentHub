@@ -219,3 +219,26 @@ func TestConsumeApprovalAndDispatchCommitsIntentAndBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMutatingWritesRejectZeroFencing(t *testing.T) {
+	repo, mock := newMockRepo(t)
+	ctx := context.Background()
+	if _, err := repo.AppendStateChange(ctx, StateChange{RunID: "run-1", FencingVersion: 0, Status: "executing", EventType: "state_update"}); !errors.Is(err, ErrStaleFencing) {
+		t.Fatalf("AppendStateChange must reject fencing 0, got %v", err)
+	}
+	if _, err := repo.SaveCheckpoint(ctx, CheckpointParams{RunID: "run-1", FencingVersion: 0, StateJSON: []byte(`{}`), BudgetJSON: []byte(`{}`)}); !errors.Is(err, ErrStaleFencing) {
+		t.Fatalf("SaveCheckpoint must reject fencing 0, got %v", err)
+	}
+	if err := repo.ConsumeApprovalAndDispatch(ctx, DispatchParams{RunID: "run-1", ApprovalID: "a", ToolCallID: "t"}); !errors.Is(err, ErrStaleFencing) {
+		t.Fatalf("ConsumeApprovalAndDispatch must reject fencing 0, got %v", err)
+	}
+	if err := repo.ReleaseLease(ctx, "run-1", "owner", 0); !errors.Is(err, ErrStaleFencing) {
+		t.Fatalf("ReleaseLease must reject fencing 0, got %v", err)
+	}
+	if err := repo.RenewLease(ctx, "run-1", "owner", 0, time.Minute); !errors.Is(err, ErrLeaseHeld) {
+		t.Fatalf("RenewLease must reject fencing 0, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("zero fencing must be rejected before touching the database: %v", err)
+	}
+}

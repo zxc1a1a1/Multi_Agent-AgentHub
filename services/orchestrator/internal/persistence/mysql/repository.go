@@ -169,6 +169,9 @@ func (r *Repository) AppendStateChange(ctx context.Context, c StateChange) (int6
 	if c.RunID == "" || c.EventType == "" || c.Status == "" {
 		return 0, fmt.Errorf("runId, status and eventType are required")
 	}
+	if c.FencingVersion <= 0 {
+		return 0, ErrStaleFencing
+	}
 	payload := c.Payload
 	if len(payload) == 0 {
 		payload = []byte(`{}`)
@@ -296,6 +299,9 @@ func (r *Repository) AcquireLease(ctx context.Context, runID, owner string, ttl 
 }
 
 func (r *Repository) RenewLease(ctx context.Context, runID, owner string, fencing int64, ttl time.Duration) error {
+	if fencing <= 0 || ttl <= 0 {
+		return ErrLeaseHeld
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -376,6 +382,9 @@ type CheckpointParams struct {
 func (r *Repository) SaveCheckpoint(ctx context.Context, p CheckpointParams) (int64, error) {
 	if p.RunID == "" || len(p.StateJSON) == 0 || len(p.BudgetJSON) == 0 {
 		return 0, fmt.Errorf("runId, state and budget are required")
+	}
+	if p.FencingVersion <= 0 {
+		return 0, ErrStaleFencing
 	}
 	if p.CheckpointVersion <= 0 {
 		p.CheckpointVersion = 1
@@ -509,6 +518,9 @@ type DispatchParams struct {
 func (r *Repository) ConsumeApprovalAndDispatch(ctx context.Context, p DispatchParams) error {
 	if p.RunID == "" || p.ApprovalID == "" || p.ToolCallID == "" {
 		return fmt.Errorf("runId, approvalId and toolCallId are required")
+	}
+	if p.FencingVersion <= 0 {
+		return ErrStaleFencing
 	}
 	budget := p.BudgetJSON
 	if len(budget) == 0 {
@@ -929,6 +941,9 @@ func (r *Repository) ClaimRunSignal(ctx context.Context, runID string) (*SignalR
 func (r *Repository) ReleaseLease(ctx context.Context, runID, owner string, fencing int64) error {
 	if runID == "" || owner == "" {
 		return fmt.Errorf("runId and owner are required")
+	}
+	if fencing <= 0 {
+		return ErrStaleFencing
 	}
 	_, err := r.db.ExecContext(ctx, `UPDATE executions
 		SET lease_owner = NULL, lease_expires_at = NULL

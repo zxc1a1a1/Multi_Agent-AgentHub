@@ -207,6 +207,11 @@ func TestGuardAuthorization(t *testing.T) {
 	if err := (Guard{}).Authorize(context.Background(), Envelope{RunID: "r"}, read); !errors.Is(err, ErrInvalidEnvelope) {
 		t.Fatalf("missing identity must be rejected, got %v", err)
 	}
+	zeroFencing := base
+	zeroFencing.FencingVersion = 0
+	if err := (Guard{}).Authorize(context.Background(), zeroFencing, read); !errors.Is(err, ErrInvalidEnvelope) {
+		t.Fatalf("fencing version 0 must be rejected, got %v", err)
+	}
 	writeEnvelope := Envelope{RunID: "r", ToolCallID: "tc", ToolName: write.Name, ToolVersion: write.Version, ArgsHash: "h", PrincipalID: "p", FencingVersion: 1}
 	if err := (Guard{}).Authorize(context.Background(), writeEnvelope, write); !errors.Is(err, ErrApprovalRequired) {
 		t.Fatalf("write without approval must be rejected, got %v", err)
