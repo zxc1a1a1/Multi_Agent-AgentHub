@@ -335,7 +335,8 @@ P0 契约/决策冻结
 | A3-02 | PASS | `0bd8460` | 群聊创建/查询/替换/非法输入/404 测试通过 |
 | A3-03 | PASS | `32bfb2f` | 服务端名单恢复 + 本地缓存回退；禁用恢复后测试 FAIL |
 | A3-04 | PASS | `146e892` | 禁用 Agent 不可选；注册后 picker 重载；禁用判断移除后测试 FAIL |
-| A3-05..A3-07 | 未完成 | — | — |
+| A3-05 | PASS | `94fa1f5` | 网关按 turnIndex/messageId 累积，AGENT_TURN_FINISHED 时逐轮投影；无 turn 事件仍合并一条；禁用 finish 投影后测试 FAIL（历史被合并） |
+| A3-06/A3-07 | 未完成 | — | — |
 | A5-07 | PASS（前端单测） | 待提交 | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
 | A5-08..A5-12、P4/P6 | 未开始 | — | — |
 
