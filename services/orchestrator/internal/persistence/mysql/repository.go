@@ -923,3 +923,16 @@ func (r *Repository) ClaimRunSignal(ctx context.Context, runID string) (*SignalR
 	sig.Status = "consumed"
 	return &sig, nil
 }
+
+// ReleaseLease drops a lease owned by the given fencing version. It is
+// idempotent: releasing an already-released or terminal run is not an error.
+func (r *Repository) ReleaseLease(ctx context.Context, runID, owner string, fencing int64) error {
+	if runID == "" || owner == "" {
+		return fmt.Errorf("runId and owner are required")
+	}
+	_, err := r.db.ExecContext(ctx, `UPDATE executions
+		SET lease_owner = NULL, lease_expires_at = NULL
+		WHERE run_id = ? AND lease_owner = ? AND fencing_version = ?`,
+		runID, owner, fencing)
+	return err
+}

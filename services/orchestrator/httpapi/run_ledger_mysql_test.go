@@ -293,3 +293,46 @@ func TestIntegrationRunSignals(t *testing.T) {
 		t.Fatalf("signal must be claimed once: %#v err=%v", second, err)
 	}
 }
+
+func TestIntegrationLeaseReleaseAllowsImmediateTakeover(t *testing.T) {
+	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
+	if dsn == "" {
+		t.Skip("SKIP real MySQL integration: set AGENTHUB_MYSQL_TEST_DSN")
+	}
+	ctx := context.Background()
+	db, err := ledger.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open mysql: %v", err)
+	}
+	defer db.Close()
+	if err := ledger.RunMigrations(db); err != nil {
+		t.Fatalf("migrations: %v", err)
+	}
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	runID := "run-release-" + suffix
+	t.Cleanup(func() { _, _ = db.Exec("DELETE FROM executions WHERE run_id = ?", runID) })
+	repo := ledger.NewRepository(db)
+	if _, _, err := repo.AcceptRun(ctx, ledger.AcceptRunParams{
+		RunID: runID, RequestID: "req-release-" + suffix, ConversationID: "conv-release-" + suffix,
+		WorkspaceID: "default", PrincipalID: "user-release", ExecutionPath: "single_chat",
+	}); err != nil {
+		t.Fatalf("accept run: %v", err)
+	}
+	fencing, err := repo.AcquireLease(ctx, runID, "owner-a", time.Minute)
+	if err != nil {
+		t.Fatalf("acquire lease: %v", err)
+	}
+	if err := repo.ReleaseLease(ctx, runID, "owner-a", fencing); err != nil {
+		t.Fatalf("release lease: %v", err)
+	}
+	exec, err := repo.GetExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get execution: %v", err)
+	}
+	if exec.LeaseOwner != "" {
+		t.Fatalf("lease owner=%q after release, want empty", exec.LeaseOwner)
+	}
+	if _, err := repo.AcquireLease(ctx, runID, "owner-b", time.Minute); err != nil {
+		t.Fatalf("takeover after release: %v", err)
+	}
+}

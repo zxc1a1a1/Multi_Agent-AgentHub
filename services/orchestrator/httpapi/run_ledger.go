@@ -136,6 +136,19 @@ func (l *runLedger) startLeaseRenewal(ctx context.Context, onLost func()) {
 	}()
 }
 
+// releaseLease drops ownership when the handler returns. The lease is a
+// liveness signal, not permanent state; a later resume re-acquires it.
+func (l *runLedger) releaseLease() {
+	if l == nil || !l.enrolled() || l.owner == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := l.store.ReleaseLease(ctx, l.runID, l.owner, l.fencing); err != nil {
+		log.Printf("orchestrator: run=%s release lease failed: %v", l.runID, err)
+	}
+}
+
 func (l *runLedger) stopLeaseRenewal() {
 	if l == nil {
 		return

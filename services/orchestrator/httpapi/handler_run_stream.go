@@ -200,6 +200,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_STORE_UNAVAILABLE", "run persistence unavailable")
 		return
 	}
+	defer ledger.releaseLease()
 	plannerInput.Budget = ledger.budget
 
 	orchPlan, planErr := s.mainAgentPlanner.Plan(r.Context(), plannerInput)

@@ -91,6 +91,7 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 		store: s.executionStore, runID: runID, fencing: fencing, owner: s.instanceID,
 		leaseTTL: leaseTTL, renewInterval: renewInterval,
 	}
+	defer ledger.releaseLease()
 	budgetJSON, _ := json.Marshal(budget.Usage())
 
 	flusher, ok := w.(http.Flusher)

@@ -32,6 +32,8 @@ type fakeExecutionStore struct {
 	failOnStatus string
 	renewCalls   int32
 	renewErr     error
+	releaseCalls int32
+	releaseErr   error
 	signals      []execution.Signal
 }
 
@@ -79,6 +81,11 @@ func (f *fakeExecutionStore) AcquireLease(context.Context, string, string, time.
 func (f *fakeExecutionStore) RenewLease(context.Context, string, string, int64, time.Duration) error {
 	atomic.AddInt32(&f.renewCalls, 1)
 	return f.renewErr
+}
+
+func (f *fakeExecutionStore) ReleaseLease(context.Context, string, string, int64) error {
+	atomic.AddInt32(&f.releaseCalls, 1)
+	return f.releaseErr
 }
 
 func (f *fakeExecutionStore) AppendState(_ context.Context, s execution.State) (int64, error) {
@@ -614,5 +621,48 @@ func TestDurableHITLConfirmRejectsRevisionMismatch(t *testing.T) {
 	defer store.mu.Unlock()
 	if len(store.signals) != 0 {
 		t.Fatal("rejected confirmation must not append a signal")
+	}
+}
+
+func TestRunHandlerReleasesLeaseOnCompletion(t *testing.T) {
+	store := &fakeExecutionStore{}
+	answer := makeTestPlan("run-release", plan.StrategyConversational, nil)
+	answer.Answer = "done"
+	srv := newLedgerTestServer(t, store, &FakeMainAgent{PlanToReturn: answer})
+	body := `{"runId":"run-release","conversationId":"conv","messages":[{"role":"user","text":"hi"}],"requestedPath":"main_agent_orchestration"}`
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/stream", strings.NewReader(body)))
+	if got := atomic.LoadInt32(&store.releaseCalls); got != 1 {
+		t.Fatalf("completed run released the lease %d times, want 1", got)
+	}
+}
+
+func TestRunHandlerReleasesLeaseOnPlannerFailure(t *testing.T) {
+	store := &fakeExecutionStore{}
+	srv := newLedgerTestServer(t, store, &FakeMainAgent{PlanErr: errors.New("planner failed")})
+	body := `{"runId":"run-release-fail","conversationId":"conv","messages":[{"role":"user","text":"hi"}],"requestedPath":"main_agent_orchestration"}`
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/stream", strings.NewReader(body)))
+	if got := atomic.LoadInt32(&store.releaseCalls); got != 1 {
+		t.Fatalf("failed run released the lease %d times, want 1", got)
+	}
+}
+
+func TestResumeReleasesLease(t *testing.T) {
+	p := makeTestPlan("run-resume-release", plan.StrategyConversational, nil)
+	p.Answer = "resumed"
+	planJSON, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeExecutionStore{resumeState: &execution.ResumeState{
+		Status: "paused", FencingVersion: 3, PlanJSON: planJSON,
+		BudgetJSON: []byte(`{"modelCalls":1}`), CheckpointJSON: []byte(`{"status":"paused"}`),
+	}}
+	srv := NewServer(WithExecutionStore(store), WithInstanceID("resumer"))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/run-resume-release/resume", nil))
+	if got := atomic.LoadInt32(&store.releaseCalls); got != 1 {
+		t.Fatalf("resume released the lease %d times, want 1", got)
 	}
 }

@@ -327,7 +327,7 @@ P0 契约/决策冻结
 | A1-09a | PASS（单测；集成 SKIP） | 待提交 | 投影偏移表存在；`ProjectAssistantMessage` 先物化 offset 行再 `FOR UPDATE`，并新增 projection worker 集成测试（需 DSN） |
 | A1-09b | PASS（单测；集成 SKIP） | 待提交 | 新增 `services/gateway/projection` worker：按 turn 重建消息、只投影已完成轮次、共享偏移幂等；未完成轮次测试在强制终态化后 FAIL |
 | A1-09c | 部分实现 | 待提交 | worker 恢复已 journal 的最终轮；`AGENT_TURN_FINISHED` 前崩溃的轮次按未完成处理 |
-| A1-10 | 未完成 | — | — |
+| A1-10 | PASS | 待提交 | 所有 handler 返回路径释放租约；resume 同样释放；Ctrl+C 后 `server.Shutdown` 等待在途 handler；移除 defer 后 planner 失败测试 FAIL |
 | A2-00 | PASS（决策） | 待随文档提交 | 选择 agent-side authorize/result；生产接线未完成 |
 | A2-01 | PASS | `b9bfaf2` | 无 Guard 的副作用工具 0 调用；绕过 authorizeTool 后 3 个测试 FAIL |
 | A2-02 | 未完成 | — | ADK 本地防线已实现；SQL 授权/结果入口未接线 |

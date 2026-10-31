@@ -53,7 +53,7 @@
 | C3 | “公开事件 `(runId, seq, subIndex)` 稳定” | Gateway 分配 `publicSeq`，`SubIndex` 硬编码 0（`httpapi/server.go:897-905`），当前无分片生产者 | 契约允许分片，现状只有单分片；02/03 注明 |
 | C4 | “审批由 Orchestrator 账本一次性消费” | 计划级审批走 `pending_plan` + `/confirm`；工具级审批由 Agent 内 `pkg/runtime/tools.Guard` 校验，未进 SQL `approvals` 表 | 两类审批语义不同，03/04 分开描述 |
 | C5 | “账本含 task_executions” | 表已建（`001_execution_ledger.sql:28`），全仓无写入代码 | 03 标注为未使用表 |
-| C6 | “租约带 TTL 与 fencing，可接管” | TTL 固定 15 分钟（`services/orchestrator/httpapi/run_ledger.go:66`），`RenewLease` 无调用点；`fencing_version=0` 也合法 | 长跑会失租；03/04 列为缺口 |
+| C6 | “租约带 TTL 与 fencing，可接管” | 已补周期续租与完成释放（A1-02/A1-10）；仍保留 15 分钟 TTL 默认值；`fencing_version=0` 在 Guard 层被拒 | 长跑不再失租；多实例接管有测试 |
 | C7 | “Redis Streams 实时投递事件” | relay 每 250ms 发布；**仓库内无 Redis Stream 消费者**；gRPC `SubscribeRun` 轮询 SQL（200ms），Gateway tail SSE 轮询 SQL（250ms） | 02/03 明确“SQL 轮询是现状” |
 | C8 | “刷新恢复已在真模型浏览器验证” | `frontend/src/stores/resume.test.ts` 全部 mock `services/api` 与 `agui/client`；真模型浏览器记录见 `docs/reports/p6-real-model-deepseek.md`，但未覆盖 Flash 全路径 | 03 拆分“单测证据/真机证据” |
 | C9 | “测试覆盖断连、回放、unknown” | 3 个关键集成测试依赖 `AGENTHUB_MYSQL_TEST_DSN` / `AGENTHUB_REDIS_TEST_ADDR`，缺失即 SKIP；CI 未注入这些变量 | CI 绿色 ≠ 集成通过；03 给出运行命令 |
