@@ -64,11 +64,11 @@ export default function ActivitySnapshotRenderer({
         <GroupPlanCard
           data={planData}
           status={status}
-          onApprove={() => onApprove()}
+          onApprove={(selected) => onApprove(selected)}
           onCancel={onCancel}
           onRevise={
             onRevise
-              ? (feedback) => onRevise(feedback)
+              ? (feedback, selected) => onRevise(feedback, selected)
               : undefined
           }
         />

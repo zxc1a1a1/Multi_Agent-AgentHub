@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { PlanApprovalData } from '../types/planApproval'
 import type { PlanApprovalStatus } from './PlanApprovalCard'
 
@@ -19,9 +19,9 @@ const RISK_BADGES: Record<string, { bg: string; text: string }> = {
 export interface GroupPlanCardProps {
   data: PlanApprovalData
   status?: PlanApprovalStatus
-  onApprove: () => void | Promise<void>
+  onApprove: (selectedParticipants?: string[]) => void | Promise<void>
   onCancel: () => void | Promise<void>
-  onRevise?: (feedback: string) => void | Promise<void>
+  onRevise?: (feedback: string, selectedParticipants?: string[]) => void | Promise<void>
 }
 
 export default function GroupPlanCard({
@@ -34,16 +34,41 @@ export default function GroupPlanCard({
   const [acting, setActing] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [showFeedbackInput, setShowFeedbackInput] = useState(false)
+  const [selected, setSelected] = useState<string[]>(() =>
+    data.participants
+      .filter((participant) => participant.required || participant.selected !== false)
+      .map((participant) => participant.agentName),
+  )
+
+  useEffect(() => {
+    setSelected(
+      data.participants
+        .filter((participant) => participant.required || participant.selected !== false)
+        .map((participant) => participant.agentName),
+    )
+  }, [data.planId, data.revision, data.participants])
+
+  const toggleParticipant = useCallback(
+    (agentName: string, required?: boolean) => {
+      if (required) return
+      setSelected((prev) =>
+        prev.includes(agentName)
+          ? prev.filter((name) => name !== agentName)
+          : [...prev, agentName],
+      )
+    },
+    [],
+  )
 
   const handleApprove = useCallback(async () => {
-    if (acting) return
+    if (acting || selected.length === 0) return
     setActing(true)
     try {
-      await onApprove()
+      await onApprove(selected)
     } finally {
       setActing(false)
     }
-  }, [acting, onApprove])
+  }, [acting, onApprove, selected])
 
   const handleCancel = useCallback(async () => {
     if (acting) return
@@ -59,13 +84,13 @@ export default function GroupPlanCard({
     if (acting || !feedback.trim() || !onRevise) return
     setActing(true)
     try {
-      await onRevise(feedback.trim())
+      await onRevise(feedback.trim(), selected)
       setFeedback('')
       setShowFeedbackInput(false)
     } finally {
       setActing(false)
     }
-  }, [acting, feedback, onRevise])
+  }, [acting, feedback, onRevise, selected])
 
   const isBusy = acting || status === 'approving' || status === 'cancelling' || status === 'revising'
   const isTerminal = status === 'cancelled' || status === 'executing' || status === 'failed'
@@ -120,22 +145,43 @@ export default function GroupPlanCard({
       {/* Participants */}
       {data.participants.length > 0 && (
         <div className="px-4 py-3 border-b border-gray-100">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-            Team ({data.participants.length})
-          </h4>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Team ({data.participants.length})
+            </h4>
+            <span className="text-xs text-gray-400">
+              {selected.length} selected · deselect optional agents to skip their tasks
+            </span>
+          </div>
           <div className="flex flex-wrap gap-2">
-            {data.participants.map((p) => (
-              <span
-                key={p.agentName}
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border
-                  ${p.required ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}
-              >
-                {p.agentName}
-                {p.required && (
-                  <span className="text-blue-400" title="Required">*</span>
-                )}
-              </span>
-            ))}
+            {data.participants.map((p) => {
+              const checked = selected.includes(p.agentName)
+              return (
+                <button
+                  key={p.agentName}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={checked}
+                  aria-label={p.agentName}
+                  disabled={p.required || isBusy}
+                  onClick={() => toggleParticipant(p.agentName, p.required)}
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium border transition-colors
+                    ${checked ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200'}
+                    ${p.required ? 'cursor-not-allowed opacity-80' : 'hover:border-blue-300'}`}
+                >
+                  <span
+                    className={`w-3.5 h-3.5 rounded border flex items-center justify-center
+                      ${checked ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 bg-white'}`}
+                  >
+                    {checked && <span className="text-[9px] leading-none">✓</span>}
+                  </span>
+                  {p.agentName}
+                  {p.required && (
+                    <span className="text-blue-400" title="Required">*</span>
+                  )}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
@@ -260,7 +306,7 @@ export default function GroupPlanCard({
             </button>
             <button
               type="button"
-              disabled={isBusy}
+              disabled={isBusy || selected.length === 0}
               onClick={handleApprove}
               className="px-4 py-1.5 text-sm rounded-md bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
             >
