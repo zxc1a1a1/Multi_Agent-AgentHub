@@ -445,8 +445,10 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		UserID    string `json:"userId"`
-		AgentName string `json:"agentName"`
+		UserID     string   `json:"userId"`
+		AgentName  string   `json:"agentName"`
+		AgentNames []string `json:"agentNames"`
+		Type       string   `json:"type"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid request body")
@@ -454,17 +456,185 @@ func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request
 	}
 	req.UserID = strings.TrimSpace(req.UserID)
 	req.AgentName = strings.TrimSpace(req.AgentName)
-	if req.UserID == "" || req.AgentName == "" {
+	req.Type = strings.TrimSpace(req.Type)
+	if req.Type != "" && req.Type != store.ConversationTypeSingle && req.Type != store.ConversationTypeGroup {
+		writeJSONError(w, http.StatusBadRequest, "type must be single or group")
+		return
+	}
+	if req.UserID == "" {
+		writeJSONError(w, http.StatusBadRequest, "userId is required")
+		return
+	}
+	names, err := normalizeParticipantNames(req.AgentNames)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	primary := req.AgentName
+	if primary == "" && len(names) > 0 {
+		primary = names[0]
+	}
+	if primary == "" {
 		writeJSONError(w, http.StatusBadRequest, "userId and agentName are required")
 		return
 	}
+	if len(names) == 0 {
+		names = []string{primary}
+	}
 
-	conv, err := s.store.CreateConversation(r.Context(), req.UserID, req.AgentName)
+	conv, err := s.store.CreateConversation(r.Context(), req.UserID, primary)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to create conversation")
 		return
 	}
+
+	participants, ok := s.store.(store.ParticipantStore)
+	if !ok {
+		writeJSON(w, http.StatusCreated, conv)
+		return
+	}
+	conversationType := req.Type
+	if conversationType == "" {
+		if len(names) > 1 {
+			conversationType = store.ConversationTypeGroup
+		} else {
+			conversationType = store.ConversationTypeSingle
+		}
+	}
+	conv, err = participants.SetConversationParticipants(r.Context(), conv.ID, conversationType, buildParticipants(names))
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to persist conversation participants")
+		return
+	}
 	writeJSON(w, http.StatusCreated, conv)
+}
+
+func normalizeParticipantNames(names []string) ([]string, error) {
+	const maxParticipants = 32
+	seen := make(map[string]struct{}, len(names))
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if len(name) > 128 {
+			return nil, fmt.Errorf("agent name is too long")
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	if len(out) > maxParticipants {
+		return nil, fmt.Errorf("too many participants: maximum %d", maxParticipants)
+	}
+	return out, nil
+}
+
+func buildParticipants(names []string) []store.Participant {
+	out := make([]store.Participant, 0, len(names))
+	for i, name := range names {
+		role := "member"
+		if i == 0 {
+			role = "owner"
+		}
+		out = append(out, store.Participant{AgentName: name, Role: role, Selected: true})
+	}
+	return out
+}
+
+func (s *Server) handleListConversationParticipants(w http.ResponseWriter, r *http.Request) {
+	conversationID, ok := extractConversationIDForSuffix(r.URL.Path, "/participants")
+	if !ok {
+		writeJSONError(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	participants, ok := s.store.(store.ParticipantStore)
+	if !ok {
+		writeJSONError(w, http.StatusNotImplemented, "conversation participants are not supported")
+		return
+	}
+	list, err := participants.ListConversationParticipants(r.Context(), conversationID)
+	if err != nil {
+		if errors.Is(err, store.ErrConversationNotFound) {
+			writeJSONError(w, http.StatusNotFound, "conversation not found")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "failed to list participants")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleUpdateConversationParticipants(w http.ResponseWriter, r *http.Request) {
+	conversationID, ok := extractConversationIDFromPath(r.URL.Path)
+	if !ok {
+		conversationID, ok = extractConversationIDForSuffix(r.URL.Path, "/participants")
+	}
+	if !ok {
+		writeJSONError(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	participants, ok := s.store.(store.ParticipantStore)
+	if !ok {
+		writeJSONError(w, http.StatusNotImplemented, "conversation participants are not supported")
+		return
+	}
+	var req struct {
+		AgentNames []string `json:"agentNames"`
+		Type       string   `json:"type"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.Type = strings.TrimSpace(req.Type)
+	if req.Type != "" && req.Type != store.ConversationTypeSingle && req.Type != store.ConversationTypeGroup {
+		writeJSONError(w, http.StatusBadRequest, "type must be single or group")
+		return
+	}
+	names, err := normalizeParticipantNames(req.AgentNames)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(names) == 0 {
+		writeJSONError(w, http.StatusBadRequest, "agentNames is required")
+		return
+	}
+	conversationType := req.Type
+	if conversationType == "" {
+		if len(names) > 1 {
+			conversationType = store.ConversationTypeGroup
+		} else {
+			conversationType = store.ConversationTypeSingle
+		}
+	}
+	conv, err := participants.SetConversationParticipants(r.Context(), conversationID, conversationType, buildParticipants(names))
+	if err != nil {
+		if errors.Is(err, store.ErrConversationNotFound) {
+			writeJSONError(w, http.StatusNotFound, "conversation not found")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "failed to update participants")
+		return
+	}
+	writeJSON(w, http.StatusOK, conv)
+}
+
+func extractConversationIDForSuffix(path, suffix string) (string, bool) {
+	prefix := "/api/conversations/"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return "", false
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	id = strings.Trim(id, "/")
+	if id == "" || strings.Contains(id, "/") {
+		return "", false
+	}
+	return id, true
 }
 
 func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request) {
@@ -576,6 +746,23 @@ func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		writeMethodNotAllowed(w, http.MethodPatch)
+		return
+	}
+	// GET/PATCH /api/conversations/{id}/participants
+	if strings.HasSuffix(r.URL.Path, "/participants") {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleListConversationParticipants(w, r)
+		case http.MethodPatch:
+			s.handleUpdateConversationParticipants(w, r)
+		default:
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPatch)
+		}
+		return
+	}
+	// PATCH /api/conversations/{id} — currently updates the participant roster.
+	if r.Method == http.MethodPatch {
+		s.handleUpdateConversationParticipants(w, r)
 		return
 	}
 	// DELETE /api/conversations/{id}
