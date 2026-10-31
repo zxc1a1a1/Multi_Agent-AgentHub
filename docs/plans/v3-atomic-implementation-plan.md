@@ -178,7 +178,7 @@ P0 契约/决策冻结
 | A5-04 | KaTeX render | markdown-agent/前端 | `trust:false`；危险命令被拒 | A5-02a |
 | A5-05 | 导出 PDF | markdown-agent + Playwright 沙箱 | 沙箱内导出；无内网访问 | A5-03b |
 | A5-06 | link check | markdown-agent + 沙箱 | 私网/重定向被拒 | A5-02a |
-| A5-07 | 前端 XSS sanitize | `StreamingText/CodePreview/WebPreview` | 恶意 HTML/Mermaid 不执行 | A5-02a |
+ | A5-02a |
 | A5-08 | Shiki 替换 hljs | `CodePreview.tsx` | 包体不增；高亮正确 | A5-07 |
 | A5-09 | diff2html 渲染层 | `DiffPreview.tsx` | dry-run/apply 不变 | A5-07 |
 | A5-10a | Mermaid 前端懒加载 | 前端 | 仅出现时加载；失败不白屏 | A5-03b |
@@ -336,7 +336,8 @@ P0 契约/决策冻结
 | A3-03 | PASS | `32bfb2f` | 服务端名单恢复 + 本地缓存回退；禁用恢复后测试 FAIL |
 | A3-04 | PASS | `146e892` | 禁用 Agent 不可选；注册后 picker 重载；禁用判断移除后测试 FAIL |
 | A3-05..A3-07 | 未完成 | — | — |
-| P4/P5/P6 | 未开始 | — | — |
+| A5-07 | PASS（前端单测） | 待提交 | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
+| A5-08..A5-12、P4/P6 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
 

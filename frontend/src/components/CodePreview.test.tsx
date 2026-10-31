@@ -139,3 +139,20 @@ describe('CodePreview (MVP P0 minimum tests)', () => {
     expect(screen.getByText('No code to preview')).toBeInTheDocument()
   })
 })
+
+describe('CodePreview XSS hardening', () => {
+  test('renders malicious code as text, not executable markup', () => {
+    const { container } = render(
+      <CodePreview
+        block={{
+          language: 'text',
+          code: '<img src=x onerror="window.__xss=1"><script>window.__xss=2</script>',
+          filename: 'evil.txt',
+        }}
+      />,
+    )
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('script')).toBeNull()
+    expect(container.textContent).toContain('onerror')
+  })
+})

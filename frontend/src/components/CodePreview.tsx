@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { Copy, Check, FileCode } from 'lucide-react'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github-dark.css'
+import { sanitizeHighlightHtml } from '../lib/sanitizeHtml'
 import type { CodeBlock } from '../types'
 
 interface Props {
@@ -81,7 +82,7 @@ export default function CodePreview({ block }: Props) {
         {hasCode ? (
           <code
             className={`language-${language} hljs break-words`}
-            dangerouslySetInnerHTML={{ __html: highlighted }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHighlightHtml(highlighted) }}
           />
         ) : (
           <code className={`language-${language} hljs text-gray-400`}>No code to preview</code>

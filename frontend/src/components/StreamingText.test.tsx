@@ -144,3 +144,16 @@ describe('StreamingText progressive code blocks', () => {
     expect(copyButton).toBeTruthy()
   })
 })
+
+describe('StreamingText XSS hardening', () => {
+  test('does not render raw HTML from markdown content', () => {
+    const { container } = render(
+      <StreamingText
+        content={'<img src=x onerror="window.__xss=1"><script>window.__xss=2</script>'}
+        isStreaming={false}
+      />,
+    )
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('script')).toBeNull()
+  })
+})
