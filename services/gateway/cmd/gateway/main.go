@@ -16,6 +16,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/httpapi"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/orchestratorclient"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/projection"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
 )
@@ -139,6 +140,22 @@ func run() error {
 		return err
 	}
 
+	// Recovery worker: another Gateway instance (or this one after a restart)
+	// finishes assistant-message projection from the shared event journal.
+	var projectionCancel context.CancelFunc
+	var projectionDone chan struct{}
+	if recoveryStore, ok := primaryStore.(projection.Store); ok {
+		workerCtx, cancel := context.WithCancel(context.Background())
+		projectionCancel = cancel
+		projectionDone = make(chan struct{})
+		go func() {
+			defer close(projectionDone)
+			projection.New(recoveryStore).Run(workerCtx)
+		}()
+		log.Printf("gateway projection worker started")
+	}
+
+
 	server := &http.Server{
 		Addr:    cfg.Gateway.Addr,
 		Handler: gw.Handler(),
@@ -164,6 +181,15 @@ func run() error {
 			return fmt.Errorf("server shutdown failed: %w; close failed: %v", err, closeErr)
 		}
 		return fmt.Errorf("server shutdown failed: %w", err)
+	}
+
+	if projectionCancel != nil {
+		projectionCancel()
+		select {
+		case <-projectionDone:
+		case <-time.After(5 * time.Second):
+			log.Printf("gateway: projection worker did not stop in time")
+		}
 	}
 
 	if grpcRunner != nil {

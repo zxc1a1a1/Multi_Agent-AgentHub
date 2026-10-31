@@ -109,5 +109,10 @@ agenthub:{env}:instance:{id}:heartbeat              # 心跳
 - 多 Agent run 刷新后必须是多条消息，按 `turnIndex` 排序；合并成一条即视为
   投影缺陷。
 - 证据：`services/gateway/store/mysql_integration_test.go`
-  `TestIntegrationMySQLProjectionOffsetIsIdempotent`；投影 worker 的接管测试
-  在 A1-09b 落地前记为 `未实现`。
+  `TestIntegrationMySQLProjectionOffsetIsIdempotent`；
+  `services/gateway/projection/worker_test.go` 覆盖多 Agent 每轮独立投影、
+  未完成轮次跳过、重复恢复不重复写入；`worker_integration_test.go` 在注入 DSN
+  时验证真实 MySQL 恢复（CI 门禁 A0-07 执行）。
+- 限制：worker 只能恢复已写入 `run_public_events` 的轮次；若 Gateway 在
+  `AGENT_TURN_FINISHED` 之前死亡，该轮按“未完成”不落库，需由 A1-09c 的
+  终态判定/取消墓碑补齐。

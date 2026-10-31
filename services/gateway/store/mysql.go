@@ -410,6 +410,13 @@ func (s *MySQLStore) ProjectAssistantMessage(ctx context.Context, msg Message, r
 		return false, err
 	}
 
+	// Materialize the offset row first so concurrent workers serialize on it.
+	// SELECT ... FOR UPDATE cannot lock a row that does not exist yet.
+	if _, err := tx.ExecContext(ctx, `INSERT IGNORE INTO event_projection_offsets
+		(run_id, consumer_key, last_seq, last_sub_index) VALUES (?, ?, 0, 0)`,
+		runID, ProjectionConsumerAssistantMessage); err != nil {
+		return false, err
+	}
 	var lastSeq int64
 	var lastSubIndex int
 	err = tx.QueryRowContext(ctx, `SELECT last_seq, last_sub_index FROM event_projection_offsets
@@ -726,4 +733,73 @@ func (s *MySQLStore) UpdateChatRequestStatus(ctx context.Context, requestID, sta
 	_, err := s.db.ExecContext(ctx,
 		"UPDATE chat_requests SET status = ? WHERE request_id = ?", status, requestID)
 	return err
+}
+
+// ProjectionOffset returns the last projected event for a consumer.
+func (s *MySQLStore) ProjectionOffset(ctx context.Context, runID, consumerKey string) (seq int64, subIndex int, found bool, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT last_seq, last_sub_index FROM event_projection_offsets
+		WHERE run_id = ? AND consumer_key = ?`, runID, consumerKey).Scan(&seq, &subIndex)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, 0, false, nil
+	}
+	if err != nil {
+		return 0, 0, false, err
+	}
+	return seq, subIndex, true, nil
+}
+
+// ListRunsWithUnprojectedEvents lists runs whose public journal is ahead of the
+// consumer offset. Results are oldest-first so recovery drains in run order.
+func (s *MySQLStore) ListRunsWithUnprojectedEvents(ctx context.Context, consumerKey string, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT e.run_id
+		FROM run_public_events e
+		LEFT JOIN event_projection_offsets o
+			ON o.run_id = e.run_id AND o.consumer_key = ?
+		WHERE e.seq > COALESCE(o.last_seq, 0)
+		GROUP BY e.run_id
+		ORDER BY MIN(e.created_at), e.run_id
+		LIMIT ?`, consumerKey, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var runID string
+		if err := rows.Scan(&runID); err != nil {
+			return nil, err
+		}
+		out = append(out, runID)
+	}
+	return out, rows.Err()
+}
+
+// ConversationIDForRun resolves the conversation that owns a run.
+func (s *MySQLStore) ConversationIDForRun(ctx context.Context, runID string) (string, error) {
+	var conversationID string
+	err := s.db.QueryRowContext(ctx, `SELECT conversation_id FROM chat_requests
+		WHERE run_id = ? ORDER BY created_at LIMIT 1`, runID).Scan(&conversationID)
+	if err == nil {
+		return conversationID, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	err = s.db.QueryRowContext(ctx, `SELECT conversation_id FROM run_views
+		WHERE run_id = ? LIMIT 1`, runID).Scan(&conversationID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrConversationNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return conversationID, nil
+}
+
+// ListPublicEventsForRunPage returns one page of the public journal in order.
+func (s *MySQLStore) ListPublicEventsForRunPage(ctx context.Context, runID string, afterSeq int64, afterSubIndex, limit int) ([]PublicEvent, error) {
+	return s.ListPublicEventsAfter(ctx, runID, afterSeq, afterSubIndex, limit)
 }
