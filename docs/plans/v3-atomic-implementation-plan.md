@@ -309,26 +309,26 @@ P0 契约/决策冻结
 
 | 任务 | 状态 | 提交 | 验证证据 |
 |---|---|---|---|
-| A0-01 | PASS | 待随文档提交 | D1-D13 采纳值写入 `00-INDEX.md` §7，未决项列明 |
-| A0-02 | PASS（契约） | 待随文档提交 | 新增 `docs/contracts/conversation-participants.md`；`mysql-schema.md` 增加参与者表 |
-| A0-03 | PASS（契约） | 待随文档提交 | `intent-orchestration.md` 新增 route_decisions 字段/生产者/消费者/保留期 |
-| A0-04 | PASS（契约） | 待随文档提交 | `artifact-schema.md`、`artifact-type-registry.md` 增加 storageRef/checksum/contentType/size/version |
-| A0-05 | PASS（契约） | 待随文档提交 | `agui-events.md`、`event-replay.md` 增加 AGENT_TURN 持久化与游标语义 |
-| A0-06 | PASS（契约） | 待随文档提交 | `tool-broker.md` 增加执行位置决策、预算/fencing/unknown/幂等语义 |
-| A0-07 | PASS（配置） | 待随文档提交 | 新增 `.github/workflows/v3-integration-gates.yml`；SKIP 即失败 |
+| A0-01 | PASS | `5637989` | D1-D13 采纳值写入 `00-INDEX.md` §7，未决项列明 |
+| A0-02 | PASS（契约） | `5637989` | 新增 `docs/contracts/conversation-participants.md`；`mysql-schema.md` 增加参与者表 |
+| A0-03 | PASS（契约） | `5637989` | `intent-orchestration.md` 新增 route_decisions 字段/生产者/消费者/保留期 |
+| A0-04 | PASS（契约） | `5637989` | `artifact-schema.md`、`artifact-type-registry.md` 增加 storageRef/checksum/contentType/size/version |
+| A0-05 | PASS（契约） | `5637989` | `agui-events.md`、`event-replay.md` 增加 AGENT_TURN 持久化与游标语义 |
+| A0-06 | PASS（契约） | `5637989` | `tool-broker.md` 增加执行位置决策、预算/fencing/unknown/幂等语义 |
+| A0-07 | PASS（配置，CI 待验证） | `5637989` | 新增 `.github/workflows/v3-integration-gates.yml`；SKIP 即失败 |
 | A1-01 | PASS | `e2ec0c9` | 3 个回归测试；还原修复后超限场景 FAIL |
 | A1-02 | PASS（单测） | `581099e` | 周期续租/失租取消/handler 接线测试通过；MySQL 集成测试 SKIP（无 DSN） |
 | A1-03 | PASS（单测） | `1fe4d5f` | 跨实例确认 202、幂等 200、revision 冲突 409；MySQL 集成测试 SKIP（无 DSN） |
 | A1-04 | PASS（单测） | `1fe4d5f` | 持有实例 Claim 信号并继续执行；禁用 Claim 后测试 FAIL；MySQL 集成测试 SKIP（无 DSN） |
-| A1-05 | PASS（单测；集成 SKIP） | 待提交 | hitl_confirmations 缓存状态码/响应体；同键重放返回原响应，不同 payload 409，处理中 409；禁用 SQL 幂等后重放测试 FAIL |
-| A1-06 | PASS（单测；集成 SKIP） | 待提交 | run_task_refs/run_cancels 持久化；实例 B 可按 SQL refs 取消远端 A2A 任务；A 侧轮询取消请求并终止本地 context；移除 SQL refs 后取消测试 FAIL |
-| A1-07 | PASS | 待提交 | gRPC unary/stream interceptor 校验内部 token；trace metadata 透传；缺失/错误 token 返回 Unauthenticated；移除 interceptor 后测试 FAIL |
-| A1-08 | PASS（单测） | 待提交 | 所有变更写（state/checkpoint/dispatch/renew/release）拒绝 fencing 0；Guard 同样拒绝；0 在触库前失败 |
-| A1-09a | PASS（单测；集成 SKIP） | 待提交 | 投影偏移表存在；`ProjectAssistantMessage` 先物化 offset 行再 `FOR UPDATE`，并新增 projection worker 集成测试（需 DSN） |
-| A1-09b | PASS（单测；集成 SKIP） | 待提交 | 新增 `services/gateway/projection` worker：按 turn 重建消息、只投影已完成轮次、共享偏移幂等；未完成轮次测试在强制终态化后 FAIL |
+| A1-05 | PASS（单测；集成 SKIP） | `e6d3dcd` | hitl_confirmations 缓存状态码/响应体；同键重放返回原响应，不同 payload 409，处理中 409；禁用 SQL 幂等后重放测试 FAIL |
+| A1-06 | PASS（单测；集成 SKIP） | `b56f25b` | run_task_refs/run_cancels 持久化；实例 B 可按 SQL refs 取消远端 A2A 任务；A 侧轮询取消请求并终止本地 context；移除 SQL refs 后取消测试 FAIL |
+| A1-07 | PASS | `803fcf8` | gRPC unary/stream interceptor 校验内部 token；trace metadata 透传；缺失/错误 token 返回 Unauthenticated；移除 interceptor 后测试 FAIL |
+| A1-08 | PASS（单测） | `dc6f0a4` | 所有变更写（state/checkpoint/dispatch/renew/release）拒绝 fencing 0；Guard 同样拒绝；0 在触库前失败 |
+| A1-09a | PASS（单测；集成 SKIP） | `860f95e` | 投影偏移表存在；`ProjectAssistantMessage` 先物化 offset 行再 `FOR UPDATE`，并新增 projection worker 集成测试（需 DSN） |
+| A1-09b | PASS（单测；集成 SKIP） | `860f95e` | 新增 `services/gateway/projection` worker：按 turn 重建消息、只投影已完成轮次、共享偏移幂等；未完成轮次测试在强制终态化后 FAIL |
 | A1-09c | 部分实现 | 待提交 | worker 恢复已 journal 的最终轮；`AGENT_TURN_FINISHED` 前崩溃的轮次按未完成处理 |
-| A1-10 | PASS | 待提交 | 所有 handler 返回路径释放租约；resume 同样释放；Ctrl+C 后 `server.Shutdown` 等待在途 handler；移除 defer 后 planner 失败测试 FAIL |
-| A2-00 | PASS（决策） | 待随文档提交 | 选择 agent-side authorize/result；生产接线未完成 |
+| A1-10 | PASS | `244f574` | 所有 handler 返回路径释放租约；resume 同样释放；Ctrl+C 后 `server.Shutdown` 等待在途 handler；移除 defer 后 planner 失败测试 FAIL |
+| A2-00 | PASS（决策） | `5637989` | 选择 agent-side authorize/result；生产接线未完成 |
 | A2-01 | PASS | `b9bfaf2` | 无 Guard 的副作用工具 0 调用；绕过 authorizeTool 后 3 个测试 FAIL |
 | A2-02 | 未完成 | — | ADK 本地防线已实现；SQL 授权/结果入口未接线 |
 | A3-01 | PASS（单测） | `ccf6ed8` | 内存参与者往返/替换/级联删除；MySQL 集成测试 SKIP（无 DSN） |
@@ -336,9 +336,9 @@ P0 契约/决策冻结
 | A3-03 | PASS | `32bfb2f` | 服务端名单恢复 + 本地缓存回退；禁用恢复后测试 FAIL |
 | A3-04 | PASS | `146e892` | 禁用 Agent 不可选；注册后 picker 重载；禁用判断移除后测试 FAIL |
 | A3-05 | PASS | `94fa1f5` | 网关按 turnIndex/messageId 累积，AGENT_TURN_FINISHED 时逐轮投影；无 turn 事件仍合并一条；禁用 finish 投影后测试 FAIL（历史被合并） |
-| A3-06 | PASS | 待提交 | GroupPlanCard 每成员勾选，required 不可取消；选择随 approve/revise 提交；后端 filterPlanByConfirmedParticipants 只派发已确认 Agent 的任务（单测） |
+| A3-06 | PASS | `4597d7d` | GroupPlanCard 每成员勾选，required 不可取消；选择随 approve/revise 提交；后端 filterPlanByConfirmedParticipants 只派发已确认 Agent 的任务（单测） |
 | A3-07 | 未完成 | — | 未新增浏览器级 E2E |
-| A5-07 | PASS（前端单测） | 待提交 | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
+| A5-07 | PASS（前端单测） | `a4949e5` | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
 | A5-08..A5-12、P4/P6 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
@@ -347,3 +347,19 @@ P0 契约/决策冻结
   `AGENTHUB_REDIS_TEST_ADDR` 而 SKIP；不计入通过。CI 门禁见 A0-07。
 - 前端测试需显式使用 `/e/node_js/node.exe`；`npm` PATH shim 在本机不可用。
 - `vite build` 通过，但主 chunk gzip 447KB，已接近 G5 的 500KB 预算。
+
+
+### 最终验证（2026-10-31）
+
+| 命令 | 结果 |
+|---|---|
+| `cd services/orchestrator && go test ./... -count=1` | PASS（全部包 ok） |
+| `cd services/gateway && go test ./... -count=1` | PASS（全部包 ok） |
+| `cd pkg/adk && go test ./... -count=1` | PASS |
+| `cd pkg/runtime && go test ./tools/ -count=1` | PASS |
+| `cd frontend && tsc -b` | PASS |
+| `cd frontend && vitest run` | 26 files / 245 tests PASS |
+| `cd frontend && vite build` | PASS；主 chunk gzip 447KB（接近 G5 500KB 预算） |
+| MySQL/Redis 集成测试 | SKIP（本机无 `AGENTHUB_MYSQL_TEST_DSN` / `AGENTHUB_REDIS_TEST_ADDR`；CI 门禁已配置） |
+
+未完成范围：A1-09c 的完整终态接管、A2-02 生产 Broker 接线及 A2-03..A2-08、A3-07、A4、A5（除 A5-07）、A6 全部。G1/G2/G3/G4/G5/G6 均未整体通过。
