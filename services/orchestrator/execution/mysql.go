@@ -125,6 +125,32 @@ func (s *MySQLStore) ClaimRunSignal(ctx context.Context, runID string) (*Signal,
 	}, nil
 }
 
+func (s *MySQLStore) RegisterRunTask(ctx context.Context, runID string, ref TaskRef) error {
+	return s.repo.RegisterRunTask(ctx, runID, ledger.RunTaskRef{
+		TaskID: ref.TaskID, AgentName: ref.AgentName, AgentURL: ref.AgentURL,
+	})
+}
+
+func (s *MySQLStore) ListRunTasks(ctx context.Context, runID string) ([]TaskRef, error) {
+	refs, err := s.repo.ListRunTasks(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TaskRef, len(refs))
+	for i, ref := range refs {
+		out[i] = TaskRef{TaskID: ref.TaskID, AgentName: ref.AgentName, AgentURL: ref.AgentURL}
+	}
+	return out, nil
+}
+
+func (s *MySQLStore) RequestRunCancel(ctx context.Context, runID string) error {
+	return s.repo.RequestRunCancel(ctx, runID)
+}
+
+func (s *MySQLStore) RunCancelRequested(ctx context.Context, runID string) (bool, error) {
+	return s.repo.RunCancelRequested(ctx, runID)
+}
+
 func (s *MySQLStore) ListEventsAfter(ctx context.Context, runID string, afterSeq int64, limit int) ([]Event, error) {
 	rows, err := s.repo.ListEventsAfter(ctx, runID, afterSeq, limit)
 	if err != nil {

@@ -336,3 +336,49 @@ func TestIntegrationLeaseReleaseAllowsImmediateTakeover(t *testing.T) {
 		t.Fatalf("takeover after release: %v", err)
 	}
 }
+
+func TestIntegrationRunTaskRefsAndCancel(t *testing.T) {
+	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
+	if dsn == "" {
+		t.Skip("SKIP real MySQL integration: set AGENTHUB_MYSQL_TEST_DSN")
+	}
+	ctx := context.Background()
+	db, err := ledger.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open mysql: %v", err)
+	}
+	defer db.Close()
+	if err := ledger.RunMigrations(db); err != nil {
+		t.Fatalf("migrations: %v", err)
+	}
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	runID := "run-cancel-" + suffix
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM run_task_refs WHERE run_id = ?", runID)
+		_, _ = db.Exec("DELETE FROM run_cancels WHERE run_id = ?", runID)
+	})
+	repo := ledger.NewRepository(db)
+	ref := ledger.RunTaskRef{TaskID: "task-1", AgentName: "code-agent", AgentURL: "http://code-agent.example"}
+	if err := repo.RegisterRunTask(ctx, runID, ref); err != nil {
+		t.Fatalf("register task: %v", err)
+	}
+	if err := repo.RegisterRunTask(ctx, runID, ref); err != nil {
+		t.Fatalf("duplicate register must be idempotent: %v", err)
+	}
+	refs, err := repo.ListRunTasks(ctx, runID)
+	if err != nil || len(refs) != 1 || refs[0].TaskID != "task-1" || refs[0].AgentURL != ref.AgentURL {
+		t.Fatalf("unexpected task refs: %#v err=%v", refs, err)
+	}
+	if requested, err := repo.RunCancelRequested(ctx, runID); err != nil || requested {
+		t.Fatalf("cancel must not be requested yet: requested=%v err=%v", requested, err)
+	}
+	if err := repo.RequestRunCancel(ctx, runID); err != nil {
+		t.Fatalf("request cancel: %v", err)
+	}
+	if err := repo.RequestRunCancel(ctx, runID); err != nil {
+		t.Fatalf("duplicate cancel must be idempotent: %v", err)
+	}
+	if requested, err := repo.RunCancelRequested(ctx, runID); err != nil || !requested {
+		t.Fatalf("cancel request not persisted: requested=%v err=%v", requested, err)
+	}
+}

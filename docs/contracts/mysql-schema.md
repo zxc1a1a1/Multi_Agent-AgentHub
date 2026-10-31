@@ -197,6 +197,23 @@ CREATE TABLE run_signals (
   KEY idx_run_signals_pending (run_id, status, id)
 ) ENGINE=InnoDB;
 
+-- A1-06: remote A2A task refs and cross-instance cancel requests.
+CREATE TABLE run_task_refs (
+  run_id VARCHAR(64) NOT NULL,
+  task_id VARCHAR(64) NOT NULL,
+  agent_name VARCHAR(128) NOT NULL,
+  agent_url VARCHAR(512) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (run_id, task_id, agent_name),
+  KEY idx_run_task_refs_run (run_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE run_cancels (
+  run_id VARCHAR(64) PRIMARY KEY,
+  requested_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  consumed_at DATETIME(3) NULL
+) ENGINE=InnoDB;
+
 CREATE TABLE tool_calls (
   run_id VARCHAR(64) NOT NULL,
   tool_call_id VARCHAR(64) NOT NULL,

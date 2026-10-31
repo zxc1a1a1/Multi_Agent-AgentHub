@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -817,21 +818,42 @@ func (s *Server) handleRunCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.runTaskRegistry == nil {
-		if s.cancelPendingPlan(runID, "run cancelled") {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"runId":  runID,
-				"status": "cancelled",
-			})
-			return
+	// Record the request durably so the owning instance stops even when this
+	// process has no local run state.
+	if s.executionStore != nil {
+		if err := s.executionStore.RequestRunCancel(r.Context(), runID); err != nil {
+			log.Printf("orchestrator: run=%s persist cancel request failed: %v", runID, err)
 		}
-		writeJSONError(w, http.StatusNotImplemented, "task registry not available")
-		return
 	}
 
-	refs, ok := s.runTaskRegistry.CancelRun(runID)
-	if !ok {
-		if s.cancelPendingPlan(runID, "run cancelled") {
+	localFound := false
+	refs := make([]registry.TaskRef, 0)
+	seen := make(map[string]bool)
+	addRef := func(ref registry.TaskRef) {
+		key := ref.AgentURL + "|" + ref.TaskID + "|" + ref.AgentName
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		refs = append(refs, ref)
+	}
+	if s.runTaskRegistry != nil {
+		localRefs, ok := s.runTaskRegistry.CancelRun(runID)
+		localFound = ok
+		for _, ref := range localRefs {
+			addRef(ref)
+		}
+	}
+	if s.executionStore != nil {
+		if stored, err := s.executionStore.ListRunTasks(r.Context(), runID); err == nil {
+			for _, ref := range stored {
+				addRef(registry.TaskRef{TaskID: ref.TaskID, AgentName: ref.AgentName, AgentURL: ref.AgentURL})
+			}
+		}
+	}
+
+	if len(refs) == 0 {
+		if localFound || s.cancelPendingPlan(runID, "run cancelled") || s.runExists(r.Context(), runID) {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"runId":  runID,
 				"status": "cancelled",
@@ -871,6 +893,14 @@ func (s *Server) handleRunCancel(w http.ResponseWriter, r *http.Request) {
 		"status":  "cancelled",
 		"results": results,
 	})
+}
+
+func (s *Server) runExists(ctx context.Context, runID string) bool {
+	if s.executionStore == nil {
+		return false
+	}
+	status, err := s.executionStore.GetRun(ctx, runID)
+	return err == nil && status != nil
 }
 
 // handleRunToolResult handles POST /internal/orchestrator/runs/tool-result.

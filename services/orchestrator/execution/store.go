@@ -93,6 +93,17 @@ type Store interface {
 	ListEventsAfter(ctx context.Context, runID string, afterSeq int64, limit int) ([]Event, error)
 	AppendRunSignal(ctx context.Context, s Signal) (id int64, duplicate bool, err error)
 	ClaimRunSignal(ctx context.Context, runID string) (*Signal, error)
+	RegisterRunTask(ctx context.Context, runID string, ref TaskRef) error
+	ListRunTasks(ctx context.Context, runID string) ([]TaskRef, error)
+	RequestRunCancel(ctx context.Context, runID string) error
+	RunCancelRequested(ctx context.Context, runID string) (bool, error)
+}
+
+// TaskRef is one dispatched remote A2A task, shared across instances.
+type TaskRef struct {
+	TaskID    string
+	AgentName string
+	AgentURL  string
 }
 
 // Signal is a durable HITL decision written by any instance and claimed by the

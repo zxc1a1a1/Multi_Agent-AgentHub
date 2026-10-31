@@ -32,9 +32,48 @@ type fakeExecutionStore struct {
 	failOnStatus string
 	renewCalls   int32
 	renewErr     error
-	releaseCalls int32
-	releaseErr   error
-	signals      []execution.Signal
+	releaseCalls    int32
+	releaseErr      error
+	signals         []execution.Signal
+	taskRefs        map[string][]execution.TaskRef
+	cancelRequested map[string]bool
+}
+
+func (f *fakeExecutionStore) RegisterRunTask(_ context.Context, runID string, ref execution.TaskRef) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.taskRefs == nil {
+		f.taskRefs = map[string][]execution.TaskRef{}
+	}
+	for _, existing := range f.taskRefs[runID] {
+		if existing.TaskID == ref.TaskID && existing.AgentName == ref.AgentName {
+			return nil
+		}
+	}
+	f.taskRefs[runID] = append(f.taskRefs[runID], ref)
+	return nil
+}
+
+func (f *fakeExecutionStore) ListRunTasks(_ context.Context, runID string) ([]execution.TaskRef, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]execution.TaskRef(nil), f.taskRefs[runID]...), nil
+}
+
+func (f *fakeExecutionStore) RequestRunCancel(_ context.Context, runID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cancelRequested == nil {
+		f.cancelRequested = map[string]bool{}
+	}
+	f.cancelRequested[runID] = true
+	return nil
+}
+
+func (f *fakeExecutionStore) RunCancelRequested(_ context.Context, runID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cancelRequested[runID], nil
 }
 
 func (f *fakeExecutionStore) AppendRunSignal(_ context.Context, sig execution.Signal) (int64, bool, error) {
@@ -664,5 +703,50 @@ func TestResumeReleasesLease(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/run-resume-release/resume", nil))
 	if got := atomic.LoadInt32(&store.releaseCalls); got != 1 {
 		t.Fatalf("resume released the lease %d times, want 1", got)
+	}
+}
+
+func TestCancelOnSecondInstanceUsesPersistedTaskRefs(t *testing.T) {
+	var cancelCalls int32
+	child := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&cancelCalls, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"taskId":"task-1","status":"cancelled"}`))
+	}))
+	defer child.Close()
+
+	store := &fakeExecutionStore{taskRefs: map[string][]execution.TaskRef{
+		"run-cancel": {{TaskID: "task-1", AgentName: "code-agent", AgentURL: child.URL}},
+	}}
+	srv := NewServer(WithExecutionStore(store), WithInstanceID("instance-b"))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/cancel",
+		strings.NewReader(`{"runId":"run-cancel"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel failed: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := atomic.LoadInt32(&cancelCalls); got != 1 {
+		t.Fatalf("remote task cancel calls=%d, want 1", got)
+	}
+	if !store.cancelRequested["run-cancel"] {
+		t.Fatal("cancel request was not persisted for the owning instance")
+	}
+}
+
+func TestCancelWatcherStopsLocalRun(t *testing.T) {
+	store := &fakeExecutionStore{cancelRequested: map[string]bool{"run-watch": true}}
+	srv := NewServer(WithExecutionStore(store), WithInstanceID("instance-a"))
+	srv.hitlPollInterval = 5 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopped := make(chan struct{})
+	go srv.watchRunCancel(ctx, "run-watch", func() {
+		close(stopped)
+		cancel()
+	})
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("persisted cancel request did not stop the local run")
 	}
 }

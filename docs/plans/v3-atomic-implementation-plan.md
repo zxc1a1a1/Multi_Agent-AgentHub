@@ -321,7 +321,7 @@ P0 契约/决策冻结
 | A1-03 | PASS（单测） | `1fe4d5f` | 跨实例确认 202、幂等 200、revision 冲突 409；MySQL 集成测试 SKIP（无 DSN） |
 | A1-04 | PASS（单测） | `1fe4d5f` | 持有实例 Claim 信号并继续执行；禁用 Claim 后测试 FAIL；MySQL 集成测试 SKIP（无 DSN） |
 | A1-05 | 未完成 | — | 仅实现 `(run_id, idempotency_key)` 信号级幂等；完整响应缓存未落 SQL |
-| A1-06 | 未完成 | — | — |
+| A1-06 | PASS（单测；集成 SKIP） | 待提交 | run_task_refs/run_cancels 持久化；实例 B 可按 SQL refs 取消远端 A2A 任务；A 侧轮询取消请求并终止本地 context；移除 SQL refs 后取消测试 FAIL |
 | A1-07 | PASS | 待提交 | gRPC unary/stream interceptor 校验内部 token；trace metadata 透传；缺失/错误 token 返回 Unauthenticated；移除 interceptor 后测试 FAIL |
 | A1-08 | PASS（单测） | 待提交 | 所有变更写（state/checkpoint/dispatch/renew/release）拒绝 fencing 0；Guard 同样拒绝；0 在触库前失败 |
 | A1-09a | PASS（单测；集成 SKIP） | 待提交 | 投影偏移表存在；`ProjectAssistantMessage` 先物化 offset 行再 `FOR UPDATE`，并新增 projection worker 集成测试（需 DSN） |

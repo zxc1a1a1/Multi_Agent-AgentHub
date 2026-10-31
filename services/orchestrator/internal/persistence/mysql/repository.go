@@ -951,3 +951,63 @@ func (r *Repository) ReleaseLease(ctx context.Context, runID, owner string, fenc
 		runID, owner, fencing)
 	return err
 }
+
+// RunTaskRef is one dispatched remote A2A task.
+type RunTaskRef struct {
+	TaskID    string
+	AgentName string
+	AgentURL  string
+}
+
+// RegisterRunTask persists a dispatched task so another instance can cancel it.
+func (r *Repository) RegisterRunTask(ctx context.Context, runID string, ref RunTaskRef) error {
+	if runID == "" || ref.TaskID == "" || ref.AgentName == "" || ref.AgentURL == "" {
+		return fmt.Errorf("runId, taskId, agentName and agentUrl are required")
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT IGNORE INTO run_task_refs
+		(run_id, task_id, agent_name, agent_url) VALUES (?, ?, ?, ?)`,
+		runID, ref.TaskID, ref.AgentName, ref.AgentURL)
+	return err
+}
+
+// ListRunTasks returns remote task refs for a run.
+func (r *Repository) ListRunTasks(ctx context.Context, runID string) ([]RunTaskRef, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT task_id, agent_name, agent_url
+		FROM run_task_refs WHERE run_id = ? ORDER BY created_at`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]RunTaskRef, 0)
+	for rows.Next() {
+		var ref RunTaskRef
+		if err := rows.Scan(&ref.TaskID, &ref.AgentName, &ref.AgentURL); err != nil {
+			return nil, err
+		}
+		out = append(out, ref)
+	}
+	return out, rows.Err()
+}
+
+// RequestRunCancel records a cancellation request idempotently.
+func (r *Repository) RequestRunCancel(ctx context.Context, runID string) error {
+	if runID == "" {
+		return fmt.Errorf("runId is required")
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO run_cancels (run_id) VALUES (?)
+		ON DUPLICATE KEY UPDATE requested_at = VALUES(requested_at)`, runID)
+	return err
+}
+
+// RunCancelRequested reports whether a cancellation was requested for the run.
+func (r *Repository) RunCancelRequested(ctx context.Context, runID string) (bool, error) {
+	var one int
+	err := r.db.QueryRowContext(ctx, `SELECT 1 FROM run_cancels WHERE run_id = ? LIMIT 1`, runID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/executor"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
@@ -701,22 +702,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 
 	// Build execution task list — clone and filter by ConfirmedParticipantNames.
 	// The original orchPlan.Tasks MUST NOT be mutated (referenced by PendingPlan.FullPlan).
-	execPlan := *orchPlan // shallow copy
-	if len(orchPlan.ConfirmedParticipantNames) > 0 {
-		selectedSet := make(map[string]bool, len(orchPlan.ConfirmedParticipantNames))
-		for _, name := range orchPlan.ConfirmedParticipantNames {
-			selectedSet[strings.ToLower(strings.TrimSpace(name))] = true
-		}
-		execTasks := make([]plan.TaskPlan, 0, len(orchPlan.Tasks))
-		for _, t := range orchPlan.Tasks {
-			agentKey := strings.ToLower(strings.TrimSpace(t.AgentName))
-			if selectedSet[agentKey] {
-				execTasks = append(execTasks, t)
-			}
-		}
-		execPlan.Tasks = execTasks
-		orchPlan = &execPlan
-	}
+	orchPlan = filterPlanByConfirmedParticipants(orchPlan)
 
 	// Register a cancellable local run context. Real remote A2A task IDs are
 	// registered later when the dispatcher receives them from child agents. Do
@@ -725,6 +711,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	defer execCancel()
 	ledger.startLeaseRenewal(execCtx, execCancel)
 	defer ledger.stopLeaseRenewal()
+	go s.watchRunCancel(execCtx, runID, execCancel)
 	if s.runTaskRegistry != nil {
 		s.runTaskRegistry.RegisterRun(runID, execCancel)
 		defer s.runTaskRegistry.RemoveRun(runID)
@@ -855,12 +842,23 @@ func (s *Server) executeViaStreamingExecutor(w http.ResponseWriter, flusher http
 
 	emit := func(evt executor.ExecutionEvent) bool {
 		if evt.Type == executor.InternalTypeTaskRefRegistered {
-			if s.runTaskRegistry != nil && evt.RemoteTaskID != "" {
-				s.runTaskRegistry.RegisterTask(orchPlan.RunID, registry.TaskRef{
-					TaskID:    evt.RemoteTaskID,
-					AgentName: evt.AgentName,
-					AgentURL:  evt.AgentURL,
-				})
+			if evt.RemoteTaskID != "" {
+				if s.runTaskRegistry != nil {
+					s.runTaskRegistry.RegisterTask(orchPlan.RunID, registry.TaskRef{
+						TaskID:    evt.RemoteTaskID,
+						AgentName: evt.AgentName,
+						AgentURL:  evt.AgentURL,
+					})
+				}
+				if s.executionStore != nil {
+					refCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Second)
+					_ = s.executionStore.RegisterRunTask(refCtx, orchPlan.RunID, execution.TaskRef{
+						TaskID:    evt.RemoteTaskID,
+						AgentName: evt.AgentName,
+						AgentURL:  evt.AgentURL,
+					})
+					cancel()
+				}
 			}
 			return true
 		}

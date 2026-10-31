@@ -146,6 +146,7 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	ledger.startLeaseRenewal(execCtx, cancel)
 	defer ledger.stopLeaseRenewal()
+	go s.watchRunCancel(execCtx, runID, cancel)
 	if s.runTaskRegistry != nil {
 		s.runTaskRegistry.RegisterRun(runID, cancel)
 		defer s.runTaskRegistry.RemoveRun(runID)
