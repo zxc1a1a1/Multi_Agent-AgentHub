@@ -74,10 +74,22 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	fencing, err := s.executionStore.AcquireLease(r.Context(), runID, s.instanceID, 15*time.Minute)
+	leaseTTL := s.leaseTTL
+	if leaseTTL <= 0 {
+		leaseTTL = 15 * time.Minute
+	}
+	renewInterval := s.leaseRenewInterval
+	if renewInterval <= 0 {
+		renewInterval = leaseTTL / 3
+	}
+	fencing, err := s.executionStore.AcquireLease(r.Context(), runID, s.instanceID, leaseTTL)
 	if err != nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "run lease unavailable"})
 		return
+	}
+	ledger := &runLedger{
+		store: s.executionStore, runID: runID, fencing: fencing, owner: s.instanceID,
+		leaseTTL: leaseTTL, renewInterval: renewInterval,
 	}
 	budgetJSON, _ := json.Marshal(budget.Usage())
 
@@ -131,6 +143,8 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 
 	execCtx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+	ledger.startLeaseRenewal(execCtx, cancel)
+	defer ledger.stopLeaseRenewal()
 	if s.runTaskRegistry != nil {
 		s.runTaskRegistry.RegisterRun(runID, cancel)
 		defer s.runTaskRegistry.RemoveRun(runID)

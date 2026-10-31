@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ type fakeExecutionStore struct {
 	approvals    map[string]string
 	resumeState  *execution.ResumeState
 	failOnStatus string
+	renewCalls   int32
+	renewErr     error
 }
 
 func (f *fakeExecutionStore) AcceptRun(_ context.Context, p execution.Accept) (bool, error) {
@@ -40,6 +43,11 @@ func (f *fakeExecutionStore) AcceptRun(_ context.Context, p execution.Accept) (b
 
 func (f *fakeExecutionStore) AcquireLease(context.Context, string, string, time.Duration) (int64, error) {
 	return 7, nil
+}
+
+func (f *fakeExecutionStore) RenewLease(context.Context, string, string, int64, time.Duration) error {
+	atomic.AddInt32(&f.renewCalls, 1)
+	return f.renewErr
 }
 
 func (f *fakeExecutionStore) AppendState(_ context.Context, s execution.State) (int64, error) {
@@ -392,5 +400,87 @@ func TestResumeRejectsNonPausedRun(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/run-done/resume", nil))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRunLedgerRenewsLease(t *testing.T) {
+	store := &fakeExecutionStore{}
+	ledger := &runLedger{
+		store: store, runID: "run-renew", fencing: 7, owner: "owner",
+		leaseTTL: time.Second, renewInterval: 5 * time.Millisecond,
+	}
+	lost := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ledger.startLeaseRenewal(ctx, func() { lost <- struct{}{} })
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt32(&store.renewCalls) >= 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	ledger.stopLeaseRenewal()
+	if got := atomic.LoadInt32(&store.renewCalls); got < 3 {
+		t.Fatalf("lease was renewed %d times, want at least 3", got)
+	}
+	select {
+	case <-lost:
+		t.Fatal("healthy lease must not report loss")
+	default:
+	}
+}
+
+func TestRunLedgerLeaseLossCancelsRun(t *testing.T) {
+	store := &fakeExecutionStore{renewErr: errors.New("run lease is held by another owner")}
+	ledger := &runLedger{
+		store: store, runID: "run-lost", fencing: 7, owner: "owner",
+		leaseTTL: time.Second, renewInterval: 5 * time.Millisecond,
+	}
+	lost := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ledger.startLeaseRenewal(ctx, func() { lost <- struct{}{} })
+	select {
+	case <-lost:
+	case <-time.After(2 * time.Second):
+		t.Fatal("lease renewal failure must cancel the run")
+	}
+	ledger.stopLeaseRenewal()
+}
+
+func TestRunHandlerRenewsLeaseDuringExecution(t *testing.T) {
+	child := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(120 * time.Millisecond)
+		http.Error(w, "agent unavailable", http.StatusInternalServerError)
+	}))
+	defer child.Close()
+
+	reg, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{{Name: "code-agent", URL: child.URL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := makeTestPlan("run-renew-live", plan.StrategySingle, []plan.TaskPlan{makeTaskPlan("t1", "code-agent", "do it")})
+	p.ExecutionPath = "single_chat"
+	p.AllowedAgents = []string{"code-agent"}
+	p.Participants = []plan.PlanParticipant{{AgentName: "code-agent", Required: true, Selected: true}}
+	p.CandidateParticipants = p.Participants
+	p.DefaultSelectedParticipants = p.Participants
+	store := &fakeExecutionStore{}
+	srv := NewServer(
+		WithRegistry(reg),
+		WithDispatcher(dispatcher.NewA2ADispatcher()),
+		WithMainAgentPlanner(&FakeMainAgent{PlanToReturn: p}),
+		WithExecutionStore(store),
+		WithInstanceID("lease-owner"),
+	)
+	srv.leaseRenewInterval = 10 * time.Millisecond
+
+	body := `{"runId":"run-renew-live","conversationId":"conv","messages":[{"role":"user","text":"do it"}],"requestedPath":"single_chat","agentName":"code-agent"}`
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/stream", strings.NewReader(body)))
+
+	if got := atomic.LoadInt32(&store.renewCalls); got == 0 {
+		t.Fatalf("run handler did not renew the lease during execution; body=%s", rec.Body.String())
 	}
 }

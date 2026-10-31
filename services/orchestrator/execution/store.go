@@ -81,6 +81,7 @@ type Event struct {
 type Store interface {
 	AcceptRun(ctx context.Context, p Accept) (deduplicated bool, err error)
 	AcquireLease(ctx context.Context, runID, owner string, ttl time.Duration) (fencingVersion int64, err error)
+	RenewLease(ctx context.Context, runID, owner string, fencingVersion int64, ttl time.Duration) error
 	AppendState(ctx context.Context, s State) (seq int64, err error)
 	SaveCheckpoint(ctx context.Context, c Checkpoint) (version int64, err error)
 	SavePlan(ctx context.Context, p Plan) error

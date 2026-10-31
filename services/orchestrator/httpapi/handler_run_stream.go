@@ -694,6 +694,8 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	// not pre-register plan.TaskID as a remote A2A task ID.
 	execCtx, execCancel := context.WithCancel(r.Context())
 	defer execCancel()
+	ledger.startLeaseRenewal(execCtx, execCancel)
+	defer ledger.stopLeaseRenewal()
 	if s.runTaskRegistry != nil {
 		s.runTaskRegistry.RegisterRun(runID, execCancel)
 		defer s.runTaskRegistry.RemoveRun(runID)

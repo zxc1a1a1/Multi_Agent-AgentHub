@@ -85,8 +85,10 @@ type Server struct {
 	memoryController  *memctl.Controller
 	memoryBackend     memctl.Backend
 	memoryRepo        memoryAdminStore
-	instanceID        string         // lease owner identity
-	budgetLimits      harness.Limits // per-run budget defaults
+	instanceID          string         // lease owner identity
+	budgetLimits        harness.Limits // per-run budget defaults
+	leaseTTL            time.Duration  // run lease lifetime
+	leaseRenewInterval  time.Duration  // how often the lease is renewed
 }
 
 // Option customizes Server behavior.
@@ -229,8 +231,10 @@ func NewServer(opts ...Option) *Server {
 		idempotencyCache:  make(map[string]*idempotencyEntry),
 		pendingPlanStates: make(map[string]*PendingPlan),
 		runTaskRegistry:   registry.NewRunTaskRegistry(),
-		instanceID:        defaultInstanceID(),
-		budgetLimits:      harness.DefaultLimits(),
+		instanceID:         defaultInstanceID(),
+		budgetLimits:       harness.DefaultLimits(),
+		leaseTTL:           15 * time.Minute,
+		leaseRenewInterval: 5 * time.Minute,
 	}
 	for _, opt := range opts {
 		if opt == nil {

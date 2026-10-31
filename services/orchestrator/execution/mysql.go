@@ -30,6 +30,10 @@ func (s *MySQLStore) AcquireLease(ctx context.Context, runID, owner string, ttl 
 	return s.repo.AcquireLease(ctx, runID, owner, ttl)
 }
 
+func (s *MySQLStore) RenewLease(ctx context.Context, runID, owner string, fencingVersion int64, ttl time.Duration) error {
+	return s.repo.RenewLease(ctx, runID, owner, fencingVersion, ttl)
+}
+
 func (s *MySQLStore) AppendState(ctx context.Context, st State) (int64, error) {
 	return s.repo.AppendStateChange(ctx, ledger.StateChange{
 		RunID: st.RunID, FencingVersion: st.FencingVersion, Status: st.Status,

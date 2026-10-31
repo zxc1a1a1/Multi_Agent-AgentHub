@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -193,4 +194,50 @@ type runScopedRepository struct {
 
 func (r *runScopedRepository) PendingOutbox(ctx context.Context, limit int) ([]ledger.OutboxItem, error) {
 	return r.Repository.PendingOutboxForRun(ctx, r.runID, limit)
+}
+
+func TestIntegrationLeaseRenewalAndStaleFencing(t *testing.T) {
+	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
+	if dsn == "" {
+		t.Skip("SKIP real MySQL integration: set AGENTHUB_MYSQL_TEST_DSN")
+	}
+	ctx := context.Background()
+	db, err := ledger.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open mysql: %v", err)
+	}
+	defer db.Close()
+	if err := ledger.RunMigrations(db); err != nil {
+		t.Fatalf("migrations: %v", err)
+	}
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	runID := "run-lease-" + suffix
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM executions WHERE run_id = ?", runID)
+	})
+	repo := ledger.NewRepository(db)
+	if _, _, err := repo.AcceptRun(ctx, ledger.AcceptRunParams{
+		RunID: runID, RequestID: "req-" + suffix, ConversationID: "conv-" + suffix,
+		WorkspaceID: "default", PrincipalID: "user-lease", ExecutionPath: "single_chat",
+	}); err != nil {
+		t.Fatalf("accept run: %v", err)
+	}
+	fencing, err := repo.AcquireLease(ctx, runID, "owner-a", 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("acquire lease: %v", err)
+	}
+	if err := repo.RenewLease(ctx, runID, "owner-a", fencing, time.Minute); err != nil {
+		t.Fatalf("renew lease: %v", err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	takeover, err := repo.AcquireLease(ctx, runID, "owner-b", time.Minute)
+	if err != nil {
+		t.Fatalf("takeover expired lease: %v", err)
+	}
+	if takeover <= fencing {
+		t.Fatalf("fencing must increase on takeover: old=%d new=%d", fencing, takeover)
+	}
+	if err := repo.RenewLease(ctx, runID, "owner-a", fencing, time.Minute); !errors.Is(err, ledger.ErrLeaseHeld) {
+		t.Fatalf("stale owner must not renew: %v", err)
+	}
 }

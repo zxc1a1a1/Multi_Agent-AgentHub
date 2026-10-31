@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/harness"
@@ -27,6 +28,12 @@ type runLedger struct {
 	workspace  string
 	principal  string
 	approvalID string
+
+	owner         string
+	leaseTTL      time.Duration
+	renewInterval time.Duration
+	renewMu       sync.Mutex
+	renewStop     chan struct{}
 }
 
 func (s *Server) newRunLedger(ctx context.Context, req OrchestratorRequest, runID, executionPath string) (*runLedger, error) {
@@ -38,7 +45,19 @@ func (s *Server) newRunLedger(ctx context.Context, req OrchestratorRequest, runI
 	if err != nil {
 		return nil, err
 	}
-	ledger := &runLedger{store: s.executionStore, runID: runID, budget: budget, workspace: "default", principal: "anonymous"}
+	leaseTTL := s.leaseTTL
+	if leaseTTL <= 0 {
+		leaseTTL = 15 * time.Minute
+	}
+	renewInterval := s.leaseRenewInterval
+	if renewInterval <= 0 {
+		renewInterval = leaseTTL / 3
+	}
+	ledger := &runLedger{
+		store: s.executionStore, runID: runID, budget: budget,
+		workspace: "default", principal: "anonymous",
+		owner: s.instanceID, leaseTTL: leaseTTL, renewInterval: renewInterval,
+	}
 	if s.executionStore == nil {
 		return ledger, nil
 	}
@@ -63,12 +82,71 @@ func (s *Server) newRunLedger(ctx context.Context, req OrchestratorRequest, runI
 	if dedup {
 		log.Printf("orchestrator: run=%s request=%s already accepted; continuing with same run", runID, requestID)
 	}
-	fencing, err := s.executionStore.AcquireLease(ctx, runID, s.instanceID, 15*time.Minute)
+	fencing, err := s.executionStore.AcquireLease(ctx, runID, s.instanceID, ledger.leaseTTL)
 	if err != nil {
 		return nil, fmt.Errorf("acquire lease: %w", err)
 	}
 	ledger.fencing = fencing
 	return ledger, nil
+}
+
+// startLeaseRenewal keeps the run lease alive for long executions. onLost is
+// called once when the lease can no longer be renewed (for example because
+// another instance took it over); callers should cancel the run context.
+func (l *runLedger) startLeaseRenewal(ctx context.Context, onLost func()) {
+	if l == nil || !l.enrolled() || l.owner == "" {
+		return
+	}
+	l.renewMu.Lock()
+	defer l.renewMu.Unlock()
+	if l.renewStop != nil {
+		return
+	}
+	stop := make(chan struct{})
+	l.renewStop = stop
+	interval := l.renewInterval
+	if interval <= 0 {
+		interval = l.leaseTTL / 3
+	}
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			case <-ticker.C:
+				renewCtx, cancel := context.WithTimeout(context.Background(), interval)
+				err := l.store.RenewLease(renewCtx, l.runID, l.owner, l.fencing, l.leaseTTL)
+				cancel()
+				if err != nil {
+					log.Printf("orchestrator: run=%s lease renewal failed: %v", l.runID, err)
+					if onLost != nil {
+						onLost()
+					}
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (l *runLedger) stopLeaseRenewal() {
+	if l == nil {
+		return
+	}
+	l.renewMu.Lock()
+	defer l.renewMu.Unlock()
+	if l.renewStop == nil {
+		return
+	}
+	close(l.renewStop)
+	l.renewStop = nil
 }
 
 func (l *runLedger) enrolled() bool {
