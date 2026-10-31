@@ -51,19 +51,33 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid checkpoint plan"})
 		return
 	}
+	// Resume must never reset a run's budget: an unreadable or exhausted
+	// checkpoint means the durable state is not trustworthy, so fail closed
+	// before taking the lease or streaming anything.
+	var usage harness.Usage
+	if len(state.BudgetJSON) == 0 {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "checkpoint budget unavailable", "code": "BUDGET_RESTORE_FAILED",
+		})
+		return
+	}
+	if err := json.Unmarshal(state.BudgetJSON, &usage); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "checkpoint budget invalid", "code": "BUDGET_RESTORE_FAILED",
+		})
+		return
+	}
+	budget, err := harness.RestoreBudget(harness.DefaultLimits(), usage)
+	if err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "checkpoint budget exceeds limits", "code": "BUDGET_RESTORE_FAILED",
+		})
+		return
+	}
 	fencing, err := s.executionStore.AcquireLease(r.Context(), runID, s.instanceID, 15*time.Minute)
 	if err != nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "run lease unavailable"})
 		return
-	}
-
-	var usage harness.Usage
-	if len(state.BudgetJSON) > 0 {
-		_ = json.Unmarshal(state.BudgetJSON, &usage)
-	}
-	budget, err := harness.RestoreBudget(harness.DefaultLimits(), usage)
-	if err != nil {
-		budget, _ = harness.NewBudget(harness.DefaultLimits())
 	}
 	budgetJSON, _ := json.Marshal(budget.Usage())
 

@@ -307,6 +307,84 @@ func TestResumePausedRunFromCheckpoint(t *testing.T) {
 	}
 }
 
+func TestResumeRejectsUnreadableBudgetCheckpoint(t *testing.T) {
+	p := makeTestPlan("run-resume-bad-budget", plan.StrategyConversational, nil)
+	p.Answer = "must not resume"
+	planJSON, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeExecutionStore{resumeState: &execution.ResumeState{
+		Status: "paused", FencingVersion: 3, PlanJSON: planJSON,
+		BudgetJSON: []byte(`{"modelCalls":`), CheckpointJSON: []byte(`{"status":"paused"}`),
+	}}
+	srv := NewServer(WithExecutionStore(store), WithInstanceID("resumer"))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/run-resume-bad-budget/resume", nil))
+
+	if rec.Code == http.StatusOK {
+		t.Fatalf("resume with unreadable budget must fail closed, got 200: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "must not resume") {
+		t.Fatal("resume must not execute when the budget cannot be restored")
+	}
+	got := strings.Join(store.statuses(), ",")
+	if strings.Contains(got, "executing") || strings.Contains(got, "completed") {
+		t.Fatalf("unreadable budget must not reset and execute: %s", got)
+	}
+}
+
+func TestResumeRejectsMissingBudgetCheckpoint(t *testing.T) {
+	p := makeTestPlan("run-resume-no-budget", plan.StrategyConversational, nil)
+	p.Answer = "must not resume"
+	planJSON, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeExecutionStore{resumeState: &execution.ResumeState{
+		Status: "paused", FencingVersion: 3, PlanJSON: planJSON,
+		CheckpointJSON: []byte(`{"status":"paused"}`),
+	}}
+	srv := NewServer(WithExecutionStore(store), WithInstanceID("resumer"))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/run-resume-no-budget/resume", nil))
+
+	if rec.Code == http.StatusOK {
+		t.Fatalf("resume without a budget checkpoint must fail closed, got 200: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "must not resume") {
+		t.Fatal("resume must not execute without a budget checkpoint")
+	}
+}
+
+func TestResumeRejectsExhaustedBudgetCheckpoint(t *testing.T) {
+	p := makeTestPlan("run-resume-exhausted", plan.StrategyConversational, nil)
+	p.Answer = "must not resume"
+	planJSON, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := harness.DefaultLimits()
+	usage, err := json.Marshal(harness.Usage{ModelCalls: limits.ModelCalls + 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeExecutionStore{resumeState: &execution.ResumeState{
+		Status: "paused", FencingVersion: 3, PlanJSON: planJSON,
+		BudgetJSON: usage, CheckpointJSON: []byte(`{"status":"paused"}`),
+	}}
+	srv := NewServer(WithExecutionStore(store), WithInstanceID("resumer"))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/run-resume-exhausted/resume", nil))
+
+	if rec.Code == http.StatusOK {
+		t.Fatalf("resume with an over-limit budget must fail closed, got 200: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "must not resume") {
+		t.Fatal("resume must not execute when checkpoint usage exceeds limits")
+	}
+}
+
 func TestResumeRejectsNonPausedRun(t *testing.T) {
 	store := &fakeExecutionStore{resumeState: &execution.ResumeState{Status: "completed"}}
 	srv := NewServer(WithExecutionStore(store))
