@@ -122,7 +122,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const agent = await api.registerAgent(req)
       set((s) => ({
         agents: [agent, ...s.agents.filter((a) => a.name !== agent.name)],
+        loaded: false,
       }))
+      await get().load()
       setActionLoading(set, get, req.name, false)
       return agent
     } catch (err) {
@@ -137,7 +139,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       await api.deleteAgent(name)
       set((s) => ({
         agents: s.agents.filter((a) => a.name !== name),
+        loaded: false,
       }))
+      await get().load()
       setActionLoading(set, get, name, false)
     } catch (err) {
       setActionLoading(set, get, name, false)

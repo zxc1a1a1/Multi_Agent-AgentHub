@@ -4,6 +4,12 @@ import * as api from '../services/api'
 
 vi.mock('../services/api', () => ({
   listAgents: vi.fn(),
+  listAgentsManagement: vi.fn(),
+  registerAgent: vi.fn(),
+  deleteAgent: vi.fn(),
+  setAgentEnabled: vi.fn(),
+  refreshAgent: vi.fn(),
+  checkAgent: vi.fn(),
 }))
 
 describe('agentStore', () => {
@@ -125,5 +131,45 @@ describe('agentStore', () => {
     expect(state.options[0].name).toBe('auto')
     expect(state.options.some((option) => option.name === 'code-agent')).toBe(true)
     expect(state.options.some((option) => option.name === 'web-agent')).toBe(true)
+  })
+})
+
+describe('agentStore registration refresh', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAgentStore.setState({
+      options: [],
+      agents: [],
+      loading: false,
+      loaded: false,
+      actionLoading: {},
+    })
+  })
+
+  it('reloads picker options after registering a new agent', async () => {
+    vi.mocked(api.listAgents).mockResolvedValueOnce([
+      { name: 'code-agent', displayName: 'Code Agent', description: 'Codes', outputModes: ['text'] },
+    ])
+    await useAgentStore.getState().load()
+
+    vi.mocked(api.registerAgent).mockResolvedValue({
+      name: 'new-agent',
+      displayName: 'New Agent',
+      description: 'Newly registered',
+      outputModes: ['text'],
+      source: 'dynamic',
+      enabled: true,
+      healthy: true,
+    })
+    vi.mocked(api.listAgents).mockResolvedValueOnce([
+      { name: 'code-agent', displayName: 'Code Agent', description: 'Codes', outputModes: ['text'] },
+      { name: 'new-agent', displayName: 'New Agent', description: 'Newly registered', outputModes: ['text'] },
+    ])
+
+    await useAgentStore.getState().register({ name: 'new-agent', url: 'http://new-agent' })
+
+    const state = useAgentStore.getState()
+    expect(state.options.some((option) => option.name === 'new-agent')).toBe(true)
+    expect(state.agents.some((agent) => agent.name === 'new-agent')).toBe(true)
   })
 })

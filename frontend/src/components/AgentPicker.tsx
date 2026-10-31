@@ -12,8 +12,9 @@ interface Props {
 
 export default function AgentPicker({ selectedAgentNames, onChange, disabled }: Props) {
   const agentOptions = useAgentStore((s) => s.options)
+  const managedAgents = useAgentStore((s) => s.agents)
   const loadAgents = useAgentStore((s) => s.load)
-  const isEnabled = useAgentStore((s) => s.isEnabled)
+  const loadManagement = useAgentStore((s) => s.loadManagement)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -21,7 +22,10 @@ export default function AgentPicker({ selectedAgentNames, onChange, disabled }: 
 
   useEffect(() => {
     loadAgents()
-  }, [loadAgents])
+    // Enabled/healthy state lives in the management directory, not the picker
+    // summaries; without it every disabled agent would look selectable.
+    loadManagement()
+  }, [loadAgents, loadManagement])
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -171,7 +175,8 @@ export default function AgentPicker({ selectedAgentNames, onChange, disabled }: 
               </div>
             ) : (
               filteredOptions.map((opt) => {
-                const enabled = isEnabled(opt.name)
+                const managed = managedAgents.find((agent) => agent.name === opt.name)
+                const enabled = !managed || managed.enabled
                 const isSelected =
                   opt.name === 'auto'
                     ? selectedAgentNames.includes('auto') || selectedAgentNames.length === 0
