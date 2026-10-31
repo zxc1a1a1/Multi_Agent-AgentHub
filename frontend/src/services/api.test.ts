@@ -14,7 +14,10 @@ function mockResponse(status: number, body: unknown) {
 // We test the interface shape and error handling by extracting the internal
 // request-building logic. Import the actual module to verify types.
 import {
+  createConversation,
+  listConversationParticipants,
   regenerateMessage,
+  updateConversationParticipants,
   type RegenerateRequest,
   type RegenerateResponse,
 } from './api'
@@ -122,5 +125,72 @@ describe('regenerateMessage', () => {
     const callArgs = mockFetch.mock.calls[0] as [string, RequestInit]
     const body = JSON.parse(callArgs[1].body as string)
     expect(body.runId).toMatch(/^regen-msg-2$/)
+  })
+})
+
+describe('conversation participants API', () => {
+  it('creates a group conversation with the full roster', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockResponse(201, {
+        id: 'conv-group',
+        agentName: 'code-agent',
+        type: 'group',
+        participants: [
+          { agentName: 'code-agent', role: 'owner', selected: true },
+          { agentName: 'review-agent', role: 'member', selected: true },
+        ],
+      }),
+    )
+
+    const conv = await createConversation('code-agent', ['code-agent', 'review-agent'])
+
+    const callArgs = mockFetch.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(callArgs[1].body as string)
+    expect(body.agentNames).toEqual(['code-agent', 'review-agent'])
+    expect(body.type).toBe('group')
+    expect(conv.type).toBe('group')
+    expect(conv.participants).toHaveLength(2)
+    expect(conv.participants?.[0]).toMatchObject({ agentName: 'code-agent', role: 'owner' })
+  })
+
+  it('lists participants from the roster endpoint', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockResponse(200, [
+        { agentName: 'code-agent', role: 'owner', selected: true },
+        { agentName: 'review-agent', role: 'member', selected: false },
+      ]),
+    )
+
+    const participants = await listConversationParticipants('conv-1')
+
+    const callArgs = mockFetch.mock.calls[0] as [string, RequestInit]
+    expect(callArgs[0]).toBe('/api/conversations/conv-1/participants')
+    expect(participants).toHaveLength(2)
+    expect(participants[1]).toMatchObject({ agentName: 'review-agent', selected: false })
+  })
+
+  it('updates participants with PATCH and rejects on failure', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockResponse(200, {
+        id: 'conv-1',
+        agentName: 'test-agent',
+        type: 'single',
+        participants: [{ agentName: 'test-agent', role: 'owner', selected: true }],
+      }),
+    )
+
+    const conv = await updateConversationParticipants('conv-1', ['test-agent'])
+    const callArgs = mockFetch.mock.calls[0] as [string, RequestInit]
+    expect(callArgs[1].method).toBe('PATCH')
+    expect(JSON.parse(callArgs[1].body as string)).toEqual({
+      agentNames: ['test-agent'],
+      type: 'single',
+    })
+    expect(conv.participants?.[0]?.agentName).toBe('test-agent')
+
+    mockFetch.mockResolvedValueOnce(mockResponse(500, {}))
+    await expect(updateConversationParticipants('conv-1', ['code-agent'])).rejects.toThrow(
+      'Failed to update conversation participants',
+    )
   })
 })

@@ -355,3 +355,74 @@ describe('ChatWindow — HITL PlanApprovalCard integration', () => {
     expect(screen.queryByText('Write Go HTTP server code')).not.toBeInTheDocument()
   })
 })
+
+describe('ChatWindow — group participant persistence', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    useMessageStore.setState({
+      messages: {},
+      confirmationByConversation: {},
+      streamingByConversation: {},
+      abortControllersByConversation: {},
+      orchestrationByConversation: {},
+    })
+    useConversationStore.setState({ conversations: [], activeId: null, loading: false })
+    useAgentStore.setState({
+      options: [
+        { name: 'auto', displayName: 'Auto (Smart)', description: 'Auto select', outputModes: ['text'] },
+        { name: 'code-agent', displayName: 'Code Agent', description: 'Code generation', outputModes: ['text'] },
+        { name: 'review-agent', displayName: 'Review Agent', description: 'Reviews code', outputModes: ['text'] },
+      ],
+      agents: [],
+      loading: false,
+      loaded: true,
+      mgmtLoading: false,
+      mgmtLoaded: true,
+    })
+  })
+
+  function stubFetch(participants: () => Promise<unknown>) {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/participants')) {
+        return participants().then((body) => ({ ok: true, status: 200, json: async () => body }))
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => [] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('restores the server roster after refresh', async () => {
+    seedConversation()
+    stubFetch(() =>
+      Promise.resolve([
+        { agentName: 'code-agent', role: 'owner', selected: true },
+        { agentName: 'review-agent', role: 'member', selected: true },
+      ]),
+    )
+
+    render(<ChatWindow conversationId={CONV_ID} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('2 agents selected')).toBeInTheDocument()
+    })
+    vi.unstubAllGlobals()
+  })
+
+  it('falls back to the local cache when the roster cannot be fetched', async () => {
+    seedConversation()
+    localStorage.setItem(
+      'agenthub:selectedAgents:' + CONV_ID,
+      JSON.stringify(['code-agent', 'review-agent']),
+    )
+    stubFetch(() => Promise.reject(new Error('gateway offline')))
+
+    render(<ChatWindow conversationId={CONV_ID} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('2 agents selected')).toBeInTheDocument()
+    })
+    vi.unstubAllGlobals()
+  })
+})

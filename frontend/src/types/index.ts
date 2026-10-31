@@ -133,10 +133,19 @@ export interface HITLConfirmRequest {
   selectedParticipants?: string[]
 }
 
+export interface ConversationParticipant {
+  agentName: string
+  role?: string
+  selected?: boolean
+  required?: boolean
+}
+
 export interface Conversation {
   id: string
   title: string
   agentName: string
+  type?: 'single' | 'group'
+  participants?: ConversationParticipant[]
   pinned?: boolean
   pinnedAt?: string
   createdAt: string

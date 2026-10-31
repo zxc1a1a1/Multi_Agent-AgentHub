@@ -1,4 +1,4 @@
-import type { Conversation, Message, Agent, AgentManagement, RegisterAgentRequest, HITLConfirmRequest } from '../types'
+import type { Conversation, ConversationParticipant, Message, Agent, AgentManagement, RegisterAgentRequest, HITLConfirmRequest } from '../types'
 import type { AgentName } from '../lib/agents'
 import { DEFAULT_AGENT_NAME, normalizeAgentName } from '../lib/agents'
 
@@ -39,10 +39,28 @@ function normalizeConversation(raw: unknown): Conversation {
   const source = isObject(raw) ? raw : {}
   const now = new Date().toISOString()
   const id = pickString(source.id)
+  const type = pickString(source.type)
+  const participants = Array.isArray(source.participants)
+    ? source.participants
+        .map((item): ConversationParticipant | null => {
+          if (!isObject(item)) return null
+          const agentName = pickString(item.agentName)
+          if (!agentName) return null
+          return {
+            agentName,
+            role: pickString(item.role) || undefined,
+            selected: typeof item.selected === 'boolean' ? item.selected : undefined,
+            required: typeof item.required === 'boolean' ? item.required : undefined,
+          }
+        })
+        .filter((item): item is ConversationParticipant => item !== null)
+    : undefined
   return {
     id: id || `conv-${Date.now()}`,
     title: pickString(source.title) || 'New Conversation',
     agentName: normalizeAgentName(pickString(source.agentName) || DEFAULT_AGENT_NAME),
+    type: type === 'group' || type === 'single' ? type : undefined,
+    participants: participants && participants.length > 0 ? participants : undefined,
     pinned: typeof source.pinned === 'boolean' ? source.pinned : undefined,
     pinnedAt: pickString(source.pinnedAt) || undefined,
     createdAt: pickString(source.createdAt) || now,
@@ -104,16 +122,63 @@ export async function listConversations(): Promise<Conversation[]> {
   return extractArray(payload).map(normalizeConversation)
 }
 
-export async function createConversation(agentName: AgentName): Promise<Conversation> {
+export async function createConversation(
+  agentName: AgentName,
+  agentNames?: AgentName[],
+): Promise<Conversation> {
+  const primary = normalizeAgentName(agentName)
+  const names = (agentNames && agentNames.length > 0 ? agentNames : [primary]).map(normalizeAgentName)
   const res = await fetch(`${API_BASE}/conversations`, {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       userId: DEFAULT_USER_ID,
-      agentName: normalizeAgentName(agentName),
+      agentName: primary,
+      agentNames: names,
+      type: names.length > 1 ? 'group' : 'single',
     }),
   })
   if (!res.ok) throw new Error('Failed to create conversation')
+  return normalizeConversation(await res.json())
+}
+
+export async function listConversationParticipants(
+  conversationId: string,
+): Promise<ConversationParticipant[]> {
+  const res = await fetch(`${API_BASE}/conversations/${conversationId}/participants`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('Failed to load conversation participants')
+  const payload = await res.json()
+  return extractArray(payload)
+    .map((item): ConversationParticipant | null => {
+      if (!isObject(item)) return null
+      const agentName = pickString(item.agentName)
+      if (!agentName) return null
+      return {
+        agentName,
+        role: pickString(item.role) || undefined,
+        selected: typeof item.selected === 'boolean' ? item.selected : undefined,
+        required: typeof item.required === 'boolean' ? item.required : undefined,
+      }
+    })
+    .filter((item): item is ConversationParticipant => item !== null)
+}
+
+export async function updateConversationParticipants(
+  conversationId: string,
+  agentNames: AgentName[],
+): Promise<Conversation> {
+  const names = agentNames.map(normalizeAgentName)
+  const res = await fetch(`${API_BASE}/conversations/${conversationId}/participants`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      agentNames: names,
+      type: names.length > 1 ? 'group' : 'single',
+    }),
+  })
+  if (!res.ok) throw new Error('Failed to update conversation participants')
   return normalizeConversation(await res.json())
 }
 

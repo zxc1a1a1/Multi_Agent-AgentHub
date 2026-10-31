@@ -12,10 +12,35 @@ import AgentAvatar from './AgentAvatar'
 import { useActivityStore } from '../stores/activityStore'
 import { Bot, Users } from 'lucide-react'
 import { normalizeAgentName, type AgentName } from '../lib/agents'
+import * as api from '../services/api'
 import type { ReplyTo, Quote } from '../types'
 
 interface Props {
   conversationId: string
+}
+
+const selectionStorageKey = (conversationId: string) => `agenthub:selectedAgents:${conversationId}`
+
+function readStoredSelection(conversationId: string): AgentName[] {
+  try {
+    const raw = localStorage.getItem(selectionStorageKey(conversationId))
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((name): name is string => typeof name === 'string' && name.trim() !== '')
+      .map(normalizeAgentName)
+  } catch {
+    return []
+  }
+}
+
+function writeStoredSelection(conversationId: string, names: AgentName[]): void {
+  try {
+    localStorage.setItem(selectionStorageKey(conversationId), JSON.stringify(names))
+  } catch {
+    // Persistence is best-effort; the server roster remains authoritative.
+  }
 }
 
 export default function ChatWindow({ conversationId }: Props) {
@@ -39,6 +64,7 @@ export default function ChatWindow({ conversationId }: Props) {
   const { sendMessage, isStreaming, stopStreaming } = useSendMessage()
   const streaming = isStreaming(conversationId)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const restoredSelectionFor = useRef<string | null>(null)
   const [selectedAgentNames, setSelectedAgentNames] = useState<AgentName[]>(() => {
     const name = normalizeAgentName(conversationAgentName || defaultAgentName())
     return [name]
@@ -78,10 +104,60 @@ export default function ChatWindow({ conversationId }: Props) {
     loadAgents()
   }, [loadAgents])
 
+  // Restore the group roster on refresh: the server roster wins, with a local
+  // cache as fallback so a briefly unavailable Gateway does not lose the choice.
   useEffect(() => {
-    const name = normalizeAgentName(conversationAgentName || defaultAgentName())
-    setSelectedAgentNames([name])
+    let cancelled = false
+    restoredSelectionFor.current = null
+    const fallback = () => {
+      const name = normalizeAgentName(conversationAgentName || defaultAgentName())
+      setSelectedAgentNames([name])
+      restoredSelectionFor.current = conversationId
+    }
+    const stored = readStoredSelection(conversationId)
+    if (stored.length > 0) {
+      setSelectedAgentNames(stored)
+      restoredSelectionFor.current = conversationId
+    }
+    api
+      .listConversationParticipants(conversationId)
+      .then((list) => {
+        if (cancelled) return
+        const names = Array.from(
+          new Set(
+            list
+              .filter((participant) => participant.selected !== false)
+              .map((participant) => normalizeAgentName(participant.agentName)),
+          ),
+        )
+        if (names.length > 0) {
+          setSelectedAgentNames(names)
+          writeStoredSelection(conversationId, names)
+          restoredSelectionFor.current = conversationId
+          return
+        }
+        if (restoredSelectionFor.current !== conversationId) fallback()
+      })
+      .catch(() => {
+        if (!cancelled && restoredSelectionFor.current !== conversationId) fallback()
+      })
+    return () => {
+      cancelled = true
+    }
   }, [conversationAgentName, conversationId, defaultAgentName])
+
+  const handleAgentSelectionChange = useCallback(
+    (names: AgentName[]) => {
+      const unique = Array.from(new Set(names.map(normalizeAgentName)))
+      const next = unique.length > 0 ? unique : [normalizeAgentName(defaultAgentName())]
+      setSelectedAgentNames(next)
+      writeStoredSelection(conversationId, next)
+      api.updateConversationParticipants(conversationId, next).catch(() => {
+        // The local cache still restores the selection on refresh.
+      })
+    },
+    [conversationId, defaultAgentName],
+  )
 
   // Auto-scroll to bottom on new messages. Use instant scroll during streaming
   // to avoid smooth-scroll lag that can make content appear truncated.
@@ -343,7 +419,7 @@ export default function ChatWindow({ conversationId }: Props) {
           </label>
           <AgentPicker
             selectedAgentNames={selectedAgentNames}
-            onChange={setSelectedAgentNames}
+            onChange={handleAgentSelectionChange}
             disabled={streaming}
           />
           {isGroupChat && (
