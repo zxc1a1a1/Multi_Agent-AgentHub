@@ -1033,6 +1033,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	assistantText := strings.Builder{}
 	assistantAuthor := ""
 	publicSeq := int64(0)
+	projectedTurns := 0
+	turns := newTurnAccumulator()
 	eventStore, _ := s.store.(PublicEventStore)
 
 	// A browser disconnect must not cancel an accepted durable run. The runner
@@ -1058,6 +1060,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			// Collect assistant text for persistence.
 			// v1.0 uses TEXT_MESSAGE_CONTENT with delta; legacy uses message/message.delta with text.
 			isUserEvent := item.Role == "user" || (item.Sender != nil && item.Sender.Type == "user")
+			var finishedTurn liveTurn
+			hasFinishedTurn := false
 			switch item.Type {
 			case "TEXT_MESSAGE_CONTENT", "AGENT_TURN_CONTENT", "message", "message.delta":
 				if isUserEvent {
@@ -1079,7 +1083,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				}
 				if delta != "" {
 					assistantText.WriteString(delta)
+					turns.content(item, assistantAuthor)
 				}
+			case agui.PublicTypeAgentTurnStarted:
+				if !isUserEvent {
+					turns.started(item)
+				}
+			case agui.PublicTypeAgentTurnFinished:
+				finishedTurn, hasFinishedTurn = turns.finished(item)
 			}
 			// Public event journal: stable (runId, seq) for browser replay.
 			publicSeq++
@@ -1094,6 +1105,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 						// Best-effort journal; the live stream still proceeds.
 					}
 					cancel()
+				}
+			}
+
+			if hasFinishedTurn {
+				if err := s.projectTurn(runCtx, req.ConversationID, runID, finishedTurn, item.Seq); err == nil {
+					projectedTurns++
 				}
 			}
 
@@ -1134,6 +1151,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if recorder != nil {
 		finalStatus = "completed"
+	}
+
+	// Close any turn that did not emit AGENT_TURN_FINISHED, then skip the
+	// legacy merged-text projection once per-turn rows exist.
+	for _, turn := range turns.drain() {
+		if err := s.projectTurn(runCtx, req.ConversationID, runID, turn, publicSeq); err == nil {
+			projectedTurns++
+		}
+	}
+	if projectedTurns > 0 {
+		return
 	}
 
 	text := strings.TrimSpace(assistantText.String())
