@@ -102,6 +102,20 @@ func (c *countingTool) Execute(context.Context, json.RawMessage) (*adk.ToolResul
 	return &adk.ToolResult{Content: `{}`}, nil
 }
 
+func TestADKSideEffectDeclaration(t *testing.T) {
+	w, _ := newTestWorkspace(t)
+	write := w.ApplyPatchTool()
+	read := w.ReadTool()
+	var _ adk.SideEffectTool = write
+	var _ adk.SideEffectTool = read
+	if !write.SideEffect() {
+		t.Fatal("apply_patch must declare a side effect")
+	}
+	if read.SideEffect() {
+		t.Fatal("workspace.read must be declared read-only")
+	}
+}
+
 func TestBrokerBlocksUnapprovedWrite(t *testing.T) {
 	w, _ := newTestWorkspace(t)
 	d := w.ApplyPatchTool().Descriptor()

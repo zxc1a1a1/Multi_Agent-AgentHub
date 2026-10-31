@@ -99,6 +99,12 @@ func (t *workspaceTool) Name() string            { return t.name }
 func (t *workspaceTool) Description() string     { return t.description }
 func (t *workspaceTool) Schema() json.RawMessage { return t.schema }
 
+// SideEffect reports whether executing this tool changes external state. The
+// ADK runner refuses to execute such tools without an approved envelope.
+func (t *workspaceTool) SideEffect() bool {
+	return !t.Descriptor().ReadOnly
+}
+
 func (t *workspaceTool) Execute(ctx context.Context, args json.RawMessage) (*adk.ToolResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

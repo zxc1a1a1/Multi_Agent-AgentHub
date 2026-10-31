@@ -252,6 +252,120 @@ func TestRunner_SingleTurn_PersistsEvents(t *testing.T) {
 	}
 }
 
+type guardedTool struct {
+	name       string
+	sideEffect bool
+	calls      int
+}
+
+func (t *guardedTool) Name() string            { return t.name }
+func (t *guardedTool) Description() string     { return "guarded test tool" }
+func (t *guardedTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (t *guardedTool) SideEffect() bool        { return t.sideEffect }
+func (t *guardedTool) Execute(context.Context, json.RawMessage) (*ToolResult, error) {
+	t.calls++
+	return &ToolResult{Content: "executed"}, nil
+}
+
+type recordingGuard struct {
+	calls int
+	err   error
+}
+
+func (g *recordingGuard) AuthorizeTool(context.Context, Tool, json.RawMessage) error {
+	g.calls++
+	return g.err
+}
+
+func singleToolCallAgent(toolName string) *sequenceAgent {
+	return &sequenceAgent{
+		name: "runner-agent",
+		responses: []*GenerateResponse{
+			{
+				Parts:        []Part{ToolCallPart{ID: "call-1", Name: toolName, Arguments: json.RawMessage(`{}`)}},
+				FinishReason: FinishToolUse,
+			},
+			{Parts: []Part{TextPart{Text: "done"}}, FinishReason: FinishStop},
+		},
+	}
+}
+
+func TestRunner_SideEffectToolWithoutGuardIsNotExecuted(t *testing.T) {
+	sessionSvc := NewMemorySessionService()
+	session := mustCreateSession(t, sessionSvc)
+	tool := &guardedTool{name: "workspace.apply_patch", sideEffect: true}
+	runner := NewRunner(singleToolCallAgent(tool.name), sessionSvc, WithTools(tool))
+
+	events, err := collectRun(runner.Run(context.Background(), session.ID, newUserContent("go")))
+	if err != nil {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+	if tool.calls != 0 {
+		t.Fatalf("side-effecting tool must not execute without a guard, calls=%d", tool.calls)
+	}
+	found := false
+	for _, event := range events {
+		if event.Content == nil {
+			continue
+		}
+		for _, part := range event.Content.Parts {
+			if result, ok := part.(ToolResultPart); ok && strings.Contains(result.Content, "no tool guard") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected a blocked tool result explaining the missing guard")
+	}
+}
+
+func TestRunner_SideEffectToolRejectedByGuardIsNotExecuted(t *testing.T) {
+	sessionSvc := NewMemorySessionService()
+	session := mustCreateSession(t, sessionSvc)
+	tool := &guardedTool{name: "workspace.apply_patch", sideEffect: true}
+	guard := &recordingGuard{err: errors.New("approval required")}
+	runner := NewRunner(singleToolCallAgent(tool.name), sessionSvc, WithTools(tool), WithToolGuard(guard))
+
+	if _, err := collectRun(runner.Run(context.Background(), session.ID, newUserContent("go"))); err != nil {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+	if guard.calls != 1 {
+		t.Fatalf("guard must be consulted exactly once, calls=%d", guard.calls)
+	}
+	if tool.calls != 0 {
+		t.Fatalf("rejected side-effecting tool must not execute, calls=%d", tool.calls)
+	}
+}
+
+func TestRunner_SideEffectToolRunsAfterGuardApproval(t *testing.T) {
+	sessionSvc := NewMemorySessionService()
+	session := mustCreateSession(t, sessionSvc)
+	tool := &guardedTool{name: "workspace.apply_patch", sideEffect: true}
+	guard := &recordingGuard{}
+	runner := NewRunner(singleToolCallAgent(tool.name), sessionSvc, WithTools(tool), WithToolGuard(guard))
+
+	if _, err := collectRun(runner.Run(context.Background(), session.ID, newUserContent("go"))); err != nil {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+	if guard.calls != 1 || tool.calls != 1 {
+		t.Fatalf("approved side-effecting tool must execute once: guard=%d tool=%d", guard.calls, tool.calls)
+	}
+}
+
+func TestRunner_ReadOnlyToolDoesNotRequireGuard(t *testing.T) {
+	sessionSvc := NewMemorySessionService()
+	session := mustCreateSession(t, sessionSvc)
+	tool := &guardedTool{name: "workspace.read", sideEffect: false}
+	runner := NewRunner(singleToolCallAgent(tool.name), sessionSvc, WithTools(tool))
+
+	if _, err := collectRun(runner.Run(context.Background(), session.ID, newUserContent("go"))); err != nil {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+	if tool.calls != 1 {
+		t.Fatalf("read-only tool must execute without a guard, calls=%d", tool.calls)
+	}
+}
+
 func TestRunner_MultiTurn_ToolCall(t *testing.T) {
 	sessionSvc := NewMemorySessionService()
 	session := mustCreateSession(t, sessionSvc)

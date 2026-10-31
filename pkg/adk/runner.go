@@ -2,6 +2,7 @@ package adk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -10,6 +11,20 @@ import (
 )
 
 const defaultMaxIterations = 25
+
+// ToolGuard authorizes a tool call before the runner executes it. Implementations
+// bind platform-generated identity (run, task, approval, budget) to the call;
+// a missing or rejected guard must leave the tool unexecuted.
+type ToolGuard interface {
+	AuthorizeTool(ctx context.Context, tool Tool, args json.RawMessage) error
+}
+
+// SideEffectTool declares whether executing the tool changes external state.
+// A side-effecting tool is never invoked without an approving ToolGuard.
+type SideEffectTool interface {
+	Tool
+	SideEffect() bool
+}
 
 // RunOption customizes Runner behavior.
 type RunOption func(*Runner)
@@ -44,12 +59,23 @@ func WithPlugins(plugins ...Plugin) RunOption {
 	}
 }
 
+// WithToolGuard sets the mandatory guard for side-effecting tools.
+func WithToolGuard(guard ToolGuard) RunOption {
+	return func(r *Runner) {
+		if r == nil {
+			return
+		}
+		r.toolGuard = guard
+	}
+}
+
 // Runner drives multi-turn Generate -> ToolCall -> ToolResult loops.
 type Runner struct {
 	agent         Agent
 	session       SessionService
 	tools         []Tool
 	plugins       []Plugin
+	toolGuard     ToolGuard
 	maxIterations int
 }
 
@@ -444,6 +470,23 @@ func (r *Runner) findTool(name string) Tool {
 	return nil
 }
 
+// authorizeTool enforces the mandatory guard for side-effecting tools. A tool
+// that does not declare read-only semantics through SideEffectTool is treated
+// as read-only; platform write tools always implement SideEffectTool.
+func (r *Runner) authorizeTool(ctx context.Context, tool Tool, args json.RawMessage) error {
+	sideEffect, ok := tool.(SideEffectTool)
+	if !ok || !sideEffect.SideEffect() {
+		return nil
+	}
+	if r.toolGuard == nil {
+		return fmt.Errorf("tool %q requires approval but no tool guard is configured", tool.Name())
+	}
+	if err := r.toolGuard.AuthorizeTool(ctx, tool, args); err != nil {
+		return fmt.Errorf("tool %q not authorized: %w", tool.Name(), err)
+	}
+	return nil
+}
+
 func (r *Runner) executeTools(ctx context.Context, sess *Session, parts []Part) ([]ToolResultPart, error) {
 	state := NewSessionState(nil)
 	if sess != nil && sess.State != nil {
@@ -466,12 +509,17 @@ func (r *Runner) executeTools(ctx context.Context, sess *Session, parts []Part) 
 
 		toolResult := &ToolResult{}
 		tool := r.findTool(call.Name)
-		if tool == nil {
+		switch {
+		case tool == nil:
 			toolResult = &ToolResult{
 				Content: fmt.Sprintf("tool %q not found", call.Name),
 				IsError: true,
 			}
-		} else {
+		default:
+			if guardErr := r.authorizeTool(ctx, tool, call.Arguments); guardErr != nil {
+				toolResult = &ToolResult{Content: guardErr.Error(), IsError: true}
+				break
+			}
 			execResult, err := tool.Execute(ctx, call.Arguments)
 			if err != nil {
 				toolResult = &ToolResult{
