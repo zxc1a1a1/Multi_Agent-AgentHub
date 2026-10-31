@@ -24,10 +24,26 @@ type GRPCRunService struct {
 }
 
 func NewGRPCRunService(target string, opts ...grpc.DialOption) (*GRPCRunService, error) {
+	return dialGRPCRunService(target, "", opts...)
+}
+
+// NewGRPCRunServiceWithAuth adds the internal token and trace metadata to every
+// control-plane call.
+func NewGRPCRunServiceWithAuth(target, token string, opts ...grpc.DialOption) (*GRPCRunService, error) {
+	return dialGRPCRunService(target, strings.TrimSpace(token), opts...)
+}
+
+func dialGRPCRunService(target, token string, opts ...grpc.DialOption) (*GRPCRunService, error) {
 	if strings.TrimSpace(target) == "" {
 		return nil, fmt.Errorf("orchestrator gRPC target is required")
 	}
 	options := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, opts...)
+	if token != "" {
+		options = append(options,
+			grpc.WithChainUnaryInterceptor(authUnaryInterceptor(token)),
+			grpc.WithChainStreamInterceptor(authStreamInterceptor(token)),
+		)
+	}
 	conn, err := grpc.NewClient(target, options...)
 	if err != nil {
 		return nil, err
@@ -123,6 +139,12 @@ func (s *GRPCRunService) Run(ctx context.Context, conversationID string, userCon
 		}
 		messages = append(messages, &orchestratorv1.MessageInput{Role: "user", Text: userText})
 
+		traceID := TraceIDFromContext(ctx)
+		if traceID == "" {
+			traceID = fmt.Sprintf("trace_%d", time.Now().UnixNano())
+		}
+		ctx = WithTraceID(ctx, traceID)
+
 		start, err := s.client.StartRun(ctx, &orchestratorv1.StartRunRequest{
 			RunId: runID, RequestId: requestID, ConversationId: conversationID,
 			WorkspaceId: "default", PrincipalId: runservice.UserIDFromContext(ctx),
@@ -132,6 +154,7 @@ func (s *GRPCRunService) Run(ctx context.Context, conversationID string, userCon
 			Mentions:           runservice.MentionsFromContext(ctx),
 			PlanningMode:       string(runservice.PlanningModeFromContext(ctx)),
 			Messages:           messages,
+			TraceId:            traceID,
 		})
 		if err != nil {
 			_ = yield(adk.Event{}, err)

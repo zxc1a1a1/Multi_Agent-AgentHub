@@ -31,8 +31,6 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
 
 	"github.com/redis/go-redis/v9"
-	orchestratorv1 "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/proto/orchestratorv1"
-	"google.golang.org/grpc"
 
 	// Register model providers (openai, anthropic) into pkg/runtime/registry.
 	_ "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/model"
@@ -406,8 +404,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("listen grpc %s: %w", grpcAddr, err)
 	}
-	grpcServer := grpc.NewServer()
-	orchestratorv1.RegisterOrchestratorServiceServer(grpcServer, grpcSrv)
+	grpcServer := grpcSrv.GRPCServer()
 	go func() {
 		log.Printf("orchestrator grpc listening on %s", grpcAddr)
 		if err := grpcServer.Serve(grpcListener); err != nil {

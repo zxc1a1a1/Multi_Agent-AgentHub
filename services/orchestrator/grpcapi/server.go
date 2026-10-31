@@ -70,11 +70,15 @@ func (s *Server) StartRun(ctx context.Context, req *orchestratorv1.StartRunReque
 		}
 	}
 
+	traceID := strings.TrimSpace(req.GetTraceId())
+	if traceID == "" {
+		traceID = TraceIDFromContext(ctx)
+	}
 	body := map[string]any{
 		"runId": runID, "requestId": requestID, "conversationId": req.GetConversationId(),
 		"userId": req.GetPrincipalId(), "executionPath": req.GetExecutionPath(),
 		"agentName": req.GetAgentName(), "selectedAgentNames": req.GetSelectedAgentNames(),
-		"mentions": req.GetMentions(), "planningMode": req.GetPlanningMode(), "traceId": req.GetTraceId(),
+		"mentions": req.GetMentions(), "planningMode": req.GetPlanningMode(), "traceId": traceID,
 	}
 	messages := make([]map[string]string, 0, len(req.GetMessages()))
 	for _, message := range req.GetMessages() {

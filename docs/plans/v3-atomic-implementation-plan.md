@@ -322,7 +322,7 @@ P0 契约/决策冻结
 | A1-04 | PASS（单测） | `1fe4d5f` | 持有实例 Claim 信号并继续执行；禁用 Claim 后测试 FAIL；MySQL 集成测试 SKIP（无 DSN） |
 | A1-05 | 未完成 | — | 仅实现 `(run_id, idempotency_key)` 信号级幂等；完整响应缓存未落 SQL |
 | A1-06 | 未完成 | — | — |
-| A1-07 | 未完成 | — | — |
+| A1-07 | PASS | 待提交 | gRPC unary/stream interceptor 校验内部 token；trace metadata 透传；缺失/错误 token 返回 Unauthenticated；移除 interceptor 后测试 FAIL |
 | A1-08 | 未完成 | — | — |
 | A1-09a | PASS（单测；集成 SKIP） | 待提交 | 投影偏移表存在；`ProjectAssistantMessage` 先物化 offset 行再 `FOR UPDATE`，并新增 projection worker 集成测试（需 DSN） |
 | A1-09b | PASS（单测；集成 SKIP） | 待提交 | 新增 `services/gateway/projection` worker：按 turn 重建消息、只投影已完成轮次、共享偏移幂等；未完成轮次测试在强制终态化后 FAIL |

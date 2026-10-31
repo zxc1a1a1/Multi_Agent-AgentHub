@@ -7,6 +7,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
@@ -17,6 +18,7 @@ import (
 
 type fakeOrchestratorGRPC struct {
 	orchestratorv1.UnimplementedOrchestratorServiceServer
+	startCtx  context.Context
 	started   *orchestratorv1.StartRunRequest
 	approval  *orchestratorv1.SubmitApprovalRequest
 	cancelled string
@@ -33,7 +35,8 @@ func (f *fakeOrchestratorGRPC) SubmitApproval(_ context.Context, req *orchestrat
 	return &orchestratorv1.ApprovalResult{Acknowledged: true}, nil
 }
 
-func (f *fakeOrchestratorGRPC) StartRun(_ context.Context, req *orchestratorv1.StartRunRequest) (*orchestratorv1.StartRunResponse, error) {
+func (f *fakeOrchestratorGRPC) StartRun(ctx context.Context, req *orchestratorv1.StartRunRequest) (*orchestratorv1.StartRunResponse, error) {
+	f.startCtx = ctx
 	f.started = req
 	return &orchestratorv1.StartRunResponse{RunId: req.GetRunId(), Accepted: true, Status: "accepted"}, nil
 }
@@ -150,5 +153,50 @@ func TestGRPCRunServiceConfirmRunMapsDecision(t *testing.T) {
 	}
 	if fake.cancelled != "run-g" {
 		t.Fatalf("cancel target lost: %q", fake.cancelled)
+	}
+}
+
+func TestGRPCClientSendsAuthAndTraceMetadata(t *testing.T) {
+	fake := &fakeOrchestratorGRPC{payloads: [][]byte{
+		[]byte(`{"type":"run_started","runId":"run-g"}`),
+		[]byte(`{"type":"run_finished","runId":"run-g","state":{"status":"completed"}}`),
+	}}
+	lis := bufconn.Listen(1 << 20)
+	server := grpc.NewServer()
+	orchestratorv1.RegisterOrchestratorServiceServer(server, fake)
+	go func() { _ = server.Serve(lis) }()
+	defer server.Stop()
+
+	svc, err := NewGRPCRunServiceWithAuth("passthrough:///bufnet", "secret-token",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return lis.DialContext(ctx)
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+
+	ctx := runservice.WithRunID(context.Background(), "run-g")
+	ctx = runservice.WithRequestID(ctx, "req-g")
+	ctx = runservice.WithUserID(ctx, "user-g")
+	for _, err := range svc.Run(ctx, "conv-g", &adk.Content{Role: adk.RoleUser, Parts: []adk.Part{adk.TextPart{Text: "hello"}}}) {
+		if err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	}
+	md, ok := metadata.FromIncomingContext(fake.startCtx)
+	if !ok {
+		t.Fatal("no outgoing metadata reached the orchestrator")
+	}
+	if got := md.Get("authorization"); len(got) != 1 || got[0] != "Bearer secret-token" {
+		t.Fatalf("authorization metadata missing: %#v", got)
+	}
+	traces := md.Get("x-agenthub-trace-id")
+	if len(traces) != 1 || traces[0] == "" {
+		t.Fatalf("trace metadata missing: %#v", traces)
+	}
+	if fake.started.GetTraceId() != traces[0] {
+		t.Fatalf("start request trace=%q metadata trace=%q", fake.started.GetTraceId(), traces[0])
 	}
 }

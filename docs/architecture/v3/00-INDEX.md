@@ -149,7 +149,7 @@ cd frontend && npm test -- --run && npm run build
 
 | ID | 决策 | 采纳值 | 落地状态 | 影响文档 |
 |---|---|---|---|---|
-| D1 | gRPC 内部鉴权 | 立即加 token interceptor + trace metadata | 未实现（A1-07） | 02、04 |
+| D1 | gRPC 内部鉴权 | 立即加 token interceptor + trace metadata | 已实现（A1-07） | 02、04 |
 | D2 | Tool Broker 接线 | 本轮接线，先于真实写工具 | 部分实现：ADK Guard 已强制；SQL 授权入口未接线（A2-02） | 04、07 |
 | D3 | 制品存储 | 先本地卷 adapter，再做 S3/MinIO | 未实现（A6-02/A6-03） | 01、05、07 |
 | D4 | IM 渠道 | 本计划不实施，另立计划 | 不实施 | 08、09 |

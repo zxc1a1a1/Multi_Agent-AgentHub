@@ -117,7 +117,7 @@ func run() error {
 	var runner gateway.RunService = httpService
 	var grpcRunner *orchestratorclient.GRPCRunService
 	if grpcURL := strings.TrimSpace(os.Getenv("ORCHESTRATOR_GRPC_URL")); grpcURL != "" {
-		grpcRunner, err = orchestratorclient.NewGRPCRunService(grpcURL)
+		grpcRunner, err = orchestratorclient.NewGRPCRunServiceWithAuth(grpcURL, cfg.OrchestratorToken)
 		if err != nil {
 			return fmt.Errorf("connect orchestrator grpc: %w", err)
 		}
