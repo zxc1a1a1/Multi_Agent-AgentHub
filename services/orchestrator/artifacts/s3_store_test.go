@@ -49,6 +49,33 @@ func TestS3StoreRoundTripAndRunListing(t *testing.T) {
 	}
 }
 
+func TestS3StoreOverFakeS3(t *testing.T) {
+	objects, _, cleanup := newFakeS3Store(t)
+	defer cleanup()
+	store, err := NewS3Store(objects, "metadata/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := store.Create(ctx, ArtifactRecord{ID: "art_fake", RunID: "run-fake", Name: "fake"}); err != nil {
+		t.Fatal(err)
+	}
+	record, ok, err := store.Get(ctx, "art_fake")
+	if err != nil || !ok || record.RunID != "run-fake" {
+		t.Fatalf("get over S3 failed: %#v ok=%v err=%v", record, ok, err)
+	}
+	items, err := store.ListByRun(ctx, "run-fake")
+	if err != nil || len(items) != 1 || items[0].ID != "art_fake" {
+		t.Fatalf("list over S3 failed: %#v err=%v", items, err)
+	}
+	if err := store.Delete(ctx, "art_fake"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := store.Get(ctx, "art_fake"); err != nil || ok {
+		t.Fatalf("deleted S3 artifact still readable: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestLocalObjectStoreListAndNotFound(t *testing.T) {
 	objects, err := NewLocalObjectStore(t.TempDir())
 	if err != nil {
