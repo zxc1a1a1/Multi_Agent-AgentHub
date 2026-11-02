@@ -34,6 +34,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -o /out/gateway ./services/gateway/cmd/gateway
 
 FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S -G app app
 RUN mkdir -p /data && chown -R app:app /data
 COPY --from=builder /out/gateway /usr/local/bin/gateway

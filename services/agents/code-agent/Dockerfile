@@ -34,6 +34,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -o /out/code-agent ./services/agents/code-agent/cmd/code-agent
 
 FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S -G app app
 COPY --from=builder /out/code-agent /usr/local/bin/code-agent
 USER app

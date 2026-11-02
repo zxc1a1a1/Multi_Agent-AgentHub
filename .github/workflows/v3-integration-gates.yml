@@ -196,6 +196,8 @@ jobs:
               missing = [f'{m}/go.mod' for m in modules if f'{m}/go.mod' not in text]
               missing += [f'{m}/go.sum' for m in modules
                           if (pathlib.Path(m) / 'go.sum').exists() and f'{m}/go.sum' not in text]
+              if 'ca-certificates' not in text:
+                  missing.append('runtime ca-certificates')
               if missing:
                   failures.append(f'{dockerfile}: missing {missing}')
           if failures:

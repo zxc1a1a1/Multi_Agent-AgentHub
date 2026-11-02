@@ -34,6 +34,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -o /out/context-agent ./services/agents/context-agent/cmd/context-agent
 
 FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S -G app app
 COPY --from=builder /out/context-agent /usr/local/bin/context-agent
 USER app

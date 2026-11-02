@@ -34,6 +34,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -o /out/review-agent ./services/agents/review-agent/cmd/review-agent
 
 FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S -G app app
 COPY --from=builder /out/review-agent /usr/local/bin/review-agent
 USER app
