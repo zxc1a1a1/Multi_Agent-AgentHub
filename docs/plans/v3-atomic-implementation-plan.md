@@ -108,7 +108,7 @@ P0 契约/决策冻结
 | A1-08 | 统一 fencing 语义 | `pkg/runtime/tools/broker.go`、ledger | `0` 值行为一致；测试覆盖 | A1-01 |
 | A1-09a | 投影游标表/consumer 语义 | Gateway migration、store | 每个 run/consumer 有独立游标 | G0 |
 | A1-09b | 事件投影 worker | Gateway 新 worker + `run_public_events` | kill 处理 `/api/chat` 的 Gateway，另一个实例继续投影 | A1-09a |
-| A1-09c | 助手消息投影接管 | worker + `ProjectAssistantMessage` | Gateway 崩溃后，最终助手消息仍落库 | A1-09b |
+| A1-09c | 助手消息投影接管（已实现可恢复范围） | worker + `ProjectAssistantMessage` | Gateway 崩溃后，最终助手消息仍落库 | A1-09b |
 | A1-10 | 优雅停机/释放租约 | Orchestrator main | SIGTERM 不留下永久租约 | A1-02 |
 
 **G1 门禁**：
@@ -326,7 +326,7 @@ P0 契约/决策冻结
 | A1-08 | PASS（单测） | `dc6f0a4` | 所有变更写（state/checkpoint/dispatch/renew/release）拒绝 fencing 0；Guard 同样拒绝；0 在触库前失败 |
 | A1-09a | PASS（单测；集成 SKIP） | `860f95e` | 投影偏移表存在；`ProjectAssistantMessage` 先物化 offset 行再 `FOR UPDATE`，并新增 projection worker 集成测试（需 DSN） |
 | A1-09b | PASS（单测；集成 SKIP） | `860f95e` | 新增 `services/gateway/projection` worker：按 turn 重建消息、只投影已完成轮次、共享偏移幂等；未完成轮次测试在强制终态化后 FAIL |
-| A1-09c | 部分实现 | — | worker 恢复已 journal 的最终轮；`AGENT_TURN_FINISHED` 前崩溃的轮次按未完成处理 |
+| A1-09c | PASS（已 journal 的终态） | `860f95e` | worker 对 TEXT_MESSAGE_CONTENT + RUN_FINISHED 与 AGENT_TURN_FINISHED 均投影最终助手消息；`AGENT_TURN_FINISHED` 前崩溃的轮次无终态，按未完成处理（无消息可落） |
 | A1-10 | PASS | `244f574` | 所有 handler 返回路径释放租约；resume 同样释放；Ctrl+C 后 `server.Shutdown` 等待在途 handler；移除 defer 后 planner 失败测试 FAIL |
 | A2-00 | PASS（决策） | `5637989` | 选择 agent-side authorize/result；生产接线未完成 |
 | A2-01 | PASS | `b9bfaf2` | 无 Guard 的副作用工具 0 调用；绕过 authorizeTool 后 3 个测试 FAIL |
