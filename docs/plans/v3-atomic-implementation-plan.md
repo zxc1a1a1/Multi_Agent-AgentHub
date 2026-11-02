@@ -352,7 +352,7 @@ P0 契约/决策冻结
 | A4-05 | PASS（计划期模型选择；默认 round_robin） | `c0ea166` | MainAgent 兼 SpeakerSelector，输出 speaker/reason/done；越界/缺理由/连续重复/首轮停止即失败；`GROUP_CHAT_SPEAKER_MODE=model` 启用，上限 MAX_ROUNDS×参与者；理由写入 route_decisions.reason_summary；红检关闭 allowlist 后测试 FAIL；执行中按输出动态重选未做 |
 | A4-06 | PASS（可选；默认关闭） | `b969c99` | `handoff_to_agent` + `/internal/orchestrator/tools/handoff`：本地与 run 计划双层 allowlist；深度取自 RunIdentity.DelegateDepth 且 +1 超限拒绝；消息 ≤8KB、理由 ≤512B、响应 ≤16KB；越界 0 派发；红检关闭边界校验后测试 FAIL；仅 code-agent 显式启用 |
 | A5-07 | PASS（前端单测） | `a4949e5` | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
-| A5-01 | PASS | `465f35d` | 新模块 markdown-agent：A2A AgentCard/health、确定性 Agent、无模型密钥；未加入 compose，默认不启用 |
+| A5-01 | PASS | `465f35d,9837642` | 新模块 markdown-agent：A2A AgentCard/health、无模型密钥；确定性 Generate 已接 render/lint/frontmatter/toc/export 动作；未加入 compose，默认不启用 |
 | A5-02a | PASS | `6b5fcd4` | goldmark 渲染；raw HTML 被丢弃；GFM 表格/链接测试 |
 | A5-02b | PASS | `6b5fcd4` | 标题缺空格/空链接/无语言代码块报行列 |
 | A5-02c | PASS | `6b5fcd4` | YAML 合法/非法/未闭合均有结果 |
@@ -363,7 +363,7 @@ P0 契约/决策冻结
 | A5-09 | PASS | e2c1eae | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
 | A5-12 | PASS（可选） | 2d707d6 | ChatWindow 默认只渲染最近 100 条，提供 Load earlier 分批展开；150 条测试证明首条不渲染、展开后可见；移除窗口化后测试 FAIL |
 | A5-11 | PASS（单节点验证；S3 可配） | `446e449,a08c8db` | `/internal/orchestrator/render` + `capture_page`：PNG 写入 ObjectStore（本地/S3 可选），元数据含 storageRef/checksum/contentType/version；content endpoint 校验 SHA-256；Gateway `/api/artifacts/{id}/content` 代理下载；真实 Playwright 系统 Edge 生成 49,703B PNG；跨节点依赖 S3，未做多副本实跑 |
-| A5-05 | PASS（子进程隔离；Docker 沙箱未验证） | `446e449` | 同一 Playwright 渲染器生成 PDF（真实 54,621B）；渲染前拒绝 loopback/私网/链路本地/metadata/CGNAT URL；`PLAYWRIGHT_RENDER_SCRIPT` 未配置时端点 503；未在 Docker 沙箱内执行 |
+| A5-05 | PASS（子进程隔离；Docker 沙箱未验证） | `446e449,9837642` | URL 与 Markdown 两条导出路径；markdown-agent `markdown.export` 渲染安全 HTML，Playwright `setContent` 阻断外部请求；真实 Edge：Markdown→PNG 10,120B / PDF 15,659B，URL→PDF 54,621B；未在 Docker 沙箱内执行 |
 | A5-06 | PASS（SSRF 防护） | cee79ef | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；私网目标 0 请求 |
 | A5-04 | PASS（前端） | 6c38c87 | remark-math + rehype-katex，`trust:false`；javascript href 不生成链接；恶意样例测试通过 |
 | A5-03b | PASS（前端） | b2204b2 | Mermaid securityLevel=strict + DOMPurify SVG profile；script/javascript 链接被剥离；失败回退代码文本 |
@@ -450,7 +450,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `cd services/orchestrator && go test ./... -count=1 && go build ./cmd/orchestrator` | PASS |
 | `cd services/agents/code-agent && go test ./... && go build ./cmd/code-agent` | PASS |
 | `cd services/agents/web-agent && go test ./... && go build ./cmd/web-agent` | PASS |
-| Playwright 渲染（系统 Edge） | PASS：PNG 49,703B / PDF 54,621B |
+| Playwright 渲染（系统 Edge） | PASS：URL→PNG 49,703B / PDF 54,621B；Markdown→PNG 10,120B / PDF 15,659B |
 | Playwright 群聊 E2E（系统 Edge） | 1 passed |
 | 备份脚本 fake mysqldump + 保留期 | PASS；compose YAML 解析 PASS |
 | MySQL/Redis 集成 | SKIP（本机无 DSN/Redis；CI 配置存在但未在 GitHub 实跑） |
@@ -463,5 +463,5 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 - G2：ADK 副作用 Guard 已强制，生产 Broker 授权/结果/审批接线已落地；审批单仍由平台侧创建，未通过整体认证。
 - G3：成员持久化、逐轮历史、参与者取消派发、浏览器 E2E 已落地；未整体认证。
 - G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做，未整体认证。
-- G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX、Playwright 截图/PDF 导出已落地；Docker 沙箱未验证，未整体认证。
+- G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX、Playwright 截图/PDF 与 Markdown 导出已落地；Docker 沙箱未验证，未整体认证。
 - G6：Artifact 元数据本地/S3、blob 本地/S3、指标/告警规则、全 Agent OTel 传播/导出与 collector 配置、Nginx 模板与备份脚本已落地；Nginx/Prometheus/多副本/collector/MinIO 运行时验证未做，未整体认证。
