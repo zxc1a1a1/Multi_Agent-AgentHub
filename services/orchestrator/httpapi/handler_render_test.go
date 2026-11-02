@@ -86,6 +86,39 @@ func TestRenderEndpointPublishesArtifactAndServesContent(t *testing.T) {
 	}
 }
 
+func TestRenderEndpointAcceptsPreRenderedHTML(t *testing.T) {
+	renderer := &fakePageRenderer{data: []byte("%PDF-1.4 artifact"), mime: "application/pdf"}
+	srv, _ := renderTestServer(t, renderer)
+	body := `{"runId":"run-md","taskId":"task-md","html":"<h1>Hello</h1>","format":"pdf"}`
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/render", strings.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(renderer.requests) != 1 || !strings.Contains(renderer.requests[0].HTML, "<h1>Hello</h1>") ||
+		renderer.requests[0].URL != "" || renderer.requests[0].Format != "pdf" {
+		t.Fatalf("html request not forwarded: %#v", renderer.requests)
+	}
+}
+
+func TestRenderEndpointRejectsAmbiguousTarget(t *testing.T) {
+	renderer := &fakePageRenderer{data: []byte("x"), mime: "image/png"}
+	srv, _ := renderTestServer(t, renderer)
+	for _, body := range []string{
+		`{"runId":"run","format":"png"}`,
+		`{"runId":"run","url":"https://93.184.216.34/","html":"<h1>x</h1>","format":"png"}`,
+	} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/render", strings.NewReader(body)))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+	if len(renderer.requests) != 0 {
+		t.Fatal("ambiguous render requests must not reach the renderer")
+	}
+}
+
 func TestRenderEndpointRejectsInternalURL(t *testing.T) {
 	renderer := &fakePageRenderer{data: []byte("x"), mime: "image/png"}
 	srv, _ := renderTestServer(t, renderer)

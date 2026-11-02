@@ -122,6 +122,72 @@ func TestPlaywrightRendererEndToEnd(t *testing.T) {
 	t.Logf("rendered png=%d bytes pdf=%d bytes", len(png), len(pdf))
 }
 
+func TestPlaywrightRendererHTMLMode(t *testing.T) {
+	t.Setenv("AGENTHUB_FAKE_RENDER", "1")
+	script := filepath.Join(t.TempDir(), "render.mjs")
+	if err := os.WriteFile(script, []byte("// fake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	renderer, err := NewPlaywrightRenderer(PlaywrightConfig{
+		NodePath: executable, ScriptPath: script, Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, contentType, err := renderer.Render(context.Background(), Request{
+		HTML: "<h1>Hello</h1>", Format: FormatPDF,
+	})
+	if err != nil {
+		t.Fatalf("html render failed: %v", err)
+	}
+	if contentType != "application/pdf" || !strings.HasPrefix(string(data), "%PDF") {
+		t.Fatalf("unexpected html pdf: %s %q", contentType, data)
+	}
+	if _, _, err := renderer.Render(context.Background(), Request{HTML: "x", URL: "https://93.184.216.34/", Format: FormatPNG}); err == nil {
+		t.Fatal("both URL and HTML must fail")
+	}
+	if _, _, err := renderer.Render(context.Background(), Request{Format: FormatPNG}); err == nil {
+		t.Fatal("neither URL nor HTML must fail")
+	}
+}
+
+func TestPlaywrightRendererEndToEndMarkdown(t *testing.T) {
+	if os.Getenv("AGENTHUB_RENDER_E2E") != "1" {
+		t.Skip("set AGENTHUB_RENDER_E2E=1 with PLAYWRIGHT_RENDER_SCRIPT")
+	}
+	script := strings.TrimSpace(os.Getenv("PLAYWRIGHT_RENDER_SCRIPT"))
+	if script == "" {
+		t.Skip("PLAYWRIGHT_RENDER_SCRIPT is required")
+	}
+	renderer, err := NewPlaywrightRenderer(PlaywrightConfig{
+		NodePath: os.Getenv("PLAYWRIGHT_NODE_PATH"), ScriptPath: script,
+		Channel: os.Getenv("PLAYWRIGHT_CHANNEL"), Timeout: 90 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := `<!doctype html><html><body><h1>Markdown export</h1><p>Hello PDF</p></body></html>`
+	pdf, mime, err := renderer.Render(context.Background(), Request{HTML: html, Format: FormatPDF})
+	if err != nil {
+		t.Fatalf("markdown pdf failed: %v", err)
+	}
+	if mime != "application/pdf" || len(pdf) < 1000 || !strings.HasPrefix(string(pdf[:4]), "%PDF") {
+		t.Fatalf("unexpected markdown pdf: mime=%s bytes=%d", mime, len(pdf))
+	}
+	png, mime, err := renderer.Render(context.Background(), Request{HTML: html, Format: FormatPNG})
+	if err != nil {
+		t.Fatalf("markdown png failed: %v", err)
+	}
+	if mime != "image/png" || len(png) < 1000 || !strings.HasPrefix(string(png[:8]), "\x89PNG\r\n\x1a\n") {
+		t.Fatalf("unexpected markdown png: mime=%s bytes=%d", mime, len(png))
+	}
+	t.Logf("markdown render png=%d bytes pdf=%d bytes", len(png), len(pdf))
+}
+
 func TestPlaywrightRendererRejectsFormatAndURLBeforeExec(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "render.mjs")
 	if err := os.WriteFile(script, []byte("// fake"), 0o600); err != nil {

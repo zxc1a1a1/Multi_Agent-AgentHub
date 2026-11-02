@@ -12,15 +12,20 @@ import (
 const defaultAgentURL = "http://markdown-agent.local"
 
 type ServerConfig struct {
-	URL string
+	URL    string
+	Export *ExportTool
 }
 
 // NewHandler builds the A2A handler and AgentCard. The agent is deterministic
 // and never loads provider API keys.
 func NewHandler(cfg ServerConfig) (http.Handler, adk.SessionService, error) {
-	agent := NewAgent()
+	agent := NewAgent(WithExportTool(cfg.Export))
 	session := adk.NewMemorySessionService()
-	runner := adk.NewRunner(agent, session, adk.WithTools(DefaultTools()...))
+	tools := DefaultTools()
+	if cfg.Export != nil {
+		tools = append(tools, cfg.Export)
+	}
+	runner := adk.NewRunner(agent, session, adk.WithTools(tools...))
 
 	url := strings.TrimSpace(cfg.URL)
 	if url == "" {

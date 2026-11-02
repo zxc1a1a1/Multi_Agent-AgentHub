@@ -28,7 +28,20 @@ func main() {
 		addr = ":8092"
 	}
 	publicURL := strings.TrimSpace(os.Getenv("MARKDOWN_AGENT_PUBLIC_URL"))
-	handler, _, err := markdownagent.NewHandler(markdownagent.ServerConfig{URL: publicURL})
+	cfg := markdownagent.ServerConfig{URL: publicURL}
+	if endpoint := strings.TrimSpace(os.Getenv("ORCHESTRATOR_RENDER_URL")); endpoint != "" {
+		token := strings.TrimSpace(os.Getenv("ORCHESTRATOR_TOOL_TOKEN"))
+		if token == "" {
+			token = strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
+		}
+		export, exportErr := markdownagent.NewExportTool(endpoint, token)
+		if exportErr != nil {
+			log.Fatalf("markdown-agent export setup failed: %v", exportErr)
+		}
+		cfg.Export = export
+		log.Printf("markdown-agent export enabled via %s", endpoint)
+	}
+	handler, _, err := markdownagent.NewHandler(cfg)
 	if err != nil {
 		log.Fatalf("markdown-agent startup failed: %v", err)
 	}

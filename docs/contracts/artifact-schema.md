@@ -81,8 +81,12 @@ blob 字节通过 `artifacts.ObjectStore` 存取：本地目录（默认）或 S
 ## 渲染制品（v3 A5-05/A5-11）
 
 - 生产者：`POST /internal/orchestrator/render`
-  `{runId,taskId,url,format:"png"|"pdf",fullPage}`；web-agent 通过
-  `capture_page` 工具（`WEB_AGENT_ENABLE_CAPTURE=true`）调用。
+  `{runId,taskId,url|html,format:"png"|"pdf",fullPage}`；web-agent 通过
+  `capture_page` 工具（`WEB_AGENT_ENABLE_CAPTURE=true`）传 URL；markdown-agent
+  通过 `markdown.export` 把安全 HTML（goldmark，raw HTML 丢弃）传给 `html` 字段。
+- HTML 模式使用 Playwright `setContent`，并拦截所有非 data/blob/about 请求，
+  因此 Markdown 内的远程图片/脚本无法访问内网或公网；URL 模式继续做私网/
+  loopback/metadata 校验。
 - 渲染器：`PLAYWRIGHT_RENDER_SCRIPT` 指向的 Playwright 脚本；URL 在渲染前
   拒绝非 http(s)、凭据、loopback/私网/链路本地/metadata/CGNAT 目标。
 - 输出：PNG → `kind=image`，PDF → `kind=document`；写入 blob 后创建元数据：

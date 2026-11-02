@@ -148,3 +148,15 @@ principalId, credentialScope(never included)
   URL 在启动 Playwright 前被拒绝。
 - 产物注册为 artifact（`image`/`document`），含 checksum/storageRef；工具只
   返回 artifact 引用与下载路径，不把二进制塞进模型上下文。
+
+## 13. Markdown 导出（v3 A5-05）
+
+- 工具/动作：markdown-agent `markdown.export`（AgentCard skill `markdown_export`）。
+- 输入：原始 Markdown 或 JSON 信封
+  `{"action":"export","markdown":"...","format":"pdf|png"}`；也支持
+  `render/lint/frontmatter/toc` 动作，均由确定性代码执行，不调用 LLM。
+- 流程：goldmark 渲染（raw HTML 丢弃）→ 自包含 HTML → Orchestrator render
+  `html` 模式 → Playwright `setContent`（阻断外部请求）→ artifact。
+- 返回值：`artifact=<id> ... download=/api/artifacts/<id>/content`。
+- 未配置 `ORCHESTRATOR_RENDER_URL` 时 export 动作返回 "not configured"，不尝试
+  本地宿主浏览器执行。

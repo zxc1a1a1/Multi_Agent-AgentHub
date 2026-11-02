@@ -51,7 +51,35 @@ func TestMarkdownAgentIsDeterministic(t *testing.T) {
 		t.Fatalf("generate failed: %#v err=%v", resp, err)
 	}
 	text, ok := resp.Parts[0].(adk.TextPart)
-	if !ok || !strings.Contains(text.Text, "markdown-agent received") {
+	if !ok || !strings.Contains(text.Text, "<h1") || !strings.Contains(text.Text, "Hello") {
 		t.Fatalf("unexpected response: %#v", resp.Parts)
+	}
+}
+
+func TestMarkdownAgentJSONActions(t *testing.T) {
+	agent := NewAgent()
+	req := &adk.GenerateRequest{Contents: []*adk.Content{{
+		Role:  adk.RoleUser,
+		Parts: []adk.Part{adk.TextPart{Text: `{"action":"lint","markdown":"#Bad\n\n[x]()"}`}},
+	}}}
+	resp, err := agent.Generate(context.Background(), req)
+	if err != nil || resp == nil || len(resp.Parts) == 0 {
+		t.Fatalf("generate failed: %#v err=%v", resp, err)
+	}
+	text := resp.Parts[0].(adk.TextPart).Text
+	if !strings.Contains(text, "HEADING_MISSING_SPACE") || !strings.Contains(text, "EMPTY_LINK") {
+		t.Fatalf("unexpected lint response: %s", text)
+	}
+
+	exportReq := &adk.GenerateRequest{Contents: []*adk.Content{{
+		Role:  adk.RoleUser,
+		Parts: []adk.Part{adk.TextPart{Text: `{"action":"export","markdown":"# Title"}`}},
+	}}}
+	resp, err = agent.Generate(context.Background(), exportReq)
+	if err != nil || resp == nil || len(resp.Parts) == 0 {
+		t.Fatalf("export generate failed: %#v err=%v", resp, err)
+	}
+	if got := resp.Parts[0].(adk.TextPart).Text; !strings.Contains(got, "not configured") {
+		t.Fatalf("unexpected export response: %s", got)
 	}
 }

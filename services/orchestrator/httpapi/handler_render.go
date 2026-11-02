@@ -23,6 +23,7 @@ type renderRequest struct {
 	RunID    string `json:"runId"`
 	TaskID   string `json:"taskId"`
 	URL      string `json:"url"`
+	HTML     string `json:"html"`
 	Format   string `json:"format"`
 	FullPage bool   `json:"fullPage"`
 }
@@ -51,21 +52,27 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	}
 	req.RunID = strings.TrimSpace(req.RunID)
 	req.URL = strings.TrimSpace(req.URL)
+	html := strings.TrimSpace(req.HTML)
 	format := strings.ToLower(strings.TrimSpace(req.Format))
-	if req.RunID == "" || req.URL == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runId and url are required"})
+	if req.RunID == "" || (req.URL == "" && html == "") || (req.URL != "" && html != "") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "runId and exactly one of url or html are required"})
 		return
 	}
 	if format != render.FormatPNG && format != render.FormatPDF {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "format must be png or pdf"})
 		return
 	}
-	if err := render.ValidateURL(req.URL); err != nil {
+	if html != "" {
+		if len(html) > render.MaxHTMLBytes {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "html exceeds size limit"})
+			return
+		}
+	} else if err := render.ValidateURL(req.URL); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url is not allowed"})
 		return
 	}
 	data, contentType, err := s.pageRenderer.Render(r.Context(), render.Request{
-		URL: req.URL, Format: format, FullPage: req.FullPage,
+		URL: req.URL, HTML: html, Format: format, FullPage: req.FullPage,
 	})
 	if err != nil {
 		log.Printf("orchestrator: render %s failed: %v", format, err)

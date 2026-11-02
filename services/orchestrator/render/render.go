@@ -20,10 +20,13 @@ const (
 	FormatPNG = "png"
 	FormatPDF = "pdf"
 	maxBytes  = 10 << 20
+	// MaxHTMLBytes bounds pre-rendered HTML accepted from markdown-agent.
+	MaxHTMLBytes = 2 << 20
 )
 
 type Request struct {
 	URL      string
+	HTML     string
 	Format   string
 	FullPage bool
 }
@@ -74,8 +77,18 @@ func (r *PlaywrightRenderer) Render(ctx context.Context, req Request) ([]byte, s
 	if format != FormatPNG && format != FormatPDF {
 		return nil, "", fmt.Errorf("unsupported render format")
 	}
-	if err := ValidateURL(req.URL); err != nil {
-		return nil, "", err
+	html := strings.TrimSpace(req.HTML)
+	targetURL := strings.TrimSpace(req.URL)
+	if (html == "") == (targetURL == "") {
+		return nil, "", fmt.Errorf("exactly one of URL or HTML is required")
+	}
+	if html != "" && len(html) > MaxHTMLBytes {
+		return nil, "", fmt.Errorf("HTML exceeds size limit")
+	}
+	if html == "" {
+		if err := ValidateURL(targetURL); err != nil {
+			return nil, "", err
+		}
 	}
 	dir, err := os.MkdirTemp("", "agenthub-render-*")
 	if err != nil {
@@ -84,7 +97,18 @@ func (r *PlaywrightRenderer) Render(ctx context.Context, req Request) ([]byte, s
 	defer os.RemoveAll(dir)
 	ext := "." + format
 	output := filepath.Join(dir, "out"+ext)
-	args := []string{r.scriptPath, "--url", req.URL, "--output", output, "--format", format}
+	args := make([]string, 0, 8)
+	args = append(args, r.scriptPath)
+	if html != "" {
+		input := filepath.Join(dir, "input.html")
+		if err := os.WriteFile(input, []byte(html), 0o600); err != nil {
+			return nil, "", fmt.Errorf("render input unavailable")
+		}
+		args = append(args, "--html-file", input)
+	} else {
+		args = append(args, "--url", targetURL)
+	}
+	args = append(args, "--output", output, "--format", format)
 	if req.FullPage {
 		args = append(args, "--full-page")
 	}
