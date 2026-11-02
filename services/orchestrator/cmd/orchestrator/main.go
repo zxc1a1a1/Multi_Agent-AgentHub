@@ -249,22 +249,36 @@ func run() error {
 		httpapi.WithDispatcher(a2aDispatcher),
 	}
 
-	artifactDir := strings.TrimSpace(os.Getenv("ARTIFACT_STORE_DIR"))
-	if artifactDir == "" {
-		artifactDir = "./data/artifacts"
-	}
-	artifactStore, err := artifacts.NewLocalFileStore(artifactDir)
-	if err != nil {
-		return fmt.Errorf("artifact store: %w", err)
-	}
-	serverOpts = append(serverOpts, httpapi.WithArtifactStore(artifactStore))
-	log.Printf("artifact store: %s", artifactDir)
-
 	blobStore, err := buildArtifactBlobStore()
 	if err != nil {
 		return err
 	}
 	serverOpts = append(serverOpts, httpapi.WithArtifactBlobs(blobStore))
+
+	artifactDir := strings.TrimSpace(os.Getenv("ARTIFACT_STORE_DIR"))
+	if artifactDir == "" {
+		artifactDir = "./data/artifacts"
+	}
+	var artifactStore artifacts.Store
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ARTIFACT_METADATA_BACKEND")), "s3") {
+		s3Objects, ok := blobStore.(*artifacts.S3ObjectStore)
+		if !ok {
+			return fmt.Errorf("ARTIFACT_METADATA_BACKEND=s3 requires ARTIFACT_S3_ENDPOINT")
+		}
+		artifactStore, err = artifacts.NewS3Store(s3Objects, "metadata/")
+		if err != nil {
+			return fmt.Errorf("artifact metadata store: %w", err)
+		}
+		log.Printf("artifact store: s3 metadata/")
+	} else {
+		localStore, storeErr := artifacts.NewLocalFileStore(artifactDir)
+		if storeErr != nil {
+			return fmt.Errorf("artifact store: %w", storeErr)
+		}
+		artifactStore = localStore
+		log.Printf("artifact store: %s", artifactDir)
+	}
+	serverOpts = append(serverOpts, httpapi.WithArtifactStore(artifactStore))
 
 	if script := strings.TrimSpace(os.Getenv("PLAYWRIGHT_RENDER_SCRIPT")); script != "" {
 		renderer, err := render.NewPlaywrightRenderer(render.PlaywrightConfig{

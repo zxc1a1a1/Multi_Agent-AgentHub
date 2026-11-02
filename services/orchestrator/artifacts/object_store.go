@@ -27,6 +27,7 @@ type ObjectStore interface {
 	Put(ctx context.Context, key string, data []byte, contentType string) error
 	Get(ctx context.Context, key string) ([]byte, error)
 	PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error)
+	List(ctx context.Context, prefix string) ([]string, error)
 	Delete(ctx context.Context, key string) error
 }
 
@@ -123,6 +124,24 @@ func (s *S3ObjectStore) PresignGet(ctx context.Context, key string, ttl time.Dur
 		return "", err
 	}
 	return signed.String(), nil
+}
+
+func (s *S3ObjectStore) List(ctx context.Context, prefix string) ([]string, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix != "" {
+		if err := validateObjectKey(strings.TrimSuffix(prefix, "/")); err != nil {
+			return nil, err
+		}
+	}
+	objectCh := s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true})
+	keys := make([]string, 0)
+	for object := range objectCh {
+		if object.Err != nil {
+			return nil, object.Err
+		}
+		keys = append(keys, object.Key)
+	}
+	return keys, nil
 }
 
 func (s *S3ObjectStore) Delete(ctx context.Context, key string) error {

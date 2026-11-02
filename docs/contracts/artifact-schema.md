@@ -49,9 +49,11 @@ Artifacts are produced by ADK/Child Agents and eventually mapped to frontend run
 
 ## Storage metadata（v3 A0-04 冻结）
 
-状态等级：`已实现（渲染制品路径）`。元数据仍由 `LocalFileStore` 持久化；渲染制品额外写入
-`storageRef/checksum/contentType/version`，blob 字节通过 `artifacts.ObjectStore` 存取：
-本地目录（默认）或 S3/MinIO（`ARTIFACT_S3_ENDPOINT`）。读取入口
+状态等级：`已实现（渲染制品路径）`。元数据默认由 `LocalFileStore` 持久化；
+`ARTIFACT_METADATA_BACKEND=s3` 时由 `S3Store` 写入对象存储（`metadata/<id>.json`），
+支持跨副本读取。渲染制品额外写入 `storageRef/checksum/contentType/version`，
+blob 字节通过 `artifacts.ObjectStore` 存取：本地目录（默认）或 S3/MinIO
+（`ARTIFACT_S3_ENDPOINT`）。读取入口
 `GET /internal/orchestrator/artifacts/{id}/content` 会校验 checksum。
 
 ```json

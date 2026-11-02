@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -102,6 +103,38 @@ func (s *LocalObjectStore) Get(ctx context.Context, key string) ([]byte, error) 
 
 func (s *LocalObjectStore) PresignGet(context.Context, string, time.Duration) (string, error) {
 	return "", fmt.Errorf("presign is not supported by the local object store")
+}
+
+func (s *LocalObjectStore) List(ctx context.Context, prefix string) ([]string, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	prefix = strings.TrimPrefix(strings.TrimSpace(prefix), "/")
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	keys := make([]string, 0)
+	err := filepath.WalkDir(s.root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(s.root, path)
+		if err != nil {
+			return err
+		}
+		key := filepath.ToSlash(rel)
+		if prefix == "" || strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(keys)
+	return keys, nil
 }
 
 func (s *LocalObjectStore) Delete(ctx context.Context, key string) error {
