@@ -71,27 +71,28 @@ type Server struct {
 	// Production: planner.NewMainAgent(model, modelName, lister) — requires a real model.
 	// Tests: FakeMainAgent (implements planner.Planner, lives in _test.go files).
 	// A nil planner fails the run entry without dispatching any agent.
-	mainAgentPlanner  planner.Planner
-	synthesizer       synthesizer.Synthesizer
-	hitlMu            sync.RWMutex                       // protects pendingPlans, hitlChans, hitlStates, idempotencyCache
-	pendingPlans      map[string]*plan.OrchestrationPlan // runID → validated plan awaiting confirmation (legacy, migrating to pendingPlanStates)
-	hitlChans         map[string]chan HITLConfirmResult  // runID → confirmation signal channel
-	hitlStates        map[string]HITLState               // runID → logical confirmation state (legacy, migrating to PendingPlan.Status)
-	idempotencyCache  map[string]*idempotencyEntry       // runID+":"+key → cached response (legacy, migrating to PendingPlan.IdempotencyRecords)
-	pendingPlanStates map[string]*PendingPlan            // runID → full lifecycle state (Phase 4, coexists with legacy maps during migration)
-	runTaskRegistry   *registry.RunTaskRegistry          // runID → child task refs for cancel path
-	artifactStore     artifacts.Store                    // metadata-only artifact store; no file blobs
-	executionStore    execution.Store                    // durable run lifecycle/ledger (optional in tests)
-	toolAuthorizer    ToolAuthorizer                    // agent-side tool authorization/result sink
-	memoryMu          sync.RWMutex
-	memoryController  *memctl.Controller
-	memoryBackend     memctl.Backend
-	memoryRepo        memoryAdminStore
-	instanceID          string         // lease owner identity
-	budgetLimits        harness.Limits // per-run budget defaults
-	leaseTTL            time.Duration  // run lease lifetime
-	leaseRenewInterval  time.Duration  // how often the lease is renewed
-	hitlPollInterval    time.Duration  // cross-instance HITL signal poll cadence
+	mainAgentPlanner   planner.Planner
+	speakerSelector    planner.SpeakerSelector
+	synthesizer        synthesizer.Synthesizer
+	hitlMu             sync.RWMutex                       // protects pendingPlans, hitlChans, hitlStates, idempotencyCache
+	pendingPlans       map[string]*plan.OrchestrationPlan // runID → validated plan awaiting confirmation (legacy, migrating to pendingPlanStates)
+	hitlChans          map[string]chan HITLConfirmResult  // runID → confirmation signal channel
+	hitlStates         map[string]HITLState               // runID → logical confirmation state (legacy, migrating to PendingPlan.Status)
+	idempotencyCache   map[string]*idempotencyEntry       // runID+":"+key → cached response (legacy, migrating to PendingPlan.IdempotencyRecords)
+	pendingPlanStates  map[string]*PendingPlan            // runID → full lifecycle state (Phase 4, coexists with legacy maps during migration)
+	runTaskRegistry    *registry.RunTaskRegistry          // runID → child task refs for cancel path
+	artifactStore      artifacts.Store                    // metadata-only artifact store; no file blobs
+	executionStore     execution.Store                    // durable run lifecycle/ledger (optional in tests)
+	toolAuthorizer     ToolAuthorizer                     // agent-side tool authorization/result sink
+	memoryMu           sync.RWMutex
+	memoryController   *memctl.Controller
+	memoryBackend      memctl.Backend
+	memoryRepo         memoryAdminStore
+	instanceID         string         // lease owner identity
+	budgetLimits       harness.Limits // per-run budget defaults
+	leaseTTL           time.Duration  // run lease lifetime
+	leaseRenewInterval time.Duration  // how often the lease is renewed
+	hitlPollInterval   time.Duration  // cross-instance HITL signal poll cadence
 }
 
 // Option customizes Server behavior.
@@ -234,16 +235,27 @@ func WithMainAgentPlanner(p planner.Planner) Option {
 	}
 }
 
+// WithSpeakerSelector injects the model-backed group-chat speaker selector.
+// It is only used when GROUP_CHAT_SPEAKER_MODE=model.
+func WithSpeakerSelector(selector planner.SpeakerSelector) Option {
+	return func(s *Server) {
+		if s == nil || selector == nil {
+			return
+		}
+		s.speakerSelector = selector
+	}
+}
+
 // NewServer returns a Server with routes registered.
 func NewServer(opts ...Option) *Server {
 	s := &Server{
-		mux:               http.NewServeMux(),
-		pendingPlans:      make(map[string]*plan.OrchestrationPlan),
-		hitlChans:         make(map[string]chan HITLConfirmResult),
-		hitlStates:        make(map[string]HITLState),
-		idempotencyCache:  make(map[string]*idempotencyEntry),
-		pendingPlanStates: make(map[string]*PendingPlan),
-		runTaskRegistry:   registry.NewRunTaskRegistry(),
+		mux:                http.NewServeMux(),
+		pendingPlans:       make(map[string]*plan.OrchestrationPlan),
+		hitlChans:          make(map[string]chan HITLConfirmResult),
+		hitlStates:         make(map[string]HITLState),
+		idempotencyCache:   make(map[string]*idempotencyEntry),
+		pendingPlanStates:  make(map[string]*PendingPlan),
+		runTaskRegistry:    registry.NewRunTaskRegistry(),
 		instanceID:         defaultInstanceID(),
 		budgetLimits:       harness.DefaultLimits(),
 		leaseTTL:           15 * time.Minute,

@@ -390,6 +390,7 @@ func run() error {
 	adapter := &registryAgentLister{reg: agentRegistry}
 	mainAgent := planner.NewMainAgent(llmClient, modelName, adapter)
 	serverOpts = append(serverOpts, httpapi.WithMainAgentPlanner(mainAgent))
+	serverOpts = append(serverOpts, httpapi.WithSpeakerSelector(mainAgent))
 	serverOpts = append(serverOpts, httpapi.WithSynthesizer(synthesizer.NewLLMSynthesizer(llmClient, modelName)))
 
 	log.Printf("orchestrator planner: LLM-only (provider=%s, model=%s, requirePlanConfirmation=%v)",

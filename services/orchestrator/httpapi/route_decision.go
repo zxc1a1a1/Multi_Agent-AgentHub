@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -89,11 +90,38 @@ func buildRouteDecision(p *plan.OrchestrationPlan, decisionSeq int) execution.Ro
 
 // recordRouteDecision is best-effort: routing must not fail the run if the
 // audit row cannot be written, but the absence is visible in the query API.
-func (s *Server) recordRouteDecision(ctx context.Context, p *plan.OrchestrationPlan, decisionSeq int) {
+// Speaker-selection rationales share the same row so routing metrics count one
+// planning decision per run.
+func (s *Server) recordRouteDecision(ctx context.Context, p *plan.OrchestrationPlan, decisionSeq int, records []speakerSelectionRecord, termination string) {
 	if s == nil || s.executionStore == nil || p == nil {
 		return
 	}
-	if err := s.executionStore.SaveRouteDecision(ctx, buildRouteDecision(p, decisionSeq)); err != nil {
+	decision := buildRouteDecision(p, decisionSeq)
+	if summary := speakerSelectionSummary(records, termination); summary != "" {
+		if decision.ReasonSummary != "" {
+			decision.ReasonSummary += "; "
+		}
+		decision.ReasonSummary += summary
+		if len(decision.ReasonSummary) > 512 {
+			decision.ReasonSummary = decision.ReasonSummary[:512]
+		}
+	}
+	if err := s.executionStore.SaveRouteDecision(ctx, decision); err != nil {
 		log.Printf("orchestrator: run=%s save route decision failed: %v", p.RunID, err)
 	}
+}
+
+func speakerSelectionSummary(records []speakerSelectionRecord, termination string) string {
+	parts := make([]string, 0, len(records)+1)
+	for _, record := range records {
+		if record.Done {
+			parts = append(parts, "stop: "+record.Reason)
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("turn %d %s: %s", record.Round, record.AgentName, record.Reason))
+	}
+	if termination != "" && (len(records) == 0 || !records[len(records)-1].Done) {
+		parts = append(parts, "stop: "+termination)
+	}
+	return strings.Join(parts, "; ")
 }

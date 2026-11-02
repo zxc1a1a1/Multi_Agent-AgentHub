@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/pruning"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
-	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/executor"
-	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/executor"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
@@ -236,8 +236,20 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		orchPlan.Strategy = plan.StrategySequential
 	}
 
+	var speakerSelections []speakerSelectionRecord
+	var speakerTermination string
 	if orchPlan.ExecutionPath == string(executionpath.PathGroupChat) {
-		orchPlan = expandGroupChatRounds(orchPlan, groupChatMaxRounds(), userText)
+		expanded, selections, termination, selectionErr := s.expandGroupChatPlan(r.Context(), orchPlan, userText, ledger.budget)
+		if selectionErr != nil {
+			log.Printf("orchestrator: run=%s speaker selection failed: %v", runID, selectionErr)
+			ledger.terminal(context.Background(), "failed", "speaker_selection_failed")
+			s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_SPEAKER_SELECTION_FAILED",
+				"Group chat speaker selection failed")
+			return
+		}
+		orchPlan = expanded
+		speakerSelections = selections
+		speakerTermination = termination
 	}
 
 	// Validate the plan before execution.
@@ -287,7 +299,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		}
 		orchPlan.AllowedAgents = selResult.AllowedAgents
 	}
-	s.recordRouteDecision(r.Context(), orchPlan, 0)
+	s.recordRouteDecision(r.Context(), orchPlan, 0, speakerSelections, speakerTermination)
 
 	if ledger.enrolled() {
 		if err := ledger.savePlan(r.Context(), orchPlan); err != nil {

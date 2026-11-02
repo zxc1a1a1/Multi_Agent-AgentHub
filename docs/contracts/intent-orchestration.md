@@ -112,7 +112,7 @@
 ## 路由决策契约（v3 A0-03 冻结）
 
 每次 run 必须能回答：走了哪条路径、考虑过哪些 Agent、为什么选中、为什么拒绝。
-状态等级：`未实现`（本合约先冻结字段，`route_decisions` 写入在 A4-01 落地）。
+状态等级：`已实现`（A4-01 落库；A4-05 追加模型选发言者决策）。
 
 ### 表 `route_decisions`
 
@@ -142,3 +142,19 @@
 - 每次 run 至少一条决策；`selected_json` 必须等于实际派发的 Agent 集合。
 - 拒绝原因使用稳定 code，不写自由文本堆栈。
 - 无 `route_decisions` 时指标必须显示“缺失”，不能默认为 100% 命中。
+
+## 群聊发言者选择（v3 A4-05）
+
+- 默认模式 `GROUP_CHAT_SPEAKER_MODE=round_robin`，行为与 A4-04 一致。
+- `GROUP_CHAT_SPEAKER_MODE=model` 时，`MainAgent` 兼任 `SpeakerSelector`，逐位选择发言者：
+  输出 `{"speaker":"<name>","reason":"...","done":false}` 或 `{"done":true,"reason":"..."}`。
+- 候选边界 = 当前计划中已勾选/必需的参与者；模型输出越界、缺少理由、连续重复上一发言者、
+  或首轮即终止，都直接使 run 失败（`ORCHESTRATOR_SPEAKER_SELECTION_FAILED`），不静默改选。
+- 终止条件：模型 `done=true`，或达到
+  `GROUP_CHAT_MAX_ROUNDS × 参与者数` 的发言上限。
+- 每次选择写入该 run 的 `route_decisions`（与初始计划同一行），`reason_summary` 追加
+  `speaker selection: turn N <agent>: <reason>; stop: <reason>`，总长截断到 512；
+  `selected_json` 仍是实际派发的 Agent 集合，不新增 decision_seq，避免路由指标把一次
+  群聊误计为 re-plan 循环。
+- 选择发生在计划展开阶段，依据用户消息、参与者角色与既有选择理由；尚未实现执行中依据
+  Agent 输出动态重选（后续任务）。

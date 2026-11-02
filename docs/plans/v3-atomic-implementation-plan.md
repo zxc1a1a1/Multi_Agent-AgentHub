@@ -343,11 +343,12 @@ P0 契约/决策冻结
 | A3-04 | PASS | `146e892` | 禁用 Agent 不可选；注册后 picker 重载；禁用判断移除后测试 FAIL |
 | A3-05 | PASS | `94fa1f5` | 网关按 turnIndex/messageId 累积，AGENT_TURN_FINISHED 时逐轮投影；无 turn 事件仍合并一条；禁用 finish 投影后测试 FAIL（历史被合并） |
 | A3-06 | PASS | `4597d7d` | GroupPlanCard 每成员勾选，required 不可取消；选择随 approve/revise 提交；后端 filterPlanByConfirmedParticipants 只派发已确认 Agent 的任务（单测） |
-| A3-07 | PASS | 待提交 | Playwright + 系统 Edge：创建会话→勾选 2 Agent→发送→群计划→取消→刷新；断言参与者恢复与两 Agent 历史；`PLAYWRIGHT_CHANNEL=msedge` 运行通过 |
+| A3-07 | PASS | `21ccdf2` | Playwright + 系统 Edge：创建会话→勾选 2 Agent→发送→群计划→取消→刷新；断言参与者恢复与两 Agent 历史；`PLAYWRIGHT_CHANNEL=msedge` 运行通过 |
 | A4-01 | PASS（单测；集成 SKIP） | `7aa6cde` | route_decisions 表 + 决策构建/查询接口；记录 path/strategy/候选/选中/拒绝原因；移除记录调用后测试 FAIL |
 | A4-02 | PASS（单测） | `13c016b` | sequential 走 DAGExecutor：拓扑波次并发、依赖失败跳过、上游输出注入；ordered_parallel 仍串行保序 |
 | A4-03 | PASS（单测） | `2582a6d` | DAG 波次受 ParallelTasks 信号量限制；ctx 取消停止派发并传入 dispatcher；移除信号量后测试 FAIL |
-| A4-04 | PASS（确定性 round-robin） | 待提交 | GROUP_CHAT_MAX_ROUNDS 控制轮数（默认 1）；展开为 sequential 依赖链，轮转发言、无连续同一人、注入上一发言输出；handler 测试 2 轮 2 Agent 派发 4 次 |
+| A4-04 | PASS（确定性 round-robin） | `68b352a` | GROUP_CHAT_MAX_ROUNDS 控制轮数（默认 1）；展开为 sequential 依赖链，轮转发言、无连续同一人、注入上一发言输出；handler 测试 2 轮 2 Agent 派发 4 次 |
+| A4-05 | PASS（计划期模型选择；默认 round_robin） | 待提交 | MainAgent 兼 SpeakerSelector，输出 speaker/reason/done；越界/缺理由/连续重复/首轮停止即失败；`GROUP_CHAT_SPEAKER_MODE=model` 启用，上限 MAX_ROUNDS×参与者；理由写入 route_decisions.reason_summary；红检关闭 allowlist 后测试 FAIL；执行中按输出动态重选未做 |
 | A5-07 | PASS（前端单测） | `a4949e5` | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
 | A5-01 | PASS | `465f35d` | 新模块 markdown-agent：A2A AgentCard/health、确定性 Agent、无模型密钥；未加入 compose，默认不启用 |
 | A5-02a | PASS | `6b5fcd4` | goldmark 渲染；raw HTML 被丢弃；GFM 表格/链接测试 |
@@ -370,7 +371,7 @@ P0 契约/决策冻结
 | A6-07 | PASS（指标；告警未接入） | `55c8a19` | Orchestrator `/internal/orchestrator/metrics` 聚合 executions/approvals/tool_calls 状态；Gateway `/internal/metrics` 暴露 chat stream/SSE 事件/写错误/断连计数；A4-07 路由指标保留 |
 | A6-04 | PASS（CI 集成；本机 SKIP） | `467397b` | 两个 worker 并发恢复同一 run，仍只写 2 条 turn 消息且 offset=4；本机无 DSN 未执行，CI 门禁负责运行 |
 | A6-05 | PASS（CI 集成；本机 SKIP） | `9ab66ab` | 两个 Orchestrator 共享 MySQL：A 启动待审批 run，B confirm 写 run_signals，A 消费并执行至 completed；本机无 DSN 未执行 |
-| A6-03 | PASS（adapter；未接 publish） | 待提交 | S3ObjectStore：EnsureBucket/Put/Get/Presign/Delete；key 安全校验、10MB 上限、7 天签名上限；fake S3 验证跨 HTTP 读写与签名 URL；未接入 artifact publish 主路径 |
+| A6-03 | PASS（adapter；未接 publish） | `3324253` | S3ObjectStore：EnsureBucket/Put/Get/Presign/Delete；key 安全校验、10MB 上限、7 天签名上限；fake S3 验证跨 HTTP 读写与签名 URL；未接入 artifact publish 主路径 |
 | A6-03..A6-07、P5 其余 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
@@ -394,7 +395,7 @@ P0 契约/决策冻结
 | `cd frontend && vite build` | PASS；主 chunk gzip 447KB（接近 G5 500KB 预算） |
 | MySQL/Redis 集成测试 | SKIP（本机无 `AGENTHUB_MYSQL_TEST_DSN` / `AGENTHUB_REDIS_TEST_ADDR`；CI 门禁已配置） |
 
-未完成范围：A1-09c 的完整终态接管、A2-02 生产 Broker 接线及 A2-03..A2-08、A3-07、A4、A5（除 A5-07）、A6 全部。G1/G2/G3/G4/G5/G6 均未整体通过。
+未完成范围（截至 2026-11-02）：A4-06 受控 handoff、A5-05 PDF 导出、A5-11 Playwright 截图制品、A6-06 OTel；A6-01 的 Nginx/自动备份、A6-03 的对象存储 publish 接线。G1–G6 仍未整体认证（本机 MySQL/Redis 集成 SKIP，CI 门禁未在 GitHub 实跑）。
 
 
 ### 增量验证（2026-11-02）
@@ -416,13 +417,14 @@ P0 契约/决策冻结
 | `cd frontend && vite build` | PASS；首屏主 chunk 465KB/gzip 约 133KB；语言 chunks 懒加载（部分单 chunk >500KB） |
 | `cd services/agents/code-agent && go test ./... -count=1` | PASS（只读 workspace 真实文件） |
 | `cd services/agents/diff-agent && go test ./... -count=1` | PASS（多 hunk unified diff） |
+| `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新） |
 
 ### 门禁状态（诚实版）
 
 - G0：契约/决策已冻结；部分契约为“字段已冻结、实现未完成”。
 - G1：审批/取消/幂等/租约/投影有单测，但 MySQL/Redis 集成未在本机执行（SKIP），未整体通过。
-- G2：ADK 副作用 Guard 已强制；生产 Broker 授权/结果接线（A2-02）未完成，未通过。
-- G3：成员持久化、逐轮历史、参与者取消派发已落地；A3-07 浏览器 E2E 未做。
-- G4：路由决策与 DAG 并行/取消已落地；群聊 round-robin/受控 handoff 未做。
-- G5：XSS 消毒已落地；Shiki/diff2html/Mermaid/KaTeX/导出未做。
-- G6：仅单机本地卷 ArtifactStore；Nginx/对象存储/多副本/OTel/指标未做。
+- G2：ADK 副作用 Guard 已强制，生产 Broker 授权/结果/审批接线已落地；审批单仍由平台侧创建，未通过整体认证。
+- G3：成员持久化、逐轮历史、参与者取消派发、浏览器 E2E 已落地；未整体认证。
+- G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者已落地；执行中动态重选与受控 handoff 未做。
+- G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX 已落地；导出未做。
+- G6：单机本地卷 ArtifactStore、S3 适配器（未接 publish）、指标已落地；Nginx/多副本/OTel 未做。
