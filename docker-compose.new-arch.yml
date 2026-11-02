@@ -55,6 +55,9 @@ services:
       CODE_AGENT_LLM_BASE_URL: "${CODE_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
+      ORCHESTRATOR_TOOL_AUTHORIZE_URL: "http://orchestrator-new:8080/internal/orchestrator/tools/authorize"
+      ORCHESTRATOR_TOOL_RESULT_URL: "http://orchestrator-new:8080/internal/orchestrator/tools/result"
+      ORCHESTRATOR_HANDOFF_URL: "http://orchestrator-new:8080/internal/orchestrator/tools/handoff"
     ports:
       - "8081:8080"
     healthcheck:
@@ -76,6 +79,9 @@ services:
       WEB_AGENT_LLM_BASE_URL: "${WEB_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
+      ORCHESTRATOR_TOOL_AUTHORIZE_URL: "http://orchestrator-new:8080/internal/orchestrator/tools/authorize"
+      ORCHESTRATOR_TOOL_RESULT_URL: "http://orchestrator-new:8080/internal/orchestrator/tools/result"
+      ORCHESTRATOR_RENDER_URL: "http://orchestrator-new:8080/internal/orchestrator/render"
     ports:
       - "8082:8080"
     healthcheck:
