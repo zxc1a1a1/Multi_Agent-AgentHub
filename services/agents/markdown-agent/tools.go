@@ -11,7 +11,7 @@ import (
 // DefaultTools returns the deterministic Markdown capability tools exposed to
 // the ADK runner. None of them execute code or touch the network.
 func DefaultTools() []adk.Tool {
-	return []adk.Tool{RenderTool{}, LintTool{}, FrontmatterTool{}, TOCTool{}}
+	return []adk.Tool{RenderTool{}, LintTool{}, FrontmatterTool{}, TOCTool{}, MermaidValidateTool{}}
 }
 
 func decodeArgs(raw json.RawMessage) (string, error) {
@@ -115,6 +115,27 @@ func (TOCTool) Execute(_ context.Context, args json.RawMessage) (*adk.ToolResult
 		return errorResult(err), nil
 	}
 	data, err := json.Marshal(GenerateTOC(source))
+	if err != nil {
+		return errorResult(err), nil
+	}
+	return &adk.ToolResult{Content: string(data)}, nil
+}
+
+// MermaidValidateTool validates fenced Mermaid diagrams without rendering them.
+type MermaidValidateTool struct{}
+
+func (MermaidValidateTool) Name() string        { return "markdown.validate_mermaid" }
+func (MermaidValidateTool) Description() string { return "Validate Mermaid diagram syntax and report line/column." }
+func (MermaidValidateTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"markdown":{"type":"string"}},"required":["markdown"],"additionalProperties":false}`)
+}
+
+func (MermaidValidateTool) Execute(_ context.Context, args json.RawMessage) (*adk.ToolResult, error) {
+	source, err := decodeArgs(args)
+	if err != nil {
+		return errorResult(err), nil
+	}
+	data, err := json.Marshal(ValidateMermaid(source))
 	if err != nil {
 		return errorResult(err), nil
 	}

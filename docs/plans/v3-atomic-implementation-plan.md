@@ -173,7 +173,7 @@ P0 契约/决策冻结
 | A5-02b | markdown.lint（已实现，见日志） | markdown-agent | 标题/空链接/代码块语言可报行/列 | A5-02a |
 | A5-02c | frontmatter 解析/校验（已实现，见日志） | markdown-agent | YAML 合法/非法都有结果 | A5-02a |
 | A5-02d | TOC 生成（已实现，见日志） | markdown-agent | 锚点与渲染一致 | A5-02a |
-| A5-03a | Mermaid 语法校验 | markdown-agent/前端 | 错误图有行/列提示 | A5-02a |
+| A5-03a | Mermaid 语法校验（已实现 Go 侧，见日志） | markdown-agent/前端 | 错误图有行/列提示 | A5-02a |
 | A5-03b | Mermaid 渲染（strict/sandbox） | markdown-agent/前端 | 恶意脚本不执行 | A5-03a |
 | A5-04 | KaTeX render | markdown-agent/前端 | `trust:false`；危险命令被拒 | A5-02a |
 | A5-05 | 导出 PDF | markdown-agent + Playwright 沙箱 | 沙箱内导出；无内网访问 | A5-03b |
@@ -344,7 +344,8 @@ P0 契约/决策冻结
 | A5-02b | PASS | 待提交 | 标题缺空格/空链接/无语言代码块报行列 |
 | A5-02c | PASS | 待提交 | YAML 合法/非法/未闭合均有结果 |
 | A5-02d | PASS | 待提交 | 同一 parser 生成 TOC 锚点并与渲染 id 对齐 |
-| A5-03..A5-12、P6 | 未开始 | — | — |
+| A5-03a | PASS（Go 侧） | 待提交 | 校验 diagram 关键字/括号/引号/闭合 fence，报行列；前端 Mermaid 渲染 A5-03b 未实现 |
+| A5-03b..A5-12、P6 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
 
