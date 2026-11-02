@@ -16,7 +16,13 @@ const defaultMaxIterations = 25
 // bind platform-generated identity (run, task, approval, budget) to the call;
 // a missing or rejected guard must leave the tool unexecuted.
 type ToolGuard interface {
-	AuthorizeTool(ctx context.Context, tool Tool, args json.RawMessage) error
+	AuthorizeTool(ctx context.Context, tool Tool, args json.RawMessage, callID string) error
+}
+
+// ToolResultReporter records the terminal outcome of a side-effecting tool call.
+// A reporting failure must not turn a successful side effect into a silent one.
+type ToolResultReporter interface {
+	ReportToolResult(ctx context.Context, tool Tool, args json.RawMessage, callID string, result *ToolResult, execErr error) error
 }
 
 // SideEffectTool declares whether executing the tool changes external state.
@@ -59,6 +65,16 @@ func WithPlugins(plugins ...Plugin) RunOption {
 	}
 }
 
+// WithToolResultReporter sets the ledger reporter for side-effecting tools.
+func WithToolResultReporter(reporter ToolResultReporter) RunOption {
+	return func(r *Runner) {
+		if r == nil {
+			return
+		}
+		r.toolReporter = reporter
+	}
+}
+
 // WithToolGuard sets the mandatory guard for side-effecting tools.
 func WithToolGuard(guard ToolGuard) RunOption {
 	return func(r *Runner) {
@@ -76,6 +92,7 @@ type Runner struct {
 	tools         []Tool
 	plugins       []Plugin
 	toolGuard     ToolGuard
+	toolReporter  ToolResultReporter
 	maxIterations int
 }
 
@@ -473,7 +490,7 @@ func (r *Runner) findTool(name string) Tool {
 // authorizeTool enforces the mandatory guard for side-effecting tools. A tool
 // that does not declare read-only semantics through SideEffectTool is treated
 // as read-only; platform write tools always implement SideEffectTool.
-func (r *Runner) authorizeTool(ctx context.Context, tool Tool, args json.RawMessage) error {
+func (r *Runner) authorizeTool(ctx context.Context, tool Tool, args json.RawMessage, callID string) error {
 	sideEffect, ok := tool.(SideEffectTool)
 	if !ok || !sideEffect.SideEffect() {
 		return nil
@@ -481,10 +498,21 @@ func (r *Runner) authorizeTool(ctx context.Context, tool Tool, args json.RawMess
 	if r.toolGuard == nil {
 		return fmt.Errorf("tool %q requires approval but no tool guard is configured", tool.Name())
 	}
-	if err := r.toolGuard.AuthorizeTool(ctx, tool, args); err != nil {
+	if err := r.toolGuard.AuthorizeTool(ctx, tool, args, callID); err != nil {
 		return fmt.Errorf("tool %q not authorized: %w", tool.Name(), err)
 	}
 	return nil
+}
+
+func (r *Runner) reportToolResult(ctx context.Context, tool Tool, args json.RawMessage, callID string, result *ToolResult, execErr error) error {
+	if r.toolReporter == nil {
+		return nil
+	}
+	sideEffect, ok := tool.(SideEffectTool)
+	if !ok || !sideEffect.SideEffect() {
+		return nil
+	}
+	return r.toolReporter.ReportToolResult(ctx, tool, args, callID, result, execErr)
 }
 
 func (r *Runner) executeTools(ctx context.Context, sess *Session, parts []Part) ([]ToolResultPart, error) {
@@ -516,7 +544,7 @@ func (r *Runner) executeTools(ctx context.Context, sess *Session, parts []Part) 
 				IsError: true,
 			}
 		default:
-			if guardErr := r.authorizeTool(ctx, tool, call.Arguments); guardErr != nil {
+			if guardErr := r.authorizeTool(ctx, tool, call.Arguments, call.ID); guardErr != nil {
 				toolResult = &ToolResult{Content: guardErr.Error(), IsError: true}
 				break
 			}
@@ -533,6 +561,12 @@ func (r *Runner) executeTools(ctx context.Context, sess *Session, parts []Part) 
 				}
 			} else {
 				toolResult = execResult
+			}
+			if reportErr := r.reportToolResult(ctx, tool, call.Arguments, call.ID, toolResult, err); reportErr != nil {
+				toolResult = &ToolResult{
+					Content: "tool result ledger unavailable: " + reportErr.Error(),
+					IsError: true,
+				}
 			}
 		}
 

@@ -272,7 +272,7 @@ type recordingGuard struct {
 	err   error
 }
 
-func (g *recordingGuard) AuthorizeTool(context.Context, Tool, json.RawMessage) error {
+func (g *recordingGuard) AuthorizeTool(context.Context, Tool, json.RawMessage, string) error {
 	g.calls++
 	return g.err
 }
@@ -904,5 +904,64 @@ func TestRunner_EventAuthorAndFinalFlags(t *testing.T) {
 	}
 	if !finalEvent.Final {
 		t.Fatal("expected final event final=true")
+	}
+}
+
+type recordingReporter struct {
+	calls  int
+	callID string
+	result *ToolResult
+	err    error
+}
+
+func (r *recordingReporter) ReportToolResult(_ context.Context, _ Tool, _ json.RawMessage, callID string, result *ToolResult, _ error) error {
+	r.calls++
+	r.callID = callID
+	r.result = result
+	return r.err
+}
+
+func TestRunnerReportsSideEffectToolResult(t *testing.T) {
+	sessionSvc := NewMemorySessionService()
+	session := mustCreateSession(t, sessionSvc)
+	tool := &guardedTool{name: "workspace.apply_patch", sideEffect: true}
+	guard := &recordingGuard{}
+	reporter := &recordingReporter{}
+	runner := NewRunner(singleToolCallAgent(tool.name), sessionSvc,
+		WithTools(tool), WithToolGuard(guard), WithToolResultReporter(reporter))
+
+	if _, err := collectRun(runner.Run(context.Background(), session.ID, newUserContent("go"))); err != nil {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+	if reporter.calls != 1 || reporter.callID != "call-1" || reporter.result == nil || reporter.result.Content != "executed" {
+		t.Fatalf("result not reported: %#v", reporter)
+	}
+}
+
+func TestRunnerReporterFailureMarksToolResultError(t *testing.T) {
+	sessionSvc := NewMemorySessionService()
+	session := mustCreateSession(t, sessionSvc)
+	tool := &guardedTool{name: "workspace.apply_patch", sideEffect: true}
+	runner := NewRunner(singleToolCallAgent(tool.name), sessionSvc,
+		WithTools(tool), WithToolGuard(&recordingGuard{}),
+		WithToolResultReporter(&recordingReporter{err: errors.New("ledger down")}))
+
+	events, err := collectRun(runner.Run(context.Background(), session.ID, newUserContent("go")))
+	if err != nil {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+	found := false
+	for _, event := range events {
+		if event.Content == nil {
+			continue
+		}
+		for _, part := range event.Content.Parts {
+			if result, ok := part.(ToolResultPart); ok && result.IsError && strings.Contains(result.Content, "ledger unavailable") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("reporter failure must mark tool result error: %#v", events)
 	}
 }

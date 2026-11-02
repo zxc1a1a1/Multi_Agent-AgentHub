@@ -939,3 +939,34 @@ func TestServer_TasksMessage_NotFound(t *testing.T) {
 		t.Fatalf("expected 404 for unknown task, got %d", msgResp.Code)
 	}
 }
+
+func TestServerPropagatesRunEnvelopeToAgentContext(t *testing.T) {
+	agent := &mockServerAgent{
+		name: "envelope-agent",
+		generate: func(ctx context.Context, req *adk.GenerateRequest) (*adk.GenerateResponse, error) {
+			identity, ok := adk.RunIdentityFromContext(ctx)
+			if !ok {
+				return &adk.GenerateResponse{Parts: []adk.Part{adk.TextPart{Text: "missing"}}}, nil
+			}
+			return &adk.GenerateResponse{
+				Parts:        []adk.Part{adk.TextPart{Text: identity.RunID + "/" + identity.TaskID}},
+				FinishReason: adk.FinishStop,
+			}, nil
+		},
+	}
+	server, sessionID := newTestServer(t, defaultConfig("envelope-agent"), agent)
+	rec, body := doRequest(t, server, http.MethodPost, "/", `{"jsonrpc":"2.0","id":"1","method":"tasks/sendSubscribe","params":{`+
+		`"sessionId":"`+sessionID+`","message":{"role":"user","content":"hi"},`+
+		`"envelope":{"runId":"run-1","taskId":"task-1","principalId":"user-1","fencingVersion":3,"approvalId":"appr-1"}}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("request failed: %d %s", rec.Code, body)
+	}
+	var response runResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Events) == 0 || len(response.Events[0].Parts) == 0 ||
+		response.Events[0].Parts[0].Text != "run-1/task-1" {
+		t.Fatalf("envelope not propagated: %s", body)
+	}
+}

@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 )
 
 const (
@@ -39,6 +41,9 @@ type RunRequest struct {
 	Message   Message `json:"message"`
 	TraceID   string  `json:"traceId,omitempty"`
 	Mode      string  `json:"mode,omitempty"`
+	// Envelope is platform-generated identity for tool authorization. It is
+	// ignored by the model and never accepted from user input.
+	Envelope *adk.RunIdentity `json:"envelope,omitempty"`
 }
 
 // ResponseError defines the minimal structured error payload.

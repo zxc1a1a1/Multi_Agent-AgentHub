@@ -22,9 +22,10 @@ type Server struct {
 }
 
 type runRequest struct {
-	SessionID string           `json:"sessionId"`
-	Message   *runRequestEntry `json:"message"`
-	Mode      string           `json:"mode,omitempty"`
+	SessionID string            `json:"sessionId"`
+	Message   *runRequestEntry  `json:"message"`
+	Mode      string            `json:"mode,omitempty"`
+	Envelope  *adk.RunIdentity  `json:"envelope,omitempty"`
 }
 
 type runRequestEntry struct {
@@ -219,6 +220,9 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	// This is done after validation so early returns don't leak the context.
 	runCtx, cancel := context.WithCancel(r.Context())
 	defer cancel() // Always clean up the context; TaskStore.Cancel also calls it.
+	if reqPayload.Envelope != nil {
+		runCtx = adk.WithRunIdentity(runCtx, *reqPayload.Envelope)
+	}
 
 	if s.taskStore != nil {
 		s.taskStore.Create(taskID, reqPayload.SessionID, cancel)
