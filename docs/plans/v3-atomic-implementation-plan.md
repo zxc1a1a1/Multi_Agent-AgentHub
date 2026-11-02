@@ -372,7 +372,7 @@ P0 契约/决策冻结
 | A5-10b | PASS | 6c38c87 | 仅在内容含 $...$ 时动态加载 remark-math/rehype-katex/katex CSS；失败保持原文；禁用加载后测试 FAIL |
 | A6-01 | PASS（静态配置；本地未跑 nginx） | `af854af` | `deploy/nginx/agenthub.conf`：/api→Gateway（SSE 关闭 buffering）、/internal 404、其余→前端；compose 增加 nginx 服务；`scripts/backup-agenthub.sh` + systemd timer；`bash -n`、fake mysqldump 备份/保留期、compose YAML 通过；CI 增加 `nginx -t` 步骤但未实跑，本地无 nginx |
 | A6-08 | PASS（文档，单机） | `dbb0aff,519079a` | Runbook 覆盖启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；新增渲染导出与 OTel/Prometheus 排查；明确未覆盖运行时多副本/S3/collector 验证 |
-| A6-07 | PASS（指标 + 规则；告警通道未接） | `b96ed60` | Orchestrator/Gateway 指标保留；三入口支持 `format=prometheus`；`deploy/prometheus/{prometheus,alerts}.yml` 覆盖 down/run/approval/tool unknown/SSE/路由缺失；CI 增加 promtool 校验但未实跑，未接 Alertmanager |
+| A6-07 | PASS（指标 + 规则；告警通道未接） | `b96ed60` | Orchestrator/Gateway 指标保留；三入口支持 `format=prometheus`；`deploy/prometheus/{prometheus,alerts}.yml` 覆盖 down/run/approval/tool unknown/SSE/路由缺失；本机 promtool v3.1.0 校验 config + 7 条 rules 通过；未接 Alertmanager |
 | A6-04 | PASS（内存本机；MySQL CI 待跑） | `467397b,956ec06` | 两个 worker 并发恢复同一 run：内存 store 本机 PASS（2 条消息、offset=7、二次恢复 0）；MySQL 版本 CI 待跑 |
 | A6-05 | PASS（内存跨实例；MySQL CI 待跑） | `9ab66ab,4da8bbe,6a78723` | 两个 Orchestrator 共享 store：A 待审批、B confirm 写 run_signals、A 消费并执行；B cancel 可终止 A 的待审批 run；内存版本本机 PASS，MySQL 版本 CI 待跑 |
 | A6-06 | PASS（SDK/传播；collector 配置未实跑） | `de167e3,92a3424` | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP；Gateway/Orchestrator 与全部 service agents server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；compose observability profile 含 otel-collector/jaeger；内存导出测试证明同 trace；红检移除 Transport 后测试 FAIL；容器未启动 |
@@ -438,6 +438,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `frontend: ArtifactCard tests + npm run build` | PASS（11 tests；图片预览/下载链接；build 通过） |
 | CI workflow / Prometheus / compose / otel 配置 YAML 解析 | PASS（未在 GitHub / Prometheus / 容器实跑） |
 | `actionlint .github/workflows/v3-integration-gates.yml` | PASS（exit 0） |
+| `promtool check config/rules`（v3.1.0，本机） | PASS（config 有效；7 rules 有效） |
 | `cd services/orchestrator && go test ./planner/` | PASS（sequential 校验 + DAG 相关） |
 | `cd services/orchestrator && go test ./httpapi/ -run TestTwoInstancesShareHITLSignal` | PASS（共享 store 跨实例 confirm→signal→执行） |
 | `cd services/gateway && go test ./projection/ -run TestTwoWorkersProjectTurnsWithoutDuplicatesInMemory` | PASS（双 worker 并发投影无重复） |
