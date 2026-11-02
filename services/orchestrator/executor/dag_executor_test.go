@@ -115,3 +115,103 @@ func TestDAGExecutorRunsWavesConcurrentlyAndRespectsDependencies(t *testing.T) {
 		}
 	}
 }
+
+type concurrencyDispatcher struct {
+	active    int32
+	maxActive int32
+}
+
+func (d *concurrencyDispatcher) Dispatch(context.Context, dispatcher.DispatchInput) (*dispatcher.DispatchResult, error) {
+	return nil, errors.New("not used")
+}
+
+func (d *concurrencyDispatcher) DispatchStream(_ context.Context, input dispatcher.DispatchInput) func(yield func(dispatcher.DispatchChunk) bool) {
+	return func(yield func(dispatcher.DispatchChunk) bool) {
+		current := atomic.AddInt32(&d.active, 1)
+		for {
+			observed := atomic.LoadInt32(&d.maxActive)
+			if current <= observed || atomic.CompareAndSwapInt32(&d.maxActive, observed, current) {
+				break
+			}
+		}
+		time.Sleep(40 * time.Millisecond)
+		atomic.AddInt32(&d.active, -1)
+		yield(dispatcher.DispatchChunk{Text: "ok-" + input.Message})
+	}
+}
+
+func TestDAGExecutorRespectsParallelLimit(t *testing.T) {
+	disp := &concurrencyDispatcher{}
+	e := NewDAGExecutor(newStubRegistry(), disp, WithDAGMaxParallel(2))
+	p := &plan.OrchestrationPlan{
+		RunID: "run-limit", Strategy: plan.StrategySequential,
+		Tasks: []plan.TaskPlan{
+			{TaskID: "t1", AgentName: "code-agent", TaskContent: "task-t1"},
+			{TaskID: "t2", AgentName: "code-agent", TaskContent: "task-t2"},
+			{TaskID: "t3", AgentName: "code-agent", TaskContent: "task-t3"},
+			{TaskID: "t4", AgentName: "code-agent", TaskContent: "task-t4"},
+		},
+		Validation: plan.Validation{Validated: true},
+	}
+	if err := e.ExecuteStream(context.Background(), p, "msg", func(ExecutionEvent) bool { return true }); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	max := atomic.LoadInt32(&disp.maxActive)
+	if max > 2 {
+		t.Fatalf("parallel limit exceeded: max=%d", max)
+	}
+	if max < 2 {
+		t.Fatalf("expected concurrent execution within the limit, max=%d", max)
+	}
+}
+
+func TestDAGExecutorStopsOnCancel(t *testing.T) {
+	blocking := &cancelBlockingDispatcher{started: make(chan string, 4)}
+	e := NewDAGExecutor(newStubRegistry(), blocking, WithDAGMaxParallel(2))
+	p := &plan.OrchestrationPlan{
+		RunID: "run-cancel-dag", Strategy: plan.StrategySequential,
+		Tasks: []plan.TaskPlan{
+			{TaskID: "t1", AgentName: "code-agent", TaskContent: "task-t1"},
+			{TaskID: "t2", AgentName: "code-agent", TaskContent: "task-t2"},
+			{TaskID: "t3", AgentName: "code-agent", TaskContent: "task-t3"},
+		},
+		Validation: plan.Validation{Validated: true},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = e.ExecuteStream(ctx, p, "msg", func(ExecutionEvent) bool { return true })
+	}()
+	select {
+	case <-blocking.started:
+		cancel()
+	case <-time.After(2 * time.Second):
+		t.Fatal("no task started")
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancellation did not stop the DAG executor")
+	}
+}
+
+type cancelBlockingDispatcher struct {
+	started chan string
+}
+
+func (d *cancelBlockingDispatcher) Dispatch(context.Context, dispatcher.DispatchInput) (*dispatcher.DispatchResult, error) {
+	return nil, errors.New("not used")
+}
+
+func (d *cancelBlockingDispatcher) DispatchStream(ctx context.Context, input dispatcher.DispatchInput) func(yield func(dispatcher.DispatchChunk) bool) {
+	return func(yield func(dispatcher.DispatchChunk) bool) {
+		d.started <- input.Message
+		select {
+		case <-ctx.Done():
+			yield(dispatcher.DispatchChunk{Err: ctx.Err()})
+		case <-time.After(5 * time.Second):
+			yield(dispatcher.DispatchChunk{Text: "late"})
+		}
+	}
+}

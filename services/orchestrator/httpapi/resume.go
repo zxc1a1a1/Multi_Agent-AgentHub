@@ -163,7 +163,7 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 			executor.NewSingleExecutor(s.dispatchResolver(), s.dispatcher, executor.WithSingleSynthesizer(s.synthesizer)))
 	case plan.StrategySequential:
 		outcome = s.executeViaStreamingExecutor(w, flusher, req, &p, msgID,
-			executor.NewDAGExecutor(s.dispatchResolver(), s.dispatcher, executor.WithDAGSynthesizer(s.synthesizer)))
+			executor.NewDAGExecutor(s.dispatchResolver(), s.dispatcher, executor.WithDAGSynthesizer(s.synthesizer), executor.WithDAGMaxParallel(s.budgetLimits.ParallelTasks)))
 	case plan.StrategyOrderedParallel:
 		outcome = s.executeViaStreamingExecutor(w, flusher, req, &p, msgID,
 			executor.NewSerialExecutor(s.dispatchResolver(), s.dispatcher, executor.WithSerialSynthesizer(s.synthesizer)))

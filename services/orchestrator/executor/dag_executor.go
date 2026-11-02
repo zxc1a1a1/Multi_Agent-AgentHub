@@ -25,6 +25,7 @@ type DAGExecutor struct {
 	registry    AgentRegistry
 	dispatcher  AgentDispatcher
 	synthesizer synthesizer.Synthesizer
+	maxParallel int
 }
 
 // DAGExecutorOption customizes a DAGExecutor.
@@ -40,11 +41,21 @@ func WithDAGSynthesizer(s synthesizer.Synthesizer) DAGExecutorOption {
 	}
 }
 
+// WithDAGMaxParallel caps how many tasks in one wave may run at once.
+func WithDAGMaxParallel(n int) DAGExecutorOption {
+	return func(e *DAGExecutor) {
+		if e != nil && n > 0 {
+			e.maxParallel = n
+		}
+	}
+}
+
 // NewDAGExecutor creates a DAGExecutor backed by the given registry and dispatcher.
 func NewDAGExecutor(reg AgentRegistry, disp AgentDispatcher, opts ...DAGExecutorOption) *DAGExecutor {
 	e := &DAGExecutor{
-		registry:   reg,
-		dispatcher: disp,
+		registry:    reg,
+		dispatcher:  disp,
+		maxParallel: 3,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -126,11 +137,31 @@ func (e *DAGExecutor) ExecuteStream(ctx context.Context, p *plan.OrchestrationPl
 		var mu sync.Mutex
 		var wg sync.WaitGroup
 		outcomes := make([]waveOutcome, len(w))
+		maxParallel := e.maxParallel
+		if maxParallel <= 0 {
+			maxParallel = 3
+		}
+		sem := make(chan struct{}, maxParallel)
 
 		for i, task := range w {
 			wg.Add(1)
 			go func(idx int, t plan.TaskPlan) {
 				defer wg.Done()
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					mu.Lock()
+					outcomes[idx] = waveOutcome{taskPlan: t, ok: false}
+					mu.Unlock()
+					return
+				}
+				if err := ctx.Err(); err != nil {
+					mu.Lock()
+					outcomes[idx] = waveOutcome{taskPlan: t, ok: false}
+					mu.Unlock()
+					return
+				}
 
 				taskMsgID := fmt.Sprintf("%s_w%d_%d", msgID, waveIdx, idx)
 

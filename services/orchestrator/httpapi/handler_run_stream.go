@@ -732,7 +732,8 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	case plan.StrategySequential:
 		outcome = s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
 			executor.NewDAGExecutor(s.dispatchResolver(), s.dispatcher,
-				executor.WithDAGSynthesizer(s.synthesizer)))
+				executor.WithDAGSynthesizer(s.synthesizer),
+				executor.WithDAGMaxParallel(s.budgetLimits.ParallelTasks)))
 	case plan.StrategyOrderedParallel:
 		// Ordered output keeps the serial executor for stable presentation order.
 		outcome = s.executeViaStreamingExecutor(w, flusher, r, orchPlan, msgID,
