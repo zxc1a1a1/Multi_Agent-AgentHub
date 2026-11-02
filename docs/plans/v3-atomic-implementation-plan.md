@@ -126,7 +126,7 @@ P0 契约/决策冻结
 | A2-02 | 按 A2-00 接入授权/结果账本 | `internal/toolruntime/broker.go` + 选定执行路径 | 审批/预算/fencing/unknown 生效 | A2-00、A2-01、A1-08 |
 | A2-03 | 工具预算真实扣减（broker 已实现） | broker + budget | 超预算拒绝；恢复不重置 | A2-02 |
 | A2-04 | 只读 workspace 工具接入 code-agent（已实现，见日志） | `pkg/runtime/tools`、code-agent | 能读真实文件；无写权限 | A2-01 |
-| A2-05 | apply_patch + sandbox.run_tests | 同上 + Docker | 未审批 0 调用；沙箱内执行 | A2-04 |
+| A2-05 | apply_patch + sandbox.run_tests（已接线，Docker 未验证） | 同上 + Docker | 未审批 0 调用；沙箱内执行 | A2-04 |
 | A2-06 | diff-agent 真实 unified diff（已实现，见日志） | `agents/diff-agent` | 多行 diff 正确；不再 1 行模板 | A2-01 |
 | A2-07a | security 真实扫描器（已实现工具） | security-agent + 工具 | 已知密钥/CVE 样例能复现 | A2-02 |
 | A2-07b | test 真实覆盖率/失败解析（已实现工具） | test-agent + 工具 | 已知测试日志/覆盖率能复现 | A2-02 |
@@ -330,7 +330,7 @@ P0 契约/决策冻结
 | A1-10 | PASS | `244f574` | 所有 handler 返回路径释放租约；resume 同样释放；Ctrl+C 后 `server.Shutdown` 等待在途 handler；移除 defer 后 planner 失败测试 FAIL |
 | A2-00 | PASS（决策） | `5637989` | 选择 agent-side authorize/result；生产接线未完成 |
 | A2-01 | PASS | `b9bfaf2` | 无 Guard 的副作用工具 0 调用；绕过 authorizeTool 后 3 个测试 FAIL |
-| A2-02 | PASS（授权/结果接线；审批单由平台创建） | 待提交 | A2A envelope 传播 run/task/fencing/principal/approval；RemoteGuard 写工具无 approval 本地拒绝；Orchestrator authorize/result 接 Broker；端到端测试覆盖允许→dispatch→结果记账；映射 403/409/429 |
+| A2-02 | PASS（授权/结果接线；审批单由平台创建） | `75b4e39` | A2A envelope 传播 run/task/fencing/principal/approval；RemoteGuard 写工具无 approval 本地拒绝；Orchestrator authorize/result 接 Broker；端到端测试覆盖允许→dispatch→结果记账；映射 403/409/429 |
 | A2-03 | PASS（Broker；生产接线待 A2-02） | d3b4529 | 从 checkpoint 恢复 usage 后 ReserveTool(1)；超限/损坏预算在审批消费与工具执行前失败；写调用持久化递增后的 BudgetJSON |
 | A2-04 | PASS | `d35aa42` | code-agent 通过 CODE_AGENT_WORKSPACE_ROOT 接入 list/read/search；工具均为 ReadOnly；测试读取真实文件且不含 apply_patch/sandbox |
 | A2-06 | PASS | `a0e5e4f` | generate_diff 使用 LCS 行级 diff，生成多 hunk/上下文/增删行；测试拒绝旧 1 行模板格式 |

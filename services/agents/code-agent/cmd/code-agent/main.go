@@ -83,6 +83,28 @@ func buildHandler(publicURL string) (http.Handler, error) {
 		log.Printf("INFO: code-agent read-only workspace tools enabled: %s", root)
 	}
 
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("CODE_AGENT_ENABLE_WRITE_TOOLS")), "true") {
+		root := strings.TrimSpace(os.Getenv("CODE_AGENT_WORKSPACE_ROOT"))
+		image := strings.TrimSpace(os.Getenv("CODE_AGENT_SANDBOX_IMAGE"))
+		if root == "" || image == "" {
+			return nil, errors.New("CODE_AGENT_WORKSPACE_ROOT and CODE_AGENT_SANDBOX_IMAGE are required when write tools are enabled")
+		}
+		allowed := splitCSV(os.Getenv("CODE_AGENT_SANDBOX_EXECUTABLES"))
+		if len(allowed) == 0 {
+			allowed = []string{"go"}
+		}
+		executor := &tools.DockerExecutor{Image: image, AllowNetwork: false}
+		writeTools, err := codeagent.WorkspaceWriteTools(root, executor, allowed)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Tools = append(cfg.Tools, writeTools...)
+		if cfg.ToolGuard == nil {
+			log.Printf("WARN: code-agent write tools enabled without tool authorization; ADK will block them")
+		}
+		log.Printf("INFO: code-agent write tools enabled (sandbox image %s)", image)
+	}
+
 	// Try to initialize an LLM Model for the agent.
 	if modelName := strings.TrimSpace(os.Getenv("CODE_AGENT_LLM_MODEL")); modelName != "" {
 		provider := strings.ToLower(strings.TrimSpace(os.Getenv("CODE_AGENT_LLM_PROVIDER")))
@@ -146,4 +168,16 @@ func createModelDirect(providerName, apiKey, modelName, baseURL string) (adk.Mod
 		BaseURL:   baseURL,
 		APIKeyEnv: envKey,
 	})
+}
+
+func splitCSV(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
