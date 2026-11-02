@@ -158,6 +158,7 @@ func (e *SerialExecutor) streamOneTask(ctx context.Context, p *plan.Orchestratio
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,
+		TaskID:         task.TaskID,
 		Message:        task.TaskContent,
 		TimeoutMs:      task.TimeoutMs,
 		TraceID:        p.TraceID,

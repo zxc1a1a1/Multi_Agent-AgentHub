@@ -297,6 +297,7 @@ func (e *OrderedParallelExecutor) streamOneTask(ctx context.Context, p *plan.Orc
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,
+		TaskID:         task.TaskID,
 		Message:        task.TaskContent,
 		TimeoutMs:      task.TimeoutMs,
 		TraceID:        p.TraceID,
@@ -394,6 +395,7 @@ func (e *OrderedParallelExecutor) executeOneTask(ctx context.Context, p *plan.Or
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,
+		TaskID:         task.TaskID,
 		Message:        task.TaskContent,
 		TraceID:        p.TraceID,
 	}

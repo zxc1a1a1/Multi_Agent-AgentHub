@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
 )
 
@@ -30,6 +31,7 @@ type DispatchInput struct {
 	AgentName      string
 	ConversationID string
 	RunID          string
+	TaskID         string
 	Message        string
 	TraceID        string
 	// TimeoutMs is the per-call timeout in milliseconds. Zero means use the
@@ -128,8 +130,9 @@ func (d *A2ADispatcher) Dispatch(ctx context.Context, input DispatchInput) (*Dis
 			Role:    "user",
 			Content: msg,
 		},
-		TraceID: input.TraceID,
-		Mode:    input.Mode,
+		TraceID:  input.TraceID,
+		Mode:     input.Mode,
+		Envelope: runEnvelopeFor(ctx, input),
 	}
 
 	attempts := 1
@@ -231,8 +234,9 @@ func (d *A2ADispatcher) DispatchStream(ctx context.Context, input DispatchInput)
 				Role:    "user",
 				Content: msg,
 			},
-			TraceID: input.TraceID,
-			Mode:    input.Mode,
+			TraceID:  input.TraceID,
+			Mode:     input.Mode,
+			Envelope: runEnvelopeFor(ctx, input),
 		}
 
 		// Streaming uses the per-call timeout but does not retry: once chunks
@@ -349,4 +353,17 @@ func extractArtifactFromPart(part a2a.PartDTO, sourceAgent string) *ArtifactMeta
 		Size:        meta.Size,
 		SourceAgent: sa,
 	}
+}
+
+func runEnvelopeFor(ctx context.Context, input DispatchInput) *adk.RunIdentity {
+	identity, _ := adk.RunIdentityFromContext(ctx)
+	identity.RunID = input.RunID
+	identity.TaskID = input.TaskID
+	if identity.TraceID == "" {
+		identity.TraceID = input.TraceID
+	}
+	if identity.PrincipalID == "" {
+		identity.PrincipalID = "anonymous"
+	}
+	return &identity
 }

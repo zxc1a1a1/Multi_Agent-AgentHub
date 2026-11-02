@@ -26,6 +26,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/httpapi"
 	memctl "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/memory"
 	ledger "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/persistence/mysql"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/toolruntime"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/relay"
@@ -265,6 +266,12 @@ func run() error {
 		ledgerDB = db
 		ledgerRepo = ledger.NewRepository(db)
 		serverOpts = append(serverOpts, httpapi.WithExecutionStore(execution.NewMySQLStore(ledgerRepo)))
+		broker, brokerErr := toolruntime.New(ledgerRepo, nil)
+		if brokerErr != nil {
+			db.Close()
+			return fmt.Errorf("create tool authorizer: %w", brokerErr)
+		}
+		serverOpts = append(serverOpts, httpapi.WithToolAuthorizer(broker))
 		log.Printf("orchestrator: durable run ledger enabled")
 
 		memRepo = ledger.NewMemoryRepository(db)

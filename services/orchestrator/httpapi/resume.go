@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/harness"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
@@ -144,6 +145,10 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 
 	execCtx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+	execCtx = adk.WithRunIdentity(execCtx, adk.RunIdentity{
+		RunID: runID, WorkspaceID: "default", PrincipalID: "resume",
+		FencingVersion: ledger.fencing,
+	})
 	ledger.startLeaseRenewal(execCtx, cancel)
 	defer ledger.stopLeaseRenewal()
 	go s.watchRunCancel(execCtx, runID, cancel)

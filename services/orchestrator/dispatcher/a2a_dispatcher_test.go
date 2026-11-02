@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
 )
 
@@ -568,5 +569,40 @@ func TestDispatchArtifactsEmptyWhenNoArtifactMetadata(t *testing.T) {
 	}
 	if len(result.Artifacts) != 0 {
 		t.Fatalf("expected 0 artifacts for plain text response, got %d", len(result.Artifacts))
+	}
+}
+
+func TestDispatchPropagatesRunEnvelope(t *testing.T) {
+	var captured adk.RunIdentity
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Params struct {
+				Envelope *adk.RunIdentity `json:"envelope"`
+			} `json:"params"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Params.Envelope != nil {
+			captured = *body.Params.Envelope
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"taskId":"task-1","status":"completed","events":[{"author":"code-agent","role":"assistant","parts":[{"type":"text","text":"ok"}],"final":true}]}`))
+	}))
+	defer server.Close()
+
+	ctx := adk.WithRunIdentity(context.Background(), adk.RunIdentity{
+		RunID: "run-1", WorkspaceID: "default", PrincipalID: "user-1",
+		ApprovalID: "appr-1", FencingVersion: 3, TraceID: "trace-1",
+	})
+	d := NewA2ADispatcher()
+	if _, err := d.Dispatch(ctx, DispatchInput{
+		AgentURL: server.URL, AgentName: "code-agent", ConversationID: "conv-1",
+		RunID: "run-1", TaskID: "task-1", Message: "hi", TraceID: "trace-1",
+	}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if captured.RunID != "run-1" || captured.TaskID != "task-1" ||
+		captured.PrincipalID != "user-1" || captured.FencingVersion != 3 ||
+		captured.ApprovalID != "appr-1" || captured.TraceID != "trace-1" {
+		t.Fatalf("envelope not propagated: %#v", captured)
 	}
 }

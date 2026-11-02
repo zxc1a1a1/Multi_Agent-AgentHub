@@ -12,6 +12,7 @@ import (
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	_ "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/model" // register model providers
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/tools"
 	codeagent "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/agents/code-agent"
 )
 
@@ -51,6 +52,26 @@ func buildHandler(publicURL string) (http.Handler, error) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("CODE_AGENT_ENABLE_TOOLS")), "true") {
 		cfg.Tools = codeagent.DefaultTools()
 		log.Printf("INFO: code-agent model tools enabled")
+	}
+
+	authorizeURL := strings.TrimSpace(os.Getenv("ORCHESTRATOR_TOOL_AUTHORIZE_URL"))
+	resultURL := strings.TrimSpace(os.Getenv("ORCHESTRATOR_TOOL_RESULT_URL"))
+	if authorizeURL != "" || resultURL != "" {
+		token := strings.TrimSpace(os.Getenv("ORCHESTRATOR_TOOL_TOKEN"))
+		if token == "" {
+			token = strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
+		}
+		guard, err := tools.NewRemoteGuard(tools.RemoteGuardConfig{
+			AuthorizeURL: authorizeURL,
+			ResultURL:    resultURL,
+			Token:        token,
+		})
+		if err != nil {
+			return nil, err
+		}
+		cfg.ToolGuard = guard
+		cfg.ToolReporter = guard
+		log.Printf("INFO: code-agent tool authorization enabled")
 	}
 
 	if root := strings.TrimSpace(os.Getenv("CODE_AGENT_WORKSPACE_ROOT")); root != "" {

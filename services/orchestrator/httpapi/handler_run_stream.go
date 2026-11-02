@@ -15,6 +15,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/executor"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
@@ -710,6 +711,14 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	// not pre-register plan.TaskID as a remote A2A task ID.
 	execCtx, execCancel := context.WithCancel(r.Context())
 	defer execCancel()
+	principal := strings.TrimSpace(req.UserID)
+	if principal == "" {
+		principal = "anonymous"
+	}
+	execCtx = adk.WithRunIdentity(execCtx, adk.RunIdentity{
+		RunID: runID, WorkspaceID: "default", PrincipalID: principal,
+		FencingVersion: ledger.fencing, TraceID: req.TraceID,
+	})
 	ledger.startLeaseRenewal(execCtx, execCancel)
 	defer ledger.stopLeaseRenewal()
 	go s.watchRunCancel(execCtx, runID, execCancel)

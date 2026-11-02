@@ -32,6 +32,18 @@ func (f *fakeLedger) GetToolCall(context.Context, string, string) (*ledger.ToolC
 	return nil, ledger.ErrNotFound
 }
 
+func (f *fakeLedger) GetExecution(context.Context, string) (*ledger.Execution, error) {
+	return &ledger.Execution{RunID: "run-1", FencingVersion: 1, BudgetJSON: []byte(`{}`)}, nil
+}
+
+func (f *fakeLedger) SetBudget(context.Context, string, int64, []byte) error {
+	return nil
+}
+func (f *fakeLedger) CreateApproval(_ context.Context, a ledger.Approval) (*ledger.Approval, bool, error) {
+	a.Status = "pending"
+	return &a, false, nil
+}
+
 type budgetTool struct {
 	calls int
 }

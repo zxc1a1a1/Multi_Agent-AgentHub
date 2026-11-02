@@ -99,8 +99,10 @@ principalId, credentialScope(never included)
   重试，必须先核对真实状态。
 - ADK 层已强制：`SideEffectTool.SideEffect()==true` 且无 `ToolGuard` 时不执行
   （`pkg/adk/runner.go`）；这是本地防线，不替代 SQL 账本。
-- 状态：授权入口与结果回报的生产接线为 `未实现`（A2-02）；在接线完成前，写工具
-  不得注册到生产模型工具集。
+- 状态：授权入口与结果回报已接线（A2-02）：Orchestrator 提供
+  `/internal/orchestrator/tools/authorize|result`，Agent 侧 `RemoteGuard` 通过
+  A2A `envelope` 获取平台身份并在写工具执行前授权、执行后回报。
+  工具级审批记录仍需平台侧创建；写工具注册（A2-05）尚未开放。
 
 ## 10. 预算、fencing 与幂等（A0-06 冻结语义）
 

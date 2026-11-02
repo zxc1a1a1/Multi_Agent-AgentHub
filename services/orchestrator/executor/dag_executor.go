@@ -294,6 +294,7 @@ func (e *DAGExecutor) streamOneTask(ctx context.Context, p *plan.OrchestrationPl
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,
+		TaskID:         task.TaskID,
 		Message:        taskContent,
 		TimeoutMs:      task.TimeoutMs,
 		TraceID:        p.TraceID,

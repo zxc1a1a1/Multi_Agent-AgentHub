@@ -82,6 +82,7 @@ type Server struct {
 	runTaskRegistry   *registry.RunTaskRegistry          // runID → child task refs for cancel path
 	artifactStore     artifacts.Store                    // metadata-only artifact store; no file blobs
 	executionStore    execution.Store                    // durable run lifecycle/ledger (optional in tests)
+	toolAuthorizer    ToolAuthorizer                    // agent-side tool authorization/result sink
 	memoryMu          sync.RWMutex
 	memoryController  *memctl.Controller
 	memoryBackend     memctl.Backend
@@ -166,6 +167,16 @@ func WithArtifactStore(store artifacts.Store) Option {
 			return
 		}
 		s.artifactStore = store
+	}
+}
+
+// WithToolAuthorizer injects the agent-side tool authorization/result sink.
+func WithToolAuthorizer(authorizer ToolAuthorizer) Option {
+	return func(s *Server) {
+		if s == nil || authorizer == nil {
+			return
+		}
+		s.toolAuthorizer = authorizer
 	}
 }
 
@@ -262,6 +273,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/internal/orchestrator/runs/stream", s.handleRunStream)
 	s.mux.HandleFunc("/internal/orchestrator/runs/", s.handleRunInspect)
 	s.mux.HandleFunc("/internal/orchestrator/metrics/routing", s.handleRoutingMetrics)
+	s.mux.HandleFunc("/internal/orchestrator/tools/authorize", s.handleToolAuthorize)
+	s.mux.HandleFunc("/internal/orchestrator/tools/result", s.handleToolResult)
+	s.mux.HandleFunc("/internal/orchestrator/tools/approvals", s.handleToolApproval)
 	s.mux.HandleFunc("/internal/orchestrator/metrics", s.handleOperationalMetrics)
 	s.mux.HandleFunc("/internal/memory/", s.handleMemory)
 	s.mux.HandleFunc("/internal/orchestrator/hitl/confirm", s.handleHITLConfirm)

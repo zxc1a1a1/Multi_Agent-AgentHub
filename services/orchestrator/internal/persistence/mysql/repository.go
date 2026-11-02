@@ -1320,3 +1320,26 @@ func (r *Repository) QueryOperationalMetrics(ctx context.Context, since time.Tim
 	}
 	return metrics, nil
 }
+
+// SetBudget persists a budget checkpoint for a live run owned by the given
+// fencing version. It is used for read-only tool calls that do not consume an
+// approval but still spend tool budget.
+func (r *Repository) SetBudget(ctx context.Context, runID string, fencingVersion int64, budgetJSON []byte) error {
+	if fencingVersion <= 0 {
+		return ErrStaleFencing
+	}
+	if len(budgetJSON) == 0 {
+		budgetJSON = []byte(`{}`)
+	}
+	res, err := r.db.ExecContext(ctx, `UPDATE executions SET budget_json = ?
+		WHERE run_id = ? AND fencing_version = ?
+		AND status NOT IN ('completed','failed','cancelled')`,
+		budgetJSON, runID, fencingVersion)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrStaleFencing
+	}
+	return nil
+}

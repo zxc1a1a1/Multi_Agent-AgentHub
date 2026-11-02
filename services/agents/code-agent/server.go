@@ -13,9 +13,11 @@ const defaultAgentURL = "http://code-agent.local"
 
 // ServerConfig configures minimal A2A exposure metadata.
 type ServerConfig struct {
-	URL      string
-	LLMModel adk.Model  // optional; nil means use mock agent
-	Tools    []adk.Tool // optional; empty means no model tool exposure
+	URL          string
+	LLMModel     adk.Model  // optional; nil means use mock agent
+	Tools        []adk.Tool // optional; empty means no model tool exposure
+	ToolGuard    adk.ToolGuard
+	ToolReporter adk.ToolResultReporter
 }
 
 // NewA2AServer builds a minimal A2A server and a memory session service.
@@ -35,9 +37,15 @@ func NewA2AServer(cfg ServerConfig) (*a2a.Server, adk.SessionService, error) {
 		agent = NewCodeAgent(Config{})
 	}
 	session := adk.NewMemorySessionService()
-	runnerOpts := make([]adk.RunOption, 0, 1)
+	runnerOpts := make([]adk.RunOption, 0, 3)
 	if len(cfg.Tools) > 0 {
 		runnerOpts = append(runnerOpts, adk.WithTools(cfg.Tools...))
+	}
+	if cfg.ToolGuard != nil {
+		runnerOpts = append(runnerOpts, adk.WithToolGuard(cfg.ToolGuard))
+	}
+	if cfg.ToolReporter != nil {
+		runnerOpts = append(runnerOpts, adk.WithToolResultReporter(cfg.ToolReporter))
 	}
 	runner := adk.NewRunner(agent, session, runnerOpts...)
 

@@ -25,6 +25,9 @@ type Ledger interface {
 	ConsumeApprovalAndDispatch(ctx context.Context, p ledger.DispatchParams) error
 	RecordToolResult(ctx context.Context, res ledger.ToolResult) error
 	GetToolCall(ctx context.Context, runID, toolCallID string) (*ledger.ToolCallState, error)
+	GetExecution(ctx context.Context, runID string) (*ledger.Execution, error)
+	SetBudget(ctx context.Context, runID string, fencingVersion int64, budgetJSON []byte) error
+	CreateApproval(ctx context.Context, a ledger.Approval) (*ledger.Approval, bool, error)
 }
 
 type Broker struct {
@@ -50,56 +53,82 @@ type Request struct {
 	Budget   []byte
 }
 
-// Execute authorizes, then for writes consumes the approval, reserves budget
-// and records the dispatch intent in one transaction before running the tool.
+// AuthorizeResult is the outcome of the broker gate. Replay is set when the
+// same write call was already dispatched and has a terminal result.
+type AuthorizeResult struct {
+	Budget []byte
+	Replay *adk.ToolResult
+}
+
+// Authorize validates identity, tool policy, budget and — for writes — consumes
+// the approval and records dispatch intent in SQL before the tool may run.
+func (b *Broker) Authorize(ctx context.Context, envelope tools.Envelope, command tools.Descriptor, args json.RawMessage, budgetJSON []byte) (*AuthorizeResult, error) {
+	if err := command.Validate(); err != nil {
+		return nil, err
+	}
+	if !json.Valid(args) {
+		return nil, fmt.Errorf("invalid tool arguments")
+	}
+	sum := sha256.Sum256(canonicalJSON(args))
+	computedHash := hex.EncodeToString(sum[:])
+	if envelope.ArgsHash == "" {
+		envelope.ArgsHash = computedHash
+	} else if envelope.ArgsHash != computedHash {
+		return nil, fmt.Errorf("%w: args hash mismatch", tools.ErrInvalidEnvelope)
+	}
+	if err := b.guard.Authorize(ctx, envelope, command); err != nil {
+		return nil, err
+	}
+	budget, err := reserveToolBudget(budgetJSON)
+	if err != nil {
+		return nil, err
+	}
+	if command.ReadOnly {
+		if err := b.repo.SetBudget(ctx, envelope.RunID, envelope.FencingVersion, budget); err != nil {
+			return nil, err
+		}
+		return &AuthorizeResult{Budget: budget}, nil
+	}
+	if envelope.IdempotencyKey == "" {
+		return nil, fmt.Errorf("%w: idempotency key required", tools.ErrInvalidEnvelope)
+	}
+	if err := b.repo.ConsumeApprovalAndDispatch(ctx, ledger.DispatchParams{
+		RunID: envelope.RunID, FencingVersion: envelope.FencingVersion,
+		ApprovalID: envelope.ApprovalID, ToolCallID: envelope.ToolCallID,
+		TaskID: envelope.TaskID, ToolName: command.Name, ToolVersion: command.Version,
+		ArgsHash: envelope.ArgsHash, IdempotencyKey: envelope.IdempotencyKey,
+		BudgetJSON: budget,
+	}); err != nil {
+		if errors.Is(err, ledger.ErrApprovalConsumed) || errors.Is(err, ledger.ErrDuplicateToolCall) {
+			replay, recoverErr := b.recoverDispatch(ctx, envelope)
+			if recoverErr != nil {
+				return nil, recoverErr
+			}
+			return &AuthorizeResult{Budget: budget, Replay: replay}, nil
+		}
+		return nil, err
+	}
+	return &AuthorizeResult{Budget: budget}, nil
+}
+
+// Execute authorizes, then runs the tool and records its terminal result.
 func (b *Broker) Execute(ctx context.Context, req Request) (*adk.ToolResult, error) {
 	if req.Tool == nil {
 		return nil, fmt.Errorf("tool is required")
 	}
-	if err := req.Command.Validate(); err != nil {
-		return nil, err
-	}
-	if !json.Valid(req.Args) {
-		return nil, fmt.Errorf("invalid tool arguments")
-	}
-	sum := sha256.Sum256(canonicalJSON(req.Args))
-	computedHash := hex.EncodeToString(sum[:])
-	if req.Envelope.ArgsHash == "" {
-		req.Envelope.ArgsHash = computedHash
-	} else if req.Envelope.ArgsHash != computedHash {
-		return nil, fmt.Errorf("%w: args hash mismatch", tools.ErrInvalidEnvelope)
-	}
-	if err := b.guard.Authorize(ctx, req.Envelope, req.Command); err != nil {
-		return nil, err
-	}
-	budget, err := reserveToolBudget(req.Budget)
+	authorized, err := b.Authorize(ctx, req.Envelope, req.Command, req.Args, req.Budget)
 	if err != nil {
 		return nil, err
 	}
-	if !req.Command.ReadOnly {
-		if req.Envelope.IdempotencyKey == "" {
-			return nil, fmt.Errorf("%w: idempotency key required", tools.ErrInvalidEnvelope)
-		}
-		if err := b.repo.ConsumeApprovalAndDispatch(ctx, ledger.DispatchParams{
-			RunID: req.Envelope.RunID, FencingVersion: req.Envelope.FencingVersion,
-			ApprovalID: req.Envelope.ApprovalID, ToolCallID: req.Envelope.ToolCallID,
-			TaskID: req.Envelope.TaskID, ToolName: req.Command.Name, ToolVersion: req.Command.Version,
-			ArgsHash: req.Envelope.ArgsHash, IdempotencyKey: req.Envelope.IdempotencyKey,
-			BudgetJSON: budget,
-		}); err != nil {
-			if errors.Is(err, ledger.ErrApprovalConsumed) || errors.Is(err, ledger.ErrDuplicateToolCall) {
-				return b.recoverDispatch(ctx, req, err)
-			}
-			return nil, err
-		}
+	if authorized.Replay != nil {
+		return authorized.Replay, nil
 	}
-
-	result, err := req.Tool.Execute(ctx, req.Args)
+	result, execErr := req.Tool.Execute(ctx, req.Args)
 	if req.Command.ReadOnly {
-		return result, err
+		return result, execErr
 	}
 	status := "succeeded"
-	if err != nil || (result != nil && result.IsError) {
+	if execErr != nil || (result != nil && result.IsError) {
 		status = "failed"
 	}
 	resultJSON := []byte(`{}`)
@@ -108,19 +137,40 @@ func (b *Broker) Execute(ctx context.Context, req Request) (*adk.ToolResult, err
 			resultJSON = data
 		}
 	}
-	if recordErr := b.repo.RecordToolResult(ctx, ledger.ToolResult{
-		RunID: req.Envelope.RunID, ToolCallID: req.Envelope.ToolCallID,
-		Status: status, ResultJSON: resultJSON,
-	}); recordErr != nil && err == nil {
+	if recordErr := b.RecordResult(ctx, req.Envelope.RunID, req.Envelope.ToolCallID, status, resultJSON); recordErr != nil && execErr == nil {
 		return result, recordErr
 	}
-	return result, err
+	return result, execErr
 }
 
-func (b *Broker) recoverDispatch(ctx context.Context, req Request, dispatchErr error) (*adk.ToolResult, error) {
-	call, err := b.repo.GetToolCall(ctx, req.Envelope.RunID, req.Envelope.ToolCallID)
+// CreateApproval records platform-owned user consent for one write tool call.
+func (b *Broker) CreateApproval(ctx context.Context, a ledger.Approval) (*ledger.Approval, bool, error) {
+	return b.repo.CreateApproval(ctx, a)
+}
+
+// RecordResult stores a terminal tool outcome.
+func (b *Broker) RecordResult(ctx context.Context, runID, toolCallID, status string, resultJSON []byte) error {
+	return b.repo.RecordToolResult(ctx, ledger.ToolResult{
+		RunID: runID, ToolCallID: toolCallID, Status: status, ResultJSON: resultJSON,
+	})
+}
+
+// CurrentBudget returns the run's latest persisted budget checkpoint.
+func (b *Broker) CurrentBudget(ctx context.Context, runID string) ([]byte, error) {
+	exec, err := b.repo.GetExecution(ctx, runID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrToolOutcomeUnknown, dispatchErr)
+		return nil, err
+	}
+	if len(exec.BudgetJSON) == 0 {
+		return []byte(`{}`), nil
+	}
+	return exec.BudgetJSON, nil
+}
+
+func (b *Broker) recoverDispatch(ctx context.Context, envelope tools.Envelope) (*adk.ToolResult, error) {
+	call, err := b.repo.GetToolCall(ctx, envelope.RunID, envelope.ToolCallID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrToolOutcomeUnknown, err)
 	}
 	switch call.Status {
 	case "succeeded", "failed":
@@ -131,13 +181,13 @@ func (b *Broker) recoverDispatch(ctx context.Context, req Request, dispatchErr e
 		}
 		return &adk.ToolResult{Content: content, IsError: call.Status == "failed"}, nil
 	case "unknown":
-		return nil, fmt.Errorf("%w: tool call %s has no terminal result", ErrToolOutcomeUnknown, req.Envelope.ToolCallID)
+		return nil, fmt.Errorf("%w: tool call %s has no terminal result", ErrToolOutcomeUnknown, envelope.ToolCallID)
 	default:
 		_ = b.repo.RecordToolResult(ctx, ledger.ToolResult{
-			RunID: req.Envelope.RunID, ToolCallID: req.Envelope.ToolCallID,
+			RunID: envelope.RunID, ToolCallID: envelope.ToolCallID,
 			Status: "unknown", ResultJSON: []byte(`{}`),
 		})
-		return nil, fmt.Errorf("%w: tool call %s was dispatched but never completed", ErrToolOutcomeUnknown, req.Envelope.ToolCallID)
+		return nil, fmt.Errorf("%w: tool call %s was dispatched but never completed", ErrToolOutcomeUnknown, envelope.ToolCallID)
 	}
 }
 
@@ -152,7 +202,6 @@ func canonicalJSON(raw json.RawMessage) []byte {
 	}
 	return encoded
 }
-
 
 // reserveToolBudget restores usage from the checkpoint, then reserves one tool
 // call. Invalid or exhausted budgets fail before approval consumption/dispatch.

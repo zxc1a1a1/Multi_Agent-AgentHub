@@ -114,6 +114,7 @@ func (e *SingleExecutor) Execute(ctx context.Context, p *plan.OrchestrationPlan,
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,
+		TaskID:         task.TaskID,
 		Message:        task.TaskContent,
 	}
 
@@ -220,6 +221,7 @@ func (e *SingleExecutor) ExecuteStream(ctx context.Context, p *plan.Orchestratio
 		AgentName:      agentName,
 		ConversationID: p.ConversationID,
 		RunID:          p.RunID,
+		TaskID:         task.TaskID,
 		Message:        task.TaskContent,
 		TimeoutMs:      task.TimeoutMs,
 		TraceID:        p.TraceID,
