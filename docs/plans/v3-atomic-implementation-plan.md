@@ -372,7 +372,7 @@ P0 契约/决策冻结
 | A6-07 | PASS（指标；告警未接入） | `55c8a19` | Orchestrator `/internal/orchestrator/metrics` 聚合 executions/approvals/tool_calls 状态；Gateway `/internal/metrics` 暴露 chat stream/SSE 事件/写错误/断连计数；A4-07 路由指标保留 |
 | A6-04 | PASS（CI 集成；本机 SKIP） | `467397b` | 两个 worker 并发恢复同一 run，仍只写 2 条 turn 消息且 offset=4；本机无 DSN 未执行，CI 门禁负责运行 |
 | A6-05 | PASS（CI 集成；本机 SKIP） | `9ab66ab` | 两个 Orchestrator 共享 MySQL：A 启动待审批 run，B confirm 写 run_signals，A 消费并执行至 completed；本机无 DSN 未执行 |
-| A6-06 | PASS（SDK/传播；未接 collector） | 待提交 | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP（配置 endpoint 时）；Gateway/Orchestrator/Agent server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；内存导出测试证明三服务同一 trace；红检移除 Transport 后测试 FAIL |
+| A6-06 | PASS（SDK/传播；未接 collector） | `de167e3` | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP（配置 endpoint 时）；Gateway/Orchestrator/Agent server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；内存导出测试证明三服务同一 trace；红检移除 Transport 后测试 FAIL |
 | A6-03 | PASS（adapter；未接 publish） | `3324253` | S3ObjectStore：EnsureBucket/Put/Get/Presign/Delete；key 安全校验、10MB 上限、7 天签名上限；fake S3 验证跨 HTTP 读写与签名 URL；未接入 artifact publish 主路径 |
 | A6-03..A6-07、P5 其余 | 未开始 | — | — |
 
