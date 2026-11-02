@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentHub v3 实现状态与架构汇报</title>
+<style>
+  :root{
+    --bg:#f5f7fb; --paper:#ffffff; --ink:#172033; --muted:#5b6780;
+    --line:#dfe5ef; --brand:#3557d6; --brand2:#6b4ee6;
+    --ok:#0f8a5f; --warn:#b76a00; --bad:#b42318; --soft:#eef2ff;
+    --code:#0f172a; --codeink:#dbe7ff;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+  a{color:var(--brand);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:28px;max-width:1320px;margin:0 auto;padding:28px}
+  aside{position:sticky;top:24px;align-self:start;background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 8px 30px rgba(23,32,51,.05)}
+  aside h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+  aside ol{margin:0;padding-left:18px}
+  aside li{margin:7px 0;font-size:13px}
+  main{min-width:0}
+  header.hero{background:linear-gradient(135deg,#1e2a62,#3557d6 55%,#6b4ee6);color:#fff;border-radius:20px;padding:34px 36px;box-shadow:0 18px 46px rgba(53,87,214,.22)}
+  header.hero .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;opacity:.8}
+  header.hero h1{font-size:30px;line-height:1.25;margin:10px 0 12px}
+  header.hero p{margin:0;opacity:.92;max-width:900px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+  .pill{display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);border-radius:999px;padding:4px 10px;font-size:12px}
+  section{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:24px 26px;margin:18px 0;box-shadow:0 4px 18px rgba(23,32,51,.035)}
+  section h2{font-size:20px;margin:0 0 14px;display:flex;align-items:center;gap:10px}
+  section h2 .num{display:inline-flex;width:28px;height:28px;border-radius:9px;background:var(--soft);color:var(--brand);align-items:center;justify-content:center;font-size:13px}
+  section h3{font-size:15px;margin:20px 0 8px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  .small{font-size:12px}
+  .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+  .card{border:1px solid var(--line);border-radius:12px;padding:14px;background:#fbfcff}
+  .card strong{display:block;font-size:13px;color:var(--muted);font-weight:600;margin-bottom:6px}
+  .card .value{font-size:20px;font-weight:700}
+  .card.ok .value{color:var(--ok)} .card.warn .value{color:var(--warn)} .card.bad .value{color:var(--bad)}
+  .tag{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap}
+  .tag.ok{background:#e7f7ef;color:var(--ok)} .tag.warn{background:#fff4e5;color:var(--warn)} .tag.bad{background:#feeceb;color:var(--bad)} .tag.info{background:#eaf0ff;color:var(--brand)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+  th,td{border:1px solid var(--line);padding:9px 10px;text-align:left;vertical-align:top}
+  th{background:#f3f6fc;color:#34415c;font-weight:600}
+  td code, p code, li code{background:#f1f4fa;border:1px solid #e6eaf2;border-radius:5px;padding:1px 5px;font-size:.92em}
+  pre{background:var(--code);color:var(--codeink);border-radius:12px;padding:15px 16px;overflow:auto;font-size:12px;line-height:1.55}
+  .flow{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;margin:14px 0}
+  .node{flex:1 1 150px;min-width:150px;border:1px solid var(--line);border-radius:12px;padding:12px;background:#fbfcff;position:relative}
+  .node strong{display:block;font-size:13px;margin-bottom:4px}
+  .node span{font-size:11px;color:var(--muted);display:block}
+  .node.accent{border-color:#c7d2fe;background:#eef2ff}
+  .arrow{align-self:center;color:#8a96ad;font-size:18px;flex:0 0 auto}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .callout{border-left:4px solid var(--brand);background:#f7f9ff;border-radius:0 10px 10px 0;padding:10px 14px;margin:12px 0}
+  .callout.warn{border-left-color:var(--warn);background:#fffaf2}
+  .callout.bad{border-left-color:var(--bad);background:#fff7f6}
+  ul,ol{padding-left:22px} li{margin:5px 0}
+  .toc-note{font-size:11px;color:var(--muted);margin-top:14px;border-top:1px dashed var(--line);padding-top:10px}
+  details{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;background:#fbfcff}
+  summary{cursor:pointer;font-weight:600}
+  .status-table td:first-child{white-space:nowrap;font-weight:600}
+  footer{color:var(--muted);font-size:12px;text-align:center;padding:18px 0 40px}
+  @media (max-width:900px){.layout{grid-template-columns:1fr;padding:14px}aside{position:static}.cards{grid-template-columns:1fr}.split{grid-template-columns:1fr}header.hero{padding:24px}}
+  @media print{body{background:#fff}.layout{display:block;max-width:none;padding:0}aside{display:none}section,header.hero{box-shadow:none;break-inside:avoid}section{border-color:#ccc}}
+</style>
+</head>
+<body>
+<div class="layout">
+<aside>
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#summary">结论速览</a></li>
+    <li><a href="#architecture">总体架构</a></li>
+    <li><a href="#integration">前后端联调</a></li>
+    <li><a href="#middleware">中间件作用</a></li>
+    <li><a href="#input">输入消息处理</a></li>
+    <li><a href="#tools">工具选择与调用</a></li>
+    <li><a href="#context">上下文压缩</a></li>
+    <li><a href="#modes">MainAgent 模式</a></li>
+    <li><a href="#status">完成与停点</a></li>
+    <li><a href="#verify">验证入口</a></li>
+  </ol>
+  <div class="toc-note">
+    报告日期：2026-11-02<br>
+    代码基线：<code>dev @ 633e5ab</code><br>
+    事实等级：已实现 / 部分实现 / 未实现 / 未验证
+  </div>
+</aside>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">AgentHub v3 · Implementation Status Report</div>
+  <h1>多 Agent 协作平台：完成度、架构与运行链路汇报</h1>
+  <p>本报告按当前工作区源码与计划证据整理。核心原则：计划任务、单测通过、运行门禁是三种不同强度的证据；未执行的 MySQL/Redis、Docker、CI、MinIO 等验证不计为通过。</p>
+  <div class="meta">
+    <span class="pill">Frontend → Gateway → Orchestrator → Agent</span>
+    <span class="pill">AG-UI / SSE</span>
+    <span class="pill">MySQL 权威 · Redis 辅助</span>
+    <span class="pill">P7 消息队列/富交互：提案未实施</span>
+  </div>
+</header>
+
+<section id="summary">
+  <h2><span class="num">01</span>结论速览</h2>
+  <div class="cards">
+    <div class="card warn"><strong>A0–A6 原子任务</strong><div class="value">已落地（带限定）</div><span class="small muted">逐项有提交与验证记录；部分任务为工具/单测/SKIP 证据</span></div>
+    <div class="card warn"><strong>G1–G6 运行门禁</strong><div class="value">未整体认证</div><span class="small muted">MySQL/Redis、Docker、CI 等环境验证缺失</span></div>
+    <div class="card bad"><strong>P7 消息队列/富交互</strong><div class="value">仅提案</div><span class="small muted">Redis Streams/NATS、Streamdown/Sandpack 尚未实现</span></div>
+  </div>
+  <div class="callout">
+    <strong>一句话定位：</strong>单机演示主链路已经打通，核心正确性有单测/内存跨实例测试；生产化审计仍停在“需要真实 MySQL/Redis/CI/Docker/对象存储运行认证”的位置。
+  </div>
+  <table class="status-table">
+    <tr><th>层</th><th>当前状态</th><th>证据等级</th><th>说明</th></tr>
+    <tr><td>前端</td><td>React 18 + Zustand + Vite；群聊、参与者、审批、Markdown/代码/Diff/Mermaid/KaTeX/Artifact</td><td><span class="tag ok">已实现</span></td><td>257 tests、build、Playwright 群聊 E2E 本机通过</td></tr>
+    <tr><td>Gateway</td><td>REST、POST SSE、run replay/resume/cancel、HITL、artifact proxy</td><td><span class="tag ok">已实现</span></td><td>不是简单反向代理；负责请求幂等、投影与 SQL 回放入口</td></tr>
+    <tr><td>Orchestrator</td><td>LLM-only 规划、DAG/串行执行、HITL、跨实例信号、工具账本、路由审计</td><td><span class="tag warn">已实现但门禁未认证</span></td><td>依赖 MySQL/Redis 的路径本机 SKIP</td></tr>
+    <tr><td>Child Agents</td><td>10 个 Agent；A2A 暴露；code/web/test/security/diff/markdown 等能力</td><td><span class="tag ok">已实现</span></td><td>部分工具默认关闭或依赖沙箱/外部服务</td></tr>
+    <tr><td>中间件</td><td>MySQL、Redis、本地/S3 artifact；Nginx/Prometheus/OTel 配置</td><td><span class="tag warn">部分实现/静态验证</span></td><td>消息队列未实现；MinIO/Prometheus/collector 未启动</td></tr>
+  </table>
+</section>
+
+<section id="architecture">
+  <h2><span class="num">02</span>总体架构</h2>
+  <div class="flow">
+    <div class="node accent"><strong>Frontend</strong><span>React / Zustand<br>Chat · Group · HITL · Replay</span></div>
+    <div class="arrow">→</div>
+    <div class="node accent"><strong>Gateway</strong><span>REST + POST SSE<br>鉴权 · 幂等 · 投影</span></div>
+    <div class="arrow">→</div>
+    <div class="node accent"><strong>Orchestrator</strong><span>MainAgent 规划<br>DAG 执行 · HITL · 账本</span></div>
+    <div class="arrow">→</div>
+    <div class="node accent"><strong>Child Agents</strong><span>A2A<br>ADK Runner · Tools</span></div>
+  </div>
+  <div class="flow">
+    <div class="node"><strong>MySQL</strong><span>权威状态<br>runs · approvals · events · outbox</span></div>
+    <div class="node"><strong>Redis</strong><span>短时缓存 / outbox relay<br>不是唯一事实源</span></div>
+    <div class="node"><strong>Artifact</strong><span>元数据 + blob<br>本地卷 / S3 adapter</span></div>
+    <div class="node"><strong>Observability</strong><span>OTel span<br>Prometheus metrics</span></div>
+  </div>
+  <p class="small muted">图中实线是当前主链路；“消息队列”不在当前主链路中——Redis 目前承担 cache/relay，尚未启用 Redis Streams 消费组；Kafka/NATS 未部署。</p>
+  <h3>数据所有权</h3>
+  <ul>
+    <li><strong>MySQL 是唯一权威：</strong>run 状态、审批、取消、租约/fencing、事件 journal、outbox、route_decisions、tool ledger。</li>
+    <li><strong>Redis 是辅助：</strong>短期缓存/跨实例信号加速；Redis 丢失不能让 MySQL 事实丢失。</li>
+    <li><strong>Artifact 是二元结构：</strong>元数据（artifact_store）与二进制（object store / 本地 blob）分开；渲染制品带 checksum。</li>
+    <li><strong>AG-UI SSE 是前端运行面：</strong>Gateway 负责将内部事件映射成公开事件，内部 A2A/工具错误不能原样透传。</li>
+  </ul>
+</section>
+
+<section id="integration">
+  <h2><span class="num">03</span>前后端如何联调</h2>
+  <div class="split">
+    <div>
+      <h3>前端发起的公开 REST</h3>
+      <table>
+        <tr><th>入口</th><th>作用</th></tr>
+        <tr><td><code>POST /api/chat</code></td><td>发送用户消息；用 fetch + ReadableStream 解析 POST SSE</td></tr>
+        <tr><td><code>GET /api/runs/{id}/status</code></td><td>SQL 权威状态查询</td></tr>
+        <tr><td><code>GET /api/runs/{id}/events/stream</code></td><td>断线后事件续流</td></tr>
+        <tr><td><code>GET /api/runs/{id}/events</code></td><td>SQL 事件回放</td></tr>
+        <tr><td><code>POST /api/runs/{id}/resume</code></td><td>恢复持久化 run</td></tr>
+        <tr><td><code>POST /api/runs/{id}/cancel</code></td><td>取消；跨实例写 run_cancels</td></tr>
+        <tr><td><code>POST /api/runs/{id}/confirm</code></td><td>HITL approve/revise/cancel</td></tr>
+        <tr><td><code>GET/PATCH /api/conversations/{id}/participants</code></td><td>群成员持久化与恢复</td></tr>
+        <tr><td><code>GET /api/artifacts/{id}/content</code></td><td>artifact 内容代理（认证 fetch）</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Gateway → Orchestrator 内部面</h3>
+      <table>
+        <tr><th>入口</th><th>作用</th></tr>
+        <tr><td><code>POST /internal/orchestrator/runs/stream</code></td><td>Gateway 转发的内部 SSE run 入口；Bearer 服务 token</td></tr>
+        <tr><td><code>/internal/orchestrator/hitl/confirm</code></td><td>确认/修订；跨实例 durable fallback</td></tr>
+        <tr><td><code>/internal/orchestrator/runs/{id}/*</code></td><td>status/events/resume/inspect</td></tr>
+        <tr><td><code>/internal/orchestrator/tools/*</code></td><td>authorize/result/handoff/render</td></tr>
+        <tr><td><code>/internal/orchestrator/metrics*</code></td><td>运营、路由与 Prometheus 指标</td></tr>
+      </table>
+      <div class="callout warn small"><strong>边界：</strong>这些 <code>/internal/*</code> 只允许服务间调用；Nginx 明确拒绝公开暴露。前端只认 <code>/api/*</code>。</div>
+    </div>
+  </div>
+  <h3>联调关键机制</h3>
+  <ul>
+    <li><strong>POST SSE：</strong>不是 EventSource，因为需要携带用户消息；前端用 <code>fetch</code> 读取流并逐事件喂给 reducer。</li>
+    <li><strong>run 生命周期：</strong>RUN_STARTED → plan/activity → agent turns → RUN_FINISHED；错误也必须按安全错误事件收敛。</li>
+    <li><strong>幂等：</strong>Gateway 先记录 chat request；相同 requestId 返回冲突/已接受，避免重复派发。</li>
+    <li><strong>恢复：</strong>Gateway status/events 读 MySQL；Gateway 投影 worker 按 offset 重建助手消息，避免只依赖 SSE 内存缓存。</li>
+    <li><strong>认证 artifact：</strong>前端图片与下载用带 Authorization 的 fetch，而不是裸 <code>&lt;img src&gt;</code>；避免 auth 模式下 401。</li>
+  </ul>
+</section>
+
+<section id="middleware">
+  <h2><span class="num">04</span>中间件分别做什么</h2>
+  <table>
+    <tr><th>中间件</th><th>当前作用</th><th>不是什么/边界</th><th>状态</th></tr>
+    <tr><td><strong>MySQL 8.4</strong></td><td>run/审批/信号/取消/租约/fencing/事件/outbox/route_decisions/tool ledger</td><td>不是缓存；不要用 Redis 替代权威状态</td><td><span class="tag ok">已接线</span></td></tr>
+    <tr><td><strong>Redis</strong></td><td>短期缓存、outbox relay、跨实例信号加速</td><td>当前没有 Redis Streams 消费组；不是唯一事实源</td><td><span class="tag warn">已接线，Streams 未用</span></td></tr>
+    <tr><td><strong>Artifact store</strong></td><td>元数据 JSON；本地卷默认；S3 元数据/blob 可选</td><td>不是聊天消息存储；大二进制不塞 Redis/MySQL</td><td><span class="tag warn">adapter 已实现，跨节点未实跑</span></td></tr>
+    <tr><td><strong>Nginx</strong></td><td>公开反向代理：<code>/api/*</code> → Gateway；<code>/internal/*</code> 404；SSE 关闭 buffering</td><td>不是业务鉴权层；不替代 Gateway</td><td><span class="tag warn">模板已校验，未容器运行</span></td></tr>
+    <tr><td><strong>OTel Collector / Jaeger</strong></td><td>collector config + compose observability profile</td><td>未接真实 collector 运行；span 未实际导出验证</td><td><span class="tag warn">配置校验</span></td></tr>
+    <tr><td><strong>Prometheus</strong></td><td>Gateway/Orchestrator 指标抓取、7 条告警规则</td><td>未启动 Prometheus/Alertmanager；指标不能替代日志/账本</td><td><span class="tag warn">规则校验</span></td></tr>
+    <tr><td><strong>消息队列</strong></td><td>P7 提案：Redis Streams 优先、NATS JetStream 备选</td><td>当前完全没有队列服务；不要写成已上线</td><td><span class="tag bad">未实现</span></td></tr>
+  </table>
+  <div class="callout"><strong>为什么先不加 MQ：</strong>当前请求量小，MySQL outbox + SQL 回放已经能恢复；先引入队列只会增加“消息丢了但不知道”的故障面。P7 的正确顺序是冻结 EventBus 契约 → Redis Streams 试点 → 幂等/claim/DLQ → 再评估 NATS。</div>
+</section>
+
+<section id="input">
+  <h2><span class="num">05</span>一条用户消息如何处理</h2>
+  <ol>
+    <li><strong>前端组装请求：</strong>选中的 Agent、mentions、requestedPath、pinnedMessageIds、replyTo/quote、contextMessages 被放入 <code>POST /api/chat</code>。</li>
+    <li><strong>Gateway 校验与幂等：</strong>校验 conversation/message；生成/读取 requestId；记录 chat request；生成 runId；推送 SSE 头。</li>
+    <li><strong>派生路径：</strong>先看显式 <code>requestedPath</code>；否则按 Agent 选择派生：<code>auto/空 → main_agent_orchestration</code>，单 Agent → <code>single_chat</code>，多 Agent/mentions → <code>group_chat</code>。</li>
+    <li><strong>Gateway → Orchestrator：</strong>通过内部 SSE 转发；携带 Bearer 服务 token、runId、conversationId、selectedAgentNames、mentions、pinned 等。</li>
+    <li><strong>Orchestrator 校验边界：</strong>再次派生 executionPath；与 Gateway 传入不一致直接拒绝；校验 Agent 是否在注册表/边界内。</li>
+    <li><strong>MainAgent 规划：</strong>LLM-only planner（无规则回退）用 PromptBuilder + PlannerModel 产出结构化 plan；Parser → Normalizer → Validator → 最多一次 Repair。</li>
+    <li><strong>计划规范化：</strong>strategy 空/未知 → sequential；single 空任务 → 失败；path-aware validator + Agent boundary 二次校验；route_decisions 落库。</li>
+    <li><strong>HITL（需要时）：</strong><code>main_agent_orchestration</code> 或 <code>REQUIRE_PLAN_CONFIRMATION=true</code> 时进入确认；支持 approve/revise/cancel；跨实例通过 SQL signal + 轮询收敛。</li>
+    <li><strong>执行：</strong>conversational 直接回复；single 用 SingleExecutor；sequential 用 DAGExecutor（波次/依赖/并行上限）；ordered_parallel 用 SerialExecutor 保持输出顺序。</li>
+    <li><strong>Agent 调用：</strong>Orchestrator 通过 A2A dispatcher 发送任务；附 RunIdentity（run/task/fencing/principal/approval/delegateDepth）与 trace；Agent 返回流式事件。</li>
+    <li><strong>回传前端：</strong>Executor 产生 AGENT_TURN/消息/任务状态事件；Gateway 映射为 AG-UI 并写公开 journal；前端 reducer 形成消息、工具卡、artifact 卡。</li>
+    <li><strong>恢复：</strong>断线后前端用 run status/events/resume；Gateway projection worker 从 journal 重建已完成的逐轮助手消息。</li>
+  </ol>
+  <pre>POST /api/chat
+  → Gateway: validate + requestId + runId + derive path
+  → Orchestrator: derive path + validate boundary
+  → MainAgent(LLM): plan → parse → normalize → validate (→ repair×1)
+  → HITL? approve/revise/cancel (SQL signal)
+  → Executor: conversational | single | DAG sequential | serial ordered_parallel
+  → A2A Dispatcher → Child Agent(ADK Runner + Tools)
+  → AG-UI events → Gateway journal → SSE to Frontend</pre>
+</section>
+
+<section id="tools">
+  <h2><span class="num">06</span>工具如何选用、如何调用</h2>
+  <div class="flow">
+    <div class="node accent"><strong>MainAgent</strong><span>选 Agent/任务<br>不直接选每个工具</span></div>
+    <div class="arrow">→</div>
+    <div class="node"><strong>Executor</strong><span>按 plan 派发<br>single/DAG/serial</span></div>
+    <div class="arrow">→</div>
+    <div class="node"><strong>Child Agent LLM</strong><span>从该 Agent 的 Tools<br>选择 tool call</span></div>
+    <div class="arrow">→</div>
+    <div class="node"><strong>ADK Runner</strong><span>Guard → execute<br>→ result report</span></div>
+  </div>
+  <h3>选择规则</h3>
+  <ul>
+    <li><strong>Agent 级选择：</strong>MainAgent 根据用户目标、Agent 描述、AllowedAgents 边界生成 tasks；越界会被 validator 拒绝。</li>
+    <li><strong>工具级选择：</strong>由 Child Agent 的模型从自己的 tool schema 中选择；平台不提供“模型任意调用任意工具”的全局工具路由。</li>
+    <li><strong>MCP：</strong><code>MCPAdapter</code> 只暴露平台策略白名单中的工具；server annotations 不能授予权限。</li>
+    <li><strong>handoff：</strong><code>handoff_to_agent</code> 受本地 + run plan 双层 allowlist、深度上限、消息/理由/输出上限；它是受控路由，不是自由 swarm。</li>
+    <li><strong>capture/export：</strong>web-agent <code>capture_page</code>、markdown-agent <code>markdown.export</code> 调用 Orchestrator 渲染端点；URL 私网拒绝，HTML 模式阻断外部请求。</li>
+  </ul>
+  <h3>调用与审批链</h3>
+  <ol>
+    <li>模型产生 tool call；ADK Runner 先判断是否 <code>SideEffectTool</code>。</li>
+    <li>只读工具直接执行；副作用工具必须经过 <code>ToolGuard</code>。</li>
+    <li>Agent 侧 <code>RemoteGuard</code> 调 Orchestrator <code>/tools/authorize</code>，带 run/task/fencing/principal/approval/argsHash。</li>
+    <li>Orchestrator Tool Broker 校验 approval、预算、fencing、幂等键；写入 dispatch 记录后返回授权。</li>
+    <li>工具执行后 <code>/tools/result</code> 落账本；unknown 不自动重试，必须核对真实状态。</li>
+    <li>沙箱不可用时 fail-closed，**不会回退到宿主执行**；Docker 真实执行仍未在本机验证。</li>
+  </ol>
+  <div class="callout warn"><strong>容易误读：</strong>“有工具代码”不等于“工具已开放”。code-agent 写工具、handoff、capture 都是显式 opt-in；默认关闭。MCP adapter 也尚未接入具体 Agent 的审计链路。</div>
+</section>
+
+<section id="context">
+  <h2><span class="num">07</span>上下文如何压缩</h2>
+  <p>当前不是“让 LLM 自动总结全部历史”，而是多层确定性窗口/截断/召回。各层独立，失败降级。</p>
+  <table>
+    <tr><th>层</th><th>机制</th><th>关键参数/行为</th><th>状态</th></tr>
+    <tr><td>前端显示</td><td>消息窗口</td><td>默认最近 100 条；Load earlier 每次 +100；不删除服务端历史</td><td><span class="tag ok">已实现</span></td></tr>
+    <tr><td>Gateway/Orchestrator 请求</td><td>pinned head+tail</td><td>保留 head 20 / tail 4，并强制保留 pinnedMessageIds；当前用户消息去重</td><td><span class="tag ok">已实现</span></td></tr>
+    <tr><td>长期记忆</td><td>MemoryController recall</td><td>最多 5 条；过滤 active/过期/超长；按 chars/4 估算 token，受 MaxInjectedTokens 限制；Redis 5m cache</td><td><span class="tag ok">已实现</span></td></tr>
+    <tr><td>ADK 生成前</td><td>PruningPlugin</td><td>启用时 KeepEndsWindow(4,12) + ToolResultTruncator(4000 chars)</td><td><span class="tag warn">按 launcher 配置启用</span></td></tr>
+    <tr><td>Harness 上下文预算</td><td>BuildContext</td><td>默认 MaxChars 120,000；保留 system/pinned、first 3/last 20；tool call/result 成对保留；超预算确定性地 ErrContextTooLarge</td><td><span class="tag ok">已实现</span></td></tr>
+    <tr><td>自动摘要</td><td>context-agent</td><td>已注册 Agent，但未接入主链路的自动压缩；不要宣称“自动摘要压缩已完成”</td><td><span class="tag bad">未接入</span></td></tr>
+  </table>
+  <h3>优先级与降级</h3>
+  <ol>
+    <li>system 约束和 pinned 内容不可被静默丢弃；超过 hard limit 直接失败。</li>
+    <li>工具调用与结果成对保留；孤立 tool result 被丢弃，不伪造配对。</li>
+    <li>记忆召回失败 → 无记忆继续；不使用 stale cache 伪装召回成功。</li>
+    <li>预算/上下文超限 → 明确错误，不静默截断关键约束。</li>
+  </ol>
+  <div class="callout"><strong>P7 方向：</strong>在真实 token 计数和压测数据齐备后，再考虑摘要压缩；当前优先保证“可解释、可回放、可失败”。</div>
+</section>
+
+<section id="modes">
+  <h2><span class="num">08</span>MainAgent 不同模式如何切换</h2>
+  <p>先区分两个概念：<strong>executionPath</strong> 是当前结构化路径；<strong>planningMode</strong> 是旧的前端请求标记（auto/direct/manual/mention），不再决定后端 planner 模式。Orchestrator 的 planner 始终是 LLM-only。</p>
+  <table>
+    <tr><th>executionPath</th><th>触发条件</th><th>规划/执行</th><th>HITL</th></tr>
+    <tr><td><code>single_chat</code></td><td>单 Agent 或单 mention；显式 requestedPath 且解析为 1 个 Agent</td><td>MainAgent 仍生成 plan；SingleExecutor</td><td>默认不强制；<code>REQUIRE_PLAN_CONFIRMATION=true</code> 时确认</td></tr>
+    <tr><td><code>group_chat</code></td><td>多 selectedAgentNames/mentions；显式 requestedPath</td><td>群计划；sequential 链；发言者 round-robin 或 model</td><td>按 env；群计划卡可勾选参与者</td></tr>
+    <tr><td><code>main_agent_orchestration</code></td><td><code>auto</code>/字段全空；显式 requestedPath</td><td>MainAgent 自主选 Agent/任务，受 AllowedAgents 边界</td><td><strong>始终要求</strong>（conversational 除外）</td></tr>
+  </table>
+  <h3>strategy 维度</h3>
+  <table>
+    <tr><th>strategy</th><th>执行器</th><th>说明</th></tr>
+    <tr><td><code>single</code></td><td>SingleExecutor</td><td>一个 Agent 处理整个请求</td></tr>
+    <tr><td><code>sequential</code></td><td>DAGExecutor</td><td>按 dependsOn 拓扑波次；无依赖任务可并行；空/未知 strategy 归一到这里</td></tr>
+    <tr><td><code>ordered_parallel</code></td><td>SerialExecutor</td><td>为稳定展示顺序保留串行；兼容旧“parallel”映射</td></tr>
+    <tr><td><code>conversational</code></td><td>直接回复</td><td>不派发 Agent；免 HITL</td></tr>
+  </table>
+  <h3>群聊内部再分</h3>
+  <ul>
+    <li><code>GROUP_CHAT_MAX_ROUNDS</code>：轮数上限（默认 1，最大 5）。</li>
+    <li><code>GROUP_CHAT_SPEAKER_MODE=round_robin|model</code>：默认 round-robin；model 模式由 MainAgent 逐位选择，越界/缺理由/连续重复/首轮停止 fail-closed，理由写入 route_decisions。</li>
+    <li>HITL：approve 携带确认后的参与者名单；未确认可选成员不会被派发。</li>
+  </ul>
+  <h3>HITL 与修订</h3>
+  <ul>
+    <li><strong>approve：</strong>计划继续执行；可选参与者过滤。</li>
+    <li><strong>revise：</strong>带反馈重新 plan，revision 递增；不直接执行旧计划。</li>
+    <li><strong>cancel：</strong>本地/跨实例写取消请求；待审批和执行中都会收敛。</li>
+    <li><strong>跨实例：</strong>SQL signal + 短轮询；确认/取消不依赖单进程内存。</li>
+  </ul>
+</section>
+
+<section id="status">
+  <h2><span class="num">09</span>当前完成了什么、停在什么地方</h2>
+  <h3>已完成（代码 + 本机验证）</h3>
+  <ul>
+    <li>Gateway/Orchestrator/10 Agent/前端主链路；群聊、 Participants、逐轮投影、HITL、取消、resume/replay。</li>
+    <li>工具 Broker、RemoteGuard、handoff、MCP allowlist、sandbox fail-closed、Markdown 导出、截图/PDF artifact、S3 adapter。</li>
+    <li>路由审计、DAG/并行/sequential、计划期模型选发言人、跨实例 HITL/cancel、双 worker 投影。</li>
+    <li>OTel 全服务 span、Prometheus 指标/7 条告警规则、Nginx/备份、CI 质量门禁、Dockerfile/CA/ token/build arg 修复。</li>
+    <li>本机验证：Go 各模块测试与构建、前端 257 tests + build、Playwright 群聊 E2E、真实 Edge render→artifact→content、promtool/nginx/otelcol 配置校验。</li>
+  </ul>
+  <h3>停在什么地方（未认证）</h3>
+  <table>
+    <tr><th>缺口</th><th>当前证据</th><th>为什么不能算通过</th></tr>
+    <tr><td>MySQL/Redis 集成</td><td>本机 SKIP；CI 工作流已配置</td><td>没有真实 DSN/Redis；SQL/PEL/投影恢复未在本机执行</td></tr>
+    <tr><td>Docker 构建/运行</td><td>Dockerfile 静态审计、Linux 交叉构建</td><td>未实际构建/启动 compose；无法验证镜像、卷权限、网络</td></tr>
+    <tr><td>GitHub CI</td><td>workflow + actionlint</td><td>未在 GitHub 实跑；SKIP 门禁未真实触发</td></tr>
+    <tr><td>MinIO / OTel collector / Alertmanager</td><td>S3 fake、collector config validate</td><td>没有真实对象存储/collector/告警通道运行</td></tr>
+    <tr><td>Docker 内 Playwright</td><td>本机 Edge 真实渲染</td><td>未在容器沙箱内执行</td></tr>
+  </table>
+  <div class="callout bad"><strong>因此：</strong>G1–G6 不能写“整体通过”；原计划目标也没有被标记为 complete。P7 消息队列/富交互是 2026-11-02 新增提案，完全未实施，不能与 A0–A6 完成度相加。</div>
+  <h3>工作区注意</h3>
+  <ul>
+    <li><code>.env - 副本.example</code> 未被读取/提交，建议删除或加入 <code>.gitignore</code>。</li>
+    <li><code>docs/architecture/v3/01..11</code> 的既有修改未纳入本次报告提交；不要误认为它们属于本次实现。</li>
+  </ul>
+</section>
+
+<section id="verify">
+  <h2><span class="num">10</span>如何验证与下一步</h2>
+  <h3>本机已可复现</h3>
+  <pre>cd services/orchestrator && go test ./... -count=1
+cd services/gateway && go test ./... -count=1
+cd frontend && PATH="/e/node_js:$PATH" node npm-cli.js test -- --run
+cd frontend && PATH="/e/node_js:$PATH" node npm-cli.js run build</pre>
+  <h3>需要外部环境</h3>
+  <pre>export AGENTHUB_MYSQL_TEST_DSN='...'
+export AGENTHUB_REDIS_TEST_ADDR='...'
+bash scripts/run-v3-gates.sh
+# 或 GitHub Actions: V3 Integration Gates</pre>
+  <h3>P7 计划（尚未实现）</h3>
+  <div class="split">
+    <div class="card">
+      <strong>消息队列</strong>
+      <p>EventBus 契约 → Redis Streams 7.2 adapter / outbox → 幂等消费/ack/claim → retry/DLQ → 非权威路径试点 → NATS JetStream 评估。Kafka/Redpanda 不引入。</p>
+    </div>
+    <div class="card">
+      <strong>HTML / 交互</strong>
+      <p>Streamdown flag → 沙箱 HTML（iframe+CSP）→ Sandpack 单文件预览 → RJSF 表单 → Recharts/Vega-Lite 图表 → AG-UI 组件白名单。禁止 eval / 同源 iframe。</p>
+    </div>
+  </div>
+  <p class="small muted">P7 选型来源见 <a href="../architecture/v3/18-message-queue-and-rich-interactions.md">docs/architecture/v3/18-message-queue-and-rich-interactions.md</a>。</p>
+</section>
+
+<footer>
+  AgentHub v3 · 实现状态汇报 · 2026-11-02 · 代码基线 dev @ 633e5ab · 本报告不包含真实密钥/DSN/Token
+</footer>
+</main>
+</div>
+</body>
+</html>
