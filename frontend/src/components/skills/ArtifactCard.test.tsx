@@ -93,6 +93,43 @@ describe('ArtifactCard', () => {
     expect(preElement?.textContent).toContain('"author"')
   })
 
+  test('renders image preview for image artifacts with id', () => {
+    render(
+      <ArtifactCard
+        id="shot-1"
+        name="screenshot.png"
+        kind="image"
+        mimeType="image/png"
+      />,
+    )
+
+    const image = screen.getByRole('img', { name: 'screenshot.png' })
+    expect(image).toHaveAttribute('src', '/api/artifacts/shot-1/content')
+    expect(image).toHaveAttribute('loading', 'lazy')
+  })
+
+  test('renders content link for any artifact with id', () => {
+    render(
+      <ArtifactCard
+        id="pdf-1"
+        name="report.pdf"
+        kind="document"
+        mimeType="application/pdf"
+      />,
+    )
+
+    const link = screen.getByRole('link', { name: 'Open artifact' })
+    expect(link).toHaveAttribute('href', '/api/artifacts/pdf-1/content')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(screen.queryByRole('img')).toBeNull()
+  })
+
+  test('does not render content link without id', () => {
+    render(<ArtifactCard name="report.pdf" mimeType="application/pdf" />)
+
+    expect(screen.queryByRole('link', { name: 'Open artifact' })).toBeNull()
+  })
+
   test('does not render metadata pre when metadata is empty', () => {
     render(
       <ArtifactCard

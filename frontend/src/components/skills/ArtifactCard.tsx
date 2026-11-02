@@ -22,6 +22,8 @@ function formatSize(size?: number | string): string {
 }
 
 export default function ArtifactCard({ id, name, kind, mimeType, size, downloadPath, createdAt, sourceAgent, metadata }: Props) {
+  const contentURL = id ? `/api/artifacts/${encodeURIComponent(id)}/content` : ''
+  const isImage = Boolean(contentURL && mimeType?.toLowerCase().startsWith('image/'))
   return (
     <div className="mt-2 rounded-lg border border-gray-200 bg-white p-3">
       <div className="flex items-start gap-3">
@@ -37,6 +39,24 @@ export default function ArtifactCard({ id, name, kind, mimeType, size, downloadP
             {sourceAgent && <span>by {sourceAgent}</span>}
             {createdAt && <span>{new Date(createdAt).toLocaleString()}</span>}
           </div>
+          {contentURL && (
+            <a
+              href={contentURL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block mt-2 text-xs text-indigo-600 hover:text-indigo-700 underline"
+            >
+              Open artifact
+            </a>
+          )}
+          {isImage && (
+            <img
+              src={contentURL}
+              alt={name || 'artifact preview'}
+              loading="lazy"
+              className="mt-2 max-h-80 w-auto max-w-full rounded border border-gray-200 object-contain"
+            />
+          )}
           {downloadPath && <p className="text-[11px] text-gray-400 mt-1">Download metadata path: {downloadPath}</p>}
           {metadata && Object.keys(metadata).length > 0 && (
             <pre className="mt-2 text-[11px] text-gray-500 bg-gray-50 border border-gray-100 rounded p-2 max-h-24 overflow-auto">{JSON.stringify(metadata, null, 2)}</pre>
