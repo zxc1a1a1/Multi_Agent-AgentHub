@@ -57,8 +57,8 @@ func TestNormalize_ModeParallel_MapsToOrderedParallel(t *testing.T) {
 	}
 }
 
-func TestNormalize_ModeSequential_MapsToSequentialForValidatorRejection(t *testing.T) {
-	// sequential is mapped to StrategySequential explicitly so the validator
+func TestNormalize_ModeSequential_MapsToSequential(t *testing.T) {
+	// sequential is mapped to StrategySequential and executed by the DAG executor.
 	// can produce a clear, deterministic rejection.
 	n := NewPlanNormalizer()
 	schema := &PlanSchema{

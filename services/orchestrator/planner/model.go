@@ -27,11 +27,10 @@ type AgentLister interface {
 }
 
 const (
-	ValCodeUnknownAgent          = "unknown_agent"
-	ValCodeUnsupportedSequential = "unsupported_sequential"
-	ValCodeEmptyTasks            = "empty_tasks"
-	ValCodeEmptyAgent            = "empty_agent"
-	ValCodeOutOfBoundary         = "agent_out_of_boundary"
+	ValCodeUnknownAgent  = "unknown_agent"
+	ValCodeEmptyTasks    = "empty_tasks"
+	ValCodeEmptyAgent    = "empty_agent"
+	ValCodeOutOfBoundary = "agent_out_of_boundary"
 )
 
 // ValError is a single validation/pipeline failure with a code and message.
@@ -110,16 +109,5 @@ func (v *listerPlanValidator) Validate(p *plan.OrchestrationPlan) *ValResult {
 			TaskIndex: -1,
 		})
 	}
-
-	if p.Strategy == plan.StrategySequential {
-		log.Printf("planner: validation reject: sequential strategy not supported")
-		r.Valid = false
-		r.Errors = append(r.Errors, ValError{
-			Code:      ValCodeUnsupportedSequential,
-			Message:   "sequential strategy is not yet supported",
-			TaskIndex: -1,
-		})
-	}
-
 	return r
 }

@@ -120,7 +120,7 @@ func (b *PromptBuilder) BuildSystemPrompt() string {
 	buf.WriteString(`## Execution Modes
 - "single": exactly one agent handles the entire request
 - "parallel": multiple agents work on independent sub-tasks concurrently
-- "sequential": agents execute in dependency order (not enabled yet)
+- "sequential": agents execute in dependency order; use dependsOn to chain steps
 - "answer": reply directly without dispatching any agent
 
 ## Rules
