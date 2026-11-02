@@ -371,7 +371,7 @@ P0 契约/决策冻结
 | A5-10a | PASS | b2204b2 | 仅 mermaid 代码块渲染时动态 import mermaid；独立懒 chunk；去掉 sanitize 后测试 FAIL |
 | A5-10b | PASS | 6c38c87 | 仅在内容含 $...$ 时动态加载 remark-math/rehype-katex/katex CSS；失败保持原文；禁用加载后测试 FAIL |
 | A6-01 | PASS（静态配置；本地未跑 nginx） | `af854af` | `deploy/nginx/agenthub.conf`：/api→Gateway（SSE 关闭 buffering）、/internal 404、其余→前端；compose 增加 nginx 服务；`scripts/backup-agenthub.sh` + systemd timer；`bash -n`、fake mysqldump 备份/保留期、compose YAML 通过；CI 增加 `nginx -t` 步骤但未实跑，本地无 nginx |
-| A6-08 | PASS（文档，单机） | dbb0aff | 新增 `docs/delivery/runbook-single-node.md`：启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；明确未覆盖多副本、S3、OTel |
+| A6-08 | PASS（文档，单机） | `dbb0aff,519079a` | Runbook 覆盖启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；新增渲染导出与 OTel/Prometheus 排查；明确未覆盖运行时多副本/S3/collector 验证 |
 | A6-07 | PASS（指标 + 规则；告警通道未接） | `b96ed60` | Orchestrator/Gateway 指标保留；三入口支持 `format=prometheus`；`deploy/prometheus/{prometheus,alerts}.yml` 覆盖 down/run/approval/tool unknown/SSE/路由缺失；CI 增加 promtool 校验但未实跑，未接 Alertmanager |
 | A6-04 | PASS（CI 集成；本机 SKIP） | `467397b` | 两个 worker 并发恢复同一 run，仍只写 2 条 turn 消息且 offset=4；本机无 DSN 未执行，CI 门禁负责运行 |
 | A6-05 | PASS（CI 集成；本机 SKIP） | `9ab66ab` | 两个 Orchestrator 共享 MySQL：A 启动待审批 run，B confirm 写 run_signals，A 消费并执行至 completed；本机无 DSN 未执行 |
