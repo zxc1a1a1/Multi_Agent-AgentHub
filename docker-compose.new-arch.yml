@@ -405,6 +405,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_AGENTHUB_API_TOKEN: "${AGENTHUB_API_TOKEN:-}"
     depends_on:
       gateway-new:
         condition: service_healthy

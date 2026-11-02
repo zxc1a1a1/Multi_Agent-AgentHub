@@ -1,5 +1,9 @@
 FROM node:22-alpine AS build
 WORKDIR /app
+# Fixed-token MVP: value is inlined into the static bundle at build time.
+# Never pass a model/provider key here; only AGENTHUB_API_TOKEN.
+ARG VITE_AGENTHUB_API_TOKEN=
+ENV VITE_AGENTHUB_API_TOKEN=$VITE_AGENTHUB_API_TOKEN
 COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
