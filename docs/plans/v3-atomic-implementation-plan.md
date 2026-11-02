@@ -333,7 +333,7 @@ P0 契约/决策冻结
 | A2-02 | PASS（授权/结果接线；审批单由平台创建） | `75b4e39` | A2A envelope 传播 run/task/fencing/principal/approval；RemoteGuard 写工具无 approval 本地拒绝；Orchestrator authorize/result 接 Broker；端到端测试覆盖允许→dispatch→结果记账；映射 403/409/429 |
 | A2-03 | PASS（Broker；随 A2-02 接线） | `d3b4529` | 从 checkpoint 恢复 usage 后 ReserveTool(1)；超限/损坏预算在审批消费与工具执行前失败；写调用持久化递增后的 BudgetJSON |
 | A2-04 | PASS | `d35aa42` | code-agent 通过 CODE_AGENT_WORKSPACE_ROOT 接入 list/read/search；工具均为 ReadOnly；测试读取真实文件且不含 apply_patch/sandbox |
-| A2-05 | PASS（工具/接线；Docker 执行 SKIP） | `4dc1127,43c5f38,29b7fe7` | apply_patch hash/路径/符号链接校验；sandbox allowlist/审批/超时/默认禁网；未审批写调用 0 执行；code-agent 写工具需显式启用+沙箱镜像；Docker 真实执行测试 SKIP |
+| A2-05 | PASS（工具/接线；Docker 执行 SKIP） | `4dc1127,43c5f38,29b7fe7,bc5ee6e` | apply_patch hash/路径/符号链接校验；sandbox allowlist/审批/超时/默认禁网；未审批写调用 0 执行；Docker 不可用时 fail-closed、宿主无命令执行；真实容器执行测试 SKIP |
 | A2-06 | PASS | `a0e5e4f` | generate_diff 使用 LCS 行级 diff，生成多 hunk/上下文/增删行；测试拒绝旧 1 行模板格式 |
 | A2-07b | PASS（只读工具） | `d9ca50e` | analyze_test_log 解析 go test PASS/FAIL/SKIP、失败详情与 coverage；assess_coverage 解析百分比/cover profile 并对比阈值；固定样例可复现 |
 | A2-07a | PASS（只读工具） | `d36cbef` | detect_secrets 匹配私钥/AWS/GitHub/Slack/JWT/凭据赋值并只返回脱敏值；parse_vulnerability_report 解析文本/JSON CVE 与模块；已知样例可复现 |
@@ -439,6 +439,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `actionlint .github/workflows/v3-integration-gates.yml` | PASS（exit 0） |
 | `cd services/orchestrator && go test ./planner/` | PASS（sequential 校验 + DAG 相关） |
 | `cd services/orchestrator && go test ./httpapi/ -run TestTwoInstancesShareHITLSignal` | PASS（共享 store 跨实例 confirm→signal→执行） |
+| `cd pkg/runtime && go test ./tools/ -run TestDockerExecutorUnavailableDoesNotRunOnHost` | PASS（Docker 缺失时 fail-closed，宿主无副作用） |
 | `scripts/run-v3-gates.sh`（未 export DSN/Redis） | 正确 fail-fast（exit 1）；完整门禁需显式环境 |
 | 10 个 agent 模块 `go build ./...` + `go test ./...` | PASS（全 Agent tracing 接线） |
 | `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新；本次 8.2s） |
@@ -463,7 +464,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 
 - G0：契约/决策已冻结；部分契约为“字段已冻结、实现未完成”。
 - G1：审批/取消/幂等/租约/投影有单测；跨实例 HITL 有共享 store 内存测试；MySQL/Redis 集成未在本机执行（SKIP），未整体通过。
-- G2：ADK 副作用 Guard 已强制，生产 Broker 授权/结果/审批接线已落地；审批单仍由平台侧创建，未通过整体认证。
+- G2：ADK 副作用 Guard 已强制，Broker 授权/结果/审批接线已落地；Docker 不可用时 fail-closed 且不落宿主执行；审批单仍由平台侧创建，未通过整体认证。
 - G3：成员持久化、逐轮历史、参与者取消派发、浏览器 E2E 已落地；未整体认证。
 - G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做，未整体认证。
 - G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX、Playwright 截图/PDF 与 Markdown 导出已落地；Docker 沙箱未验证，未整体认证。
