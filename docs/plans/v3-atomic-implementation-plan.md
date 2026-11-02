@@ -155,7 +155,7 @@ P0 契约/决策冻结
 | ID | 原子功能 | 主要文件 | 验收 | 依赖 |
 |---|---|---|---|---|
 | A4-01 | 路由决策落库（已实现，见日志） | `route_decisions` + planner/executionpath | 每次 run 可查 path/候选/选中/拒绝原因 | G0 |
-| A4-02 | DAG/ready queue 真执行 | `executor/dag_executor.go` + handler | 依赖未完成不领取；波次正确 | A4-01 |
+| A4-02 | DAG/ready queue 真执行（已实现，见日志） | `executor/dag_executor.go` + handler | 依赖未完成不领取；波次正确 | A4-01 |
 | A4-03 | 并行预算/取消传播 | executor + budget | 并发不超上限；取消传播到所有任务 | A4-02 |
 | A4-04 | 群聊 round-robin 发言 | new speaker selector | max_rounds 生效；不连续同一人 | A3-05 |
 | A4-05 | 模型选择发言者（G2） | selector + planner | 选择理由入 route_decisions；可终止 | A4-04 |

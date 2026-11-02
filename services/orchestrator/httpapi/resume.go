@@ -161,7 +161,10 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 	case plan.StrategySingle:
 		outcome = s.executeViaStreamingExecutor(w, flusher, req, &p, msgID,
 			executor.NewSingleExecutor(s.dispatchResolver(), s.dispatcher, executor.WithSingleSynthesizer(s.synthesizer)))
-	case plan.StrategyOrderedParallel, plan.StrategySequential:
+	case plan.StrategySequential:
+		outcome = s.executeViaStreamingExecutor(w, flusher, req, &p, msgID,
+			executor.NewDAGExecutor(s.dispatchResolver(), s.dispatcher, executor.WithDAGSynthesizer(s.synthesizer)))
+	case plan.StrategyOrderedParallel:
 		outcome = s.executeViaStreamingExecutor(w, flusher, req, &p, msgID,
 			executor.NewSerialExecutor(s.dispatchResolver(), s.dispatcher, executor.WithSerialSynthesizer(s.synthesizer)))
 	default:

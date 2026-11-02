@@ -61,7 +61,7 @@
 | C11 | “群聊只是前端占位/未实现” | 已实现 AgentPicker 多选、`group_chat` 路径、GroupPlanCard、AGENT_TURN 渲染；但 MySQL 路径 `conversation_type` 固定写 `single`，成员不持久化，历史合并成一条消息 | 13 区分“已实现/部分实现” |
 | C12 | “10 个 Agent 都有真实工具” | 多数工具返回固定字符串/模板；document-agent 注释明确 Mock；code-agent 默认不加载工具 | 14 逐个标注占位 |
 | C13 | “动态 Agent 注册未做” | 已实现：AgentCard 拉取、`agent_catalog` 持久化、启停/健康检查、前端注册面板；但 AgentPicker 未过滤禁用/不健康 | 13 记录为已实现+小缺口 |
-| C14 | “ordered_parallel 是真并行” | `ordered_parallel` 与 `sequential` 都走 SerialExecutor；DAG/OrderedParallel executor 无生产调用点 | 17 列为路由优化点 |
+| C14 | “ordered_parallel 是真并行” | `sequential` 已切换 DAGExecutor（波次并发+依赖）；`ordered_parallel` 仍走 SerialExecutor 以保持输出顺序 | 17 的并行优化仍对 ordered_parallel 成立 |
 | C15 | “已有 Markdown/Mermaid 渲染” | 前端只有 react-markdown+remark-gfm；无 Mermaid、KaTeX、导出；无 markdown-agent | 15/16 给出选型 |
 | C16 | “多节点只需多起副本” | 审批/取消/幂等/运行引用在 Orchestrator 内存；制品写临时文件；单服务器扩 Orchestrator 会 404/取消无效 | 12 给出单机/多节点方案 |
 
