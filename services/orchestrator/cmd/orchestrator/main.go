@@ -18,6 +18,7 @@ import (
 	rtregistry "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
 
 	rtmemory "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/memory"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
@@ -230,6 +231,17 @@ func run() error {
 		httpapi.WithRegistry(agentRegistry),
 		httpapi.WithDispatcher(a2aDispatcher),
 	}
+
+	artifactDir := strings.TrimSpace(os.Getenv("ARTIFACT_STORE_DIR"))
+	if artifactDir == "" {
+		artifactDir = "./data/artifacts"
+	}
+	artifactStore, err := artifacts.NewLocalFileStore(artifactDir)
+	if err != nil {
+		return fmt.Errorf("artifact store: %w", err)
+	}
+	serverOpts = append(serverOpts, httpapi.WithArtifactStore(artifactStore))
+	log.Printf("artifact store: %s", artifactDir)
 
 	var ledgerDB *sql.DB
 	var ledgerRepo *ledger.Repository

@@ -193,7 +193,7 @@ P0 契约/决策冻结
 | ID | 原子功能 | 主要文件 | 验收 | 依赖 |
 |---|---|---|---|---|
 | A6-01 | 单机 Nginx/卷/备份 | compose、nginx、docs | SSE 不缓冲；重启数据仍在 | G1 |
-| A6-02 | ArtifactStore 接口 + 本地卷 | `pkg/runtime/tools`、orchestrator | 替换临时 JSON；重启可读 | G0 |
+| A6-02 | ArtifactStore 接口 + 本地卷（已实现，见日志） | `pkg/runtime/tools`、orchestrator | 替换临时 JSON；重启可读 | G0 |
 | A6-03 | S3/MinIO adapter | artifact adapter | 跨节点读写；签名 URL | A6-02 |
 | A6-04 | 投影 worker 多副本部署/幂等验证 | A1-09 worker | 多 worker 不重复写 | A1-09 |
 | A6-05 | 多 Orchestrator owner/共享状态 | A1-03..A1-06 | 2 副本 confirm/cancel 正常 | G1 |
@@ -345,7 +345,8 @@ P0 契约/决策冻结
 | A5-02c | PASS | 待提交 | YAML 合法/非法/未闭合均有结果 |
 | A5-02d | PASS | 待提交 | 同一 parser 生成 TOC 锚点并与渲染 id 对齐 |
 | A5-03a | PASS（Go 侧） | 待提交 | 校验 diagram 关键字/括号/引号/闭合 fence，报行列；前端 Mermaid 渲染 A5-03b 未实现 |
-| A5-03b..A5-12、P6 | 未开始 | — | — |
+| A6-02 | PASS（单节点） | 待提交 | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点 S3 未做 |
+| A6-01/A6-03..A6-08、P5 其余 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
 

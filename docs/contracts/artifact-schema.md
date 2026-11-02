@@ -49,7 +49,7 @@ Artifacts are produced by ADK/Child Agents and eventually mapped to frontend run
 
 ## Storage metadata（v3 A0-04 冻结）
 
-状态等级：`部分实现`。当前 `artifacts.ArtifactRecord` 有 `id/runId/taskId/messageId/name/kind/mimeType/size/storagePath/downloadPath/createdAt/metadata`；
+状态等级：`部分实现`（本地卷已落地，S3/校验和仍待 A6-03）。当前 `artifacts.ArtifactRecord` 有 `id/runId/taskId/messageId/name/kind/mimeType/size/storagePath/downloadPath/createdAt/metadata`；
 `storageRef/checksum/contentType/version` 尚未在代码中落地，作为 A6-02/A6-03 的必填字段。
 
 ```json
