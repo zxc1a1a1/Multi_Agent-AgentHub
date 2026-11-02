@@ -12,6 +12,7 @@ import (
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	_ "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/model" // register model providers
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/tools"
 	codeagent "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/agents/code-agent"
@@ -29,6 +30,16 @@ func main() {
 }
 
 func run() error {
+	shutdownTracing, err := observability.Setup(context.Background(), "code-agent")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(shutdownCtx)
+	}()
+
 	addr := strings.TrimSpace(os.Getenv("CODE_AGENT_ADDR"))
 	if addr == "" {
 		addr = defaultAddr
@@ -40,7 +51,7 @@ func run() error {
 		return err
 	}
 
-	return http.ListenAndServe(addr, handler)
+	return http.ListenAndServe(addr, observability.Handler("code-agent", handler))
 }
 
 func buildHandler(publicURL string) (http.Handler, error) {

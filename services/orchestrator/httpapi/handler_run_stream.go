@@ -12,6 +12,7 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/pruning"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
@@ -77,6 +78,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	if runID == "" {
 		runID = fmt.Sprintf("run_%d", time.Now().UnixMilli())
 	}
+	r = r.WithContext(observability.AddRunID(r.Context(), runID))
 	convID := req.ConversationID
 	if convID == "" {
 		convID = fmt.Sprintf("conv_%d", time.Now().UnixMilli())

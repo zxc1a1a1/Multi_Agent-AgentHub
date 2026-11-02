@@ -15,9 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	rtregistry "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
-
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
 	rtmemory "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/memory"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
+	rtregistry "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/dispatcher"
@@ -60,6 +61,16 @@ func main() {
 }
 
 func run() error {
+	shutdownTracing, err := observability.Setup(context.Background(), "orchestrator")
+	if err != nil {
+		return fmt.Errorf("tracing setup: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(shutdownCtx)
+	}()
+
 	addr := strings.TrimSpace(os.Getenv("ORCHESTRATOR_ADDR"))
 	if addr == "" {
 		addr = defaultAddr
@@ -203,7 +214,11 @@ func run() error {
 		return fmt.Errorf("failed to create agent registry: %w", err)
 	}
 
-	a2aDispatcher := dispatcher.NewA2ADispatcher(buildDispatcherOptions()...)
+	dispatcherOpts := buildDispatcherOptions()
+	dispatcherOpts = append(dispatcherOpts, dispatcher.WithClient(a2a.NewClient(
+		a2a.WithHTTPClient(&http.Client{Transport: observability.Transport(http.DefaultTransport)}),
+	)))
+	a2aDispatcher := dispatcher.NewA2ADispatcher(dispatcherOpts...)
 
 	// Optionally load agent cards from child agents' /.well-known/agent.json.
 	if strings.ToLower(strings.TrimSpace(os.Getenv("ORCHESTRATOR_AGENT_CARD_LOAD"))) == "true" {
@@ -398,7 +413,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:    cfg.Addr,
-		Handler: httpapi.NewServer(serverOpts...).Handler(),
+		Handler: observability.Handler("orchestrator", httpapi.NewServer(serverOpts...).Handler()),
 	}
 
 	grpcAddr := strings.TrimSpace(os.Getenv("ORCHESTRATOR_GRPC_ADDR"))

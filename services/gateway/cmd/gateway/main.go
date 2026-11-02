@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/config"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/httpapi"
@@ -56,6 +57,16 @@ func main() {
 }
 
 func run() error {
+	shutdownTracing, err := observability.Setup(context.Background(), "gateway")
+	if err != nil {
+		return fmt.Errorf("tracing setup: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(shutdownCtx)
+	}()
+
 	cfg, err := loadRuntimeConfigFromEnv()
 	if err != nil {
 		return err
@@ -155,10 +166,9 @@ func run() error {
 		log.Printf("gateway projection worker started")
 	}
 
-
 	server := &http.Server{
 		Addr:    cfg.Gateway.Addr,
-		Handler: gw.Handler(),
+		Handler: observability.Handler("gateway", gw.Handler()),
 	}
 
 	go func() {

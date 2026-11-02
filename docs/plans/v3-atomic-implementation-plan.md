@@ -372,6 +372,7 @@ P0 契约/决策冻结
 | A6-07 | PASS（指标；告警未接入） | `55c8a19` | Orchestrator `/internal/orchestrator/metrics` 聚合 executions/approvals/tool_calls 状态；Gateway `/internal/metrics` 暴露 chat stream/SSE 事件/写错误/断连计数；A4-07 路由指标保留 |
 | A6-04 | PASS（CI 集成；本机 SKIP） | `467397b` | 两个 worker 并发恢复同一 run，仍只写 2 条 turn 消息且 offset=4；本机无 DSN 未执行，CI 门禁负责运行 |
 | A6-05 | PASS（CI 集成；本机 SKIP） | `9ab66ab` | 两个 Orchestrator 共享 MySQL：A 启动待审批 run，B confirm 写 run_signals，A 消费并执行至 completed；本机无 DSN 未执行 |
+| A6-06 | PASS（SDK/传播；未接 collector） | 待提交 | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP（配置 endpoint 时）；Gateway/Orchestrator/Agent server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；内存导出测试证明三服务同一 trace；红检移除 Transport 后测试 FAIL |
 | A6-03 | PASS（adapter；未接 publish） | `3324253` | S3ObjectStore：EnsureBucket/Put/Get/Presign/Delete；key 安全校验、10MB 上限、7 天签名上限；fake S3 验证跨 HTTP 读写与签名 URL；未接入 artifact publish 主路径 |
 | A6-03..A6-07、P5 其余 | 未开始 | — | — |
 
@@ -396,7 +397,7 @@ P0 契约/决策冻结
 | `cd frontend && vite build` | PASS；主 chunk gzip 447KB（接近 G5 500KB 预算） |
 | MySQL/Redis 集成测试 | SKIP（本机无 `AGENTHUB_MYSQL_TEST_DSN` / `AGENTHUB_REDIS_TEST_ADDR`；CI 门禁已配置） |
 
-未完成范围（截至 2026-11-02）：A5-05 PDF 导出、A5-11 Playwright 截图制品、A6-06 OTel；A6-01 的 Nginx/自动备份、A6-03 的对象存储 publish 接线。G1–G6 仍未整体认证（本机 MySQL/Redis 集成 SKIP，CI 门禁未在 GitHub 实跑）。
+未完成范围（截至 2026-11-02）：A5-05 PDF 导出、A5-11 Playwright 截图制品；A6-01 的 Nginx/自动备份、A6-03 的对象存储 publish 接线；OTel 未接真实 collector 验证。G1–G6 仍未整体认证（本机 MySQL/Redis 集成 SKIP，CI 门禁未在 GitHub 实跑）。
 
 
 ### 增量验证（2026-11-02）
@@ -418,6 +419,7 @@ P0 契约/决策冻结
 | `cd frontend && vite build` | PASS；首屏主 chunk 465KB/gzip 约 133KB；语言 chunks 懒加载（部分单 chunk >500KB） |
 | `cd services/agents/code-agent && go test ./... -count=1` | PASS（只读 workspace 真实文件） |
 | `cd services/agents/diff-agent && go test ./... -count=1` | PASS（多 hunk unified diff） |
+| `cd pkg/runtime && go test ./observability/ -count=1` | PASS（内存导出：gateway/orchestrator/agent 同 trace，run_id 属性存在） |
 | `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新） |
 
 ### 门禁状态（诚实版）
@@ -428,4 +430,4 @@ P0 契约/决策冻结
 - G3：成员持久化、逐轮历史、参与者取消派发、浏览器 E2E 已落地；未整体认证。
 - G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做。
 - G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX 已落地；导出未做。
-- G6：单机本地卷 ArtifactStore、S3 适配器（未接 publish）、指标已落地；Nginx/多副本/OTel 未做。
+- G6：单机本地卷 ArtifactStore、S3 适配器（未接 publish）、指标、OTel 传播/导出已落地；Nginx/多副本/真实 collector 验证未做。

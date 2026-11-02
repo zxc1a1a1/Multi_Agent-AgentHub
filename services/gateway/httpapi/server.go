@@ -17,6 +17,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/bridge"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/internal/persistence/sqlite"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/sse"
@@ -185,11 +186,11 @@ type Server struct {
 	memoryProxy       MemoryProxy
 	resumeService     RunResumeService
 
-	chatStreamsTotal      atomic.Int64
-	chatStreamsActive     atomic.Int64
-	sseEventsTotal        atomic.Int64
-	streamWriteErrors     atomic.Int64
-	streamDisconnects     atomic.Int64
+	chatStreamsTotal  atomic.Int64
+	chatStreamsActive atomic.Int64
+	sseEventsTotal    atomic.Int64
+	streamWriteErrors atomic.Int64
+	streamDisconnects atomic.Int64
 }
 
 func NewServer(st Store, runner RunService, opts ...Option) (*Server, error) {
@@ -952,6 +953,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		ctx = runservice.WithUserID(ctx, conv.UserID)
 	}
 	runID := newRunID()
+	ctx = observability.AddRunID(ctx, runID)
 	requestID := strings.TrimSpace(req.RequestID)
 	if requestID == "" {
 		requestID = "req_" + runID

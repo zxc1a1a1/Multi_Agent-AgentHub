@@ -18,6 +18,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/bridge"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 )
 
@@ -62,14 +63,14 @@ func NewOrchestratorRunService(baseURL, internalToken string, opts ...Option) (*
 
 	if svc.httpClient == nil {
 		svc.httpClient = &http.Client{
-			Transport: &http.Transport{
+			Transport: observability.Transport(&http.Transport{
 				DialContext: (&net.Dialer{
 					Timeout: 30 * time.Second,
 				}).DialContext,
 				TLSHandshakeTimeout:   30 * time.Second,
 				ResponseHeaderTimeout: 30 * time.Second,
 				IdleConnTimeout:       90 * time.Second,
-			},
+			}),
 		}
 	}
 
