@@ -53,6 +53,15 @@ func buildHandler(publicURL string) (http.Handler, error) {
 		log.Printf("INFO: code-agent model tools enabled")
 	}
 
+	if root := strings.TrimSpace(os.Getenv("CODE_AGENT_WORKSPACE_ROOT")); root != "" {
+		workspaceTools, err := codeagent.WorkspaceTools(root)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Tools = append(cfg.Tools, workspaceTools...)
+		log.Printf("INFO: code-agent read-only workspace tools enabled: %s", root)
+	}
+
 	// Try to initialize an LLM Model for the agent.
 	if modelName := strings.TrimSpace(os.Getenv("CODE_AGENT_LLM_MODEL")); modelName != "" {
 		provider := strings.ToLower(strings.TrimSpace(os.Getenv("CODE_AGENT_LLM_PROVIDER")))
