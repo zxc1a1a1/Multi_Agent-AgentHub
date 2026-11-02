@@ -157,7 +157,7 @@ P0 契约/决策冻结
 | A4-01 | 路由决策落库（已实现，见日志） | `route_decisions` + planner/executionpath | 每次 run 可查 path/候选/选中/拒绝原因 | G0 |
 | A4-02 | DAG/ready queue 真执行（已实现，见日志） | `executor/dag_executor.go` + handler | 依赖未完成不领取；波次正确 | A4-01 |
 | A4-03 | 并行预算/取消传播（已实现，见日志） | executor + budget | 并发不超上限；取消传播到所有任务 | A4-02 |
-| A4-04 | 群聊 round-robin 发言 | new speaker selector | max_rounds 生效；不连续同一人 | A3-05 |
+| A4-04 | 群聊 round-robin 发言（已实现，env 控制） | new speaker selector | max_rounds 生效；不连续同一人 | A3-05 |
 | A4-05 | 模型选择发言者（G2） | selector + planner | 选择理由入 route_decisions；可终止 | A4-04 |
 | A4-06 | 受控 handoff（可选） | 新工具 + allowlist | 非白名单拒绝；预算/上下文不越界 | A4-03 |
 | A4-07 | 路由指标/评测（已实现指标部分） | metrics + eval | 选中率/拒绝率/循环/成本可查 | A4-01 |
@@ -347,6 +347,7 @@ P0 契约/决策冻结
 | A4-01 | PASS（单测；集成 SKIP） | `7aa6cde` | route_decisions 表 + 决策构建/查询接口；记录 path/strategy/候选/选中/拒绝原因；移除记录调用后测试 FAIL |
 | A4-02 | PASS（单测） | `13c016b` | sequential 走 DAGExecutor：拓扑波次并发、依赖失败跳过、上游输出注入；ordered_parallel 仍串行保序 |
 | A4-03 | PASS（单测） | `2582a6d` | DAG 波次受 ParallelTasks 信号量限制；ctx 取消停止派发并传入 dispatcher；移除信号量后测试 FAIL |
+| A4-04 | PASS（确定性 round-robin） | 待提交 | GROUP_CHAT_MAX_ROUNDS 控制轮数（默认 1）；展开为 sequential 依赖链，轮转发言、无连续同一人、注入上一发言输出；handler 测试 2 轮 2 Agent 派发 4 次 |
 | A5-07 | PASS（前端单测） | `a4949e5` | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
 | A5-01 | PASS | `465f35d` | 新模块 markdown-agent：A2A AgentCard/health、确定性 Agent、无模型密钥；未加入 compose，默认不启用 |
 | A5-02a | PASS | `6b5fcd4` | goldmark 渲染；raw HTML 被丢弃；GFM 表格/链接测试 |

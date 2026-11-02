@@ -236,6 +236,10 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		orchPlan.Strategy = plan.StrategySequential
 	}
 
+	if orchPlan.ExecutionPath == string(executionpath.PathGroupChat) {
+		orchPlan = expandGroupChatRounds(orchPlan, groupChatMaxRounds(), userText)
+	}
+
 	// Validate the plan before execution.
 	planValidator := validator.New(&validatorRegistryAdapter{resolver: s.dispatchResolver()})
 	validationResult := planValidator.Validate(orchPlan)
