@@ -346,7 +346,7 @@ P0 契约/决策冻结
 | A3-06 | PASS | `4597d7d` | GroupPlanCard 每成员勾选，required 不可取消；选择随 approve/revise 提交；后端 filterPlanByConfirmedParticipants 只派发已确认 Agent 的任务（单测） |
 | A3-07 | PASS | `21ccdf2` | Playwright + 系统 Edge：创建会话→勾选 2 Agent→发送→群计划→取消→刷新；断言参与者恢复与两 Agent 历史；`PLAYWRIGHT_CHANNEL=msedge` 运行通过 |
 | A4-01 | PASS（单测；集成 SKIP） | `7aa6cde` | route_decisions 表 + 决策构建/查询接口；记录 path/strategy/候选/选中/拒绝原因；移除记录调用后测试 FAIL |
-| A4-02 | PASS（单测） | `13c016b` | sequential 走 DAGExecutor：拓扑波次并发、依赖失败跳过、上游输出注入；ordered_parallel 仍串行保序 |
+| A4-02 | PASS（单测） | `13c016b,b0f49fc` | sequential 走 DAGExecutor：拓扑波次并发、依赖失败跳过、上游输出注入；ordered_parallel 串行保序；planner 校验器与 prompt 已允许 sequential；红检恢复拒绝逻辑后测试 FAIL |
 | A4-03 | PASS（单测） | `2582a6d` | DAG 波次受 ParallelTasks 信号量限制；ctx 取消停止派发并传入 dispatcher；移除信号量后测试 FAIL |
 | A4-04 | PASS（确定性 round-robin） | `68b352a` | GROUP_CHAT_MAX_ROUNDS 控制轮数（默认 1）；展开为 sequential 依赖链，轮转发言、无连续同一人、注入上一发言输出；handler 测试 2 轮 2 Agent 派发 4 次 |
 | A4-05 | PASS（计划期模型选择；默认 round_robin） | `c0ea166` | MainAgent 兼 SpeakerSelector，输出 speaker/reason/done；越界/缺理由/连续重复/首轮停止即失败；`GROUP_CHAT_SPEAKER_MODE=model` 启用，上限 MAX_ROUNDS×参与者；理由写入 route_decisions.reason_summary；红检关闭 allowlist 后测试 FAIL；执行中按输出动态重选未做 |
@@ -436,6 +436,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `go test ./httpapi/ -run 'TestMetrics'`（gateway + orchestrator） | PASS（`format=prometheus` 文本格式与标签） |
 | CI workflow / Prometheus / compose / otel 配置 YAML 解析 | PASS（未在 GitHub / Prometheus / 容器实跑） |
 | `actionlint .github/workflows/v3-integration-gates.yml` | PASS（exit 0） |
+| `cd services/orchestrator && go test ./planner/` | PASS（sequential 校验 + DAG 相关） |
 | `scripts/run-v3-gates.sh`（未 export DSN/Redis） | 正确 fail-fast（exit 1）；完整门禁需显式环境 |
 | 10 个 agent 模块 `go build ./...` + `go test ./...` | PASS（全 Agent tracing 接线） |
 | `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新；本次 8.2s） |
