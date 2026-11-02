@@ -439,7 +439,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | CI workflow / Prometheus / compose / otel 配置 YAML 解析 | PASS（未在 GitHub / Prometheus / 容器实跑） |
 | `actionlint .github/workflows/v3-integration-gates.yml` | PASS（exit 0） |
 | `promtool check config/rules`（v3.1.0，本机） | PASS（config 有效；7 rules 有效） |
-| `nginx -t`（1.27.4，本机测试副本） | PASS（语法/指令有效；upstream 地址替换为 127.0.0.1） |
+| `nginx -t`（1.27.4，本机测试副本） | PASS（deploy 反代与 frontend/nginx.conf 均通过；upstream 地址替换为 127.0.0.1） |
 | `otelcol-contrib validate --config=deploy/otel/collector.yaml`（0.115.1） | PASS |
 | Dockerfile workspace/runtime 审计 | PASS（全部模块 go.mod/go.sum、runtime ca-certificates；commit `397ade1,4e2cda9,b61b188`） |
 | compose 内部 token 注入 | PASS（Orchestrator/Gateway 可覆盖，全部 Agent 注入；commit `354c64b`） |
