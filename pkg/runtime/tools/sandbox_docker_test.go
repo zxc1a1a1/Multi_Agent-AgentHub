@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,25 @@ func TestDockerSandboxRunsAllowListedCommand(t *testing.T) {
 	}
 	if out["exitCode"] != float64(0) {
 		t.Fatalf("unexpected exit code: %#v", out)
+	}
+}
+
+func TestDockerExecutorUnavailableDoesNotRunOnHost(t *testing.T) {
+	w, _ := newTestWorkspace(t)
+	marker := filepath.Join(w.root, "host-ran")
+	executor := &DockerExecutor{
+		Image:     "alpine:3",
+		DockerBin: filepath.Join(t.TempDir(), "missing-docker"),
+	}
+	_, err := executor.Run(context.Background(), SandboxSpec{
+		Executable: "sh", Args: []string{"-c", "touch " + marker},
+		WorkingDir: w.root, Timeout: 5 * time.Second,
+	})
+	if err == nil {
+		t.Fatal("missing docker binary must fail closed")
+	}
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Fatalf("host command was executed despite unavailable sandbox: %v", statErr)
 	}
 }
 
