@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Copy, Check } from 'lucide-react'
+import MermaidDiagram from './MermaidDiagram'
 
 interface Props {
   content: string
@@ -184,6 +185,10 @@ export default function StreamingText({ content, isStreaming }: Props) {
                 const className: string = codeElement?.props?.className || ''
                 const langMatch = className.match(/language-(\w+)/)
                 const language = langMatch ? langMatch[1] : ''
+
+                if (language === 'mermaid') {
+                  return <MermaidDiagram code={codeText} />
+                }
 
                 return (
                   <div className="rounded-lg border border-gray-700 overflow-hidden my-2">

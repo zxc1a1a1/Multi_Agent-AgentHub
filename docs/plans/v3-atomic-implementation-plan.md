@@ -174,14 +174,14 @@ P0 契约/决策冻结
 | A5-02c | frontmatter 解析/校验（已实现，见日志） | markdown-agent | YAML 合法/非法都有结果 | A5-02a |
 | A5-02d | TOC 生成（已实现，见日志） | markdown-agent | 锚点与渲染一致 | A5-02a |
 | A5-03a | Mermaid 语法校验（已实现 Go 侧，见日志） | markdown-agent/前端 | 错误图有行/列提示 | A5-02a |
-| A5-03b | Mermaid 渲染（strict/sandbox） | markdown-agent/前端 | 恶意脚本不执行 | A5-03a |
+| A5-03b | Mermaid 渲染（strict/sanitize，已实现） | markdown-agent/前端 | 恶意脚本不执行 | A5-03a |
 | A5-04 | KaTeX render（前端已实现，见日志） | markdown-agent/前端 | `trust:false`；危险命令被拒 | A5-02a |
 | A5-05 | 导出 PDF | markdown-agent + Playwright 沙箱 | 沙箱内导出；无内网访问 | A5-03b |
 | A5-06 | link check（已实现，见日志） | markdown-agent + 沙箱 | 私网/重定向被拒 | A5-02a |
  | A5-02a |
 | A5-08 | Shiki 替换 hljs（已实现，见日志） | `CodePreview.tsx` | 包体不增；高亮正确 | A5-07 |
 | A5-09 | diff2html 渲染层（已实现，见日志） | `DiffPreview.tsx` | dry-run/apply 不变 | A5-07 |
-| A5-10a | Mermaid 前端懒加载 | 前端 | 仅出现时加载；失败不白屏 | A5-03b |
+| A5-10a | Mermaid 前端懒加载（已实现） | 前端 | 仅出现时加载；失败不白屏 | A5-03b |
 | A5-10b | KaTeX 前端懒加载（已实现，见日志） | 前端 | 仅出现时加载；失败显示原文 | A5-04 |
 | A5-11 | Playwright 截图 artifact | web/test agent + artifact | 截图可跨节点读 | A5-07 |
 | A5-12 | 消息列表虚拟化（可选） | `ChatWindow.tsx` | 长会话滚动/内存达标 | A5-08 |
@@ -355,6 +355,8 @@ P0 契约/决策冻结
 | A5-09 | PASS | 待提交 | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
 | A5-06 | PASS（SSRF 防护） | 待提交 | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；私网目标 0 请求 |
 | A5-04 | PASS（前端） | 待提交 | remark-math + rehype-katex，`trust:false`；javascript href 不生成链接；恶意样例测试通过 |
+| A5-03b | PASS（前端） | 待提交 | Mermaid securityLevel=strict + DOMPurify SVG profile；script/javascript 链接被剥离；失败回退代码文本 |
+| A5-10a | PASS | 待提交 | 仅 mermaid 代码块渲染时动态 import mermaid；独立懒 chunk；去掉 sanitize 后测试 FAIL |
 | A5-10b | PASS | 待提交 | 仅在内容含 $...$ 时动态加载 remark-math/rehype-katex/katex CSS；失败保持原文；禁用加载后测试 FAIL |
 | A6-01/A6-03..A6-08、P5 其余 | 未开始 | — | — |
 

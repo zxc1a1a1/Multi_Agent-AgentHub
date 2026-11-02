@@ -27,3 +27,6 @@
 
 - KaTeX 通过 `rehype-katex` 渲染，显式 `trust:false`；`\href{javascript:...}`
   不生成链接。KaTeX 仅在内容含 `$...$` 时动态加载（A5-04/A5-10b）。
+
+- Mermaid 使用 `securityLevel: 'strict'`，渲染结果再经 DOMPurify SVG profile
+  消毒后才注入；Mermaid 仅在出现 mermaid 代码块时动态加载，失败回退代码文本。
