@@ -357,7 +357,7 @@ P0 契约/决策冻结
 | A5-02c | PASS | `6b5fcd4` | YAML 合法/非法/未闭合均有结果 |
 | A5-02d | PASS | `6b5fcd4` | 同一 parser 生成 TOC 锚点并与渲染 id 对齐 |
 | A5-03a | PASS（Go 侧） | `474f5bb` | 校验 diagram 关键字/括号/引号/闭合 fence，报行列；前端 Mermaid 渲染 A5-03b 未实现 |
-| A6-02 | PASS（单节点） | `dcb539c` | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点 S3 未做 |
+| A6-02 | PASS（单节点默认；S3 可选） | `dcb539c` | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点由 A6-03 `ARTIFACT_METADATA_BACKEND=s3` 提供 |
 | A5-08 | PASS | `8aca161` | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 1.44MB/gzip 447KB → 465KB/gzip 约 133KB；语法 chunk 懒加载 |
 | A5-09 | PASS | e2c1eae | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
 | A5-12 | PASS（可选） | 2d707d6 | ChatWindow 默认只渲染最近 100 条，提供 Load earlier 分批展开；150 条测试证明首条不渲染、展开后可见；移除窗口化后测试 FAIL |
@@ -369,14 +369,14 @@ P0 契约/决策冻结
 | A4-07 | PASS（指标；eval 复用既有 harness） | 3fd32e0 | GET /internal/orchestrator/metrics/routing：总 run/决策、选中/拒绝原因、选中率/拒绝率、多决策（loop）run、model/tool/repair/replan 用量；时间窗非法 400 |
 | A5-10a | PASS | b2204b2 | 仅 mermaid 代码块渲染时动态 import mermaid；独立懒 chunk；去掉 sanitize 后测试 FAIL |
 | A5-10b | PASS | 6c38c87 | 仅在内容含 $...$ 时动态加载 remark-math/rehype-katex/katex CSS；失败保持原文；禁用加载后测试 FAIL |
-| A6-01 | PASS（静态配置；未跑 nginx） | 待提交 | `deploy/nginx/agenthub.conf`：/api→Gateway（SSE 关闭 buffering）、/internal 404、其余→前端；compose 增加 nginx 服务；`scripts/backup-agenthub.sh` + systemd timer，MySQL/制品/保留期；`bash -n`、fake mysqldump 备份与 7 天清理、compose YAML 解析通过；无 nginx 二进制未执行 `nginx -t` |
+| A6-01 | PASS（静态配置；未跑 nginx） | `af854af` | `deploy/nginx/agenthub.conf`：/api→Gateway（SSE 关闭 buffering）、/internal 404、其余→前端；compose 增加 nginx 服务；`scripts/backup-agenthub.sh` + systemd timer，MySQL/制品/保留期；`bash -n`、fake mysqldump 备份与 7 天清理、compose YAML 解析通过；无 nginx 二进制未执行 `nginx -t` |
 | A6-08 | PASS（文档，单机） | dbb0aff | 新增 `docs/delivery/runbook-single-node.md`：启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；明确未覆盖多副本、S3、OTel |
 | A6-07 | PASS（指标；告警未接入） | `55c8a19` | Orchestrator `/internal/orchestrator/metrics` 聚合 executions/approvals/tool_calls 状态；Gateway `/internal/metrics` 暴露 chat stream/SSE 事件/写错误/断连计数；A4-07 路由指标保留 |
 | A6-04 | PASS（CI 集成；本机 SKIP） | `467397b` | 两个 worker 并发恢复同一 run，仍只写 2 条 turn 消息且 offset=4；本机无 DSN 未执行，CI 门禁负责运行 |
 | A6-05 | PASS（CI 集成；本机 SKIP） | `9ab66ab` | 两个 Orchestrator 共享 MySQL：A 启动待审批 run，B confirm 写 run_signals，A 消费并执行至 completed；本机无 DSN 未执行 |
 | A6-06 | PASS（SDK/传播；未接 collector） | `de167e3` | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP（配置 endpoint 时）；Gateway/Orchestrator/Agent server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；内存导出测试证明三服务同一 trace；红检移除 Transport 后测试 FAIL |
 | A6-03 | PASS（blob + metadata 接线；未多副本实跑） | `58b9ca1` | S3ObjectStore：EnsureBucket/Put/Get/Presign/List/Delete；key 安全校验、10MB/7 天签名上限；本地 blob/S3 可选；S3Store 以 `metadata/<id>.json` 跨副本存元数据；渲染制品写入 checksum/storageRef；fake S3 验证读写/签名，未跑真实 MinIO 多副本 |
-| A6-03..A6-07、P5 其余 | 未开始 | — | — |
+| A0–A6 原子任务 | 已实现 | 见各行 | 仅剩运行时认证：MySQL/Redis 集成、GitHub CI、Docker 沙箱、真实 MinIO/collector/Nginx；见“收尾验证” |
 
 ### 已知 SKIP / 环境限制
 
@@ -399,7 +399,10 @@ P0 契约/决策冻结
 | `cd frontend && vite build` | PASS；主 chunk gzip 447KB（接近 G5 500KB 预算） |
 | MySQL/Redis 集成测试 | SKIP（本机无 `AGENTHUB_MYSQL_TEST_DSN` / `AGENTHUB_REDIS_TEST_ADDR`；CI 门禁已配置） |
 
-未完成范围（截至 2026-11-02）：OTel 未接真实 collector；Docker 沙箱内 Playwright 未验证；S3/MinIO 与 Nginx 未做运行时验证。G1–G6 仍未整体认证（本机 MySQL/Redis 集成 SKIP，CI 门禁未在 GitHub 实跑）。
+未完成范围（截至 2026-11-02）：原子任务 A0–A6 已全部落地；未完成的是运行时认证 ——
+MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱内 Playwright
+未验证、真实 MinIO/OTel collector/Nginx 未启动。因此 G1–G6 仍未整体认证，不能把
+单测通过表述为门禁通过。
 
 
 ### 增量验证（2026-11-02）
@@ -427,12 +430,28 @@ P0 契约/决策冻结
 | `python -c "yaml.safe_load(open('docker-compose.new-arch.yml'))"` | PASS |
 | `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新） |
 
+### 收尾验证（2026-11-02）
+
+| 命令 | 结果 |
+|---|---|
+| `cd pkg/adk && go test ./... -count=1` | PASS |
+| `cd pkg/runtime && go test ./... -count=1` | 除 launcher 外 PASS；launcher 测试二进制在 `go test` 启动时被本机策略拒绝（`Access is denied`），直接运行 `go test -c` 产物 10 个测试全部 PASS |
+| `cd services/gateway && go test ./... -count=1 && go build ./cmd/gateway` | PASS |
+| `cd services/orchestrator && go test ./... -count=1 && go build ./cmd/orchestrator` | PASS |
+| `cd services/agents/code-agent && go test ./... && go build ./cmd/code-agent` | PASS |
+| `cd services/agents/web-agent && go test ./... && go build ./cmd/web-agent` | PASS |
+| Playwright 渲染（系统 Edge） | PASS：PNG 49,703B / PDF 54,621B |
+| Playwright 群聊 E2E（系统 Edge） | 1 passed |
+| 备份脚本 fake mysqldump + 保留期 | PASS；compose YAML 解析 PASS |
+| MySQL/Redis 集成 | SKIP（本机无 DSN/Redis；CI 配置存在但未在 GitHub 实跑） |
+| nginx -t / Docker / 真实 MinIO/collector | 未执行（环境限制） |
+
 ### 门禁状态（诚实版）
 
 - G0：契约/决策已冻结；部分契约为“字段已冻结、实现未完成”。
 - G1：审批/取消/幂等/租约/投影有单测，但 MySQL/Redis 集成未在本机执行（SKIP），未整体通过。
 - G2：ADK 副作用 Guard 已强制，生产 Broker 授权/结果/审批接线已落地；审批单仍由平台侧创建，未通过整体认证。
 - G3：成员持久化、逐轮历史、参与者取消派发、浏览器 E2E 已落地；未整体认证。
-- G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做。
-- G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX、Playwright 截图/PDF 导出已落地；Docker 沙箱未验证。
+- G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做，未整体认证。
+- G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX、Playwright 截图/PDF 导出已落地；Docker 沙箱未验证，未整体认证。
 - G6：Artifact 元数据本地/S3、blob 本地/S3、指标、OTel 传播/导出、Nginx 模板与备份脚本已落地；Nginx/多副本/collector/MinIO 运行时验证未做。
