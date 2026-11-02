@@ -20,7 +20,7 @@ type ServerConfig struct {
 func NewHandler(cfg ServerConfig) (http.Handler, adk.SessionService, error) {
 	agent := NewAgent()
 	session := adk.NewMemorySessionService()
-	runner := adk.NewRunner(agent, session)
+	runner := adk.NewRunner(agent, session, adk.WithTools(DefaultTools()...))
 
 	url := strings.TrimSpace(cfg.URL)
 	if url == "" {

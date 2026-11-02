@@ -169,10 +169,10 @@ P0 契约/决策冻结
 | ID | 原子功能 | 主要文件 | 验收 | 依赖 |
 |---|---|---|---|---|
 | A5-01 | markdown-agent 骨架/A2A/AgentCard（已实现，见日志） | 新 `services/agents/markdown-agent` | 可注册、可健康检查、默认不启用 | G0 |
-| A5-02a | markdown.render | markdown-agent + goldmark | 样例 HTML 正确；原始 HTML 默认不执行 | A5-01 |
-| A5-02b | markdown.lint | markdown-agent | 标题/空链接/代码块语言可报行/列 | A5-02a |
-| A5-02c | frontmatter 解析/校验 | markdown-agent | YAML 合法/非法都有结果 | A5-02a |
-| A5-02d | TOC 生成 | markdown-agent | 锚点与渲染一致 | A5-02a |
+| A5-02a | markdown.render（已实现，见日志） | markdown-agent + goldmark | 样例 HTML 正确；原始 HTML 默认不执行 | A5-01 |
+| A5-02b | markdown.lint（已实现，见日志） | markdown-agent | 标题/空链接/代码块语言可报行/列 | A5-02a |
+| A5-02c | frontmatter 解析/校验（已实现，见日志） | markdown-agent | YAML 合法/非法都有结果 | A5-02a |
+| A5-02d | TOC 生成（已实现，见日志） | markdown-agent | 锚点与渲染一致 | A5-02a |
 | A5-03a | Mermaid 语法校验 | markdown-agent/前端 | 错误图有行/列提示 | A5-02a |
 | A5-03b | Mermaid 渲染（strict/sandbox） | markdown-agent/前端 | 恶意脚本不执行 | A5-03a |
 | A5-04 | KaTeX render | markdown-agent/前端 | `trust:false`；危险命令被拒 | A5-02a |
@@ -340,7 +340,11 @@ P0 契约/决策冻结
 | A3-07 | 未完成 | — | 未新增浏览器级 E2E |
 | A5-07 | PASS（前端单测） | `a4949e5` | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
 | A5-01 | PASS | 待提交 | 新模块 markdown-agent：A2A AgentCard/health、确定性 Agent、无模型密钥；未加入 compose，默认不启用 |
-| A5-02..A5-12、P6 | 未开始 | — | — |
+| A5-02a | PASS | 待提交 | goldmark 渲染；raw HTML 被丢弃；GFM 表格/链接测试 |
+| A5-02b | PASS | 待提交 | 标题缺空格/空链接/无语言代码块报行列 |
+| A5-02c | PASS | 待提交 | YAML 合法/非法/未闭合均有结果 |
+| A5-02d | PASS | 待提交 | 同一 parser 生成 TOC 锚点并与渲染 id 对齐 |
+| A5-03..A5-12、P6 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
 
