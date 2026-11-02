@@ -48,15 +48,15 @@
 
 | # | 常见误判 / 上一版写法 | 源码事实 | 影响 |
 |---|---|---|---|
-| C1 | “写工具必须经过 Tool Broker（SQL 审批/预算/fencing）” | `services/orchestrator/internal/toolruntime/broker.go` 全仓仅被 `broker_test.go` 引用，生产路径未接线 | 写工具的账本化仍是目标，不是现状；04/07 已改写 |
+| C1 | “写工具必须经过 Tool Broker（SQL 审批/预算/fencing）” | Broker 已补预算保留/失败语义与单元测试，但生产 Agent 仍未接线（A2-02） | G2 未通过；写工具未开放 |
 | C2 | “Gateway-Orchestrator 使用独立内部 token” | HTTP 面有 `Authorization: Bearer` 校验；**gRPC 面 `grpc.NewServer()` 无拦截器、客户端不传 metadata** | gRPC 当前无鉴权，02 列为 P0 缺口 |
 | C3 | “公开事件 `(runId, seq, subIndex)` 稳定” | Gateway 分配 `publicSeq`，`SubIndex` 硬编码 0（`httpapi/server.go:897-905`），当前无分片生产者 | 契约允许分片，现状只有单分片；02/03 注明 |
-| C4 | “审批由 Orchestrator 账本一次性消费” | 计划级审批走 `pending_plan` + `/confirm`；工具级审批由 Agent 内 `pkg/runtime/tools.Guard` 校验，未进 SQL `approvals` 表 | 两类审批语义不同，03/04 分开描述 |
+| C4 | “审批由 Orchestrator 账本一次性消费” | 计划级审批已落 SQL（`run_signals`/`hitl_confirmations`）；工具级审批仍由 Agent Guard 校验，未接 SQL `approvals` | A2-02 未完成，两类审批语义仍分开 |
 | C5 | “账本含 task_executions” | 表已建（`001_execution_ledger.sql:28`），全仓无写入代码 | 03 标注为未使用表 |
 | C6 | “租约带 TTL 与 fencing，可接管” | 已补周期续租与完成释放（A1-02/A1-10）；仍保留 15 分钟 TTL 默认值；`fencing_version=0` 在 Guard 层被拒 | 长跑不再失租；多实例接管有测试 |
 | C7 | “Redis Streams 实时投递事件” | relay 每 250ms 发布；**仓库内无 Redis Stream 消费者**；gRPC `SubscribeRun` 轮询 SQL（200ms），Gateway tail SSE 轮询 SQL（250ms） | 02/03 明确“SQL 轮询是现状” |
 | C8 | “刷新恢复已在真模型浏览器验证” | `frontend/src/stores/resume.test.ts` 全部 mock `services/api` 与 `agui/client`；真模型浏览器记录见 `docs/reports/p6-real-model-deepseek.md`，但未覆盖 Flash 全路径 | 03 拆分“单测证据/真机证据” |
-| C9 | “测试覆盖断连、回放、unknown” | 3 个关键集成测试依赖 `AGENTHUB_MYSQL_TEST_DSN` / `AGENTHUB_REDIS_TEST_ADDR`，缺失即 SKIP；CI 未注入这些变量 | CI 绿色 ≠ 集成通过；03 给出运行命令 |
+| C9 | “测试覆盖断连、回放、unknown” | 关键集成测试仍依赖 DSN/Redis；本机 SKIP。已新增 `.github/workflows/v3-integration-gates.yml` 注入 service 且 SKIP 即失败，但尚未在 GitHub Actions 运行 | CI 绿色 ≠ 集成通过；本机仍无集成证据 |
 | C10 | “Gateway 已有 `/api/integrations/*`” | 路由表中不存在，仅本目录提案 | 08/09 标注为新增入口 |
 | C11 | “群聊只是前端占位/未实现” | 已实现 AgentPicker 多选、`group_chat` 路径、GroupPlanCard、AGENT_TURN 渲染；但 MySQL 路径 `conversation_type` 固定写 `single`，成员不持久化，历史合并成一条消息 | 13 区分“已实现/部分实现” |
 | C12 | “10 个 Agent 都有真实工具” | 多数工具返回固定字符串/模板；document-agent 注释明确 Mock；code-agent 默认不加载工具 | 14 逐个标注占位 |

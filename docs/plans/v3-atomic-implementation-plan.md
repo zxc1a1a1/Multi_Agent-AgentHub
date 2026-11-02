@@ -331,12 +331,12 @@ P0 契约/决策冻结
 | A2-00 | PASS（决策） | `5637989` | 选择 agent-side authorize/result；生产接线未完成 |
 | A2-01 | PASS | `b9bfaf2` | 无 Guard 的副作用工具 0 调用；绕过 authorizeTool 后 3 个测试 FAIL |
 | A2-02 | 未完成 | — | ADK 本地防线已实现；SQL 授权/结果入口未接线 |
-| A2-03 | PASS（Broker；生产接线待 A2-02） | 待提交 | 从 checkpoint 恢复 usage 后 ReserveTool(1)；超限/损坏预算在审批消费与工具执行前失败；写调用持久化递增后的 BudgetJSON |
+| A2-03 | PASS（Broker；生产接线待 A2-02） | d3b4529 | 从 checkpoint 恢复 usage 后 ReserveTool(1)；超限/损坏预算在审批消费与工具执行前失败；写调用持久化递增后的 BudgetJSON |
 | A2-04 | PASS | `d35aa42` | code-agent 通过 CODE_AGENT_WORKSPACE_ROOT 接入 list/read/search；工具均为 ReadOnly；测试读取真实文件且不含 apply_patch/sandbox |
 | A2-06 | PASS | `a0e5e4f` | generate_diff 使用 LCS 行级 diff，生成多 hunk/上下文/增删行；测试拒绝旧 1 行模板格式 |
-| A2-07b | PASS（工具；Broker 接线待 A2-02） | 待提交 | analyze_test_log 解析 go test PASS/FAIL/SKIP、失败详情与 coverage；assess_coverage 解析百分比/cover profile 并对比阈值；固定样例可复现 |
-| A2-07a | PASS（工具；Broker 接线待 A2-02） | 待提交 | detect_secrets 匹配私钥/AWS/GitHub/Slack/JWT/凭据赋值并只返回脱敏值；parse_vulnerability_report 解析文本/JSON CVE 与模块；已知样例可复现 |
-| A2-08 | PASS（传输/allowlist；审计待 A2-02） | 待提交 | HTTP JSON-RPC tools/list/tools/call；Bearer token；未列策略工具不暴露；错误脱敏；allowlist 测试通过 |
+| A2-07b | PASS（工具；Broker 接线待 A2-02） | d9ca50e | analyze_test_log 解析 go test PASS/FAIL/SKIP、失败详情与 coverage；assess_coverage 解析百分比/cover profile 并对比阈值；固定样例可复现 |
+| A2-07a | PASS（工具；Broker 接线待 A2-02） | d36cbef | detect_secrets 匹配私钥/AWS/GitHub/Slack/JWT/凭据赋值并只返回脱敏值；parse_vulnerability_report 解析文本/JSON CVE 与模块；已知样例可复现 |
+| A2-08 | PASS（传输/allowlist；审计待 A2-02） | 505dcfc | HTTP JSON-RPC tools/list/tools/call；Bearer token；未列策略工具不暴露；错误脱敏；allowlist 测试通过 |
 | A3-01 | PASS（单测） | `ccf6ed8` | 内存参与者往返/替换/级联删除；MySQL 集成测试 SKIP（无 DSN） |
 | A3-02 | PASS | `0bd8460` | 群聊创建/查询/替换/非法输入/404 测试通过 |
 | A3-03 | PASS | `32bfb2f` | 服务端名单恢复 + 本地缓存回退；禁用恢复后测试 FAIL |
@@ -356,16 +356,16 @@ P0 契约/决策冻结
 | A5-03a | PASS（Go 侧） | `474f5bb` | 校验 diagram 关键字/括号/引号/闭合 fence，报行列；前端 Mermaid 渲染 A5-03b 未实现 |
 | A6-02 | PASS（单节点） | `dcb539c` | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点 S3 未做 |
 | A5-08 | PASS | `8aca161` | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 1.44MB/gzip 447KB → 465KB/gzip 约 133KB；语法 chunk 懒加载 |
-| A5-09 | PASS | 待提交 | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
-| A5-12 | PASS（可选） | 待提交 | ChatWindow 默认只渲染最近 100 条，提供 Load earlier 分批展开；150 条测试证明首条不渲染、展开后可见；移除窗口化后测试 FAIL |
-| A5-06 | PASS（SSRF 防护） | 待提交 | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；私网目标 0 请求 |
-| A5-04 | PASS（前端） | 待提交 | remark-math + rehype-katex，`trust:false`；javascript href 不生成链接；恶意样例测试通过 |
-| A5-03b | PASS（前端） | 待提交 | Mermaid securityLevel=strict + DOMPurify SVG profile；script/javascript 链接被剥离；失败回退代码文本 |
-| A4-07 | PASS（指标；eval 复用既有 harness） | 待提交 | GET /internal/orchestrator/metrics/routing：总 run/决策、选中/拒绝原因、选中率/拒绝率、多决策（loop）run、model/tool/repair/replan 用量；时间窗非法 400 |
-| A5-10a | PASS | 待提交 | 仅 mermaid 代码块渲染时动态 import mermaid；独立懒 chunk；去掉 sanitize 后测试 FAIL |
-| A5-10b | PASS | 待提交 | 仅在内容含 $...$ 时动态加载 remark-math/rehype-katex/katex CSS；失败保持原文；禁用加载后测试 FAIL |
-| A6-01 | 部分实现 | 待提交 | compose 增加 `orchestrator-artifacts` 卷、容器内 `/data/artifacts` 权限；Nginx/自动备份未做 |
-| A6-08 | PASS（文档，单机） | 待提交 | 新增 `docs/delivery/runbook-single-node.md`：启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；明确未覆盖多副本、S3、OTel |
+| A5-09 | PASS | e2c1eae | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
+| A5-12 | PASS（可选） | 2d707d6 | ChatWindow 默认只渲染最近 100 条，提供 Load earlier 分批展开；150 条测试证明首条不渲染、展开后可见；移除窗口化后测试 FAIL |
+| A5-06 | PASS（SSRF 防护） | cee79ef | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；私网目标 0 请求 |
+| A5-04 | PASS（前端） | 6c38c87 | remark-math + rehype-katex，`trust:false`；javascript href 不生成链接；恶意样例测试通过 |
+| A5-03b | PASS（前端） | b2204b2 | Mermaid securityLevel=strict + DOMPurify SVG profile；script/javascript 链接被剥离；失败回退代码文本 |
+| A4-07 | PASS（指标；eval 复用既有 harness） | 3fd32e0 | GET /internal/orchestrator/metrics/routing：总 run/决策、选中/拒绝原因、选中率/拒绝率、多决策（loop）run、model/tool/repair/replan 用量；时间窗非法 400 |
+| A5-10a | PASS | b2204b2 | 仅 mermaid 代码块渲染时动态 import mermaid；独立懒 chunk；去掉 sanitize 后测试 FAIL |
+| A5-10b | PASS | 6c38c87 | 仅在内容含 $...$ 时动态加载 remark-math/rehype-katex/katex CSS；失败保持原文；禁用加载后测试 FAIL |
+| A6-01 | 部分实现 | dbb0aff | compose 增加 `orchestrator-artifacts` 卷、容器内 `/data/artifacts` 权限；Nginx/自动备份未做 |
+| A6-08 | PASS（文档，单机） | dbb0aff | 新增 `docs/delivery/runbook-single-node.md`：启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；明确未覆盖多副本、S3、OTel |
 | A6-03..A6-07、P5 其余 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
@@ -385,7 +385,7 @@ P0 契约/决策冻结
 | `cd pkg/adk && go test ./... -count=1` | PASS |
 | `cd pkg/runtime && go test ./tools/ -count=1` | PASS |
 | `cd frontend && tsc -b` | PASS |
-| `cd frontend && vitest run` | 27 files / 249 tests PASS |
+| `cd frontend && vitest run` | 27 files / 254 tests PASS |
 | `cd frontend && vite build` | PASS；主 chunk gzip 447KB（接近 G5 500KB 预算） |
 | MySQL/Redis 集成测试 | SKIP（本机无 `AGENTHUB_MYSQL_TEST_DSN` / `AGENTHUB_REDIS_TEST_ADDR`；CI 门禁已配置） |
 
@@ -398,11 +398,16 @@ P0 契约/决策冻结
 |---|---|
 | `cd services/orchestrator && go test ./... -count=1` | PASS（含 DAG/route/artifact） |
 | `cd services/gateway && go test ./... -count=1` | PASS（含 projection/逐轮投影） |
-| `cd services/agents/markdown-agent && go test ./... -count=1` | PASS（render/lint/frontmatter/toc/mermaid） |
+| `cd services/agents/markdown-agent && go test ./... -count=1` | PASS（render/lint/frontmatter/toc/mermaid/links） |
+| `cd services/agents/test-agent && go test ./... -count=1` | PASS（test log/coverage parser） |
+| `cd services/agents/security-agent && go test ./... -count=1` | PASS（secret/CVE scanner） |
+| `cd services/agents/diff-agent && go test ./... -count=1` | PASS（unified diff） |
+| `cd services/agents/code-agent && go test ./... -count=1` | PASS（read-only workspace tools） |
+| `cd pkg/runtime && go test ./tools/ -count=1` | PASS（MCP HTTP transport/budget） |
 | `cd pkg/adk && go test ./... -count=1` | PASS |
 | `cd pkg/runtime && go test ./tools/ -count=1` | PASS |
 | `cd frontend && tsc -b` | PASS |
-| `cd frontend && vitest run` | 27 files / 249 tests PASS |
+| `cd frontend && vitest run` | 27 files / 254 tests PASS |
 | `cd frontend && vite build` | PASS；首屏主 chunk 465KB/gzip 约 133KB；语言 chunks 懒加载（部分单 chunk >500KB） |
 | `cd services/agents/code-agent && go test ./... -count=1` | PASS（只读 workspace 真实文件） |
 | `cd services/agents/diff-agent && go test ./... -count=1` | PASS（多 hunk unified diff） |
