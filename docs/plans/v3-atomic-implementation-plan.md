@@ -366,8 +366,8 @@ P0 契约/决策冻结
 | A5-10b | PASS | 6c38c87 | 仅在内容含 $...$ 时动态加载 remark-math/rehype-katex/katex CSS；失败保持原文；禁用加载后测试 FAIL |
 | A6-01 | 部分实现 | dbb0aff | compose 增加 `orchestrator-artifacts` 卷、容器内 `/data/artifacts` 权限；Nginx/自动备份未做 |
 | A6-08 | PASS（文档，单机） | dbb0aff | 新增 `docs/delivery/runbook-single-node.md`：启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；明确未覆盖多副本、S3、OTel |
-| A6-07 | PASS（指标；告警未接入） | 待提交 | Orchestrator `/internal/orchestrator/metrics` 聚合 executions/approvals/tool_calls 状态；Gateway `/internal/metrics` 暴露 chat stream/SSE 事件/写错误/断连计数；A4-07 路由指标保留 |
-| A6-04 | PASS（CI 集成；本机 SKIP） | 待提交 | 两个 worker 并发恢复同一 run，仍只写 2 条 turn 消息且 offset=4；本机无 DSN 未执行，CI 门禁负责运行 |
+| A6-07 | PASS（指标；告警未接入） | `55c8a19` | Orchestrator `/internal/orchestrator/metrics` 聚合 executions/approvals/tool_calls 状态；Gateway `/internal/metrics` 暴露 chat stream/SSE 事件/写错误/断连计数；A4-07 路由指标保留 |
+| A6-04 | PASS（CI 集成；本机 SKIP） | `467397b` | 两个 worker 并发恢复同一 run，仍只写 2 条 turn 消息且 offset=4；本机无 DSN 未执行，CI 门禁负责运行 |
 | A6-03..A6-07、P5 其余 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
