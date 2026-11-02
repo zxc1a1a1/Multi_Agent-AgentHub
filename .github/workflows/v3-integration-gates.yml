@@ -183,6 +183,24 @@ jobs:
           MYSQL_ROOT_PASSWORD: ci-only-password
           AGENTHUB_API_TOKEN: ci-only-token
         run: docker compose -f docker-compose.new-arch.yml config --quiet
+      - name: Check Dockerfiles copy all workspace modules
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          modules = [line.strip()[2:] for line in open('go.work') if line.strip().startswith('./')]
+          failures = []
+          for dockerfile in pathlib.Path('.').glob('services/**/Dockerfile'):
+              text = dockerfile.read_text()
+              if 'go.work' not in text:
+                  continue
+              missing = [m for m in modules if f'{m}/go.mod' not in text]
+              if missing:
+                  failures.append(f'{dockerfile}: missing {missing}')
+          if failures:
+              raise SystemExit('\n'.join(failures))
+          print('all Dockerfiles copy workspace module files')
+          PY
+
       - name: Validate Prometheus config
         run: >-
           docker run --rm
