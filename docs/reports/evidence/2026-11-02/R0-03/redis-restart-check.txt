@@ -1,0 +1,20 @@
+# R0-03 Redis restart durability check
+# container: agenthub-r0-redis db: 3
+# started: 2026-11-02T09:11:53Z
+xadd id before restart: 1793610715281-0
+appendonly
+yes
+stream length before restart: 1
+restarting agenthub-r0-redis at 2026-11-02T09:11:56Z
+ready again at 2026-11-02T09:11:57Z
+stream length after restart: 1
+1793610715281-0
+runId
+restart-check
+seq
+1
+type
+state_update
+payload
+{"seq":1}
+RESULT: PASS (stream survived redis restart with AOF)

@@ -17,6 +17,8 @@ type fakeStore struct {
 	events    map[string]*ledger.Event
 	published map[int64]bool
 	attempts  map[int64]int
+	// suppressMark simulates a crash in the window between publish and mark.
+	suppressMark bool
 }
 
 func newFakeStore(runID string, seqs ...int64) *fakeStore {
@@ -54,6 +56,9 @@ func (f *fakeStore) GetEvent(_ context.Context, runID string, seq int64) (*ledge
 }
 
 func (f *fakeStore) MarkOutboxPublished(_ context.Context, id int64) error {
+	if f.suppressMark {
+		return nil
+	}
 	f.published[id] = true
 	return nil
 }
