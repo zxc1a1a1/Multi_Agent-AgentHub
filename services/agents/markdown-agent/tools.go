@@ -11,7 +11,7 @@ import (
 // DefaultTools returns the deterministic Markdown capability tools exposed to
 // the ADK runner. None of them execute code or touch the network.
 func DefaultTools() []adk.Tool {
-	return []adk.Tool{RenderTool{}, LintTool{}, FrontmatterTool{}, TOCTool{}, MermaidValidateTool{}}
+	return []adk.Tool{RenderTool{}, LintTool{}, FrontmatterTool{}, TOCTool{}, MermaidValidateTool{}, CheckLinksTool{}}
 }
 
 func decodeArgs(raw json.RawMessage) (string, error) {
@@ -136,6 +136,27 @@ func (MermaidValidateTool) Execute(_ context.Context, args json.RawMessage) (*ad
 		return errorResult(err), nil
 	}
 	data, err := json.Marshal(ValidateMermaid(source))
+	if err != nil {
+		return errorResult(err), nil
+	}
+	return &adk.ToolResult{Content: string(data)}, nil
+}
+
+// CheckLinksTool checks Markdown links with SSRF and redirect guards.
+type CheckLinksTool struct{}
+
+func (CheckLinksTool) Name() string        { return "markdown.check_links" }
+func (CheckLinksTool) Description() string { return "Check Markdown links; private, loopback and metadata targets are rejected." }
+func (CheckLinksTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"markdown":{"type":"string"}},"required":["markdown"],"additionalProperties":false}`)
+}
+
+func (CheckLinksTool) Execute(ctx context.Context, args json.RawMessage) (*adk.ToolResult, error) {
+	source, err := decodeArgs(args)
+	if err != nil {
+		return errorResult(err), nil
+	}
+	data, err := json.Marshal(CheckLinks(ctx, source))
 	if err != nil {
 		return errorResult(err), nil
 	}

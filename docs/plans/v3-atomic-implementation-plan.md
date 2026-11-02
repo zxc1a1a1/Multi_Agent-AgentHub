@@ -177,7 +177,7 @@ P0 契约/决策冻结
 | A5-03b | Mermaid 渲染（strict/sandbox） | markdown-agent/前端 | 恶意脚本不执行 | A5-03a |
 | A5-04 | KaTeX render | markdown-agent/前端 | `trust:false`；危险命令被拒 | A5-02a |
 | A5-05 | 导出 PDF | markdown-agent + Playwright 沙箱 | 沙箱内导出；无内网访问 | A5-03b |
-| A5-06 | link check | markdown-agent + 沙箱 | 私网/重定向被拒 | A5-02a |
+| A5-06 | link check（已实现，见日志） | markdown-agent + 沙箱 | 私网/重定向被拒 | A5-02a |
  | A5-02a |
 | A5-08 | Shiki 替换 hljs（已实现，见日志） | `CodePreview.tsx` | 包体不增；高亮正确 | A5-07 |
 | A5-09 | diff2html 渲染层（已实现，见日志） | `DiffPreview.tsx` | dry-run/apply 不变 | A5-07 |
@@ -353,6 +353,7 @@ P0 契约/决策冻结
 | A6-02 | PASS（单节点） | `dcb539c` | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点 S3 未做 |
 | A5-08 | PASS | `8aca161` | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 1.44MB/gzip 447KB → 465KB/gzip 约 133KB；语法 chunk 懒加载 |
 | A5-09 | PASS | 待提交 | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
+| A5-06 | PASS（SSRF 防护） | 待提交 | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；私网目标 0 请求 |
 | A6-01/A6-03..A6-08、P5 其余 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
