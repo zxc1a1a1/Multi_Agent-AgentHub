@@ -509,3 +509,112 @@ func TestIntegrationRouteMetrics(t *testing.T) {
 		t.Fatalf("unexpected counts: %#v", metrics)
 	}
 }
+
+func TestIntegrationTwoOrchestratorsHITLMySQL(t *testing.T) {
+	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
+	if dsn == "" {
+		t.Skip("SKIP real MySQL integration: set AGENTHUB_MYSQL_TEST_DSN")
+	}
+	ctx := context.Background()
+	db, err := ledger.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open mysql: %v", err)
+	}
+	defer db.Close()
+	if err := ledger.RunMigrations(db); err != nil {
+		t.Fatalf("migrations: %v", err)
+	}
+	repo := ledger.NewRepository(db)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	runID := "run-two-orch-" + suffix
+	requestID := "req-two-orch-" + suffix
+	planID := "plan-two-orch-" + suffix
+	t.Cleanup(func() {
+		for _, q := range []string{
+			"DELETE FROM run_signals WHERE run_id = ?",
+			"DELETE FROM hitl_confirmations WHERE run_id = ?",
+			"DELETE FROM approvals WHERE run_id = ?",
+			"DELETE FROM execution_events WHERE run_id = ?",
+			"DELETE FROM checkpoints WHERE run_id = ?",
+			"DELETE FROM plan_revisions WHERE run_id = ?",
+			"DELETE FROM run_task_refs WHERE run_id = ?",
+			"DELETE FROM outbox WHERE run_id = ?",
+			"DELETE FROM executions WHERE run_id = ?",
+		} {
+			_, _ = db.Exec(q, runID)
+		}
+	})
+
+	child := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"taskId":"task-remote","status":"completed","events":[{"author":"code-agent","role":"assistant","parts":[{"type":"text","text":"done"}],"final":true}]}`))
+	}))
+	defer child.Close()
+
+	reg, err := registry.NewStaticAgentRegistry([]registry.AgentEndpoint{{Name: "code-agent", URL: child.URL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := makeTestPlan(runID, plan.StrategySingle, []plan.TaskPlan{makeTaskPlan("t1", "code-agent", "do it")})
+	p.PlanID = planID
+	p.Revision = 1
+	p.Participants = []plan.PlanParticipant{{AgentName: "code-agent", Required: true, Selected: true}}
+	p.CandidateParticipants = p.Participants
+	p.DefaultSelectedParticipants = p.Participants
+	srvA := NewServer(
+		WithRegistry(reg),
+		WithDispatcher(dispatcher.NewA2ADispatcher()),
+		WithMainAgentPlanner(&FakeMainAgent{PlanToReturn: p}),
+		WithExecutionStore(execution.NewMySQLStore(repo)),
+		WithInstanceID("orchestrator-a"),
+	)
+	srvA.hitlPollInterval = 10 * time.Millisecond
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		body := fmt.Sprintf(`{"runId":%q,"requestId":%q,"userId":"user-two","conversationId":"conv-two","messages":[{"role":"user","text":"do it"}],"requestedPath":"main_agent_orchestration"}`, runID, requestID)
+		srvA.Handler().ServeHTTP(httptest.NewRecorder(),
+			httptest.NewRequest(http.MethodPost, "/internal/orchestrator/runs/stream", strings.NewReader(body)))
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		srvA.hitlMu.RLock()
+		pending := srvA.pendingPlans[runID]
+		srvA.hitlMu.RUnlock()
+		if pending != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	srvB := NewServer(WithExecutionStore(execution.NewMySQLStore(repo)), WithInstanceID("orchestrator-b"))
+	confirmBody := fmt.Sprintf(`{"runId":%q,"actionId":%q,"planId":%q,"action":"approve","revision":1,"idempotencyKey":"idem-two-%s","selectedParticipants":["code-agent"]}`, runID, planID, planID, suffix)
+	rec := httptest.NewRecorder()
+	srvB.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/orchestrator/hitl/confirm", strings.NewReader(confirmBody)))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("instance B confirm failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("instance A did not finish after cross-instance approval")
+	}
+
+	exec, err := repo.GetExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("load execution: %v", err)
+	}
+	if exec.Status != "completed" {
+		t.Fatalf("run status=%s, want completed", exec.Status)
+	}
+	var signalStatus string
+	if err := db.QueryRow("SELECT status FROM run_signals WHERE run_id = ?", runID).Scan(&signalStatus); err != nil {
+		t.Fatalf("load signal: %v", err)
+	}
+	if signalStatus != "consumed" {
+		t.Fatalf("signal status=%s, want consumed", signalStatus)
+	}
+}
