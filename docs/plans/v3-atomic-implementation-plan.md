@@ -315,7 +315,7 @@ P0 契约/决策冻结
 | A0-04 | PASS（契约） | `5637989` | `artifact-schema.md`、`artifact-type-registry.md` 增加 storageRef/checksum/contentType/size/version |
 | A0-05 | PASS（契约） | `5637989` | `agui-events.md`、`event-replay.md` 增加 AGENT_TURN 持久化与游标语义 |
 | A0-06 | PASS（契约） | `5637989` | `tool-broker.md` 增加执行位置决策、预算/fencing/unknown/幂等语义 |
-| A0-07 | PASS（配置，CI 待验证） | `18b8697` | `.github/workflows/v3-integration-gates.yml`：MySQL/Redis 集成 + SKIP 即失败；新增全模块 unit/build 矩阵、frontend unit/typecheck/build、Playwright E2E、compose config 校验；YAML 解析通过，未在 GitHub 实跑 |
+| A0-07 | PASS（配置，CI 待验证） | `18b8697,80a6709` | `.github/workflows/v3-integration-gates.yml`：MySQL/Redis 集成 + SKIP 即失败；全模块 unit/build 矩阵、frontend unit/typecheck/build、Playwright E2E、compose/nginx/promtool 校验；YAML 解析通过，未在 GitHub 实跑 |
 | A1-01 | PASS | `e2ec0c9` | 3 个回归测试；还原修复后超限场景 FAIL |
 | A1-02 | PASS（单测） | `581099e` | 周期续租/失租取消/handler 接线测试通过；MySQL 集成测试 SKIP（无 DSN） |
 | A1-03 | PASS（单测） | `1fe4d5f` | 跨实例确认 202、幂等 200、revision 冲突 409；MySQL 集成测试 SKIP（无 DSN） |
@@ -361,7 +361,7 @@ P0 契约/决策冻结
 | A5-08 | PASS | `8aca161` | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 1.44MB/gzip 447KB → 465KB/gzip 约 133KB；语法 chunk 懒加载 |
 | A5-09 | PASS | e2c1eae | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
 | A5-12 | PASS（可选） | 2d707d6 | ChatWindow 默认只渲染最近 100 条，提供 Load earlier 分批展开；150 条测试证明首条不渲染、展开后可见；移除窗口化后测试 FAIL |
-| A5-11 | PASS（单节点验证；S3 可配） | `446e449` | `/internal/orchestrator/render` + `capture_page`：PNG 写入 ObjectStore（本地/S3 可选），元数据含 storageRef/checksum/contentType/version；content endpoint 校验 SHA-256；真实 Playwright 系统 Edge 生成 49,703B PNG；跨节点依赖 S3，未做多副本实跑 |
+| A5-11 | PASS（单节点验证；S3 可配） | `446e449,a08c8db` | `/internal/orchestrator/render` + `capture_page`：PNG 写入 ObjectStore（本地/S3 可选），元数据含 storageRef/checksum/contentType/version；content endpoint 校验 SHA-256；Gateway `/api/artifacts/{id}/content` 代理下载；真实 Playwright 系统 Edge 生成 49,703B PNG；跨节点依赖 S3，未做多副本实跑 |
 | A5-05 | PASS（子进程隔离；Docker 沙箱未验证） | `446e449` | 同一 Playwright 渲染器生成 PDF（真实 54,621B）；渲染前拒绝 loopback/私网/链路本地/metadata/CGNAT URL；`PLAYWRIGHT_RENDER_SCRIPT` 未配置时端点 503；未在 Docker 沙箱内执行 |
 | A5-06 | PASS（SSRF 防护） | cee79ef | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；私网目标 0 请求 |
 | A5-04 | PASS（前端） | 6c38c87 | remark-math + rehype-katex，`trust:false`；javascript href 不生成链接；恶意样例测试通过 |
@@ -369,12 +369,12 @@ P0 契约/决策冻结
 | A4-07 | PASS（指标；eval 复用既有 harness） | 3fd32e0 | GET /internal/orchestrator/metrics/routing：总 run/决策、选中/拒绝原因、选中率/拒绝率、多决策（loop）run、model/tool/repair/replan 用量；时间窗非法 400 |
 | A5-10a | PASS | b2204b2 | 仅 mermaid 代码块渲染时动态 import mermaid；独立懒 chunk；去掉 sanitize 后测试 FAIL |
 | A5-10b | PASS | 6c38c87 | 仅在内容含 $...$ 时动态加载 remark-math/rehype-katex/katex CSS；失败保持原文；禁用加载后测试 FAIL |
-| A6-01 | PASS（静态配置；未跑 nginx） | `af854af` | `deploy/nginx/agenthub.conf`：/api→Gateway（SSE 关闭 buffering）、/internal 404、其余→前端；compose 增加 nginx 服务；`scripts/backup-agenthub.sh` + systemd timer，MySQL/制品/保留期；`bash -n`、fake mysqldump 备份与 7 天清理、compose YAML 解析通过；无 nginx 二进制未执行 `nginx -t` |
+| A6-01 | PASS（静态配置；本地未跑 nginx） | `af854af` | `deploy/nginx/agenthub.conf`：/api→Gateway（SSE 关闭 buffering）、/internal 404、其余→前端；compose 增加 nginx 服务；`scripts/backup-agenthub.sh` + systemd timer；`bash -n`、fake mysqldump 备份/保留期、compose YAML 通过；CI 增加 `nginx -t` 步骤但未实跑，本地无 nginx |
 | A6-08 | PASS（文档，单机） | dbb0aff | 新增 `docs/delivery/runbook-single-node.md`：启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；明确未覆盖多副本、S3、OTel |
-| A6-07 | PASS（指标 + 规则；告警通道未接） | `b96ed60` | Orchestrator/Gateway 指标保留；三入口支持 `format=prometheus`；`deploy/prometheus/{prometheus,alerts}.yml` 覆盖 down/run/approval/tool unknown/SSE/路由缺失；未被 Prometheus/Alertmanager 实跑 |
+| A6-07 | PASS（指标 + 规则；告警通道未接） | `b96ed60` | Orchestrator/Gateway 指标保留；三入口支持 `format=prometheus`；`deploy/prometheus/{prometheus,alerts}.yml` 覆盖 down/run/approval/tool unknown/SSE/路由缺失；CI 增加 promtool 校验但未实跑，未接 Alertmanager |
 | A6-04 | PASS（CI 集成；本机 SKIP） | `467397b` | 两个 worker 并发恢复同一 run，仍只写 2 条 turn 消息且 offset=4；本机无 DSN 未执行，CI 门禁负责运行 |
 | A6-05 | PASS（CI 集成；本机 SKIP） | `9ab66ab` | 两个 Orchestrator 共享 MySQL：A 启动待审批 run，B confirm 写 run_signals，A 消费并执行至 completed；本机无 DSN 未执行 |
-| A6-06 | PASS（SDK/传播；未接 collector） | `de167e3` | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP（配置 endpoint 时）；Gateway/Orchestrator/Agent server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；内存导出测试证明三服务同一 trace；红检移除 Transport 后测试 FAIL |
+| A6-06 | PASS（SDK/传播；collector 配置未实跑） | `de167e3,92a3424` | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP；Gateway/Orchestrator 与全部 service agents server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；compose observability profile 含 otel-collector/jaeger；内存导出测试证明同 trace；红检移除 Transport 后测试 FAIL；容器未启动 |
 | A6-03 | PASS（blob + metadata 接线；未多副本实跑） | `58b9ca1` | S3ObjectStore：EnsureBucket/Put/Get/Presign/List/Delete；key 安全校验、10MB/7 天签名上限；本地 blob/S3 可选；S3Store 以 `metadata/<id>.json` 跨副本存元数据；渲染制品写入 checksum/storageRef；fake S3 验证读写/签名，未跑真实 MinIO 多副本 |
 | A0–A6 原子任务 | 已实现 | 见各行 | 仅剩运行时认证：MySQL/Redis 集成、GitHub CI、Docker 沙箱、真实 MinIO/collector/Nginx；见“收尾验证” |
 
@@ -429,7 +429,8 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `bash -n scripts/backup-agenthub.sh` + fake mysqldump | PASS（生成 MySQL gz/制品 tgz；10 天旧备份被清理） |
 | `python -c "yaml.safe_load(open('docker-compose.new-arch.yml'))"` | PASS |
 | `go test ./httpapi/ -run 'TestMetrics'`（gateway + orchestrator） | PASS（`format=prometheus` 文本格式与标签） |
-| CI workflow / Prometheus 配置 YAML 解析 | PASS（未在 GitHub / Prometheus 实跑） |
+| CI workflow / Prometheus / compose / otel 配置 YAML 解析 | PASS（未在 GitHub / Prometheus / 容器实跑） |
+| 10 个 agent 模块 `go build ./...` + `go test ./...` | PASS（全 Agent tracing 接线） |
 | `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新） |
 
 ### 收尾验证（2026-11-02）
@@ -456,4 +457,4 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 - G3：成员持久化、逐轮历史、参与者取消派发、浏览器 E2E 已落地；未整体认证。
 - G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做，未整体认证。
 - G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX、Playwright 截图/PDF 导出已落地；Docker 沙箱未验证，未整体认证。
-- G6：Artifact 元数据本地/S3、blob 本地/S3、指标/告警规则、OTel 传播/导出、Nginx 模板与备份脚本已落地；Nginx/Prometheus/多副本/collector/MinIO 运行时验证未做。
+- G6：Artifact 元数据本地/S3、blob 本地/S3、指标/告警规则、全 Agent OTel 传播/导出与 collector 配置、Nginx 模板与备份脚本已落地；Nginx/Prometheus/多副本/collector/MinIO 运行时验证未做。
