@@ -15,4 +15,5 @@ use (
 	./services/agents/security-agent
 	./services/agents/deploy-agent
 	./services/agents/diff-agent
+	./services/agents/markdown-agent
 )

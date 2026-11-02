@@ -168,7 +168,7 @@ P0 契约/决策冻结
 
 | ID | 原子功能 | 主要文件 | 验收 | 依赖 |
 |---|---|---|---|---|
-| A5-01 | markdown-agent 骨架/A2A/AgentCard | 新 `services/agents/markdown-agent` | 可注册、可健康检查、默认不启用 | G0 |
+| A5-01 | markdown-agent 骨架/A2A/AgentCard（已实现，见日志） | 新 `services/agents/markdown-agent` | 可注册、可健康检查、默认不启用 | G0 |
 | A5-02a | markdown.render | markdown-agent + goldmark | 样例 HTML 正确；原始 HTML 默认不执行 | A5-01 |
 | A5-02b | markdown.lint | markdown-agent | 标题/空链接/代码块语言可报行/列 | A5-02a |
 | A5-02c | frontmatter 解析/校验 | markdown-agent | YAML 合法/非法都有结果 | A5-02a |
@@ -339,7 +339,8 @@ P0 契约/决策冻结
 | A3-06 | PASS | `4597d7d` | GroupPlanCard 每成员勾选，required 不可取消；选择随 approve/revise 提交；后端 filterPlanByConfirmedParticipants 只派发已确认 Agent 的任务（单测） |
 | A3-07 | 未完成 | — | 未新增浏览器级 E2E |
 | A5-07 | PASS（前端单测） | `a4949e5` | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
-| A5-08..A5-12、P4/P6 | 未开始 | — | — |
+| A5-01 | PASS | 待提交 | 新模块 markdown-agent：A2A AgentCard/health、确定性 Agent、无模型密钥；未加入 compose，默认不启用 |
+| A5-02..A5-12、P6 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
 

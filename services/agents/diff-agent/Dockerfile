@@ -18,6 +18,7 @@ COPY services/agents/review-agent/go.mod              ./services/agents/review-a
 COPY services/agents/security-agent/go.mod            ./services/agents/security-agent/
 COPY services/agents/deploy-agent/go.mod              ./services/agents/deploy-agent/
 COPY services/agents/diff-agent/go.mod                ./services/agents/diff-agent/
+COPY services/agents/markdown-agent/go.mod         ./services/agents/markdown-agent/
 
 RUN go mod download
 
