@@ -53,6 +53,7 @@ services:
       CODE_AGENT_LLM_MODEL: "${CODE_AGENT_LLM_MODEL:-${LLM_MODEL}}"
       CODE_AGENT_LLM_API_KEY: "${CODE_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
       CODE_AGENT_LLM_BASE_URL: "${CODE_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
     ports:
       - "8081:8080"
     healthcheck:
@@ -72,6 +73,7 @@ services:
       WEB_AGENT_LLM_MODEL: "${WEB_AGENT_LLM_MODEL:-${LLM_MODEL}}"
       WEB_AGENT_LLM_API_KEY: "${WEB_AGENT_LLM_API_KEY:-${LLM_API_KEY}}"
       WEB_AGENT_LLM_BASE_URL: "${WEB_AGENT_LLM_BASE_URL:-${LLM_BASE_URL}}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
     ports:
       - "8082:8080"
     healthcheck:
@@ -260,6 +262,7 @@ services:
       REDIS_URL: "redis://redis:6379/0"
       ARTIFACT_STORE_DIR: "/data/artifacts"
       AGENTHUB_ENV: "docker"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
       MEMORY_MODE: "${MEMORY_MODE:-session_only}"
       ORCHESTRATOR_LLM_PROVIDER: "${ORCHESTRATOR_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
       ORCHESTRATOR_LLM_MODEL: "${ORCHESTRATOR_LLM_MODEL:-${LLM_MODEL}}"
@@ -300,6 +303,7 @@ services:
       ORCHESTRATOR_INTERNAL_TOKEN: "dev-internal-token"
       GATEWAY_ENABLE_AUTH: "false"
       GATEWAY_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
       AGENTHUB_GATEWAY_STORE: "mysql"
       DATABASE_URL: "root:${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}@tcp(mysql:3306)/agenthub?parseTime=true&loc=UTC&charset=utf8mb4"
       # Agent endpoint URLs for frontend agent dropdown display
@@ -329,6 +333,26 @@ services:
   # =========================================================================
   # Nginx — public reverse proxy (API/SSE + frontend, internal paths denied)
   # =========================================================================
+
+  jaeger:
+    image: "jaegertracing/all-in-one:1.62.0"
+    profiles: ["observability"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+
+  otel-collector:
+    image: "otel/opentelemetry-collector-contrib:0.115.1"
+    profiles: ["observability"]
+    command: ["--config=/etc/otel/collector.yaml"]
+    volumes:
+      - "./deploy/otel/collector.yaml:/etc/otel/collector.yaml:ro"
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - jaeger
 
   nginx:
     image: "nginx:1.27-alpine"

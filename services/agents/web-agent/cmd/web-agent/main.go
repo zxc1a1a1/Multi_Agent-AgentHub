@@ -11,6 +11,7 @@ import (
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	_ "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/model" // register model providers
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/tools"
 	webagent "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/agents/web-agent"
@@ -28,6 +29,16 @@ func main() {
 }
 
 func run() error {
+	shutdownTracing, err := observability.Setup(context.Background(), "web-agent")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(shutdownCtx)
+	}()
+
 	addr := strings.TrimSpace(os.Getenv("WEB_AGENT_ADDR"))
 	if addr == "" {
 		addr = defaultAddr
@@ -39,7 +50,7 @@ func run() error {
 		return err
 	}
 
-	return http.ListenAndServe(addr, handler)
+	return http.ListenAndServe(addr, observability.Handler("web-agent", handler))
 }
 
 func buildHandler(publicURL string) (http.Handler, error) {

@@ -10,9 +10,10 @@ import (
 	"time"
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
-	visionagent "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/agents/vision-agent"
 	_ "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/model"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
+	visionagent "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/agents/vision-agent"
 )
 
 const (
@@ -21,26 +22,46 @@ const (
 )
 
 func main() {
-	if err := run(); err != nil { log.Fatalf("vision-agent server failed: %v", err) }
+	if err := run(); err != nil {
+		log.Fatalf("vision-agent server failed: %v", err)
+	}
 }
 
 func run() error {
+	shutdownTracing, err := observability.Setup(context.Background(), "vision-agent")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(shutdownCtx)
+	}()
+
 	addr := strings.TrimSpace(os.Getenv("VISION_AGENT_ADDR"))
-	if addr == "" { addr = defaultAddr }
+	if addr == "" {
+		addr = defaultAddr
+	}
 	publicURL := strings.TrimSpace(os.Getenv("VISION_AGENT_PUBLIC_URL"))
 	handler, err := buildHandler(publicURL)
-	if err != nil { return err }
-	return http.ListenAndServe(addr, handler)
+	if err != nil {
+		return err
+	}
+	return http.ListenAndServe(addr, observability.Handler("vision-agent", handler))
 }
 
 func buildHandler(publicURL string) (http.Handler, error) {
 	resolvedURL := strings.TrimSpace(publicURL)
-	if resolvedURL == "" { resolvedURL = defaultPublicURL }
+	if resolvedURL == "" {
+		resolvedURL = defaultPublicURL
+	}
 	cfg := visionagent.ServerConfig{URL: resolvedURL}
 
 	if modelName := strings.TrimSpace(os.Getenv("VISION_AGENT_LLM_MODEL")); modelName != "" {
 		provider := strings.ToLower(strings.TrimSpace(os.Getenv("VISION_AGENT_LLM_PROVIDER")))
-		if provider == "" { provider = "anthropic" }
+		if provider == "" {
+			provider = "anthropic"
+		}
 		apiKey := resolveAPIKey(provider)
 		baseURL := strings.TrimSpace(os.Getenv("VISION_AGENT_LLM_BASE_URL"))
 		if apiKey != "" {
@@ -59,16 +80,24 @@ func buildHandler(publicURL string) (http.Handler, error) {
 	}
 
 	handler, _, err := visionagent.NewHandler(cfg)
-	if err != nil { return nil, err }
-	if handler == nil { return nil, errors.New("vision-agent handler is nil") }
+	if err != nil {
+		return nil, err
+	}
+	if handler == nil {
+		return nil, errors.New("vision-agent handler is nil")
+	}
 	return handler, nil
 }
 
 func resolveAPIKey(provider string) string {
-	if key := strings.TrimSpace(os.Getenv("VISION_AGENT_LLM_API_KEY")); key != "" { return key }
+	if key := strings.TrimSpace(os.Getenv("VISION_AGENT_LLM_API_KEY")); key != "" {
+		return key
+	}
 	switch provider {
-	case "openai": return strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-	default: return strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
+	case "openai":
+		return strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	default:
+		return strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
 	}
 }
 
@@ -79,10 +108,10 @@ func createModelDirect(providerName, apiKey, modelName, baseURL string) (adk.Mod
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return registry.CreateAndRegisterModel(ctx, registry.ModelConfig{
-		Name:     "vision-agent-model",
-		Provider: providerName,
-		Model:    modelName,
-		BaseURL:  baseURL,
+		Name:      "vision-agent-model",
+		Provider:  providerName,
+		Model:     modelName,
+		BaseURL:   baseURL,
 		APIKeyEnv: envKey,
 	})
 }
