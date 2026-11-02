@@ -19,6 +19,9 @@ COPY services/agents/security-agent/go.mod            ./services/agents/security
 COPY services/agents/deploy-agent/go.mod              ./services/agents/deploy-agent/
 COPY services/agents/diff-agent/go.mod                ./services/agents/diff-agent/
 COPY services/agents/markdown-agent/go.mod         ./services/agents/markdown-agent/
+COPY pkg/runtime/go.sum            ./pkg/runtime/
+COPY services/orchestrator/go.sum  ./services/orchestrator/
+COPY services/agents/markdown-agent/go.sum ./services/agents/markdown-agent/
 
 RUN go mod download
 

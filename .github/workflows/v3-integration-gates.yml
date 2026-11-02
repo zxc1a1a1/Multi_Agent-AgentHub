@@ -193,7 +193,9 @@ jobs:
               text = dockerfile.read_text()
               if 'go.work' not in text:
                   continue
-              missing = [m for m in modules if f'{m}/go.mod' not in text]
+              missing = [f'{m}/go.mod' for m in modules if f'{m}/go.mod' not in text]
+              missing += [f'{m}/go.sum' for m in modules
+                          if (pathlib.Path(m) / 'go.sum').exists() and f'{m}/go.sum' not in text]
               if missing:
                   failures.append(f'{dockerfile}: missing {missing}')
           if failures:
