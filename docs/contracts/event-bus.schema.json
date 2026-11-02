@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agenthub.local/contracts/event-bus.schema.json",
+  "title": "AgentHub EventBus Envelope",
+  "description": "冻结的事件封套（schemaVersion=1）。事实源：docs/contracts/event-bus.md。仅约束队列内封套的结构；单事件字节上限、eventId 派生、idempotencyKey 派生、payload.type 与 envelope.type 一致性、单写者 lease 失效即停这五条无法用 JSON Schema 表达，由 publisher 与契约测试保证（见 event-bus.md §12）。本 schema 描述目标契约，不代表已实现。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "schemaVersion",
+    "type",
+    "runId",
+    "conversationId",
+    "taskId",
+    "seq",
+    "subIndex",
+    "occurredAt",
+    "traceId",
+    "idempotencyKey",
+    "attempt",
+    "payload"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "description": "全局唯一、可确定性派生：evt_<runId>_<seq>_<subIndex>。重复发布同一逻辑事件必须得到同一 eventId。",
+      "pattern": "^evt_[A-Za-z0-9_-]{1,80}_[0-9]{1,19}_[0-9]{1,10}$",
+      "maxLength": 160
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "description": "封套主版本，本次冻结为 1。消费者遇到未知版本必须停止处理并进入 DLQ，不得猜测解析。",
+      "const": 1
+    },
+    "type": {
+      "description": "事件类型，取自 pkg/runtime/agui/event_types.go 的内部（lower_snake）名称 allowlist。禁止使用公开 AG-UI 的 UPPER_SNAKE 名称，也禁止使用 translator.go 的点号名称（如 artifact.delta）。",
+      "enum": [
+        "run_started",
+        "run_finished",
+        "run_error",
+        "message_start",
+        "message_delta",
+        "message_end",
+        "state_update",
+        "activity_snapshot",
+        "tool_call_start",
+        "tool_call_args",
+        "tool_call_end",
+        "agent_turn_started",
+        "agent_turn_content",
+        "agent_turn_finished"
+      ]
+    },
+    "runId": {
+      "type": "string",
+      "description": "顺序键。同一 runId 的事件必须按 seq 递增、由单一 writer 发布。",
+      "pattern": "^run_[A-Za-z0-9_-]{1,64}$",
+      "maxLength": 64
+    },
+    "conversationId": {
+      "type": "string",
+      "description": "会话作用域，来自 executions.conversation_id。消费者做 workspace/conversation 授权判断时必须回到 SQL 复核。",
+      "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+      "maxLength": 64
+    },
+    "taskId": {
+      "type": "string",
+      "description": "A2A/执行任务 ID；与任务无关的事件写空字符串，不得省略该键。",
+      "pattern": "^$|^[A-Za-z0-9_.:-]{1,64}$",
+      "maxLength": 64
+    },
+    "seq": {
+      "type": "integer",
+      "description": "run 内单调递增序号，从 1 开始；SQL 唯一约束 (runId, seq)。",
+      "minimum": 1,
+      "maximum": 9223372036854775807
+    },
+    "subIndex": {
+      "type": "integer",
+      "description": "同一 seq 内的分片序号，从 0 开始。当前实现恒为 0（Gateway 硬编码），契约保留分片语义。",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "occurredAt": {
+      "type": "string",
+      "description": "事件在 Orchestrator 事务内发生的时间，UTC RFC3339。pattern 与 format 同时给出：format 在多数校验器里只是注解，pattern 才是硬约束。",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    },
+    "traceId": {
+      "type": "string",
+      "description": "跨层追踪 ID；缺失时写空字符串（现状：relay 不携带 trace，见 event-bus.md §2 现状列）。",
+      "pattern": "^$|^[A-Za-z0-9_.:-]{1,128}$",
+      "maxLength": 128
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "description": "业务幂等键，必须等于 <runId>:<seq>:<subIndex>，与 run_signals.idempotency_key、event_projection_offsets 游标语义一致。",
+      "pattern": "^[A-Za-z0-9_.:-]{1,80}:[0-9]{1,19}:[0-9]{1,10}$",
+      "maxLength": 160
+    },
+    "attempt": {
+      "type": "integer",
+      "description": "投递次数，由消费者/adapter 在重投时递增；publisher 首次发布恒写 1。达到 maxAttempts 后必须进 DLQ。",
+      "minimum": 1,
+      "maximum": 32
+    },
+    "payload": {
+      "type": "object",
+      "description": "事件业务体，取自 execution_events.payload_json（即 agui.InternalStreamEvent 的 JSON）。大对象只放 artifact 引用。禁止携带 prompt/token/密钥/连接串。",
+      "additionalProperties": true,
+      "not": {
+        "description": "禁止的顶层敏感键（EB-SEC-02）。深层嵌套键由 publisher 脱敏与契约测试覆盖。",
+        "anyOf": [
+          { "required": ["prompt"] },
+          { "required": ["prompts"] },
+          { "required": ["systemPrompt"] },
+          { "required": ["token"] },
+          { "required": ["tokens"] },
+          { "required": ["apiKey"] },
+          { "required": ["accessToken"] },
+          { "required": ["refreshToken"] },
+          { "required": ["clientSecret"] },
+          { "required": ["secret"] },
+          { "required": ["secrets"] },
+          { "required": ["password"] },
+          { "required": ["credential"] },
+          { "required": ["credentials"] },
+          { "required": ["privateKey"] },
+          { "required": ["dsn"] },
+          { "required": ["databaseUrl"] },
+          { "required": ["cookie"] },
+          { "required": ["authorization"] },
+          { "required": ["headers"] },
+          { "required": ["blob"] }
+        ]
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "run_error" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "description": "RUN_ERROR 的 payload 必须是已脱敏的 SafeError 投影，禁止原始 provider 错误全文。",
+            "not": { "anyOf": [{ "required": ["stackTrace"] }, { "required": ["rawError"] }] }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": { "enum": ["agent_turn_started", "agent_turn_content", "agent_turn_finished"] }
+        }
+      },
+      "then": {
+        "description": "AGENT_TURN 事件必须携带 turnIndex（与 pkg/runtime/agui InternalStreamEvent.MarshalJSON 的强制行为一致），否则前端无法按轮次还原多 Agent 消息。",
+        "properties": {
+          "payload": {
+            "required": ["turnIndex"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": { "enum": ["message_start", "message_delta", "message_end"] }
+        }
+      },
+      "then": {
+        "description": "文本流事件必须携带 messageId，投影 consumer 以 messageId 归并 assistant 消息。",
+        "properties": {
+          "payload": {
+            "required": ["messageId"]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "artifactRef": {
+      "type": "object",
+      "description": "payload 中引用大对象的唯一合法形式（EB-SEC-03）：只给引用，不给内容。",
+      "additionalProperties": false,
+      "required": ["artifactId"],
+      "properties": {
+        "artifactId": {
+          "type": "string",
+          "pattern": "^art_[A-Za-z0-9_-]{8,64}$",
+          "maxLength": 64
+        },
+        "type": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 256 },
+        "mime": { "type": "string", "maxLength": 128 },
+        "size": { "type": "integer", "minimum": 0 },
+        "checksum": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "maxLength": 71
+        }
+      }
+    },
+    "dlqEntry": {
+      "type": "object",
+      "description": "DLQ stream（agenthub:{env}:dlq）条目：只有元数据，绝不含 payload（EB-SEC-04）。",
+      "additionalProperties": false,
+      "required": ["eventId", "consumerKey", "runId", "seq", "type", "attempts", "errorClass", "firstSeen", "lastSeen"],
+      "properties": {
+        "eventId": { "$ref": "#/properties/eventId" },
+        "consumerKey": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.:-]{1,128}$",
+          "maxLength": 128
+        },
+        "runId": { "$ref": "#/properties/runId" },
+        "seq": { "$ref": "#/properties/seq" },
+        "type": { "$ref": "#/properties/type" },
+        "attempts": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "errorClass": {
+          "type": "string",
+          "description": "封闭枚举，禁止写入原始错误文本、DSN、堆栈或 provider 响应。",
+          "enum": [
+            "decode_error",
+            "unknown_schema_version",
+            "type_not_allowed",
+            "size_exceeded",
+            "security_redaction_required",
+            "handler_error",
+            "store_error",
+            "idempotency_conflict",
+            "timeout",
+            "unknown"
+          ]
+        },
+        "firstSeen": { "$ref": "#/properties/occurredAt" },
+        "lastSeen": { "$ref": "#/properties/occurredAt" },
+        "streamKey": {
+          "type": "string",
+          "pattern": "^agenthub:[a-z0-9_-]{1,32}:run:events$",
+          "maxLength": 128
+        },
+        "streamEntryId": {
+          "type": "string",
+          "description": "Redis Stream 条目 ID（<ms>-<seq>），仅用于运维定位。",
+          "pattern": "^[0-9]{1,19}-[0-9]{1,10}$",
+          "maxLength": 32
+        }
+      }
+    }
+  }
+}

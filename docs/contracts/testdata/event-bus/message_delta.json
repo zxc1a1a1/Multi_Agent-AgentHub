@@ -1,0 +1,20 @@
+{
+  "eventId": "evt_run_0123456789abcdef_4_0",
+  "schemaVersion": 1,
+  "type": "message_delta",
+  "runId": "run_0123456789abcdef",
+  "conversationId": "conv_1730500000000",
+  "taskId": "",
+  "seq": 4,
+  "subIndex": 0,
+  "occurredAt": "2026-11-02T00:00:00Z",
+  "traceId": "trace_0123456789abcdef",
+  "idempotencyKey": "run_0123456789abcdef:4:0",
+  "attempt": 1,
+  "payload": {
+    "type": "message_delta",
+    "runId": "run_0123456789abcdef",
+    "messageId": "0123456789abcdef0123456789abcdef",
+    "delta": "hello "
+  }
+}

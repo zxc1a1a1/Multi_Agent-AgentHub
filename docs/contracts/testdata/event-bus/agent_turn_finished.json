@@ -1,0 +1,23 @@
+{
+  "eventId": "evt_run_0123456789abcdef_12_0",
+  "schemaVersion": 1,
+  "type": "agent_turn_finished",
+  "runId": "run_0123456789abcdef",
+  "conversationId": "conv_1730500000000",
+  "taskId": "task_0123456789abcdef",
+  "seq": 12,
+  "subIndex": 0,
+  "occurredAt": "2026-11-02T00:00:00Z",
+  "traceId": "trace_0123456789abcdef",
+  "idempotencyKey": "run_0123456789abcdef:12:0",
+  "attempt": 1,
+  "payload": {
+    "type": "agent_turn_finished",
+    "runId": "run_0123456789abcdef",
+    "messageId": "0123456789abcdef0123456789abcdef",
+    "turnIndex": 1,
+    "agentName": "code-agent",
+    "status": "completed",
+    "summary": "ok"
+  }
+}

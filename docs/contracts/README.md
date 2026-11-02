@@ -50,6 +50,7 @@ Contract → Implementation → Contract Test / Smoke Test → Review
 - `artifact-schema.md`
 - `data-model.md`, `mysql-schema.md`, `storage-profiles.md`, `redis-usage.md`
 - `runtime-harness.md`, `memory.md`, `tool-broker.md`, `event-replay.md`
+- `event-bus.md` and `event-bus.schema.json` (status: `draft-frozen`; envelope/streams/consumer groups/ack/DLQ/ordering/idempotency are defined here. Redis-side queue behaviour is NOT implemented — see `event-bus.md` §0 and §9; `redis-usage.md` §9 and `event-replay.md` §4 note where the old per-run stream remains the compatibility/rollback path.)
 - `docker-compose-delivery.md`
 
 ## v2 decisions

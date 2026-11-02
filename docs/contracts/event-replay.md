@@ -3,6 +3,7 @@
 **Status:** Active (v2, P0 frozen)
 **Owner:** AgentHub Orchestrator / Gateway
 **Last updated:** 2026-10-29
+**Related:** `event-bus.md`（2026-11-02 冻结的 EventBus 契约；队列侧封套/consumer group/ack/DLQ/顺序规则的唯一事实源）
 
 ## 1. 权威顺序
 
@@ -54,6 +55,8 @@ service OrchestratorService {
 5. 缺号与定期 SQL 水位/终态核验共同负责补齐，包括没有后继事件的尾部缺失。
 6. 重复投递仍可能发生；不得因重复而重复追加文本或重复执行工具。
 
+> 定位说明（2026-11-02）：本节描述的是**当前已实现**的 outbox relay 行为（`services/orchestrator/relay/relay.go` 只 `XADD` 到 per-run stream，无 `eventId`、无 consumer group、无 ack/claim/DLQ），它构成 `event-bus.md` §10 定义的**兼容/回滚路径**。目标队列形态（共享 stream `agenthub:{env}:run:events`、13 字段封套、`projection`/`signal`/`audit` group、事务提交后 `XACK`、`XAUTOCLAIM` 重投、`maxAttempts` 后进 `agenthub:{env}:dlq` 且不自动重放、单写者 lease 失效即停）见 `event-bus.md` §2~§8，均属 `未实现`。本节第 1~6 条在目标形态下依然成立（SQL 权威、按 run 保序、重复需去重），不与新契约冲突。
+
 ## 5. Gateway 投影与订阅
 
 - Gateway 先幂等更新消息投影，再发送公开事件；发送完成终态前确认投影已提交。
@@ -85,6 +88,7 @@ agenthub:{env}:instance:{id}:heartbeat              # 心跳
 - 权限撤销/记忆删除立即作用于新授权，不等待 TTL。
 - Redis 不保存 API key、token 明文、完整敏感 prompt、DSN。
 - 多订阅广播使用独立游标的 `XREAD`，不把多个订阅者放进同一 `XREADGROUP`。
+- 上述 `run:{runId}:events` 是兼容路径键；目标队列键 `agenthub:{env}:run:events` 与死信键 `agenthub:{env}:dlq` 见 `event-bus.md` §4。最后一条广播规则由 `event-bus.md` EB-GRP-04 原样继承。
 
 ## 8. 门禁
 

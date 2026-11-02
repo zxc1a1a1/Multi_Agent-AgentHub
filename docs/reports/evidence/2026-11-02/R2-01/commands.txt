@@ -1,0 +1,102 @@
+# R2-01 冻结 EventBus 契约 —— 可复现命令
+# 只写变量名，不写任何值。本任务不读取 .env，不连接 MySQL/Redis，不发送任何网络请求。
+# 证据基线：branch dev, HEAD 150019f2da917abcbaabc47f6595aa58bc442057
+# 本任务为 DOCUMENTS ONLY：无 Go 代码、无前端代码、无运行行为改动。
+
+## 0. 环境事实（执行前确认）
+node --version                                        # PATH 上的 node 已损坏，不可用
+/e/node_js/node.exe --version                          -> v20.12.2
+python --version                                       -> Python 3.11.5
+python -c "import jsonschema;print(jsonschema.__version__)" -> 4.19.1
+git rev-parse HEAD                                     -> 150019f2da917abcbaabc47f6595aa58bc442057
+git status --short                                     # 仅本批次文件 + 队友未提交改动
+
+# 选用的校验器：本机已安装的 python jsonschema 4.19.1（Draft202012Validator）。
+# 仓库内无 ajv / check-jsonschema；frontend/node_modules/.bin 无 JSON Schema 校验器；
+# 不允许为了跑一次校验就 npm install（会引入依赖与 node_modules 变更）。
+
+## 1. 现状核查（写文档前逐条读代码/文档）
+git status --short
+git branch -vv
+ls docs/contracts/
+ls docs/contracts/ | grep -i index                     # docs/contracts/00-INDEX.md 不存在（见 summary.md 说明）
+grep -n "R2-01" docs/plans/v3-gap-atomic-plan.md
+sed -n '599,624p' docs/plans/v3-gap-atomic-plan.md      # §4.3 R2-01 处理方案/改动范围/验收
+sed -n '1113,1233p' docs/plans/v3-gap-atomic-plan.md    # §5 证据规范
+cat services/orchestrator/relay/relay.go                # 只 XADD + EXPIRE；无 eventId/consumer group
+grep -rn "XReadGroup\|XAutoClaim\|XGroupCreate\|XAck" --include=*.go services/ pkg/   -> 无命中
+find . -type d -name eventbus -not -path "*/node_modules/*"                            -> 无命中
+cat pkg/runtime/agui/event_types.go                     # 14 个内部 lower_snake 事件名
+grep -n "assistant_message.v1" -r --include=*.go services/
+sed -n '101,124p' services/orchestrator/internal/persistence/mysql/migrations/001_execution_ledger.sql
+sed -n '203,227p' services/orchestrator/internal/persistence/mysql/repository.go
+grep -rn "EventType:" --include=*.go services/orchestrator | grep -v _test
+grep -rn "AppendState(" --include=*.go services/orchestrator | grep -v _test
+sed -n '180,199p;270,280p' services/orchestrator/httpapi/run_ledger.go
+sed -n '110,190p' services/orchestrator/httpapi/resume.go
+grep -o 'Type: *"[a-z.]*"' pkg/runtime/agui/translator.go | sort -u    # 点号名，禁止入队
+head -45 docs/contracts/error-taxonomy.md
+sed -n '40,160p' docs/architecture/v3/18-message-queue-and-rich-interactions.md
+
+## 2. JSON Schema 校验（核心验收，实跑）
+# 2.1 schema 自身必须是合法 draft 2020-12 schema
+PYTHONUTF8=1 python -c "import json;from jsonschema import Draft202012Validator;Draft202012Validator.check_schema(json.load(open('docs/contracts/event-bus.schema.json',encoding='utf-8')));print('check_schema: OK  meta=%s'%Draft202012Validator.META_SCHEMA['\$id'])"
+# -> check_schema: OK  meta=https://json-schema.org/draft/2020-12/schema
+
+# 2.2 逐条校验 21 个示例（14 正向 + 7 反向）。exit 0 = 合法，exit 1 = 被拒绝。
+for f in docs/contracts/testdata/event-bus/*.json; do
+  PYTHONUTF8=1 python -m jsonschema -o plain -i "$f" docs/contracts/event-bus.schema.json >/dev/null 2>/tmp/e.txt
+  echo "$(basename "$f") exit=$?"
+done
+# 完整输出（含每条拒绝理由）见 logs/schema-validation.txt
+
+# 2.3 Windows 编码坑：不带 PYTHONUTF8=1 时 CLI 以 gbk 打开含中文的 schema 直接崩溃
+PYTHONUTF8= PYTHONIOENCODING= python -m jsonschema -o plain \
+  -i docs/contracts/testdata/event-bus/run_finished.json docs/contracts/event-bus.schema.json
+# -> exit=1  UnicodeDecodeError: 'gbk' codec can't decode byte 0x80 in position 232
+
+# 2.4 node 交叉解析（证明 schema 与全部示例都是可解析 JSON；node 必须用绝对路径）
+/e/node_js/node.exe -e 'const fs=require("fs");JSON.parse(fs.readFileSync("docs/contracts/event-bus.schema.json","utf8"));const d="docs/contracts/testdata/event-bus";const n=fs.readdirSync(d).filter(f=>f.endsWith(".json")).length;fs.readdirSync(d).forEach(f=>JSON.parse(fs.readFileSync(d+"/"+f,"utf8")));console.log("schema + "+n+" examples parsed by node: ok ("+process.version+")")'
+# -> schema + 21 examples parsed by node: ok (v20.12.2)
+
+# 2.5 allowlist / 必填字段与代码和计划的一致性交叉检查
+PYTHONUTF8=1 python -c "
+import json,re
+s=json.load(open('docs/contracts/event-bus.schema.json',encoding='utf-8'))
+src=open('pkg/runtime/agui/event_types.go',encoding='utf-8').read()
+block=src.split('// Internal event types')[1].split('// Public event types')[0]
+names=re.findall(r'=\s*\"([a-z_]+)\"',block); enum=s['properties']['type']['enum']
+print('schema enum n=%d go internal n=%d sets equal: %s'%(len(enum),len(names),set(enum)==set(names)))
+plan=['eventId','schemaVersion','type','runId','conversationId','taskId','seq','subIndex','occurredAt','traceId','idempotencyKey','attempt','payload']
+print('envelope required == plan R2-01 field list:',s['required']==plan,'(%d fields)'%len(s['required']))
+"
+# -> sets equal: True ; required == plan field list: True (13 fields)
+
+## 3. 证据文件自身校验
+PYTHONUTF8=1 python -c "
+import json
+rows=[json.loads(l) for l in open('docs/reports/evidence/2026-11-02/R2-01/events.jsonl',encoding='utf-8')]
+req=['schemaVersion','evidenceId','testId','planTaskId','layer','actor','action','target','status','recordedAt']
+allowed={'element','viewport','httpStatus','errorClass','retryAfterMs','fencingToken','budgetBefore','budgetAfter','projectionOffset','leaseTtlMs','recoveryMs','artifact','memoryIds'}
+enum=set(json.load(open('docs/contracts/event-bus.schema.json',encoding='utf-8'))['\$defs']['dlqEntry']['properties']['errorClass']['enum'])
+assert all(all(k in r for k in req) for r in rows)
+assert all(set(r['detail'])<=allowed for r in rows)
+assert all(all(c in enum for c in r['detail'].values()) for r in rows)
+print('events.jsonl OK:',len(rows),'rows')
+"
+# -> events.jsonl OK: 29 rows
+
+## 4. 安全扫描（密钥 / 禁止内容）
+grep -rniE "sk-[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]*PRIVATE KEY|BEGIN RSA|api[_-]?key *= *[A-Za-z0-9]{20,}|password *= *[^<]|user:[^@]*@" \
+  docs/contracts/event-bus.md docs/contracts/event-bus.schema.json docs/contracts/testdata/event-bus/ \
+  docs/reports/evidence/2026-11-02/R2-01/                                  -> 无命中（见 summary.md）
+git status --short ; git ls-files .env                                     -> .env 未被跟踪
+# 说明：本任务未执行 git add / git commit / git push；未读取任何 .env 文件。
+
+## 5. 明确未执行（SKIP，理由见 summary.md）
+cd services/orchestrator && go test ./...          # SKIP：R2-01 不改 Go 代码；契约文档无编译产物
+cd services/gateway && go test ./...               # SKIP：同上
+cd frontend && npm test -- --run                   # SKIP：无前端改动
+cd frontend && npm run build                       # SKIP：无前端改动
+AGENTHUB_REDIS_TEST_ADDR='<operator supplied>' go test ./services/orchestrator/relay -run ^TestIntegration
+                                                   # SKIP：本任务不改变 relay 行为，无需 Redis 集成跑

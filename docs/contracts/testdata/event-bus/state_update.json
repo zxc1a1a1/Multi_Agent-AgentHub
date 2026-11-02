@@ -1,0 +1,22 @@
+{
+  "eventId": "evt_run_0123456789abcdef_2_0",
+  "schemaVersion": 1,
+  "type": "state_update",
+  "runId": "run_0123456789abcdef",
+  "conversationId": "conv_1730500000000",
+  "taskId": "",
+  "seq": 2,
+  "subIndex": 0,
+  "occurredAt": "2026-11-02T00:00:00Z",
+  "traceId": "trace_0123456789abcdef",
+  "idempotencyKey": "run_0123456789abcdef:2:0",
+  "attempt": 1,
+  "payload": {
+    "type": "state_update",
+    "runId": "run_0123456789abcdef",
+    "state": {
+      "status": "executing",
+      "activeAgent": "code-agent"
+    }
+  }
+}
