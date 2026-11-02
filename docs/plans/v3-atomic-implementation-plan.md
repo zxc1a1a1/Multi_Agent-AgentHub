@@ -375,7 +375,7 @@ P0 契约/决策冻结
 | A6-07 | PASS（指标 + 规则；告警通道未接） | `b96ed60` | Orchestrator/Gateway 指标保留；三入口支持 `format=prometheus`；`deploy/prometheus/{prometheus,alerts}.yml` 覆盖 down/run/approval/tool unknown/SSE/路由缺失；本机 promtool v3.1.0 校验 config + 7 条 rules 通过；未接 Alertmanager |
 | A6-04 | PASS（内存本机；MySQL CI 待跑） | `467397b,956ec06` | 两个 worker 并发恢复同一 run：内存 store 本机 PASS（2 条消息、offset=7、二次恢复 0）；MySQL 版本 CI 待跑 |
 | A6-05 | PASS（内存跨实例；MySQL CI 待跑） | `9ab66ab,4da8bbe,6a78723` | 两个 Orchestrator 共享 store：A 待审批、B confirm 写 run_signals、A 消费并执行；B cancel 可终止 A 的待审批 run；内存版本本机 PASS，MySQL 版本 CI 待跑 |
-| A6-06 | PASS（SDK/传播；collector 配置未实跑） | `de167e3,92a3424` | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP；Gateway/Orchestrator 与全部 service agents server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；compose observability profile 含 otel-collector/jaeger；内存导出测试证明同 trace；红检移除 Transport 后测试 FAIL；容器未启动 |
+| A6-06 | PASS（SDK/传播；collector 配置未实跑） | `de167e3,92a3424` | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP；Gateway/Orchestrator 与全部 service agents server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；compose observability profile 含 otel-collector/jaeger；内存导出测试证明同 trace；otelcol-contrib 0.115.1 校验 collector 配置通过；容器未启动 |
 | A6-03 | PASS（blob + metadata 接线；未多副本实跑） | `58b9ca1,67eef30` | S3ObjectStore：EnsureBucket/Put/Get/Presign/List/Delete；key 安全校验、10MB/7 天签名上限；本地 blob/S3 可选；S3Store 以 `metadata/<id>.json` 跨副本存元数据；fake S3 验证 Put/Get/List/Delete 与 S3Store 往返；未跑真实 MinIO 多副本 |
 | A0–A6 原子任务 | 已实现 | 见各行 | 仅剩运行时认证：MySQL/Redis 集成、GitHub CI、Docker 沙箱、真实 MinIO/collector/Nginx；见“收尾验证” |
 
@@ -440,6 +440,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `actionlint .github/workflows/v3-integration-gates.yml` | PASS（exit 0） |
 | `promtool check config/rules`（v3.1.0，本机） | PASS（config 有效；7 rules 有效） |
 | `nginx -t`（1.27.4，本机测试副本） | PASS（语法/指令有效；upstream 地址替换为 127.0.0.1） |
+| `otelcol-contrib validate --config=deploy/otel/collector.yaml`（0.115.1） | PASS |
 | `cd services/orchestrator && go test ./planner/` | PASS（sequential 校验 + DAG 相关） |
 | `cd services/orchestrator && go test ./httpapi/ -run TestTwoInstancesShareHITLSignal` | PASS（共享 store 跨实例 confirm→signal→执行） |
 | `cd services/gateway && go test ./projection/ -run TestTwoWorkersProjectTurnsWithoutDuplicatesInMemory` | PASS（双 worker 并发投影无重复） |
