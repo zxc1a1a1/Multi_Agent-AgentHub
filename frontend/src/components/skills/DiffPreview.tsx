@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import { parse } from 'diff2html'
 import * as api from '../../services/api'
 
 interface Props {
@@ -9,14 +10,23 @@ interface Props {
 /**
  * Unified diff display with safe Phase 8 dry-run/apply handshake.
  * Gateway only proxies; Orchestrator validates path/diff and records apply.
+ * diff2html is used for parsing only; lines are rendered as React text, never
+ * as HTML, so diff content cannot inject markup.
  */
 export default function DiffPreview({ diffText, filename }: Props) {
-  const lines = diffText.split('\n')
   const [dryRunId, setDryRunId] = useState<string>('')
   const [status, setStatus] = useState<string>('')
   const [error, setError] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const path = filename || extractPath(diffText) || 'src/unknown.patch'
+
+  const files = useMemo(() => {
+    try {
+      return parse(diffText || '')
+    } catch {
+      return []
+    }
+  }, [diffText])
 
   const dryRun = async () => {
     setLoading(true)
@@ -71,27 +81,62 @@ export default function DiffPreview({ diffText, filename }: Props) {
           {error || status}
         </div>
       )}
-      <div className="overflow-x-auto">
-        <pre className="text-xs font-mono leading-relaxed m-0 p-0 max-h-96 overflow-y-auto">
-          {lines.map((line, i) => {
-            let lineClass = 'px-3 py-0'
-            if (line.startsWith('+') && !line.startsWith('+++')) {
-              lineClass += ' bg-green-50 text-green-800'
-            } else if (line.startsWith('-') && !line.startsWith('---')) {
-              lineClass += ' bg-red-50 text-red-800'
-            } else if (line.startsWith('@@')) {
-              lineClass += ' bg-blue-50 text-blue-700'
-            }
-            return (
-              <div key={i} className={lineClass}>
+      <div className="overflow-x-auto max-h-96 overflow-y-auto">
+        {files.length > 0 ? (
+          files.map((file, fileIndex) => (
+            <div key={`${file.newName}-${fileIndex}`}>
+              <div className="px-3 py-1 bg-gray-100 border-b border-gray-200 text-xs font-mono text-gray-700">
+                {file.newName || file.oldName || path}
+                <span className="ml-2 text-green-600">+{file.addedLines}</span>
+                <span className="ml-1 text-red-600">-{file.deletedLines}</span>
+              </div>
+              {file.blocks.map((block, blockIndex) => (
+                <div key={blockIndex}>
+                  <div className="px-3 py-0.5 bg-blue-50 text-blue-700 text-xs font-mono">
+                    {block.header}
+                  </div>
+                  {block.lines.map((line, lineIndex) => {
+                    const tone =
+                      line.type === 'insert'
+                        ? 'bg-green-50 text-green-800'
+                        : line.type === 'delete'
+                          ? 'bg-red-50 text-red-800'
+                          : 'text-gray-700'
+                    return (
+                      <div key={lineIndex} className={`flex text-xs font-mono leading-relaxed ${tone}`}>
+                        <span className="w-10 flex-shrink-0 text-right pr-2 text-gray-400 select-none">
+                          {line.oldNumber ?? ''}
+                        </span>
+                        <span className="w-10 flex-shrink-0 text-right pr-2 text-gray-400 select-none">
+                          {line.newNumber ?? ''}
+                        </span>
+                        <span className="whitespace-pre pr-2">{line.content || ' '}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          ))
+        ) : (
+          <pre className="text-xs font-mono leading-relaxed m-0 p-0">
+            {(diffText || '').split('\n').map((line, index) => (
+              <div key={index} className={lineClass(line)}>
                 {line || ' '}
               </div>
-            )
-          })}
-        </pre>
+            ))}
+          </pre>
+        )}
       </div>
     </div>
   )
+}
+
+function lineClass(line: string): string {
+  if (line.startsWith('+') && !line.startsWith('+++')) return 'px-3 py-0 bg-green-50 text-green-800'
+  if (line.startsWith('-') && !line.startsWith('---')) return 'px-3 py-0 bg-red-50 text-red-800'
+  if (line.startsWith('@@')) return 'px-3 py-0 bg-blue-50 text-blue-700'
+  return 'px-3 py-0'
 }
 
 function extractPath(diffText: string): string {

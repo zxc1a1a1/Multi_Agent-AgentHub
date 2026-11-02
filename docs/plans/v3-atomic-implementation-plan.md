@@ -180,7 +180,7 @@ P0 契约/决策冻结
 | A5-06 | link check | markdown-agent + 沙箱 | 私网/重定向被拒 | A5-02a |
  | A5-02a |
 | A5-08 | Shiki 替换 hljs（已实现，见日志） | `CodePreview.tsx` | 包体不增；高亮正确 | A5-07 |
-| A5-09 | diff2html 渲染层 | `DiffPreview.tsx` | dry-run/apply 不变 | A5-07 |
+| A5-09 | diff2html 渲染层（已实现，见日志） | `DiffPreview.tsx` | dry-run/apply 不变 | A5-07 |
 | A5-10a | Mermaid 前端懒加载 | 前端 | 仅出现时加载；失败不白屏 | A5-03b |
 | A5-10b | KaTeX 前端懒加载 | 前端 | 仅出现时加载；失败显示原文 | A5-04 |
 | A5-11 | Playwright 截图 artifact | web/test agent + artifact | 截图可跨节点读 | A5-07 |
@@ -352,6 +352,7 @@ P0 契约/决策冻结
 | A5-03a | PASS（Go 侧） | `474f5bb` | 校验 diagram 关键字/括号/引号/闭合 fence，报行列；前端 Mermaid 渲染 A5-03b 未实现 |
 | A6-02 | PASS（单节点） | `dcb539c` | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点 S3 未做 |
 | A5-08 | PASS | `8aca161` | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 1.44MB/gzip 447KB → 465KB/gzip 约 133KB；语法 chunk 懒加载 |
+| A5-09 | PASS | 待提交 | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
 | A6-01/A6-03..A6-08、P5 其余 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
@@ -371,7 +372,7 @@ P0 契约/决策冻结
 | `cd pkg/adk && go test ./... -count=1` | PASS |
 | `cd pkg/runtime && go test ./tools/ -count=1` | PASS |
 | `cd frontend && tsc -b` | PASS |
-| `cd frontend && vitest run` | 26 files / 245 tests PASS |
+| `cd frontend && vitest run` | 27 files / 249 tests PASS |
 | `cd frontend && vite build` | PASS；主 chunk gzip 447KB（接近 G5 500KB 预算） |
 | MySQL/Redis 集成测试 | SKIP（本机无 `AGENTHUB_MYSQL_TEST_DSN` / `AGENTHUB_REDIS_TEST_ADDR`；CI 门禁已配置） |
 
@@ -388,7 +389,7 @@ P0 契约/决策冻结
 | `cd pkg/adk && go test ./... -count=1` | PASS |
 | `cd pkg/runtime && go test ./tools/ -count=1` | PASS |
 | `cd frontend && tsc -b` | PASS |
-| `cd frontend && vitest run` | 26 files / 245 tests PASS |
+| `cd frontend && vitest run` | 27 files / 249 tests PASS |
 | `cd frontend && vite build` | PASS；首屏主 chunk 465KB/gzip 约 133KB；语言 chunks 懒加载（部分单 chunk >500KB） |
 | `cd services/agents/code-agent && go test ./... -count=1` | PASS（只读 workspace 真实文件） |
 | `cd services/agents/diff-agent && go test ./... -count=1` | PASS（多 hunk unified diff） |
