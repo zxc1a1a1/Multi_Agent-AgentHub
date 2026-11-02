@@ -880,7 +880,15 @@ func (r *Repository) AppendRunSignal(ctx context.Context, p SignalParams) (int64
 		nullIfEmpty(p.Feedback), nullIfEmpty(p.RejectReason), participants, idempotency)
 	if err != nil {
 		if isDuplicateKey(err) {
-			return 0, true, nil
+			// Replay returns the original row so callers can treat a duplicate
+			// submission as the same signal instead of a no-op.
+			var existing int64
+			if err := r.db.QueryRowContext(ctx,
+				"SELECT id FROM run_signals WHERE run_id = ? AND idempotency_key = ?",
+				p.RunID, p.IdempotencyKey).Scan(&existing); err != nil {
+				return 0, false, err
+			}
+			return existing, true, nil
 		}
 		return 0, false, err
 	}
@@ -1038,9 +1046,17 @@ func (r *Repository) BeginConfirm(ctx context.Context, runID, key, requestHash s
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, `INSERT IGNORE INTO hitl_confirmations
+	res, err := tx.ExecContext(ctx, `INSERT IGNORE INTO hitl_confirmations
 		(run_id, idempotency_key, request_hash, status) VALUES (?, ?, ?, 'processing')`,
-		runID, key, requestHash); err != nil {
+		runID, key, requestHash)
+	if err != nil {
+		return nil, false, err
+	}
+	// INSERT IGNORE reports one affected row only for the caller that actually
+	// created the row, which is the only reliable way to tell "I just claimed
+	// this key" apart from "another instance is working on it".
+	inserted, err := res.RowsAffected()
+	if err != nil {
 		return nil, false, err
 	}
 	var record ConfirmRecord
@@ -1060,6 +1076,12 @@ func (r *Repository) BeginConfirm(ctx context.Context, runID, key, requestHash s
 			return nil, false, err
 		}
 		return &record, false, nil
+	}
+	if inserted == 1 {
+		if err := tx.Commit(); err != nil {
+			return nil, false, err
+		}
+		return &record, true, nil
 	}
 	// A processing row older than two minutes is treated as abandoned and may
 	// be retried; a fresh row means another instance is currently handling it.
