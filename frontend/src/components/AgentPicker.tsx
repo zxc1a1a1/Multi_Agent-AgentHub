@@ -107,6 +107,7 @@ export default function AgentPicker({ selectedAgentNames, onChange, disabled }: 
       {/* Trigger button */}
       <button
         type="button"
+        data-testid="agent-picker-trigger"
         onClick={() => {
           if (!disabled) {
             setOpen(!open)
@@ -186,6 +187,7 @@ export default function AgentPicker({ selectedAgentNames, onChange, disabled }: 
                   <button
                     key={opt.name}
                     type="button"
+                    data-testid={`agent-option-${opt.name}`}
                     onClick={() => enabled && handleToggle(opt.name)}
                     disabled={!enabled}
                     className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${

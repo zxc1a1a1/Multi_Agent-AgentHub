@@ -146,7 +146,7 @@ P0 契约/决策冻结
 | A3-04 | Picker 过滤 enabled/healthy + 注册后刷新 | `AgentPicker.tsx`、`agentStore.ts` | 禁用 Agent 不可选；新注册可见 | A3-02 |
 | A3-05 | 每轮消息投影 | Gateway 投影 + migration | 刷新后多个 Agent 发言按轮次重建 | A3-01、A1-09c |
 | A3-06 | 群计划参与者勾选 | `GroupPlanCard.tsx`、confirm API | 取消可选参与者后不派发 | A3-02 |
-| A3-07 | 群聊 E2E | Playwright/Vitest | 创建→发送→刷新→历史→取消 | A3-03..A3-06 |
+| A3-07 | 群聊 E2E（Playwright 已实现） | Playwright/Vitest | 创建→发送→刷新→历史→取消 | A3-03..A3-06 |
 
 **G3 门禁**：群聊刷新不丢参与者；历史不合并成一条；取消能终止所有未完成 Agent。
 
@@ -343,7 +343,7 @@ P0 契约/决策冻结
 | A3-04 | PASS | `146e892` | 禁用 Agent 不可选；注册后 picker 重载；禁用判断移除后测试 FAIL |
 | A3-05 | PASS | `94fa1f5` | 网关按 turnIndex/messageId 累积，AGENT_TURN_FINISHED 时逐轮投影；无 turn 事件仍合并一条；禁用 finish 投影后测试 FAIL（历史被合并） |
 | A3-06 | PASS | `4597d7d` | GroupPlanCard 每成员勾选，required 不可取消；选择随 approve/revise 提交；后端 filterPlanByConfirmedParticipants 只派发已确认 Agent 的任务（单测） |
-| A3-07 | 未完成 | — | 未新增浏览器级 E2E |
+| A3-07 | PASS | 待提交 | Playwright + 系统 Edge：创建会话→勾选 2 Agent→发送→群计划→取消→刷新；断言参与者恢复与两 Agent 历史；`PLAYWRIGHT_CHANNEL=msedge` 运行通过 |
 | A4-01 | PASS（单测；集成 SKIP） | `7aa6cde` | route_decisions 表 + 决策构建/查询接口；记录 path/strategy/候选/选中/拒绝原因；移除记录调用后测试 FAIL |
 | A4-02 | PASS（单测） | `13c016b` | sequential 走 DAGExecutor：拓扑波次并发、依赖失败跳过、上游输出注入；ordered_parallel 仍串行保序 |
 | A4-03 | PASS（单测） | `2582a6d` | DAG 波次受 ParallelTasks 信号量限制；ctx 取消停止派发并传入 dispatcher；移除信号量后测试 FAIL |
