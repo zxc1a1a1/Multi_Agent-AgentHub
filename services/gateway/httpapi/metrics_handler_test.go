@@ -51,4 +51,20 @@ func TestMetricsEndpointCountsChatSSE(t *testing.T) {
 	if _, ok := metrics["gateway_sse_events_total"]; !ok {
 		t.Fatalf("missing sse metric: %s", rec.Body.String())
 	}
+
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/internal/metrics?format=prometheus", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("prometheus metrics failed: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		"# TYPE agenthub_gateway_chat_streams_total counter",
+		"agenthub_gateway_chat_streams_total 1",
+		"# TYPE agenthub_gateway_chat_streams_active gauge",
+		"agenthub_gateway_stream_write_errors_total",
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("missing %q in %s", want, rec.Body.String())
+		}
+	}
 }

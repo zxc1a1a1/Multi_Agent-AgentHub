@@ -30,6 +30,31 @@ func (s *Server) handleRoutingMetrics(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "metrics unavailable")
 		return
 	}
+	if wantsPrometheus(r) {
+		var builder strings.Builder
+		writeScalarMetric(&builder, "agenthub_orchestrator_routing_runs_total",
+			"Runs with at least one routing decision.", "counter", metrics.TotalRuns)
+		writeScalarMetric(&builder, "agenthub_orchestrator_routing_decisions_total",
+			"Routing decision rows in the requested window.", "counter", metrics.TotalDecisions)
+		writeScalarMetric(&builder, "agenthub_orchestrator_routing_multi_decision_runs_total",
+			"Runs with more than one routing decision (re-plans).", "counter", metrics.MultiDecisionRuns)
+		writeScalarMetric(&builder, "agenthub_orchestrator_model_calls_total",
+			"Planner model calls recorded in budgets.", "counter", metrics.ModelCalls)
+		writeScalarMetric(&builder, "agenthub_orchestrator_tool_calls_total",
+			"Tool calls recorded in budgets.", "counter", metrics.ToolCalls)
+		writeScalarMetric(&builder, "agenthub_orchestrator_repairs_total",
+			"Planner repair attempts.", "counter", metrics.Repairs)
+		writeScalarMetric(&builder, "agenthub_orchestrator_replans_total",
+			"Planner re-plan attempts.", "counter", metrics.Replans)
+		writeMetricFamily(&builder, "agenthub_orchestrator_routing_selected_total",
+			"Agent selection counts.", "counter", metrics.SelectedCounts, "agent")
+		writeMetricFamily(&builder, "agenthub_orchestrator_routing_rejected_total",
+			"Rejected-candidate counts by stable reason code.", "counter", metrics.RejectedCounts, "reason")
+		w.Header().Set("Content-Type", prometheusContentType)
+		_, _ = w.Write([]byte(builder.String()))
+		return
+	}
+
 	selectedTotal, rejectedTotal := 0, 0
 	for _, count := range metrics.SelectedCounts {
 		selectedTotal += count
@@ -44,15 +69,15 @@ func (s *Server) handleRoutingMetrics(w http.ResponseWriter, r *http.Request) {
 		rejectionRate = float64(rejectedTotal) / float64(decisions)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"since":               since,
-		"totalRuns":           metrics.TotalRuns,
-		"totalDecisions":      metrics.TotalDecisions,
-		"selectedAgents":      metrics.SelectedCounts,
-		"rejectedReasons":     metrics.RejectedCounts,
-		"selectionRate":       selectionRate,
-		"rejectionRate":       rejectionRate,
-		"multiDecisionRuns":   metrics.MultiDecisionRuns,
-		"loopRuns":            metrics.MultiDecisionRuns,
+		"since":             since,
+		"totalRuns":         metrics.TotalRuns,
+		"totalDecisions":    metrics.TotalDecisions,
+		"selectedAgents":    metrics.SelectedCounts,
+		"rejectedReasons":   metrics.RejectedCounts,
+		"selectionRate":     selectionRate,
+		"rejectionRate":     rejectionRate,
+		"multiDecisionRuns": metrics.MultiDecisionRuns,
+		"loopRuns":          metrics.MultiDecisionRuns,
 		"usage": map[string]int{
 			"modelCalls": metrics.ModelCalls,
 			"toolCalls":  metrics.ToolCalls,

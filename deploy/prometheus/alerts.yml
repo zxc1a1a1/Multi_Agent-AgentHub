@@ -1,0 +1,68 @@
+# AgentHub alert rules. Metrics are windowed by the scrape config (1h).
+groups:
+  - name: agenthub-availability
+    rules:
+      - alert: AgentHubGatewayDown
+        expr: up{job="gateway"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: AgentHub Gateway is not scrapeable
+          description: Prometheus has failed to scrape gateway-new for 2 minutes.
+
+      - alert: AgentHubOrchestratorDown
+        expr: up{job=~"orchestrator.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: AgentHub Orchestrator is not scrapeable
+          description: Prometheus has failed to scrape orchestrator-new for 2 minutes.
+
+  - name: agenthub-run-health
+    rules:
+      - alert: AgentHubRunFailures
+        expr: agenthub_orchestrator_executions{status="failed"} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Failed runs recorded in the last hour
+          description: At least one run is in failed state in the 1h metrics window.
+
+      - alert: AgentHubApprovalFailures
+        expr: agenthub_orchestrator_approvals{status="failed"} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Failed approvals recorded in the last hour
+          description: A plan approval reached failed state; inspect run_signals/hitl_confirmations.
+
+      - alert: AgentHubToolOutcomeUnknown
+        expr: agenthub_orchestrator_tool_calls{status="unknown"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Tool call outcome unknown
+          description: A dispatched write tool has no terminal result; do not retry blindly.
+
+      - alert: AgentHubSSEWriteErrors
+        expr: rate(agenthub_gateway_stream_write_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Gateway is failing to write SSE frames
+          description: Check client disconnects, proxy buffering and Gateway logs.
+
+      - alert: AgentHubRoutingDecisionsMissing
+        expr: agenthub_orchestrator_routing_runs_total > 0 and agenthub_orchestrator_routing_decisions_total == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Runs exist without routing decisions
+          description: route_decisions writes or the metrics query are broken; explainability is degraded.

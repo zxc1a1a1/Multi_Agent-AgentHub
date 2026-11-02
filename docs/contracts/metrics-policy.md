@@ -72,4 +72,21 @@ route_decisions 计数（replan/循环代理指标）；成本以预算用量表
 - Gateway `GET /internal/metrics`：
   `gateway_chat_streams_total/active`、`gateway_sse_events_total`、
   `gateway_stream_write_errors_total`、`gateway_stream_disconnects_total`。
-- 指标不含 runId/userId/prompt/token；告警阈值仅写入文档，尚未接入 Alertmanager。
+- 指标不含 runId/userId/prompt/token。
+
+## Prometheus 与告警（A6-07）
+
+- 三个入口均支持 `?format=prometheus`，返回 Prometheus text exposition
+  （`text/plain; version=0.0.4`）：
+  - Gateway `/internal/metrics` → `agenthub_gateway_*`
+  - Orchestrator `/internal/orchestrator/metrics` → `agenthub_orchestrator_executions/approvals/tool_calls{status}`
+  - Orchestrator `/internal/orchestrator/metrics/routing` →
+    `agenthub_orchestrator_routing_{runs,decisions,multi_decision_runs}_total`、
+    `..._selected_total{agent}`、`..._rejected_total{reason}`、planner 用量。
+- 抓取配置：`deploy/prometheus/prometheus.yml`（`window=1h`）；规则：
+  `deploy/prometheus/alerts.yml`（Gateway/Orchestrator down、run/approval 失败、
+  tool unknown、SSE 写错误、路由决策缺失）。
+- Orchestrator 抓取需要 `INTERNAL_SERVICE_TOKEN`，以
+  `/etc/prometheus/orchestrator-token`（0600）挂载，不写入仓库。
+- 状态：指标与规则文件已实现；本仓库未启动 Prometheus/Alertmanager，告警通道
+  仍未配置，规则仅做 YAML 解析验证。阈值需按真实流量调整。
