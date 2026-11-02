@@ -332,6 +332,7 @@ P0 契约/决策冻结
 | A2-01 | PASS | `b9bfaf2` | 无 Guard 的副作用工具 0 调用；绕过 authorizeTool 后 3 个测试 FAIL |
 | A2-02 | 未完成 | — | ADK 本地防线已实现；SQL 授权/结果入口未接线 |
 | A2-04 | PASS | `d35aa42` | code-agent 通过 CODE_AGENT_WORKSPACE_ROOT 接入 list/read/search；工具均为 ReadOnly；测试读取真实文件且不含 apply_patch/sandbox |
+| A2-06 | PASS | `a0e5e4f` | generate_diff 使用 LCS 行级 diff，生成多 hunk/上下文/增删行；测试拒绝旧 1 行模板格式 |
 | A3-01 | PASS（单测） | `ccf6ed8` | 内存参与者往返/替换/级联删除；MySQL 集成测试 SKIP（无 DSN） |
 | A3-02 | PASS | `0bd8460` | 群聊创建/查询/替换/非法输入/404 测试通过 |
 | A3-03 | PASS | `32bfb2f` | 服务端名单恢复 + 本地缓存回退；禁用恢复后测试 FAIL |
@@ -350,7 +351,7 @@ P0 契约/决策冻结
 | A5-02d | PASS | `6b5fcd4` | 同一 parser 生成 TOC 锚点并与渲染 id 对齐 |
 | A5-03a | PASS（Go 侧） | `474f5bb` | 校验 diagram 关键字/括号/引号/闭合 fence，报行列；前端 Mermaid 渲染 A5-03b 未实现 |
 | A6-02 | PASS（单节点） | `dcb539c` | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点 S3 未做 |
-| A5-08 | PASS | 待提交 | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 从 1.44MB/gzip 447KB 降到约 465KB/gzip ~150KB；懒加载语法 chunk |
+| A5-08 | PASS | `8aca161` | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 1.44MB/gzip 447KB → 465KB/gzip 约 133KB；语法 chunk 懒加载 |
 | A6-01/A6-03..A6-08、P5 其余 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
@@ -388,7 +389,9 @@ P0 契约/决策冻结
 | `cd pkg/runtime && go test ./tools/ -count=1` | PASS |
 | `cd frontend && tsc -b` | PASS |
 | `cd frontend && vitest run` | 26 files / 245 tests PASS |
-| `cd frontend && vite build` | PASS；主 chunk >500KB 警告（gzip 约 447KB） |
+| `cd frontend && vite build` | PASS；首屏主 chunk 465KB/gzip 约 133KB；语言 chunks 懒加载（部分单 chunk >500KB） |
+| `cd services/agents/code-agent && go test ./... -count=1` | PASS（只读 workspace 真实文件） |
+| `cd services/agents/diff-agent && go test ./... -count=1` | PASS（多 hunk unified diff） |
 
 ### 门禁状态（诚实版）
 
