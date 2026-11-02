@@ -374,7 +374,7 @@ P0 契约/决策冻结
 | A6-08 | PASS（文档，单机） | `dbb0aff,519079a` | Runbook 覆盖启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；新增渲染导出与 OTel/Prometheus 排查；明确未覆盖运行时多副本/S3/collector 验证 |
 | A6-07 | PASS（指标 + 规则；告警通道未接） | `b96ed60` | Orchestrator/Gateway 指标保留；三入口支持 `format=prometheus`；`deploy/prometheus/{prometheus,alerts}.yml` 覆盖 down/run/approval/tool unknown/SSE/路由缺失；CI 增加 promtool 校验但未实跑，未接 Alertmanager |
 | A6-04 | PASS（CI 集成；本机 SKIP） | `467397b` | 两个 worker 并发恢复同一 run，仍只写 2 条 turn 消息且 offset=4；本机无 DSN 未执行，CI 门禁负责运行 |
-| A6-05 | PASS（CI 集成；本机 SKIP） | `9ab66ab` | 两个 Orchestrator 共享 MySQL：A 启动待审批 run，B confirm 写 run_signals，A 消费并执行至 completed；本机无 DSN 未执行 |
+| A6-05 | PASS（内存跨实例；MySQL CI 待跑） | `9ab66ab,4da8bbe` | 两个 Orchestrator 共享 store：A 待审批、B confirm 写 run_signals、A 消费并执行至 completed；内存版本本机 PASS，MySQL 版本 CI 待跑 |
 | A6-06 | PASS（SDK/传播；collector 配置未实跑） | `de167e3,92a3424` | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP；Gateway/Orchestrator 与全部 service agents server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；compose observability profile 含 otel-collector/jaeger；内存导出测试证明同 trace；红检移除 Transport 后测试 FAIL；容器未启动 |
 | A6-03 | PASS（blob + metadata 接线；未多副本实跑） | `58b9ca1,67eef30` | S3ObjectStore：EnsureBucket/Put/Get/Presign/List/Delete；key 安全校验、10MB/7 天签名上限；本地 blob/S3 可选；S3Store 以 `metadata/<id>.json` 跨副本存元数据；fake S3 验证 Put/Get/List/Delete 与 S3Store 往返；未跑真实 MinIO 多副本 |
 | A0–A6 原子任务 | 已实现 | 见各行 | 仅剩运行时认证：MySQL/Redis 集成、GitHub CI、Docker 沙箱、真实 MinIO/collector/Nginx；见“收尾验证” |
@@ -438,6 +438,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | CI workflow / Prometheus / compose / otel 配置 YAML 解析 | PASS（未在 GitHub / Prometheus / 容器实跑） |
 | `actionlint .github/workflows/v3-integration-gates.yml` | PASS（exit 0） |
 | `cd services/orchestrator && go test ./planner/` | PASS（sequential 校验 + DAG 相关） |
+| `cd services/orchestrator && go test ./httpapi/ -run TestTwoInstancesShareHITLSignal` | PASS（共享 store 跨实例 confirm→signal→执行） |
 | `scripts/run-v3-gates.sh`（未 export DSN/Redis） | 正确 fail-fast（exit 1）；完整门禁需显式环境 |
 | 10 个 agent 模块 `go build ./...` + `go test ./...` | PASS（全 Agent tracing 接线） |
 | `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新；本次 8.2s） |
@@ -461,7 +462,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 ### 门禁状态（诚实版）
 
 - G0：契约/决策已冻结；部分契约为“字段已冻结、实现未完成”。
-- G1：审批/取消/幂等/租约/投影有单测，但 MySQL/Redis 集成未在本机执行（SKIP），未整体通过。
+- G1：审批/取消/幂等/租约/投影有单测；跨实例 HITL 有共享 store 内存测试；MySQL/Redis 集成未在本机执行（SKIP），未整体通过。
 - G2：ADK 副作用 Guard 已强制，生产 Broker 授权/结果/审批接线已落地；审批单仍由平台侧创建，未通过整体认证。
 - G3：成员持久化、逐轮历史、参与者取消派发、浏览器 E2E 已落地；未整体认证。
 - G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做，未整体认证。
