@@ -441,7 +441,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `promtool check config/rules`（v3.1.0，本机） | PASS（config 有效；7 rules 有效） |
 | `nginx -t`（1.27.4，本机测试副本） | PASS（语法/指令有效；upstream 地址替换为 127.0.0.1） |
 | `otelcol-contrib validate --config=deploy/otel/collector.yaml`（0.115.1） | PASS |
-| Dockerfile workspace module 拷贝审计 | PASS（所有使用 go.work 的 Dockerfile 均拷贝全部模块 go.mod 与存在的 go.sum；commit `397ade1,4e2cda9`） |
+| Dockerfile workspace/runtime 审计 | PASS（全部模块 go.mod/go.sum、runtime ca-certificates；commit `397ade1,4e2cda9,b61b188`） |
 | `cd services/orchestrator && go test ./planner/` | PASS（sequential 校验 + DAG 相关） |
 | `cd services/orchestrator && go test ./httpapi/ -run TestTwoInstancesShareHITLSignal` | PASS（共享 store 跨实例 confirm→signal→执行） |
 | `cd services/gateway && go test ./projection/ -run TestTwoWorkersProjectTurnsWithoutDuplicatesInMemory` | PASS（双 worker 并发投影无重复） |
