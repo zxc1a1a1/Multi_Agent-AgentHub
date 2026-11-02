@@ -32,7 +32,24 @@ func (s *Server) handleArtifactByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/artifacts/"), "/")
-	if id == "" || strings.Contains(id, "/") || strings.Contains(id, "..") {
+	if id == "" || strings.Contains(id, "..") {
+		writeJSONError(w, http.StatusNotFound, "artifact not found")
+		return
+	}
+	if strings.HasSuffix(id, "/content") {
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		artifactID := strings.TrimSuffix(id, "/content")
+		if artifactID == "" || strings.Contains(artifactID, "/") {
+			writeJSONError(w, http.StatusNotFound, "artifact not found")
+			return
+		}
+		s.proxyPhase8(w, r, "/internal/orchestrator/artifacts/"+artifactID+"/content", http.MethodGet)
+		return
+	}
+	if strings.Contains(id, "/") {
 		writeJSONError(w, http.StatusNotFound, "artifact not found")
 		return
 	}

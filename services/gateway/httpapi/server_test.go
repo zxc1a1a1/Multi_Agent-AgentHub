@@ -21,7 +21,15 @@ import (
 )
 
 type mockRunService struct {
-	seq iter.Seq2[adk.Event, error]
+	seq     iter.Seq2[adk.Event, error]
+	proxyFn func(ctx context.Context, method, internalPath string, body io.Reader, contentType string) (*http.Response, error)
+}
+
+func (m *mockRunService) ProxyInternal(ctx context.Context, method, internalPath string, body io.Reader, contentType string) (*http.Response, error) {
+	if m.proxyFn == nil {
+		return nil, errors.New("proxy not configured")
+	}
+	return m.proxyFn(ctx, method, internalPath, body, contentType)
 }
 
 func (m *mockRunService) Run(ctx context.Context, conversationID string, userContent *adk.Content) iter.Seq2[adk.Event, error] {

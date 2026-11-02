@@ -89,6 +89,8 @@ blob 字节通过 `artifacts.ObjectStore` 存取：本地目录（默认）或 S
   `storageRef=obj://runs/<run>/<artifactId>.<ext>`、`checksum=sha256:<hex>`、
   `contentType`、`size`、`version=1`、`downloadPath`。
 - 校验和 Content endpoint：`GET /internal/orchestrator/artifacts/{id}/content`
-  读取 blob 并校验 SHA-256；不匹配返回 409，缺失返回 404。
+  读取 blob 并校验 SHA-256；不匹配返回 409，缺失返回 404。Gateway 通过
+  `GET /api/artifacts/{id}/content` 代理同一路径并透传 Content-Type。`DELETE`
+  仍只允许删除元数据，不允许通过 content 子路径删除。
 - 跨节点：配置 S3/MinIO 时 blob 可跨 Orchestrator 副本读取；未配置时使用本地
   目录，仅单节点可用。前端自动展示渲染制品事件仍未接入。
