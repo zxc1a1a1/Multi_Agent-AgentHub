@@ -187,8 +187,12 @@ jobs:
         run: >-
           docker run --rm
           -v "$PWD/deploy/prometheus:/etc/prometheus:ro"
+          --entrypoint sh
           prom/prometheus:v3.1.0
-          promtool check config /etc/prometheus/prometheus.yml
+          -c 'echo ci-token > /tmp/orchestrator-token
+          && cp /etc/prometheus/prometheus.yml /tmp/prometheus.yml
+          && sed -i "s#/etc/prometheus/orchestrator-token#/tmp/orchestrator-token#" /tmp/prometheus.yml
+          && promtool check config /tmp/prometheus.yml'
       - name: Validate Prometheus alert rules
         run: >-
           docker run --rm
