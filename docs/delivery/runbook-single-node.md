@@ -117,6 +117,26 @@ curl -fsS -H "Authorization: Bearer $INTERNAL_SERVICE_TOKEN" \
 - 截图/PDF 失败先检查 `PLAYWRIGHT_RENDER_SCRIPT`、Node 与浏览器是否在镜像内；
   私网 URL 会被拒绝，这是预期行为。
 
+### 4.8 截图/PDF/Markdown 导出失败
+
+- 端点直接返回 503：检查 Orchestrator 是否配置 `PLAYWRIGHT_RENDER_SCRIPT`
+  （脚本存在于镜像内）与 `PLAYWRIGHT_NODE_PATH`；未配置时功能按设计关闭。
+- URL 模式返回 400：目标被 loopback/私网/链路本地/metadata 策略拒绝，换公开 URL。
+- Markdown 导出失败：检查 markdown-agent 是否配置 `ORCHESTRATOR_RENDER_URL` 与
+  服务 token；未配置时 `export` 动作返回 "not configured"。
+- 产物 404/409：检查 `artifactBlobs`（`ARTIFACT_BLOB_DIR` 或 S3）与 checksum；
+  不要手工改元数据 JSON，重新导出。
+- 前端图片裂开：确认 Gateway `/api/artifacts/{id}/content` 可访问，且未把
+  `/internal/*` 暴露到公网。
+
+### 4.9 OTel/Prometheus 无数据
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` 为空时 span 只传播不导出；需要数据时设为
+  `http://otel-collector:4318` 并启用 compose `observability` profile。
+- Jaeger UI 16686；collector 未启动时服务不会阻塞，但 span 会丢失。
+- Prometheus 抓取 Orchestrator 需要 `/etc/prometheus/orchestrator-token`（0600）。
+- 先看 `up{job=...}` 与 `/internal/metrics?format=prometheus` 原始输出，再看规则。
+
 ## 5. 备份与恢复
 
 自动备份脚本：`scripts/backup-agenthub.sh`（MySQL + 可选制品目录 + 保留天数）。
