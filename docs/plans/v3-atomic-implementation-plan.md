@@ -357,14 +357,14 @@ P0 契约/决策冻结
 | A5-02b | PASS | `6b5fcd4` | 标题缺空格/空链接/无语言代码块报行列 |
 | A5-02c | PASS | `6b5fcd4` | YAML 合法/非法/未闭合均有结果 |
 | A5-02d | PASS | `6b5fcd4` | 同一 parser 生成 TOC 锚点并与渲染 id 对齐 |
-| A5-03a | PASS（Go 侧） | `474f5bb` | 校验 diagram 关键字/括号/引号/闭合 fence，报行列；前端 Mermaid 渲染 A5-03b 未实现 |
+| A5-03a | PASS | `474f5bb,97a6bd6` | 校验 diagram 关键字/括号/引号/闭合 fence，报行列；markdown-agent `mermaid` 动作可经 A2A 调用；前端渲染见 A5-03b |
 | A6-02 | PASS（单节点默认；S3 可选） | `dcb539c` | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点由 A6-03 `ARTIFACT_METADATA_BACKEND=s3` 提供 |
 | A5-08 | PASS | `8aca161` | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 1.44MB/gzip 447KB → 465KB/gzip 约 133KB；语法 chunk 懒加载 |
 | A5-09 | PASS | e2c1eae | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
 | A5-12 | PASS（可选） | 2d707d6 | ChatWindow 默认只渲染最近 100 条，提供 Load earlier 分批展开；150 条测试证明首条不渲染、展开后可见；移除窗口化后测试 FAIL |
 | A5-11 | PASS（单节点验证；S3 可配） | `446e449,a08c8db` | `/internal/orchestrator/render` + `capture_page`：PNG 写入 ObjectStore（本地/S3 可选），元数据含 storageRef/checksum/contentType/version；content endpoint 校验 SHA-256；Gateway `/api/artifacts/{id}/content` 代理下载；真实 Playwright 系统 Edge 生成 49,703B PNG；跨节点依赖 S3，未做多副本实跑 |
 | A5-05 | PASS（子进程隔离；Docker 沙箱未验证） | `446e449,9837642` | URL 与 Markdown 两条导出路径；markdown-agent `markdown.export` 渲染安全 HTML，Playwright `setContent` 阻断外部请求；真实 Edge：Markdown→PNG 10,120B / PDF 15,659B，URL→PDF 54,621B；未在 Docker 沙箱内执行 |
-| A5-06 | PASS（SSRF 防护） | cee79ef | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；私网目标 0 请求 |
+| A5-06 | PASS（SSRF 防护） | `cee79ef,97a6bd6` | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；markdown-agent `links` 动作已接入 A2A |
 | A5-04 | PASS（前端） | 6c38c87 | remark-math + rehype-katex，`trust:false`；javascript href 不生成链接；恶意样例测试通过 |
 | A5-03b | PASS（前端） | b2204b2 | Mermaid securityLevel=strict + DOMPurify SVG profile；script/javascript 链接被剥离；失败回退代码文本 |
 | A4-07 | PASS（指标；eval 复用既有 harness） | 3fd32e0 | GET /internal/orchestrator/metrics/routing：总 run/决策、选中/拒绝原因、选中率/拒绝率、多决策（loop）run、model/tool/repair/replan 用量；时间窗非法 400 |
