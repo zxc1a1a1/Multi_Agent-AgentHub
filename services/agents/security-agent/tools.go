@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 )
@@ -13,6 +14,7 @@ const (
 	checkDependenciesToolName = "check_dependencies"
 	auditConfigToolName      = "audit_security_config"
 	detectSecretsToolName    = "detect_secrets"
+	parseVulnReportToolName  = "parse_vulnerability_report"
 )
 
 func DefaultTools() []adk.Tool {
@@ -21,6 +23,7 @@ func DefaultTools() []adk.Tool {
 		CheckDependenciesTool{},
 		AuditConfigTool{},
 		DetectSecretsTool{},
+		ParseVulnReportTool{},
 	}
 }
 
@@ -102,7 +105,41 @@ func (DetectSecretsTool) Execute(ctx context.Context, args json.RawMessage) (*ad
 	if err := json.Unmarshal(args, &params); err != nil {
 		return invalidArgsResult("invalid arguments: " + err.Error()), nil
 	}
-	return &adk.ToolResult{Content: "密钥检测完成：未发现敏感信息泄露。"}, nil
+	if strings.TrimSpace(params.Content) == "" {
+		return invalidArgsResult("content is required"), nil
+	}
+	data, err := json.Marshal(ScanSecrets(params.Content))
+	if err != nil {
+		return invalidArgsResult(err.Error()), nil
+	}
+	return &adk.ToolResult{Content: string(data)}, nil
+}
+
+// ParseVulnReportTool parses CVE ids from govulncheck/plain-text reports.
+type ParseVulnReportTool struct{}
+
+func (ParseVulnReportTool) Name() string        { return parseVulnReportToolName }
+func (ParseVulnReportTool) Description() string { return "Parse CVE ids and affected packages from a vulnerability report." }
+func (ParseVulnReportTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"report":{"type":"string"}},"required":["report"],"additionalProperties":false}`)
+}
+
+func (ParseVulnReportTool) Execute(_ context.Context, args json.RawMessage) (*adk.ToolResult, error) {
+	var params struct {
+		Report string `json:"report"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return invalidArgsResult("invalid arguments: " + err.Error()), nil
+	}
+	findings, err := ParseVulnReport(params.Report)
+	if err != nil {
+		return invalidArgsResult(err.Error()), nil
+	}
+	data, err := json.Marshal(findings)
+	if err != nil {
+		return invalidArgsResult(err.Error()), nil
+	}
+	return &adk.ToolResult{Content: string(data)}, nil
 }
 
 func invalidArgsResult(message string) *adk.ToolResult {
