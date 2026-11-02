@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -114,4 +115,80 @@ func countAssistant(messages []store.Message) int {
 		}
 	}
 	return count
+}
+
+func TestIntegrationTwoWorkersDoNotDuplicateTurns(t *testing.T) {
+	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
+	if dsn == "" {
+		t.Skip("SKIP real MySQL integration: set AGENTHUB_MYSQL_TEST_DSN")
+	}
+	ctx := context.Background()
+	s, err := store.OpenMySQL(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open mysql: %v", err)
+	}
+	defer s.Close()
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	conv, err := s.CreateConversation(ctx, "user-multi-worker-"+suffix, "code-agent")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	runID := "run-multi-worker-" + suffix
+	requestID := "req-multi-worker-" + suffix
+	t.Cleanup(func() {
+		_, _ = s.DB().Exec("DELETE FROM event_projection_offsets WHERE run_id = ?", runID)
+		_, _ = s.DB().Exec("DELETE FROM run_public_events WHERE run_id = ?", runID)
+		_, _ = s.DB().Exec("DELETE FROM chat_requests WHERE request_id = ?", requestID)
+		_ = s.DeleteConversation(ctx, conv.ID)
+	})
+	if _, _, err := s.RecordChatRequest(ctx, store.ChatRequest{
+		RequestID: requestID, ConversationID: conv.ID, RunID: runID,
+	}, store.Message{ConversationID: conv.ID, Author: "user", Role: "user", Text: "hello"}); err != nil {
+		t.Fatalf("record chat request: %v", err)
+	}
+	payloads := []map[string]any{
+		{"type": "AGENT_TURN_CONTENT", "messageId": "m1", "agentName": "code-agent", "delta": "one"},
+		{"type": "AGENT_TURN_FINISHED", "messageId": "m1", "agentName": "code-agent"},
+		{"type": "AGENT_TURN_CONTENT", "messageId": "m2", "agentName": "review-agent", "delta": "two"},
+		{"type": "AGENT_TURN_FINISHED", "messageId": "m2", "agentName": "review-agent"},
+		{"type": "RUN_FINISHED", "runId": runID},
+	}
+	for i, payload := range payloads {
+		data, _ := json.Marshal(payload)
+		if err := s.AppendPublicEvent(ctx, store.PublicEvent{
+			RunID: runID, Seq: int64(i + 1), SubIndex: 0, Type: payload["type"].(string), Payload: data,
+		}); err != nil {
+			t.Fatalf("append event: %v", err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			worker := New(s)
+			if _, err := worker.RecoverRun(ctx, runID); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("worker failed: %v", err)
+	}
+	messages, err := s.ListMessages(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if countAssistant(messages) != 2 {
+		t.Fatalf("concurrent workers duplicated messages: %#v", messages)
+	}
+	seq, _, found, err := s.ProjectionOffset(ctx, runID, store.ProjectionConsumerAssistantMessage)
+	if err != nil || !found || seq != 4 {
+		t.Fatalf("unexpected offset: seq=%d found=%v err=%v", seq, found, err)
+	}
 }

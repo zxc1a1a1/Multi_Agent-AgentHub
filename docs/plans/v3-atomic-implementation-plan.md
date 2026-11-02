@@ -195,7 +195,7 @@ P0 契约/决策冻结
 | A6-01 | 单机 Nginx/卷/备份 | compose、nginx、docs | SSE 不缓冲；重启数据仍在 | G1 |
 | A6-02 | ArtifactStore 接口 + 本地卷（已实现，见日志） | `pkg/runtime/tools`、orchestrator | 替换临时 JSON；重启可读 | G0 |
 | A6-03 | S3/MinIO adapter | artifact adapter | 跨节点读写；签名 URL | A6-02 |
-| A6-04 | 投影 worker 多副本部署/幂等验证 | A1-09 worker | 多 worker 不重复写 | A1-09 |
+| A6-04 | 投影 worker 多副本幂等验证（集成测试已加） | A1-09 worker | 多 worker 不重复写 | A1-09 |
 | A6-05 | 多 Orchestrator owner/共享状态 | A1-03..A1-06 | 2 副本 confirm/cancel 正常 | G1 |
 | A6-06 | OTel trace | Gateway/Orchestrator/Agent | 同一 run 可串联 | A1-07 |
 | A6-07 | 指标与告警（指标已实现，告警仅文档阈值） | metrics | 路由/审批/工具/SSE 有指标 | A4-07 |
@@ -367,6 +367,7 @@ P0 契约/决策冻结
 | A6-01 | 部分实现 | dbb0aff | compose 增加 `orchestrator-artifacts` 卷、容器内 `/data/artifacts` 权限；Nginx/自动备份未做 |
 | A6-08 | PASS（文档，单机） | dbb0aff | 新增 `docs/delivery/runbook-single-node.md`：启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；明确未覆盖多副本、S3、OTel |
 | A6-07 | PASS（指标；告警未接入） | 待提交 | Orchestrator `/internal/orchestrator/metrics` 聚合 executions/approvals/tool_calls 状态；Gateway `/internal/metrics` 暴露 chat stream/SSE 事件/写错误/断连计数；A4-07 路由指标保留 |
+| A6-04 | PASS（CI 集成；本机 SKIP） | 待提交 | 两个 worker 并发恢复同一 run，仍只写 2 条 turn 消息且 offset=4；本机无 DSN 未执行，CI 门禁负责运行 |
 | A6-03..A6-07、P5 其余 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
