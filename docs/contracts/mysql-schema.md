@@ -227,6 +227,21 @@ CREATE TABLE hitl_confirmations (
   PRIMARY KEY (run_id, idempotency_key)
 ) ENGINE=InnoDB;
 
+-- A4-01: explainable routing decisions.
+CREATE TABLE route_decisions (
+  run_id VARCHAR(64) NOT NULL,
+  decision_seq INT NOT NULL DEFAULT 0,
+  execution_path VARCHAR(32) NOT NULL,
+  strategy VARCHAR(32) NOT NULL,
+  candidates_json JSON NOT NULL,
+  selected_json JSON NOT NULL,
+  rejected_json JSON NOT NULL,
+  planner_source VARCHAR(32) NOT NULL,
+  reason_summary VARCHAR(512) NOT NULL DEFAULT '',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (run_id, decision_seq)
+) ENGINE=InnoDB;
+
 CREATE TABLE tool_calls (
   run_id VARCHAR(64) NOT NULL,
   tool_call_id VARCHAR(64) NOT NULL,

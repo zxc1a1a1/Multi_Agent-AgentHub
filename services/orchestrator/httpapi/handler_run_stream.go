@@ -282,6 +282,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		}
 		orchPlan.AllowedAgents = selResult.AllowedAgents
 	}
+	s.recordRouteDecision(r.Context(), orchPlan, 0)
 
 	if ledger.enrolled() {
 		if err := ledger.savePlan(r.Context(), orchPlan); err != nil {

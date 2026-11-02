@@ -419,3 +419,42 @@ func TestIntegrationHITLConfirmIdempotency(t *testing.T) {
 		t.Fatalf("different payload must conflict, got %v", err)
 	}
 }
+
+func TestIntegrationRouteDecisions(t *testing.T) {
+	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
+	if dsn == "" {
+		t.Skip("SKIP real MySQL integration: set AGENTHUB_MYSQL_TEST_DSN")
+	}
+	ctx := context.Background()
+	db, err := ledger.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open mysql: %v", err)
+	}
+	defer db.Close()
+	if err := ledger.RunMigrations(db); err != nil {
+		t.Fatalf("migrations: %v", err)
+	}
+	runID := fmt.Sprintf("run-route-%d", time.Now().UnixNano())
+	t.Cleanup(func() { _, _ = db.Exec("DELETE FROM route_decisions WHERE run_id = ?", runID) })
+	repo := ledger.NewRepository(db)
+	decision := ledger.RouteDecision{
+		RunID: runID, DecisionSeq: 0, ExecutionPath: "main_agent_orchestration", Strategy: "ordered_parallel",
+		Candidates: []string{"code-agent", "review-agent"}, Selected: []string{"code-agent"},
+		Rejected:      []ledger.RejectedAgent{{AgentName: "review-agent", ReasonCode: "not_selected"}},
+		PlannerSource: "main_agent", ReasonSummary: "pick code",
+	}
+	if err := repo.SaveRouteDecision(ctx, decision); err != nil {
+		t.Fatalf("save decision: %v", err)
+	}
+	if err := repo.SaveRouteDecision(ctx, decision); err != nil {
+		t.Fatalf("replay decision must be idempotent: %v", err)
+	}
+	rows, err := repo.ListRouteDecisions(ctx, runID)
+	if err != nil {
+		t.Fatalf("list decisions: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ExecutionPath != decision.ExecutionPath ||
+		len(rows[0].Selected) != 1 || len(rows[0].Rejected) != 1 || rows[0].Rejected[0].ReasonCode != "not_selected" {
+		t.Fatalf("unexpected decisions: %#v", rows)
+	}
+}

@@ -173,6 +173,42 @@ func (s *MySQLStore) CompleteConfirm(ctx context.Context, runID, key, status str
 	return s.repo.CompleteConfirm(ctx, runID, key, status, httpStatus, response)
 }
 
+func (s *MySQLStore) SaveRouteDecision(ctx context.Context, decision RouteDecision) error {
+	rejected := make([]ledger.RejectedAgent, len(decision.Rejected))
+	for i, agent := range decision.Rejected {
+		rejected[i] = ledger.RejectedAgent{AgentName: agent.AgentName, ReasonCode: agent.ReasonCode}
+	}
+	return s.repo.SaveRouteDecision(ctx, ledger.RouteDecision{
+		RunID: decision.RunID, DecisionSeq: decision.DecisionSeq,
+		ExecutionPath: decision.ExecutionPath, Strategy: decision.Strategy,
+		Candidates: decision.Candidates, Selected: decision.Selected,
+		Rejected: rejected, PlannerSource: decision.PlannerSource,
+		ReasonSummary: decision.ReasonSummary,
+	})
+}
+
+func (s *MySQLStore) ListRouteDecisions(ctx context.Context, runID string) ([]RouteDecision, error) {
+	rows, err := s.repo.ListRouteDecisions(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RouteDecision, len(rows))
+	for i, row := range rows {
+		rejected := make([]RejectedAgent, len(row.Rejected))
+		for j, agent := range row.Rejected {
+			rejected[j] = RejectedAgent{AgentName: agent.AgentName, ReasonCode: agent.ReasonCode}
+		}
+		out[i] = RouteDecision{
+			RunID: row.RunID, DecisionSeq: row.DecisionSeq,
+			ExecutionPath: row.ExecutionPath, Strategy: row.Strategy,
+			Candidates: row.Candidates, Selected: row.Selected,
+			Rejected: rejected, PlannerSource: row.PlannerSource,
+			ReasonSummary: row.ReasonSummary, CreatedAt: row.CreatedAt,
+		}
+	}
+	return out, nil
+}
+
 func (s *MySQLStore) ListEventsAfter(ctx context.Context, runID string, afterSeq int64, limit int) ([]Event, error) {
 	rows, err := s.repo.ListEventsAfter(ctx, runID, afterSeq, limit)
 	if err != nil {

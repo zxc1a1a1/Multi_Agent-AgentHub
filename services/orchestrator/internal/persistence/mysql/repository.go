@@ -1095,3 +1095,79 @@ func (r *Repository) CompleteConfirm(ctx context.Context, runID, key, status str
 		status, httpStatus, response, runID, key)
 	return err
 }
+
+// RejectedAgent records why a candidate was not dispatched.
+type RejectedAgent struct {
+	AgentName  string `json:"agentName"`
+	ReasonCode string `json:"reasonCode"`
+}
+
+// RouteDecision is one explainable routing record.
+type RouteDecision struct {
+	RunID         string
+	DecisionSeq   int
+	ExecutionPath string
+	Strategy      string
+	Candidates    []string
+	Selected      []string
+	Rejected      []RejectedAgent
+	PlannerSource string
+	ReasonSummary string
+	CreatedAt     time.Time
+}
+
+// SaveRouteDecision stores the first decision for a run; replays are ignored.
+func (r *Repository) SaveRouteDecision(ctx context.Context, d RouteDecision) error {
+	if d.RunID == "" || d.ExecutionPath == "" || d.Strategy == "" {
+		return fmt.Errorf("runId, executionPath and strategy are required")
+	}
+	candidates, err := json.Marshal(d.Candidates)
+	if err != nil {
+		return err
+	}
+	selected, err := json.Marshal(d.Selected)
+	if err != nil {
+		return err
+	}
+	rejected, err := json.Marshal(d.Rejected)
+	if err != nil {
+		return err
+	}
+	reason := d.ReasonSummary
+	if len(reason) > 512 {
+		reason = reason[:512]
+	}
+	_, err = r.db.ExecContext(ctx, `INSERT INTO route_decisions
+		(run_id, decision_seq, execution_path, strategy, candidates_json, selected_json,
+		 rejected_json, planner_source, reason_summary)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE run_id = VALUES(run_id)`,
+		d.RunID, d.DecisionSeq, d.ExecutionPath, d.Strategy, candidates, selected,
+		rejected, d.PlannerSource, reason)
+	return err
+}
+
+// ListRouteDecisions returns routing records ordered by decision sequence.
+func (r *Repository) ListRouteDecisions(ctx context.Context, runID string) ([]RouteDecision, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT run_id, decision_seq, execution_path, strategy,
+		candidates_json, selected_json, rejected_json, planner_source, reason_summary, created_at
+		FROM route_decisions WHERE run_id = ? ORDER BY decision_seq`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]RouteDecision, 0)
+	for rows.Next() {
+		var d RouteDecision
+		var candidates, selected, rejected []byte
+		if err := rows.Scan(&d.RunID, &d.DecisionSeq, &d.ExecutionPath, &d.Strategy,
+			&candidates, &selected, &rejected, &d.PlannerSource, &d.ReasonSummary, &d.CreatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(candidates, &d.Candidates)
+		_ = json.Unmarshal(selected, &d.Selected)
+		_ = json.Unmarshal(rejected, &d.Rejected)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}

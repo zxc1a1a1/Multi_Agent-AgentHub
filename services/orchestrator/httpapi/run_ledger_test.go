@@ -39,6 +39,28 @@ type fakeExecutionStore struct {
 	cancelRequested map[string]bool
 	confirmRecords  map[string]*execution.ConfirmRecord
 	confirmHashes   map[string]string
+	routeDecisions  map[string][]execution.RouteDecision
+}
+
+func (f *fakeExecutionStore) SaveRouteDecision(_ context.Context, decision execution.RouteDecision) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.routeDecisions == nil {
+		f.routeDecisions = map[string][]execution.RouteDecision{}
+	}
+	for _, existing := range f.routeDecisions[decision.RunID] {
+		if existing.DecisionSeq == decision.DecisionSeq {
+			return nil
+		}
+	}
+	f.routeDecisions[decision.RunID] = append(f.routeDecisions[decision.RunID], decision)
+	return nil
+}
+
+func (f *fakeExecutionStore) ListRouteDecisions(_ context.Context, runID string) ([]execution.RouteDecision, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]execution.RouteDecision(nil), f.routeDecisions[runID]...), nil
 }
 
 func (f *fakeExecutionStore) BeginConfirm(_ context.Context, runID, key, requestHash string) (*execution.ConfirmRecord, bool, error) {

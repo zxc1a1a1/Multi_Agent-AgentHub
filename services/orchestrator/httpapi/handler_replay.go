@@ -56,6 +56,13 @@ func (s *Server) handleRunInspect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"runId": runID, "after": after, "events": events})
+	case "route-decisions":
+		decisions, err := s.executionStore.ListRouteDecisions(r.Context(), runID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "route decisions unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"runId": runID, "decisions": decisions})
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}

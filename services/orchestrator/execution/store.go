@@ -100,6 +100,28 @@ type Store interface {
 	RunCancelRequested(ctx context.Context, runID string) (bool, error)
 	BeginConfirm(ctx context.Context, runID, key, requestHash string) (*ConfirmRecord, bool, error)
 	CompleteConfirm(ctx context.Context, runID, key, status string, httpStatus int, response []byte) error
+	SaveRouteDecision(ctx context.Context, decision RouteDecision) error
+	ListRouteDecisions(ctx context.Context, runID string) ([]RouteDecision, error)
+}
+
+// RejectedAgent records why a candidate was not dispatched.
+type RejectedAgent struct {
+	AgentName  string `json:"agentName"`
+	ReasonCode string `json:"reasonCode"`
+}
+
+// RouteDecision is one explainable routing record for a run.
+type RouteDecision struct {
+	RunID         string          `json:"runId"`
+	DecisionSeq   int             `json:"decisionSeq"`
+	ExecutionPath string          `json:"executionPath"`
+	Strategy      string          `json:"strategy"`
+	Candidates    []string        `json:"candidates"`
+	Selected      []string        `json:"selected"`
+	Rejected      []RejectedAgent `json:"rejected"`
+	PlannerSource string          `json:"plannerSource"`
+	ReasonSummary string          `json:"reasonSummary"`
+	CreatedAt     time.Time       `json:"createdAt"`
 }
 
 // TaskRef is one dispatched remote A2A task, shared across instances.
