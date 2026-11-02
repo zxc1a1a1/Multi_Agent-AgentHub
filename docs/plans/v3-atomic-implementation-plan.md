@@ -184,7 +184,7 @@ P0 契约/决策冻结
 | A5-10a | Mermaid 前端懒加载（已实现） | 前端 | 仅出现时加载；失败不白屏 | A5-03b |
 | A5-10b | KaTeX 前端懒加载（已实现，见日志） | 前端 | 仅出现时加载；失败显示原文 | A5-04 |
 | A5-11 | Playwright 截图 artifact | web/test agent + artifact | 截图可跨节点读 | A5-07 |
-| A5-12 | 消息列表虚拟化（可选） | `ChatWindow.tsx` | 长会话滚动/内存达标 | A5-08 |
+| A5-12 | 消息列表窗口化（可选，已实现） | `ChatWindow.tsx` | 长会话滚动/内存达标 | A5-08 |
 
 **G5 门禁**：XSS 样例 0 执行；Mermaid/KaTeX 安全；首屏 JS ≤500KB gzip；Markdown 导出可用。
 
@@ -357,6 +357,7 @@ P0 契约/决策冻结
 | A6-02 | PASS（单节点） | `dcb539c` | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点 S3 未做 |
 | A5-08 | PASS | `8aca161` | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 1.44MB/gzip 447KB → 465KB/gzip 约 133KB；语法 chunk 懒加载 |
 | A5-09 | PASS | 待提交 | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
+| A5-12 | PASS（可选） | 待提交 | ChatWindow 默认只渲染最近 100 条，提供 Load earlier 分批展开；150 条测试证明首条不渲染、展开后可见；移除窗口化后测试 FAIL |
 | A5-06 | PASS（SSRF 防护） | 待提交 | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；私网目标 0 请求 |
 | A5-04 | PASS（前端） | 待提交 | remark-math + rehype-katex，`trust:false`；javascript href 不生成链接；恶意样例测试通过 |
 | A5-03b | PASS（前端） | 待提交 | Mermaid securityLevel=strict + DOMPurify SVG profile；script/javascript 链接被剥离；失败回退代码文本 |

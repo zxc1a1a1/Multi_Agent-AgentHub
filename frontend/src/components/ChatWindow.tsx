@@ -45,6 +45,7 @@ function writeStoredSelection(conversationId: string, names: AgentName[]): void 
 
 export default function ChatWindow({ conversationId }: Props) {
   const messages = useMessageStore((s) => s.messages[conversationId] || [])
+  const [visibleMessageCount, setVisibleMessageCount] = useState(100)
   const orchestration = useMessageStore((s) => s.orchestrationByConversation[conversationId])
   const confirmation = useMessageStore((s) => s.confirmationByConversation[conversationId])
   const getConfirmation = useMessageStore((s) => s.getConfirmation)
@@ -94,6 +95,15 @@ export default function ChatWindow({ conversationId }: Props) {
 
   const isGroupChat = selectedAgentNames.length > 1
   const pinnedMessages = useMemo(() => messages.filter((m) => m.pinned), [messages])
+  const visibleMessages = useMemo(
+    () => (messages.length > visibleMessageCount ? messages.slice(-visibleMessageCount) : messages),
+    [messages, visibleMessageCount],
+  )
+  const hiddenMessageCount = messages.length - visibleMessages.length
+
+  useEffect(() => {
+    setVisibleMessageCount(100)
+  }, [conversationId])
 
   // Load messages when conversation changes.
   useEffect(() => {
@@ -376,7 +386,18 @@ export default function ChatWindow({ conversationId }: Props) {
           {orchestration && (
             <OrchestrationCard info={orchestration} />
           )}
-          {messages.map((msg) => (
+          {hiddenMessageCount > 0 && (
+            <div className="flex justify-center py-2">
+              <button
+                type="button"
+                onClick={() => setVisibleMessageCount((count) => count + 100)}
+                className="text-xs px-3 py-1 rounded-full border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+              >
+                Load earlier messages ({hiddenMessageCount})
+              </button>
+            </div>
+          )}
+          {visibleMessages.map((msg) => (
             <MessageBubble
               key={msg.id}
               message={msg}

@@ -426,3 +426,45 @@ describe('ChatWindow — group participant persistence', () => {
     vi.unstubAllGlobals()
   })
 })
+
+describe('ChatWindow — long conversation windowing', () => {
+  beforeEach(() => {
+    useConversationStore.setState({ conversations: [], activeId: null, loading: false })
+    useAgentStore.setState({
+      options: [{ name: 'auto', displayName: 'Auto (Smart)', description: 'Auto', outputModes: ['text'] }],
+      agents: [],
+      loading: false,
+      loaded: true,
+      mgmtLoaded: true,
+    })
+  })
+
+  it('renders only the latest window and can load earlier messages', async () => {
+    const many = Array.from({ length: 150 }, (_, index) => ({
+      id: `msg-${index}`,
+      conversationId: CONV_ID,
+      senderType: 'user' as const,
+      senderName: 'user',
+      content: `msg-${index}`,
+      status: 'sent' as const,
+      createdAt: '2026-06-01T00:00:00Z',
+    }))
+    useMessageStore.setState({
+      messages: { [CONV_ID]: many },
+      confirmationByConversation: {},
+      streamingByConversation: {},
+      abortControllersByConversation: {},
+      orchestrationByConversation: {},
+    })
+    seedConversation()
+
+    render(<ChatWindow conversationId={CONV_ID} />)
+
+    expect(screen.getByText('Load earlier messages (50)')).toBeInTheDocument()
+    expect(screen.queryByText('msg-0')).not.toBeInTheDocument()
+    expect(screen.getByText('msg-149')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Load earlier messages (50)'))
+    await waitFor(() => expect(screen.getByText('msg-0')).toBeInTheDocument())
+  })
+})
