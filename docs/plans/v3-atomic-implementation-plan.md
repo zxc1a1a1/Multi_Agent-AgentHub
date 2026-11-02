@@ -382,8 +382,10 @@ P0 契约/决策冻结
 
 - 所有 MySQL/Redis 集成测试在本机执行时因缺少 `AGENTHUB_MYSQL_TEST_DSN` /
   `AGENTHUB_REDIS_TEST_ADDR` 而 SKIP；不计入通过。CI 门禁见 A0-07。
-- 前端测试需显式使用 `/e/node_js/node.exe`；`npm` PATH shim 在本机不可用。
-- `vite build` 通过，但主 chunk gzip 447KB，已接近 G5 的 500KB 预算。
+- 前端命令需显式使用 `/e/node_js/node.exe` 并把 `/e/node_js` 放到 PATH 前；
+  否则 npm 脚本解析到失效 shim，vitest 会报 `node:util` 导出错误。
+- `vite build` 通过；首屏 index gzip 156.92KB，低于 G5 的 500KB 预算；
+  个别语法/图表 chunk 压缩前 >500KB，但按需加载。
 
 
 ### 最终验证（2026-10-31）
@@ -420,8 +422,8 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `cd pkg/adk && go test ./... -count=1` | PASS |
 | `cd pkg/runtime && go test ./tools/ -count=1` | PASS |
 | `cd frontend && tsc -b` | PASS |
-| `cd frontend && vitest run` | 27 files / 254 tests PASS |
-| `cd frontend && vite build` | PASS；首屏主 chunk 465KB/gzip 约 133KB；语言 chunks 懒加载（部分单 chunk >500KB） |
+| `cd frontend && vitest run` | 28 files / 254 tests PASS |
+| `cd frontend && vite build` | PASS；首屏 index 535.24KB/gzip 156.92KB；语言/图表 chunks 按需加载（部分压缩前 >500KB） |
 | `cd services/agents/code-agent && go test ./... -count=1` | PASS（只读 workspace 真实文件） |
 | `cd services/agents/diff-agent && go test ./... -count=1` | PASS（多 hunk unified diff） |
 | `cd pkg/runtime && go test ./observability/ -count=1` | PASS（内存导出：gateway/orchestrator/agent 同 trace，run_id 属性存在） |
@@ -431,7 +433,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `go test ./httpapi/ -run 'TestMetrics'`（gateway + orchestrator） | PASS（`format=prometheus` 文本格式与标签） |
 | CI workflow / Prometheus / compose / otel 配置 YAML 解析 | PASS（未在 GitHub / Prometheus / 容器实跑） |
 | 10 个 agent 模块 `go build ./...` + `go test ./...` | PASS（全 Agent tracing 接线） |
-| `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新） |
+| `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新；本次 8.2s） |
 
 ### 收尾验证（2026-11-02）
 
