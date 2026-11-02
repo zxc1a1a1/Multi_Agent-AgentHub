@@ -120,3 +120,20 @@ principalId, credentialScope(never included)
 - 并发重复 confirm 只消费一次（`run_signals` 唯一键 + 内存路径）。
 - 同一写调用重放返回原结果；`unknown` 重放返回 `ErrToolOutcomeUnknown`。
 - 超出预算的调用在实际执行前被拒绝；resume 不重置预算（A1-01）。
+
+## 11. 受控 handoff（v3 A4-06，可选）
+
+- 工具：`handoff_to_agent`（`pkg/runtime/tools/handoff.go`），由
+  `CODE_AGENT_ENABLE_HANDOFF=true` 显式启用。
+- 调用链：Agent 工具 → `POST /internal/orchestrator/tools/handoff`（服务 token）
+  → Orchestrator 读取该 run 的最新计划 → A2A 派发目标 Agent。
+- 双层 allowlist：工具本地 `CODE_AGENT_HANDOFF_ALLOWLIST`；Orchestrator 再按
+  run 计划的 `allowedAgents` 校验，越界返回 403 且派发次数为 0。
+- 预算/上下文边界：
+  - 深度来自平台 `RunIdentity.DelegateDepth`（模型不可提供），每次 handoff +1，
+    超过 `harness.Limits.DelegateDepth`（默认 1）返回 403；
+  - 消息 ≤ 8KB、理由 ≤ 512B、响应文本 ≤ 16KB；只传递当前消息，不传会话历史；
+  - 目标 Agent 获得递增后的 DelegateDepth，形成有界 handoff 链。
+- handoff 本身在 Broker 视角为只读路由请求：目标 Agent 的工具调用仍需经过目标
+  Agent 自己的 guard/审批，不会因 handoff 绕过写工具授权。
+- 未启用时工具不存在；启用需要同时配置 `ORCHESTRATOR_HANDOFF_URL` 与 allowlist。

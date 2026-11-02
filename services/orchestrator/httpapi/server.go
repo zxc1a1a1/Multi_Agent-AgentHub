@@ -288,6 +288,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/internal/orchestrator/tools/authorize", s.handleToolAuthorize)
 	s.mux.HandleFunc("/internal/orchestrator/tools/result", s.handleToolResult)
 	s.mux.HandleFunc("/internal/orchestrator/tools/approvals", s.handleToolApproval)
+	s.mux.HandleFunc("/internal/orchestrator/tools/handoff", s.handleToolHandoff)
 	s.mux.HandleFunc("/internal/orchestrator/metrics", s.handleOperationalMetrics)
 	s.mux.HandleFunc("/internal/memory/", s.handleMemory)
 	s.mux.HandleFunc("/internal/orchestrator/hitl/confirm", s.handleHITLConfirm)

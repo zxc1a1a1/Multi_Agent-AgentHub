@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,6 +82,31 @@ func buildHandler(publicURL string) (http.Handler, error) {
 		}
 		cfg.Tools = append(cfg.Tools, workspaceTools...)
 		log.Printf("INFO: code-agent read-only workspace tools enabled: %s", root)
+	}
+
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("CODE_AGENT_ENABLE_HANDOFF")), "true") {
+		endpoint := strings.TrimSpace(os.Getenv("ORCHESTRATOR_HANDOFF_URL"))
+		allowed := splitCSV(os.Getenv("CODE_AGENT_HANDOFF_ALLOWLIST"))
+		maxDepth := 1
+		if raw := strings.TrimSpace(os.Getenv("CODE_AGENT_HANDOFF_MAX_DEPTH")); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed < 1 {
+				return nil, errors.New("CODE_AGENT_HANDOFF_MAX_DEPTH must be a positive integer")
+			}
+			maxDepth = parsed
+		}
+		token := strings.TrimSpace(os.Getenv("ORCHESTRATOR_TOOL_TOKEN"))
+		if token == "" {
+			token = strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
+		}
+		handoff, err := tools.NewHandoffTool(tools.HandoffConfig{
+			Endpoint: endpoint, Token: token, AllowedAgents: allowed, MaxDepth: maxDepth,
+		})
+		if err != nil {
+			return nil, err
+		}
+		cfg.Tools = append(cfg.Tools, handoff)
+		log.Printf("INFO: code-agent controlled handoff enabled (allowlist=%v, maxDepth=%d)", allowed, maxDepth)
 	}
 
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("CODE_AGENT_ENABLE_WRITE_TOOLS")), "true") {

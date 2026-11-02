@@ -12,6 +12,9 @@ type RunIdentity struct {
 	ApprovalID     string `json:"approvalId,omitempty"`
 	FencingVersion int64  `json:"fencingVersion,omitempty"`
 	TraceID        string `json:"traceId,omitempty"`
+	// DelegateDepth is platform-generated. It counts controlled handoffs in the
+	// current chain and is never taken from model output.
+	DelegateDepth int `json:"delegateDepth,omitempty"`
 }
 
 type runIdentityKey struct{}

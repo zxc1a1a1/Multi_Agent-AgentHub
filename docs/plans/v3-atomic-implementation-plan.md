@@ -349,6 +349,7 @@ P0 契约/决策冻结
 | A4-03 | PASS（单测） | `2582a6d` | DAG 波次受 ParallelTasks 信号量限制；ctx 取消停止派发并传入 dispatcher；移除信号量后测试 FAIL |
 | A4-04 | PASS（确定性 round-robin） | `68b352a` | GROUP_CHAT_MAX_ROUNDS 控制轮数（默认 1）；展开为 sequential 依赖链，轮转发言、无连续同一人、注入上一发言输出；handler 测试 2 轮 2 Agent 派发 4 次 |
 | A4-05 | PASS（计划期模型选择；默认 round_robin） | `c0ea166` | MainAgent 兼 SpeakerSelector，输出 speaker/reason/done；越界/缺理由/连续重复/首轮停止即失败；`GROUP_CHAT_SPEAKER_MODE=model` 启用，上限 MAX_ROUNDS×参与者；理由写入 route_decisions.reason_summary；红检关闭 allowlist 后测试 FAIL；执行中按输出动态重选未做 |
+| A4-06 | PASS（可选；默认关闭） | 待提交 | `handoff_to_agent` + `/internal/orchestrator/tools/handoff`：本地与 run 计划双层 allowlist；深度取自 RunIdentity.DelegateDepth 且 +1 超限拒绝；消息 ≤8KB、理由 ≤512B、响应 ≤16KB；越界 0 派发；红检关闭边界校验后测试 FAIL；仅 code-agent 显式启用 |
 | A5-07 | PASS（前端单测） | `a4949e5` | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
 | A5-01 | PASS | `465f35d` | 新模块 markdown-agent：A2A AgentCard/health、确定性 Agent、无模型密钥；未加入 compose，默认不启用 |
 | A5-02a | PASS | `6b5fcd4` | goldmark 渲染；raw HTML 被丢弃；GFM 表格/链接测试 |
@@ -395,7 +396,7 @@ P0 契约/决策冻结
 | `cd frontend && vite build` | PASS；主 chunk gzip 447KB（接近 G5 500KB 预算） |
 | MySQL/Redis 集成测试 | SKIP（本机无 `AGENTHUB_MYSQL_TEST_DSN` / `AGENTHUB_REDIS_TEST_ADDR`；CI 门禁已配置） |
 
-未完成范围（截至 2026-11-02）：A4-06 受控 handoff、A5-05 PDF 导出、A5-11 Playwright 截图制品、A6-06 OTel；A6-01 的 Nginx/自动备份、A6-03 的对象存储 publish 接线。G1–G6 仍未整体认证（本机 MySQL/Redis 集成 SKIP，CI 门禁未在 GitHub 实跑）。
+未完成范围（截至 2026-11-02）：A5-05 PDF 导出、A5-11 Playwright 截图制品、A6-06 OTel；A6-01 的 Nginx/自动备份、A6-03 的对象存储 publish 接线。G1–G6 仍未整体认证（本机 MySQL/Redis 集成 SKIP，CI 门禁未在 GitHub 实跑）。
 
 
 ### 增量验证（2026-11-02）
@@ -425,6 +426,6 @@ P0 契约/决策冻结
 - G1：审批/取消/幂等/租约/投影有单测，但 MySQL/Redis 集成未在本机执行（SKIP），未整体通过。
 - G2：ADK 副作用 Guard 已强制，生产 Broker 授权/结果/审批接线已落地；审批单仍由平台侧创建，未通过整体认证。
 - G3：成员持久化、逐轮历史、参与者取消派发、浏览器 E2E 已落地；未整体认证。
-- G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者已落地；执行中动态重选与受控 handoff 未做。
+- G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做。
 - G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX 已落地；导出未做。
 - G6：单机本地卷 ArtifactStore、S3 适配器（未接 publish）、指标已落地；Nginx/多副本/OTel 未做。
