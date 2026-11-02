@@ -112,23 +112,46 @@ curl -fsS -H "Authorization: Bearer $INTERNAL_SERVICE_TOKEN" \
 
 - 检查 `orchestrator-artifacts` 卷挂载与 `ARTIFACT_STORE_DIR` 权限（容器内 `app` 用户）。
 - 磁盘满时先扩容/清理旧制品；不要删除整个卷来“释放空间”，会丢失全部元数据。
-- 跨节点读取未实现（A6-03 S3/MinIO 未完成），不要把单机卷当成共享存储。
+- 跨节点读取：渲染制品 blob 可配置 `ARTIFACT_S3_ENDPOINT`，元数据可设
+  `ARTIFACT_METADATA_BACKEND=s3`；未配置时仍是单机卷，不要当共享存储。
+- 截图/PDF 失败先检查 `PLAYWRIGHT_RENDER_SCRIPT`、Node 与浏览器是否在镜像内；
+  私网 URL 会被拒绝，这是预期行为。
 
 ## 5. 备份与恢复
 
-```bash
-# MySQL 逻辑备份（密码从环境读取，不写入命令历史）
-docker compose -f docker-compose.new-arch.yml exec -T mysql \
-  mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction agenthub > backup.sql
+自动备份脚本：`scripts/backup-agenthub.sh`（MySQL + 可选制品目录 + 保留天数）。
+凭据只从环境变量读取，`MYSQL_PWD` 传递，不写入命令行/仓库。
 
-# 制品卷备份
-docker run --rm -v agenthub_orchestrator-artifacts:/data -v "$PWD":/backup alpine \
-  tar czf /backup/artifacts.tgz -C /data .
+```bash
+# 手动执行（artifact 目录可选）
+MYSQL_HOST=127.0.0.1 MYSQL_USER=backup MYSQL_PASSWORD=... MYSQL_DATABASE=agenthub \
+  BACKUP_DIR=/var/backups/agenthub RETENTION_DAYS=7 \
+  ARTIFACT_BACKUP_PATH=/data/artifacts \
+  ./scripts/backup-agenthub.sh
 ```
 
-恢复顺序：先 MySQL（停 Gateway/Orchestrator 写入），再制品卷，最后启动服务。
+systemd 定时任务模板：`deploy/systemd/agenthub-backup.{service,timer}`。
+安装时把脚本放到 `/opt/agenthub/scripts/`，凭据写入
+`/etc/agenthub/backup.env`（权限 0600），然后：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now agenthub-backup.timer
+systemctl list-timers agenthub-backup.timer
+```
+
+恢复顺序：先 MySQL（停 Gateway/Orchestrator 写入），再制品目录，最后启动服务。
 恢复后跑一遍 `go test ./...` 不替代生产校验；用 `/status`、`/events`、
 `/metrics/routing` 抽查。
+
+## 5.1 Nginx 反向代理
+
+- 模板：`deploy/nginx/agenthub.conf`；compose 服务 `nginx`（80 端口）。
+- `/api/*` → Gateway，禁用 proxy buffering 以支持 SSE；`/health` → Gateway；
+  `/internal/*` 直接 404；其余 → 前端。
+- `client_max_body_size 20m`、SSE 读写超时 3600s。
+- 修改模板后先 `nginx -t` 再 reload；仓库内无 nginx 二进制，因此没有在本机
+  执行语法检查（见 A6-01 证据）。
 
 ## 6. 回滚
 
@@ -148,7 +171,8 @@ docker run --rm -v agenthub_orchestrator-artifacts:/data -v "$PWD":/backup alpin
 
 ## 8. 未覆盖（不要按本手册宣称已支持）
 
-- 多 Orchestrator 副本整体认证（A6-05）、S3/MinIO（A6-03）、Nginx 模板与
-  自动备份（A6-01）、OTel/告警（A6-06/A6-07）。
+- 多 Orchestrator 副本整体认证（A6-05）、真实 MinIO/S3 多副本、OTel collector
+  实跑、告警通道（A6-06/A6-07）。
+- Nginx 模板未在本机执行 `nginx -t`；Playwright 未在 Docker 沙箱内验证。
 - MySQL/Redis 集成测试在本机可能 SKIP；CI 门禁 `.github/workflows/v3-integration-gates.yml`
   在配置了 service 时执行，SKIP 即失败。
