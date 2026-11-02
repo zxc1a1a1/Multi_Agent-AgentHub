@@ -229,6 +229,15 @@ func (s *Server) handleArtifactByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/internal/orchestrator/artifacts/"), "/")
+	if strings.HasSuffix(id, "/content") {
+		artifactID := strings.TrimSuffix(id, "/content")
+		if artifactID == "" || strings.Contains(artifactID, "/") {
+			writeJSONError(w, http.StatusNotFound, "artifact not found")
+			return
+		}
+		s.serveArtifactContent(w, r, artifactID)
+		return
+	}
 	if id == "" || strings.Contains(id, "/") {
 		writeJSONError(w, http.StatusNotFound, "artifact not found")
 		return

@@ -10,9 +10,10 @@ import (
 	"time"
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
-	webagent "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/agents/web-agent"
 	_ "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/model" // register model providers
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/tools"
+	webagent "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/agents/web-agent"
 )
 
 const (
@@ -48,6 +49,22 @@ func buildHandler(publicURL string) (http.Handler, error) {
 	}
 
 	cfg := webagent.ServerConfig{URL: resolvedURL}
+
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("WEB_AGENT_ENABLE_CAPTURE")), "true") {
+		token := strings.TrimSpace(os.Getenv("ORCHESTRATOR_TOOL_TOKEN"))
+		if token == "" {
+			token = strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN"))
+		}
+		capture, err := tools.NewCaptureTool(tools.CaptureConfig{
+			Endpoint: strings.TrimSpace(os.Getenv("ORCHESTRATOR_RENDER_URL")),
+			Token:    token,
+		})
+		if err != nil {
+			return nil, err
+		}
+		cfg.Tools = append(cfg.Tools, capture)
+		log.Printf("INFO: web-agent capture_page enabled")
+	}
 
 	// Try to initialize an LLM Model for the agent.
 	if modelName := strings.TrimSpace(os.Getenv("WEB_AGENT_LLM_MODEL")); modelName != "" {
@@ -106,10 +123,10 @@ func createWebAgentModel(providerName, apiKey, modelName, baseURL string) (adk.M
 	defer cancel()
 
 	modelCfg := registry.ModelConfig{
-		Name:     "web-agent-model",
-		Provider: providerName,
-		Model:    modelName,
-		BaseURL:  baseURL,
+		Name:      "web-agent-model",
+		Provider:  providerName,
+		Model:     modelName,
+		BaseURL:   baseURL,
 		APIKeyEnv: envKey,
 	}
 

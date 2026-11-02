@@ -31,6 +31,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/relay"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/render"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
 
 	"github.com/redis/go-redis/v9"
@@ -258,6 +259,26 @@ func run() error {
 	}
 	serverOpts = append(serverOpts, httpapi.WithArtifactStore(artifactStore))
 	log.Printf("artifact store: %s", artifactDir)
+
+	blobStore, err := buildArtifactBlobStore()
+	if err != nil {
+		return err
+	}
+	serverOpts = append(serverOpts, httpapi.WithArtifactBlobs(blobStore))
+
+	if script := strings.TrimSpace(os.Getenv("PLAYWRIGHT_RENDER_SCRIPT")); script != "" {
+		renderer, err := render.NewPlaywrightRenderer(render.PlaywrightConfig{
+			NodePath:   strings.TrimSpace(os.Getenv("PLAYWRIGHT_NODE_PATH")),
+			ScriptPath: script,
+			Channel:    strings.TrimSpace(os.Getenv("PLAYWRIGHT_CHANNEL")),
+			Timeout:    renderTimeout(),
+		})
+		if err != nil {
+			return fmt.Errorf("page renderer: %w", err)
+		}
+		serverOpts = append(serverOpts, httpapi.WithPageRenderer(renderer))
+		log.Printf("page renderer: playwright (%s)", script)
+	}
 
 	var ledgerDB *sql.DB
 	var ledgerRepo *ledger.Repository
@@ -524,6 +545,54 @@ func buildDispatcherOptions() []dispatcher.Option {
 	}
 
 	return opts
+}
+
+func buildArtifactBlobStore() (artifacts.ObjectStore, error) {
+	if endpoint := strings.TrimSpace(os.Getenv("ARTIFACT_S3_ENDPOINT")); endpoint != "" {
+		accessKey := strings.TrimSpace(os.Getenv("ARTIFACT_S3_ACCESS_KEY"))
+		secretKey := strings.TrimSpace(os.Getenv("ARTIFACT_S3_SECRET_KEY"))
+		bucket := strings.TrimSpace(os.Getenv("ARTIFACT_S3_BUCKET"))
+		if accessKey == "" || secretKey == "" || bucket == "" {
+			return nil, fmt.Errorf("ARTIFACT_S3_ENDPOINT requires ARTIFACT_S3_ACCESS_KEY, ARTIFACT_S3_SECRET_KEY and ARTIFACT_S3_BUCKET")
+		}
+		store, err := artifacts.NewS3ObjectStore(artifacts.S3Config{
+			Endpoint: endpoint, AccessKey: accessKey, SecretKey: secretKey, Bucket: bucket,
+			Region: strings.TrimSpace(os.Getenv("ARTIFACT_S3_REGION")),
+			Secure: envBool("ARTIFACT_S3_SECURE", strings.HasPrefix(strings.ToLower(endpoint), "https://")),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("artifact S3 store: %w", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := store.EnsureBucket(ctx); err != nil {
+			return nil, fmt.Errorf("ensure artifact bucket: %w", err)
+		}
+		log.Printf("artifact blobs: s3 bucket %s", bucket)
+		return store, nil
+	}
+	dir := strings.TrimSpace(os.Getenv("ARTIFACT_BLOB_DIR"))
+	if dir == "" {
+		dir = "./data/artifacts/blobs"
+	}
+	store, err := artifacts.NewLocalObjectStore(dir)
+	if err != nil {
+		return nil, fmt.Errorf("artifact local blob store: %w", err)
+	}
+	log.Printf("artifact blobs: local %s", dir)
+	return store, nil
+}
+
+func renderTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("PLAYWRIGHT_RENDER_TIMEOUT_SECONDS"))
+	if raw == "" {
+		return 60 * time.Second
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= 0 {
+		return 60 * time.Second
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func envBool(name string, fallback bool) bool {

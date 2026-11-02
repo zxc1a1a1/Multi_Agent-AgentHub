@@ -137,3 +137,14 @@ principalId, credentialScope(never included)
 - handoff 本身在 Broker 视角为只读路由请求：目标 Agent 的工具调用仍需经过目标
   Agent 自己的 guard/审批，不会因 handoff 绕过写工具授权。
 - 未启用时工具不存在；启用需要同时配置 `ORCHESTRATOR_HANDOFF_URL` 与 allowlist。
+
+## 12. 页面捕获工具（v3 A5-05/A5-11，可选）
+
+- 工具：`capture_page`（`pkg/runtime/tools/capture.go`），web-agent 通过
+  `WEB_AGENT_ENABLE_CAPTURE=true` + `ORCHESTRATOR_RENDER_URL` 启用。
+- 参数：`url`（必填）、`format`（`png`/`pdf`）、`fullPage`；不接受本地路径。
+- 工具只做 scheme/host 基础校验并携带平台 run identity；真实控制点在
+  Orchestrator `/internal/orchestrator/render`：私网/loopback/链路本地/metadata
+  URL 在启动 Playwright 前被拒绝。
+- 产物注册为 artifact（`image`/`document`），含 checksum/storageRef；工具只
+  返回 artifact 引用与下载路径，不把二进制塞进模型上下文。

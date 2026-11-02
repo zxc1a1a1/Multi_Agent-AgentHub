@@ -49,8 +49,10 @@ Artifacts are produced by ADK/Child Agents and eventually mapped to frontend run
 
 ## Storage metadata（v3 A0-04 冻结）
 
-状态等级：`部分实现`（本地卷已落地，S3/校验和仍待 A6-03）。当前 `artifacts.ArtifactRecord` 有 `id/runId/taskId/messageId/name/kind/mimeType/size/storagePath/downloadPath/createdAt/metadata`；
-`storageRef/checksum/contentType/version` 尚未在代码中落地，作为 A6-02/A6-03 的必填字段。
+状态等级：`已实现（渲染制品路径）`。元数据仍由 `LocalFileStore` 持久化；渲染制品额外写入
+`storageRef/checksum/contentType/version`，blob 字节通过 `artifacts.ObjectStore` 存取：
+本地目录（默认）或 S3/MinIO（`ARTIFACT_S3_ENDPOINT`）。读取入口
+`GET /internal/orchestrator/artifacts/{id}/content` 会校验 checksum。
 
 ```json
 {
@@ -73,3 +75,18 @@ Artifacts are produced by ADK/Child Agents and eventually mapped to frontend run
 5. `version` 从 1 开始，同一 artifactId 内容变化必须递增；旧版本保留期由存储 profile 决定。
 6. 生产者：Agent `artifact.publish` / Orchestrator artifact 适配器；消费者：Gateway 预览/下载、前端 `file_download`。
 7. 缺少 `storageRef` 或 `checksum` 的 artifact 不得标记为可下载；跨节点读取必须由 A6-03 的对象存储适配器保证。
+
+## 渲染制品（v3 A5-05/A5-11）
+
+- 生产者：`POST /internal/orchestrator/render`
+  `{runId,taskId,url,format:"png"|"pdf",fullPage}`；web-agent 通过
+  `capture_page` 工具（`WEB_AGENT_ENABLE_CAPTURE=true`）调用。
+- 渲染器：`PLAYWRIGHT_RENDER_SCRIPT` 指向的 Playwright 脚本；URL 在渲染前
+  拒绝非 http(s)、凭据、loopback/私网/链路本地/metadata/CGNAT 目标。
+- 输出：PNG → `kind=image`，PDF → `kind=document`；写入 blob 后创建元数据：
+  `storageRef=obj://runs/<run>/<artifactId>.<ext>`、`checksum=sha256:<hex>`、
+  `contentType`、`size`、`version=1`、`downloadPath`。
+- 校验和 Content endpoint：`GET /internal/orchestrator/artifacts/{id}/content`
+  读取 blob 并校验 SHA-256；不匹配返回 409，缺失返回 404。
+- 跨节点：配置 S3/MinIO 时 blob 可跨 Orchestrator 副本读取；未配置时使用本地
+  目录，仅单节点可用。前端自动展示渲染制品事件仍未接入。

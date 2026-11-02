@@ -3,8 +3,10 @@ package artifacts
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -14,6 +16,10 @@ import (
 )
 
 const maxObjectBytes = 10 << 20
+
+// ErrObjectNotFound lets artifact adapters distinguish a missing blob from a
+// transport or permission failure.
+var ErrObjectNotFound = errors.New("object not found")
 
 // ObjectStore is the cross-node blob boundary used by artifact adapters.
 type ObjectStore interface {
@@ -94,6 +100,9 @@ func (s *S3ObjectStore) Get(ctx context.Context, key string) ([]byte, error) {
 	defer object.Close()
 	data, err := io.ReadAll(io.LimitReader(object, maxObjectBytes+1))
 	if err != nil {
+		if isObjectNotFound(err) {
+			return nil, ErrObjectNotFound
+		}
 		return nil, err
 	}
 	if len(data) > maxObjectBytes {
@@ -121,6 +130,15 @@ func (s *S3ObjectStore) Delete(ctx context.Context, key string) error {
 		return err
 	}
 	return s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
+}
+
+func isObjectNotFound(err error) bool {
+	if errors.Is(err, ErrObjectNotFound) {
+		return true
+	}
+	response := minio.ToErrorResponse(err)
+	return response.Code == "NoSuchKey" || response.Code == "NoSuchBucket" ||
+		response.StatusCode == http.StatusNotFound
 }
 
 func validateObjectKey(key string) error {

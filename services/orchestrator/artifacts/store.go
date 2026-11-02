@@ -24,6 +24,10 @@ type ArtifactRecord struct {
 	MimeType     string         `json:"mimeType,omitempty"`
 	Size         int64          `json:"size,omitempty"`
 	StoragePath  string         `json:"storagePath,omitempty"`
+	StorageRef   string         `json:"storageRef,omitempty"`
+	Checksum     string         `json:"checksum,omitempty"`
+	ContentType  string         `json:"contentType,omitempty"`
+	Version      int            `json:"version,omitempty"`
 	DownloadPath string         `json:"downloadPath,omitempty"`
 	CreatedAt    time.Time      `json:"createdAt"`
 	Metadata     map[string]any `json:"metadata,omitempty"`

@@ -361,6 +361,8 @@ P0 契约/决策冻结
 | A5-08 | PASS | `8aca161` | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 1.44MB/gzip 447KB → 465KB/gzip 约 133KB；语法 chunk 懒加载 |
 | A5-09 | PASS | e2c1eae | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
 | A5-12 | PASS（可选） | 2d707d6 | ChatWindow 默认只渲染最近 100 条，提供 Load earlier 分批展开；150 条测试证明首条不渲染、展开后可见；移除窗口化后测试 FAIL |
+| A5-11 | PASS（单节点验证；S3 可配） | 待提交 | `/internal/orchestrator/render` + `capture_page`：PNG 写入 ObjectStore（本地/S3 可选），元数据含 storageRef/checksum/contentType/version；content endpoint 校验 SHA-256；真实 Playwright 系统 Edge 生成 49,703B PNG；跨节点依赖 S3，未做多副本实跑 |
+| A5-05 | PASS（子进程隔离；Docker 沙箱未验证） | 待提交 | 同一 Playwright 渲染器生成 PDF（真实 54,621B）；渲染前拒绝 loopback/私网/链路本地/metadata/CGNAT URL；`PLAYWRIGHT_RENDER_SCRIPT` 未配置时端点 503；未在 Docker 沙箱内执行 |
 | A5-06 | PASS（SSRF 防护） | cee79ef | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；私网目标 0 请求 |
 | A5-04 | PASS（前端） | 6c38c87 | remark-math + rehype-katex，`trust:false`；javascript href 不生成链接；恶意样例测试通过 |
 | A5-03b | PASS（前端） | b2204b2 | Mermaid securityLevel=strict + DOMPurify SVG profile；script/javascript 链接被剥离；失败回退代码文本 |
@@ -397,7 +399,7 @@ P0 契约/决策冻结
 | `cd frontend && vite build` | PASS；主 chunk gzip 447KB（接近 G5 500KB 预算） |
 | MySQL/Redis 集成测试 | SKIP（本机无 `AGENTHUB_MYSQL_TEST_DSN` / `AGENTHUB_REDIS_TEST_ADDR`；CI 门禁已配置） |
 
-未完成范围（截至 2026-11-02）：A5-05 PDF 导出、A5-11 Playwright 截图制品；A6-01 的 Nginx/自动备份、A6-03 的对象存储 publish 接线；OTel 未接真实 collector 验证。G1–G6 仍未整体认证（本机 MySQL/Redis 集成 SKIP，CI 门禁未在 GitHub 实跑）。
+未完成范围（截至 2026-11-02）：A6-01 的 Nginx/自动备份；A6-03 的 artifact 元数据 S3 化（blob 已可 S3）；OTel 未接真实 collector 验证；Docker 沙箱内 Playwright 未验证。G1–G6 仍未整体认证（本机 MySQL/Redis 集成 SKIP，CI 门禁未在 GitHub 实跑）。
 
 
 ### 增量验证（2026-11-02）
@@ -420,6 +422,7 @@ P0 契约/决策冻结
 | `cd services/agents/code-agent && go test ./... -count=1` | PASS（只读 workspace 真实文件） |
 | `cd services/agents/diff-agent && go test ./... -count=1` | PASS（多 hunk unified diff） |
 | `cd pkg/runtime && go test ./observability/ -count=1` | PASS（内存导出：gateway/orchestrator/agent 同 trace，run_id 属性存在） |
+| `cd services/orchestrator && AGENTHUB_RENDER_E2E=1 ... go test ./render/ -run TestPlaywrightRendererEndToEnd` | PASS（系统 Edge：PNG 49,703B / PDF 54,621B） |
 | `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新） |
 
 ### 门禁状态（诚实版）
@@ -429,5 +432,5 @@ P0 契约/决策冻结
 - G2：ADK 副作用 Guard 已强制，生产 Broker 授权/结果/审批接线已落地；审批单仍由平台侧创建，未通过整体认证。
 - G3：成员持久化、逐轮历史、参与者取消派发、浏览器 E2E 已落地；未整体认证。
 - G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做。
-- G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX 已落地；导出未做。
-- G6：单机本地卷 ArtifactStore、S3 适配器（未接 publish）、指标、OTel 传播/导出已落地；Nginx/多副本/真实 collector 验证未做。
+- G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX、Playwright 截图/PDF 导出已落地；Docker 沙箱未验证。
+- G6：Artifact 元数据本地卷 + blob 本地/S3 选择、指标、OTel 传播/导出已落地；元数据 S3 化、Nginx/多副本/真实 collector 验证未做。

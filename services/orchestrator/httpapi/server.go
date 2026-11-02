@@ -24,6 +24,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/render"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/synthesizer"
 )
 
@@ -81,7 +82,9 @@ type Server struct {
 	idempotencyCache   map[string]*idempotencyEntry       // runID+":"+key → cached response (legacy, migrating to PendingPlan.IdempotencyRecords)
 	pendingPlanStates  map[string]*PendingPlan            // runID → full lifecycle state (Phase 4, coexists with legacy maps during migration)
 	runTaskRegistry    *registry.RunTaskRegistry          // runID → child task refs for cancel path
-	artifactStore      artifacts.Store                    // metadata-only artifact store; no file blobs
+	artifactStore      artifacts.Store                    // artifact metadata; blobs live in artifactBlobs
+	artifactBlobs      artifacts.ObjectStore              // optional cross-node blob store
+	pageRenderer       render.Renderer                    // optional screenshot/PDF renderer
 	executionStore     execution.Store                    // durable run lifecycle/ledger (optional in tests)
 	toolAuthorizer     ToolAuthorizer                     // agent-side tool authorization/result sink
 	memoryMu           sync.RWMutex
@@ -235,6 +238,26 @@ func WithMainAgentPlanner(p planner.Planner) Option {
 	}
 }
 
+// WithArtifactBlobs injects the blob backend used for artifact content.
+func WithArtifactBlobs(store artifacts.ObjectStore) Option {
+	return func(s *Server) {
+		if s == nil || store == nil {
+			return
+		}
+		s.artifactBlobs = store
+	}
+}
+
+// WithPageRenderer injects the screenshot/PDF renderer.
+func WithPageRenderer(renderer render.Renderer) Option {
+	return func(s *Server) {
+		if s == nil || renderer == nil {
+			return
+		}
+		s.pageRenderer = renderer
+	}
+}
+
 // WithSpeakerSelector injects the model-backed group-chat speaker selector.
 // It is only used when GROUP_CHAT_SPEAKER_MODE=model.
 func WithSpeakerSelector(selector planner.SpeakerSelector) Option {
@@ -289,6 +312,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/internal/orchestrator/tools/result", s.handleToolResult)
 	s.mux.HandleFunc("/internal/orchestrator/tools/approvals", s.handleToolApproval)
 	s.mux.HandleFunc("/internal/orchestrator/tools/handoff", s.handleToolHandoff)
+	s.mux.HandleFunc("/internal/orchestrator/render", s.handleRender)
 	s.mux.HandleFunc("/internal/orchestrator/metrics", s.handleOperationalMetrics)
 	s.mux.HandleFunc("/internal/memory/", s.handleMemory)
 	s.mux.HandleFunc("/internal/orchestrator/hitl/confirm", s.handleHITLConfirm)
