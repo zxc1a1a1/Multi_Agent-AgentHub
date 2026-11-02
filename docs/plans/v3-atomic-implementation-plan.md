@@ -443,6 +443,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `otelcol-contrib validate --config=deploy/otel/collector.yaml`（0.115.1） | PASS |
 | Dockerfile workspace/runtime 审计 | PASS（全部模块 go.mod/go.sum、runtime ca-certificates；commit `397ade1,4e2cda9,b61b188`） |
 | compose 内部 token 注入 | PASS（Orchestrator/Gateway 可覆盖，全部 Agent 注入；commit `354c64b`） |
+| compose 工具/渲染 URL 接线 | PASS（code-agent 授权/结果/handoff；web-agent 授权/结果/render；commit `9abbb5e`） |
 | `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build` | PASS（orchestrator/gateway/code-agent/markdown-agent） |
 | `cd services/orchestrator && go test ./planner/` | PASS（sequential 校验 + DAG 相关） |
 | `cd services/orchestrator && go test ./httpapi/ -run TestTwoInstancesShareHITLSignal` | PASS（共享 store 跨实例 confirm→signal→执行） |
