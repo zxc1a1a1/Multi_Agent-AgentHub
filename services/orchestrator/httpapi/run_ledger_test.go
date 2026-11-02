@@ -41,6 +41,16 @@ type fakeExecutionStore struct {
 	confirmHashes   map[string]string
 	routeDecisions  map[string][]execution.RouteDecision
 	routeMetrics    *execution.RouteMetrics
+	operational     *execution.OperationalMetrics
+}
+
+func (f *fakeExecutionStore) OperationalMetrics(context.Context, time.Time) (*execution.OperationalMetrics, error) {
+	if f.operational != nil {
+		return f.operational, nil
+	}
+	return &execution.OperationalMetrics{
+		Executions: map[string]int{}, Approvals: map[string]int{}, ToolCalls: map[string]int{},
+	}, nil
 }
 
 func (f *fakeExecutionStore) RoutingMetrics(context.Context, time.Time) (*execution.RouteMetrics, error) {

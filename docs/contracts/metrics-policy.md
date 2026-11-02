@@ -64,3 +64,12 @@
 `totalRuns/totalDecisions/selectedAgents/rejectedReasons/selectionRate/rejectionRate/loopRuns`
 以及 `usage.{modelCalls,toolCalls,repairs,replans}`。`loopRuns` 以同一 run 的多条
 route_decisions 计数（replan/循环代理指标）；成本以预算用量表示，不是货币金额。
+
+## Operational metrics（A6-07）
+
+- Orchestrator `GET /internal/orchestrator/metrics?window=24h`：
+  `executions/approvals/toolCalls` 按 status 计数（低基数）。
+- Gateway `GET /internal/metrics`：
+  `gateway_chat_streams_total/active`、`gateway_sse_events_total`、
+  `gateway_stream_write_errors_total`、`gateway_stream_disconnects_total`。
+- 指标不含 runId/userId/prompt/token；告警阈值仅写入文档，尚未接入 Alertmanager。

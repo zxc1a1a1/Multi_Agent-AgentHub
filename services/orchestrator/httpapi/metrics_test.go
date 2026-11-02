@@ -56,3 +56,28 @@ func TestRoutingMetricsRejectsInvalidWindow(t *testing.T) {
 		t.Fatalf("expected 400, got %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestOperationalMetricsEndpoint(t *testing.T) {
+	store := &fakeExecutionStore{operational: &execution.OperationalMetrics{
+		Executions: map[string]int{"completed": 3, "failed": 1},
+		Approvals:  map[string]int{"pending": 2, "approved": 4, "consumed": 1},
+		ToolCalls:  map[string]int{"succeeded": 5, "unknown": 1},
+	}}
+	srv := NewServer(WithExecutionStore(store))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/internal/orchestrator/metrics?window=24h", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Executions map[string]int `json:"executions"`
+		Approvals  map[string]int `json:"approvals"`
+		ToolCalls  map[string]int `json:"toolCalls"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Executions["completed"] != 3 || payload.Approvals["approved"] != 4 || payload.ToolCalls["unknown"] != 1 {
+		t.Fatalf("unexpected metrics: %s", rec.Body.String())
+	}
+}

@@ -223,6 +223,16 @@ func (s *MySQLStore) RoutingMetrics(ctx context.Context, since time.Time) (*Rout
 	}, nil
 }
 
+func (s *MySQLStore) OperationalMetrics(ctx context.Context, since time.Time) (*OperationalMetrics, error) {
+	metrics, err := s.repo.QueryOperationalMetrics(ctx, since)
+	if err != nil {
+		return nil, err
+	}
+	return &OperationalMetrics{
+		Executions: metrics.Executions, Approvals: metrics.Approvals, ToolCalls: metrics.ToolCalls,
+	}, nil
+}
+
 func (s *MySQLStore) ListEventsAfter(ctx context.Context, runID string, afterSeq int64, limit int) ([]Event, error) {
 	rows, err := s.repo.ListEventsAfter(ctx, runID, afterSeq, limit)
 	if err != nil {

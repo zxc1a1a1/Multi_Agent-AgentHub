@@ -1269,3 +1269,54 @@ func (r *Repository) RouteDecisionMetrics(ctx context.Context, since time.Time) 
 	}
 	return metrics, nil
 }
+
+// OperationalMetrics counts lifecycle states for observability.
+type OperationalMetrics struct {
+	Executions map[string]int
+	Approvals  map[string]int
+	ToolCalls  map[string]int
+}
+
+// QueryOperationalMetrics aggregates status counts. Since zero means all time.
+func (r *Repository) QueryOperationalMetrics(ctx context.Context, since time.Time) (*OperationalMetrics, error) {
+	metrics := &OperationalMetrics{
+		Executions: map[string]int{}, Approvals: map[string]int{}, ToolCalls: map[string]int{},
+	}
+	queries := []struct {
+		table string
+		out   map[string]int
+	}{
+		{"executions", metrics.Executions},
+		{"approvals", metrics.Approvals},
+		{"tool_calls", metrics.ToolCalls},
+	}
+	for _, q := range queries {
+		query := "SELECT status, COUNT(*) FROM " + q.table
+		args := []any{}
+		if !since.IsZero() {
+			query += " WHERE created_at >= ?"
+			args = append(args, since)
+		}
+		query += " GROUP BY status"
+		rows, err := r.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var status string
+			var count int
+			if err := rows.Scan(&status, &count); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			q.out[status] = count
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return metrics, nil
+}

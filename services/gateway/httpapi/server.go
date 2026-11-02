@@ -11,6 +11,7 @@ import (
 	"iter"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
@@ -183,6 +184,12 @@ type Server struct {
 	replayService     RunReplayService
 	memoryProxy       MemoryProxy
 	resumeService     RunResumeService
+
+	chatStreamsTotal      atomic.Int64
+	chatStreamsActive     atomic.Int64
+	sseEventsTotal        atomic.Int64
+	streamWriteErrors     atomic.Int64
+	streamDisconnects     atomic.Int64
 }
 
 func NewServer(st Store, runner RunService, opts ...Option) (*Server, error) {
@@ -237,6 +244,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/diffs/apply", s.handleDiffApply)
 	s.mux.HandleFunc("/api/artifacts", s.handleArtifacts)
 	s.mux.HandleFunc("/api/artifacts/", s.handleArtifactByID)
+	s.mux.HandleFunc("/internal/metrics", s.handleMetrics)
 }
 
 // handleRuns dispatches to the appropriate handler based on path suffix.
@@ -988,6 +996,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sse.SetHeaders(w)
+	s.chatStreamsTotal.Add(1)
+	s.chatStreamsActive.Add(1)
+	defer s.chatStreamsActive.Add(-1)
 	writer := sse.NewWriter(w)
 	if req.AgentName != "" && req.AgentName != "auto" {
 		ctx = runservice.WithAgentName(ctx, req.AgentName)
@@ -1124,8 +1135,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				runFailed = true
 			}
 			if !clientGone {
+				s.sseEventsTotal.Add(1)
 				if err := writer.WriteEvent(ctx, item); err != nil {
 					clientGone = true
+					s.streamWriteErrors.Add(1)
+					s.streamDisconnects.Add(1)
 				}
 			}
 			// Stop processing after RUN_ERROR — no further events should be sent.

@@ -103,6 +103,14 @@ type Store interface {
 	SaveRouteDecision(ctx context.Context, decision RouteDecision) error
 	ListRouteDecisions(ctx context.Context, runID string) ([]RouteDecision, error)
 	RoutingMetrics(ctx context.Context, since time.Time) (*RouteMetrics, error)
+	OperationalMetrics(ctx context.Context, since time.Time) (*OperationalMetrics, error)
+}
+
+// OperationalMetrics counts lifecycle states (runs/approvals/tools).
+type OperationalMetrics struct {
+	Executions map[string]int `json:"executions"`
+	Approvals  map[string]int `json:"approvals"`
+	ToolCalls  map[string]int `json:"toolCalls"`
 }
 
 // RouteMetrics aggregates routing and budget usage.
