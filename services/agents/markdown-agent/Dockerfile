@@ -8,7 +8,7 @@ COPY pkg/adk/go.mod            ./pkg/adk/
 COPY pkg/runtime/go.mod         ./pkg/runtime/
 COPY services/gateway/go.mod services/gateway/go.sum ./services/gateway/
 COPY services/orchestrator/go.mod                     ./services/orchestrator/
-COPY services/agents/markdown-agent/go.mod                ./services/agents/markdown-agent/
+COPY services/agents/code-agent/go.mod                ./services/agents/code-agent/
 COPY services/agents/web-agent/go.mod                 ./services/agents/web-agent/
 COPY services/agents/document-agent/go.mod            ./services/agents/document-agent/
 COPY services/agents/vision-agent/go.mod              ./services/agents/vision-agent/
@@ -18,7 +18,6 @@ COPY services/agents/review-agent/go.mod              ./services/agents/review-a
 COPY services/agents/security-agent/go.mod            ./services/agents/security-agent/
 COPY services/agents/deploy-agent/go.mod              ./services/agents/deploy-agent/
 COPY services/agents/diff-agent/go.mod                ./services/agents/diff-agent/
-COPY services/agents/markdown-agent/go.mod         ./services/agents/markdown-agent/
 
 RUN go mod download
 
