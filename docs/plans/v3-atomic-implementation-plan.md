@@ -361,8 +361,8 @@ P0 契约/决策冻结
 | A5-08 | PASS | `8aca161` | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 1.44MB/gzip 447KB → 465KB/gzip 约 133KB；语法 chunk 懒加载 |
 | A5-09 | PASS | e2c1eae | DiffPreview 用 diff2html parse（仅解析）渲染文件/hunk/行号；内容按 React 文本输出；dry-run→apply 流程测试通过；不回退解析时测试 FAIL |
 | A5-12 | PASS（可选） | 2d707d6 | ChatWindow 默认只渲染最近 100 条，提供 Load earlier 分批展开；150 条测试证明首条不渲染、展开后可见；移除窗口化后测试 FAIL |
-| A5-11 | PASS（单节点验证；S3 可配） | 待提交 | `/internal/orchestrator/render` + `capture_page`：PNG 写入 ObjectStore（本地/S3 可选），元数据含 storageRef/checksum/contentType/version；content endpoint 校验 SHA-256；真实 Playwright 系统 Edge 生成 49,703B PNG；跨节点依赖 S3，未做多副本实跑 |
-| A5-05 | PASS（子进程隔离；Docker 沙箱未验证） | 待提交 | 同一 Playwright 渲染器生成 PDF（真实 54,621B）；渲染前拒绝 loopback/私网/链路本地/metadata/CGNAT URL；`PLAYWRIGHT_RENDER_SCRIPT` 未配置时端点 503；未在 Docker 沙箱内执行 |
+| A5-11 | PASS（单节点验证；S3 可配） | `446e449` | `/internal/orchestrator/render` + `capture_page`：PNG 写入 ObjectStore（本地/S3 可选），元数据含 storageRef/checksum/contentType/version；content endpoint 校验 SHA-256；真实 Playwright 系统 Edge 生成 49,703B PNG；跨节点依赖 S3，未做多副本实跑 |
+| A5-05 | PASS（子进程隔离；Docker 沙箱未验证） | `446e449` | 同一 Playwright 渲染器生成 PDF（真实 54,621B）；渲染前拒绝 loopback/私网/链路本地/metadata/CGNAT URL；`PLAYWRIGHT_RENDER_SCRIPT` 未配置时端点 503；未在 Docker 沙箱内执行 |
 | A5-06 | PASS（SSRF 防护） | cee79ef | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；私网目标 0 请求 |
 | A5-04 | PASS（前端） | 6c38c87 | remark-math + rehype-katex，`trust:false`；javascript href 不生成链接；恶意样例测试通过 |
 | A5-03b | PASS（前端） | b2204b2 | Mermaid securityLevel=strict + DOMPurify SVG profile；script/javascript 链接被剥离；失败回退代码文本 |
