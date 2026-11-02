@@ -370,7 +370,7 @@ P0 契约/决策冻结
 | A4-07 | PASS（指标；eval 复用既有 harness） | 3fd32e0 | GET /internal/orchestrator/metrics/routing：总 run/决策、选中/拒绝原因、选中率/拒绝率、多决策（loop）run、model/tool/repair/replan 用量；时间窗非法 400 |
 | A5-10a | PASS | b2204b2 | 仅 mermaid 代码块渲染时动态 import mermaid；独立懒 chunk；去掉 sanitize 后测试 FAIL |
 | A5-10b | PASS | 6c38c87 | 仅在内容含 $...$ 时动态加载 remark-math/rehype-katex/katex CSS；失败保持原文；禁用加载后测试 FAIL |
-| A6-01 | PASS（静态配置；本地未跑 nginx） | `af854af` | `deploy/nginx/agenthub.conf`：/api→Gateway（SSE 关闭 buffering）、/internal 404、其余→前端；compose 增加 nginx 服务；`scripts/backup-agenthub.sh` + systemd timer；`bash -n`、fake mysqldump 备份/保留期、compose YAML 通过；CI 增加 `nginx -t` 步骤但未实跑，本地无 nginx |
+| A6-01 | PASS（静态配置；本地未跑 nginx） | `af854af` | `deploy/nginx/agenthub.conf`：/api→Gateway（SSE 关闭 buffering）、/internal 404、其余→前端；compose 增加 nginx 服务；`scripts/backup-agenthub.sh` + systemd timer；`bash -n`、fake mysqldump 备份/保留期、compose YAML 通过；本机 nginx 1.27.4 `nginx -t` 通过（测试副本仅把 upstream 主机替换为 127.0.0.1 以解析）；CI 步骤未实跑 |
 | A6-08 | PASS（文档，单机） | `dbb0aff,519079a` | Runbook 覆盖启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；新增渲染导出与 OTel/Prometheus 排查；明确未覆盖运行时多副本/S3/collector 验证 |
 | A6-07 | PASS（指标 + 规则；告警通道未接） | `b96ed60` | Orchestrator/Gateway 指标保留；三入口支持 `format=prometheus`；`deploy/prometheus/{prometheus,alerts}.yml` 覆盖 down/run/approval/tool unknown/SSE/路由缺失；本机 promtool v3.1.0 校验 config + 7 条 rules 通过；未接 Alertmanager |
 | A6-04 | PASS（内存本机；MySQL CI 待跑） | `467397b,956ec06` | 两个 worker 并发恢复同一 run：内存 store 本机 PASS（2 条消息、offset=7、二次恢复 0）；MySQL 版本 CI 待跑 |
@@ -439,6 +439,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | CI workflow / Prometheus / compose / otel 配置 YAML 解析 | PASS（未在 GitHub / Prometheus / 容器实跑） |
 | `actionlint .github/workflows/v3-integration-gates.yml` | PASS（exit 0） |
 | `promtool check config/rules`（v3.1.0，本机） | PASS（config 有效；7 rules 有效） |
+| `nginx -t`（1.27.4，本机测试副本） | PASS（语法/指令有效；upstream 地址替换为 127.0.0.1） |
 | `cd services/orchestrator && go test ./planner/` | PASS（sequential 校验 + DAG 相关） |
 | `cd services/orchestrator && go test ./httpapi/ -run TestTwoInstancesShareHITLSignal` | PASS（共享 store 跨实例 confirm→signal→执行） |
 | `cd services/gateway && go test ./projection/ -run TestTwoWorkersProjectTurnsWithoutDuplicatesInMemory` | PASS（双 worker 并发投影无重复） |
