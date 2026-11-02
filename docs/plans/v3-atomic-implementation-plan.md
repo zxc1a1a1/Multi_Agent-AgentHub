@@ -376,7 +376,7 @@ P0 契约/决策冻结
 | A6-04 | PASS（CI 集成；本机 SKIP） | `467397b` | 两个 worker 并发恢复同一 run，仍只写 2 条 turn 消息且 offset=4；本机无 DSN 未执行，CI 门禁负责运行 |
 | A6-05 | PASS（CI 集成；本机 SKIP） | `9ab66ab` | 两个 Orchestrator 共享 MySQL：A 启动待审批 run，B confirm 写 run_signals，A 消费并执行至 completed；本机无 DSN 未执行 |
 | A6-06 | PASS（SDK/传播；collector 配置未实跑） | `de167e3,92a3424` | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP；Gateway/Orchestrator 与全部 service agents server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；compose observability profile 含 otel-collector/jaeger；内存导出测试证明同 trace；红检移除 Transport 后测试 FAIL；容器未启动 |
-| A6-03 | PASS（blob + metadata 接线；未多副本实跑） | `58b9ca1` | S3ObjectStore：EnsureBucket/Put/Get/Presign/List/Delete；key 安全校验、10MB/7 天签名上限；本地 blob/S3 可选；S3Store 以 `metadata/<id>.json` 跨副本存元数据；渲染制品写入 checksum/storageRef；fake S3 验证读写/签名，未跑真实 MinIO 多副本 |
+| A6-03 | PASS（blob + metadata 接线；未多副本实跑） | `58b9ca1,67eef30` | S3ObjectStore：EnsureBucket/Put/Get/Presign/List/Delete；key 安全校验、10MB/7 天签名上限；本地 blob/S3 可选；S3Store 以 `metadata/<id>.json` 跨副本存元数据；fake S3 验证 Put/Get/List/Delete 与 S3Store 往返；未跑真实 MinIO 多副本 |
 | A0–A6 原子任务 | 已实现 | 见各行 | 仅剩运行时认证：MySQL/Redis 集成、GitHub CI、Docker 沙箱、真实 MinIO/collector/Nginx；见“收尾验证” |
 
 ### 已知 SKIP / 环境限制
