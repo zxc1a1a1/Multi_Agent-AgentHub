@@ -3,6 +3,8 @@ package testagent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	adk "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 )
@@ -38,7 +40,15 @@ func (AnalyzeTestLogTool) Execute(ctx context.Context, args json.RawMessage) (*a
 	if err := json.Unmarshal(args, &params); err != nil {
 		return invalidArgsResult("invalid arguments: " + err.Error()), nil
 	}
-	return &adk.ToolResult{Content: "测试日志分析完成：共 42 个用例，0 个失败，覆盖率 87.3%。"}, nil
+	if strings.TrimSpace(params.LogContent) == "" {
+		return invalidArgsResult("logContent is required"), nil
+	}
+	summary := ParseTestLog(params.LogContent, params.TestFramework)
+	data, err := json.Marshal(summary)
+	if err != nil {
+		return invalidArgsResult(err.Error()), nil
+	}
+	return &adk.ToolResult{Content: string(data)}, nil
 }
 
 type AssessCoverageTool struct{}
@@ -58,7 +68,29 @@ func (AssessCoverageTool) Execute(ctx context.Context, args json.RawMessage) (*a
 	if err := json.Unmarshal(args, &params); err != nil {
 		return invalidArgsResult("invalid arguments: " + err.Error()), nil
 	}
-	return &adk.ToolResult{Content: "覆盖率评估完成：整体覆盖率 87.3%，超过阈值。"}, nil
+	percent := 0.0
+	found := false
+	if strings.Contains(params.CoverageData, "mode:") {
+		value, err := ParseCoverage(params.CoverageData)
+		if err != nil {
+			return invalidArgsResult(err.Error()), nil
+		}
+		percent, found = value, true
+	} else {
+		for _, line := range strings.Split(params.CoverageData, "\n") {
+			if value := coverageFromLine(line); value != nil {
+				percent, found = *value, true
+			}
+		}
+	}
+	if !found {
+		return invalidArgsResult("no coverage data found"), nil
+	}
+	data, err := json.Marshal(AssessCoverage(percent, params.Threshold))
+	if err != nil {
+		return invalidArgsResult(fmt.Sprintf("marshal: %v", err)), nil
+	}
+	return &adk.ToolResult{Content: string(data)}, nil
 }
 
 type RootCauseAnalysisTool struct{}

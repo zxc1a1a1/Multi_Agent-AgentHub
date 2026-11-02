@@ -129,7 +129,7 @@ P0 契约/决策冻结
 | A2-05 | apply_patch + sandbox.run_tests | 同上 + Docker | 未审批 0 调用；沙箱内执行 | A2-04 |
 | A2-06 | diff-agent 真实 unified diff（已实现，见日志） | `agents/diff-agent` | 多行 diff 正确；不再 1 行模板 | A2-01 |
 | A2-07a | security 真实扫描器 | security-agent + 工具 | 已知密钥/CVE 样例能复现 | A2-02 |
-| A2-07b | test 真实覆盖率/失败解析 | test-agent + 工具 | 已知测试日志/覆盖率能复现 | A2-02 |
+| A2-07b | test 真实覆盖率/失败解析（已实现工具） | test-agent + 工具 | 已知测试日志/覆盖率能复现 | A2-02 |
 | A2-08 | MCP 真实传输 + allowlist | `pkg/runtime/tools/mcp.go` | 未注册工具拒绝；调用可审计 | A2-02 |
 
 **G2 门禁**：未授权写工具 0 调用；unknown 不重做；沙箱不可用不宿主执行；工具结果可追溯。
@@ -333,6 +333,7 @@ P0 契约/决策冻结
 | A2-02 | 未完成 | — | ADK 本地防线已实现；SQL 授权/结果入口未接线 |
 | A2-04 | PASS | `d35aa42` | code-agent 通过 CODE_AGENT_WORKSPACE_ROOT 接入 list/read/search；工具均为 ReadOnly；测试读取真实文件且不含 apply_patch/sandbox |
 | A2-06 | PASS | `a0e5e4f` | generate_diff 使用 LCS 行级 diff，生成多 hunk/上下文/增删行；测试拒绝旧 1 行模板格式 |
+| A2-07b | PASS（工具；Broker 接线待 A2-02） | 待提交 | analyze_test_log 解析 go test PASS/FAIL/SKIP、失败详情与 coverage；assess_coverage 解析百分比/cover profile 并对比阈值；固定样例可复现 |
 | A3-01 | PASS（单测） | `ccf6ed8` | 内存参与者往返/替换/级联删除；MySQL 集成测试 SKIP（无 DSN） |
 | A3-02 | PASS | `0bd8460` | 群聊创建/查询/替换/非法输入/404 测试通过 |
 | A3-03 | PASS | `32bfb2f` | 服务端名单恢复 + 本地缓存回退；禁用恢复后测试 FAIL |
