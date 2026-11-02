@@ -43,7 +43,10 @@ func (GenerateDiffTool) Execute(ctx context.Context, args json.RawMessage) (*adk
 	if err := json.Unmarshal(args, &params); err != nil {
 		return invalidArgsResult("invalid arguments: " + err.Error()), nil
 	}
-	result := fmt.Sprintf("```diff\n--- a/%s\n+++ b/%s\n@@ -1,1 +1,1 @@\n-%s\n+%s\n```", params.FilePath, params.FilePath, params.Original, params.Modified)
+	result, err := unifiedDiff(params.Original, params.Modified, params.FilePath, params.ContextLines)
+	if err != nil {
+		return invalidArgsResult(err.Error()), nil
+	}
 	return &adk.ToolResult{Content: result}, nil
 }
 
