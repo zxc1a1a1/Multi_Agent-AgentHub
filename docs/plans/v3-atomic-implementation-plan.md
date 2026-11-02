@@ -352,7 +352,7 @@ P0 契约/决策冻结
 | A4-05 | PASS（计划期模型选择；默认 round_robin） | `c0ea166` | MainAgent 兼 SpeakerSelector，输出 speaker/reason/done；越界/缺理由/连续重复/首轮停止即失败；`GROUP_CHAT_SPEAKER_MODE=model` 启用，上限 MAX_ROUNDS×参与者；理由写入 route_decisions.reason_summary；红检关闭 allowlist 后测试 FAIL；执行中按输出动态重选未做 |
 | A4-06 | PASS（可选；默认关闭） | `b969c99` | `handoff_to_agent` + `/internal/orchestrator/tools/handoff`：本地与 run 计划双层 allowlist；深度取自 RunIdentity.DelegateDepth 且 +1 超限拒绝；消息 ≤8KB、理由 ≤512B、响应 ≤16KB；越界 0 派发；红检关闭边界校验后测试 FAIL；仅 code-agent 显式启用 |
 | A5-07 | PASS（前端单测） | `a4949e5` | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
-| A5-01 | PASS | `465f35d,9837642` | 新模块 markdown-agent：A2A AgentCard/health、无模型密钥；确定性 Generate 已接 render/lint/frontmatter/toc/export 动作；未加入 compose，默认不启用 |
+| A5-01 | PASS | `465f35d,9837642,397ade1` | 新模块 markdown-agent：A2A AgentCard/health、无模型密钥；确定性 Generate 已接 render/lint/frontmatter/toc/export 动作；未加入 compose，默认不启用 |
 | A5-02a | PASS | `6b5fcd4` | goldmark 渲染；raw HTML 被丢弃；GFM 表格/链接测试 |
 | A5-02b | PASS | `6b5fcd4` | 标题缺空格/空链接/无语言代码块报行列 |
 | A5-02c | PASS | `6b5fcd4` | YAML 合法/非法/未闭合均有结果 |
@@ -441,6 +441,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `promtool check config/rules`（v3.1.0，本机） | PASS（config 有效；7 rules 有效） |
 | `nginx -t`（1.27.4，本机测试副本） | PASS（语法/指令有效；upstream 地址替换为 127.0.0.1） |
 | `otelcol-contrib validate --config=deploy/otel/collector.yaml`（0.115.1） | PASS |
+| Dockerfile workspace module 拷贝审计 | PASS（所有使用 go.work 的 Dockerfile 均拷贝全部模块 go.mod） |
 | `cd services/orchestrator && go test ./planner/` | PASS（sequential 校验 + DAG 相关） |
 | `cd services/orchestrator && go test ./httpapi/ -run TestTwoInstancesShareHITLSignal` | PASS（共享 store 跨实例 confirm→signal→执行） |
 | `cd services/gateway && go test ./projection/ -run TestTwoWorkersProjectTurnsWithoutDuplicatesInMemory` | PASS（双 worker 并发投影无重复） |
