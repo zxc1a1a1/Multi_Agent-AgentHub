@@ -38,6 +38,9 @@
   抓取与告警；`nginx -t` 校验反代模板（仅静态解析，不启动业务容器）。
 - 状态：工作流文件通过 YAML 解析与模块本地测试；未在 GitHub 实跑，因此不能
   宣称这些 job 已通过。
+- 本地等价入口：`scripts/run-v3-gates.sh`。要求调用者自行 export
+  `AGENTHUB_MYSQL_TEST_DSN` 与 `AGENTHUB_REDIS_TEST_ADDR`；不读取 `.env`、
+  不启动 Docker；集成日志出现 SKIP 即失败。`RUN_FRONTEND=0` 可跳过前端。
 
 ## 条件必过 Gates
 

@@ -436,6 +436,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `go test ./httpapi/ -run 'TestMetrics'`（gateway + orchestrator） | PASS（`format=prometheus` 文本格式与标签） |
 | CI workflow / Prometheus / compose / otel 配置 YAML 解析 | PASS（未在 GitHub / Prometheus / 容器实跑） |
 | `actionlint .github/workflows/v3-integration-gates.yml` | PASS（exit 0） |
+| `scripts/run-v3-gates.sh`（未 export DSN/Redis） | 正确 fail-fast（exit 1）；完整门禁需显式环境 |
 | 10 个 agent 模块 `go build ./...` + `go test ./...` | PASS（全 Agent tracing 接线） |
 | `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新；本次 8.2s） |
 
