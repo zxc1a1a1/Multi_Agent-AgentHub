@@ -56,6 +56,61 @@ func TestMarkdownAgentIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestMarkdownAgentA2AExportRoundTrip(t *testing.T) {
+	var received exportRequest
+	renderServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"artifactId":"art_a2a","kind":"document","mimeType":"application/pdf","size":99,"checksum":"sha256:a2a"}`))
+	}))
+	defer renderServer.Close()
+	export, err := NewExportTool(renderServer.URL, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, _, err := NewHandler(ServerConfig{URL: "http://markdown-agent.test", Export: export})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	client := a2a.NewClient()
+	response, err := client.Send(context.Background(), server.URL, a2a.RunRequest{
+		SessionID: "session-export",
+		Message: a2a.Message{
+			Role:    "user",
+			Content: `{"action":"export","markdown":"# Title\n\nBody","format":"pdf","fullPage":true}`,
+		},
+		Envelope: &adk.RunIdentity{
+			RunID: "run-a2a", TaskID: "task-a2a", PrincipalID: "user-1", FencingVersion: 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("A2A export failed: %v", err)
+	}
+	if response.Status != "completed" {
+		t.Fatalf("unexpected status: %#v", response)
+	}
+	var text strings.Builder
+	for _, event := range response.Events {
+		for _, part := range event.Parts {
+			if part.Type == "text" {
+				text.WriteString(part.Text)
+			}
+		}
+	}
+	if !strings.Contains(text.String(), "artifact=art_a2a") {
+		t.Fatalf("artifact reference missing: %s", text.String())
+	}
+	if received.RunID != "run-a2a" || received.TaskID != "task-a2a" || received.Format != "pdf" || !received.FullPage {
+		t.Fatalf("identity not propagated: %#v", received)
+	}
+	if !strings.Contains(received.HTML, "<h1") {
+		t.Fatalf("markdown not rendered: %s", received.HTML)
+	}
+}
+
 func TestMarkdownAgentJSONActions(t *testing.T) {
 	agent := NewAgent()
 	req := &adk.GenerateRequest{Contents: []*adk.Content{{
