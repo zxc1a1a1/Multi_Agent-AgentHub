@@ -199,7 +199,7 @@ P0 契约/决策冻结
 | A6-05 | 多 Orchestrator owner/共享状态 | A1-03..A1-06 | 2 副本 confirm/cancel 正常 | G1 |
 | A6-06 | OTel trace | Gateway/Orchestrator/Agent | 同一 run 可串联 | A1-07 |
 | A6-07 | 指标与告警 | metrics | 路由/审批/工具/SSE 有指标 | A4-07 |
-| A6-08 | Runbook | docs | 故障有操作步骤 | A6-01..A6-07 |
+| A6-08 | Runbook（单机版已实现） | docs | 故障有操作步骤 | A6-01..A6-07 |
 
 **G6 门禁**：kill Gateway/Orchestrator 有明确结果；跨节点 artifact 可读；trace 可串联。
 
@@ -364,7 +364,9 @@ P0 契约/决策冻结
 | A4-07 | PASS（指标；eval 复用既有 harness） | 待提交 | GET /internal/orchestrator/metrics/routing：总 run/决策、选中/拒绝原因、选中率/拒绝率、多决策（loop）run、model/tool/repair/replan 用量；时间窗非法 400 |
 | A5-10a | PASS | 待提交 | 仅 mermaid 代码块渲染时动态 import mermaid；独立懒 chunk；去掉 sanitize 后测试 FAIL |
 | A5-10b | PASS | 待提交 | 仅在内容含 $...$ 时动态加载 remark-math/rehype-katex/katex CSS；失败保持原文；禁用加载后测试 FAIL |
-| A6-01/A6-03..A6-08、P5 其余 | 未开始 | — | — |
+| A6-01 | 部分实现 | 待提交 | compose 增加 `orchestrator-artifacts` 卷、容器内 `/data/artifacts` 权限；Nginx/自动备份未做 |
+| A6-08 | PASS（文档，单机） | 待提交 | 新增 `docs/delivery/runbook-single-node.md`：启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；明确未覆盖多副本、S3、OTel |
+| A6-03..A6-07、P5 其余 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
 

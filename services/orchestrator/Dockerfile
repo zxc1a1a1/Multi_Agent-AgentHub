@@ -33,6 +33,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 FROM alpine:3.20
 RUN addgroup -S app && adduser -S -G app app
 COPY --from=builder /out/orchestrator /usr/local/bin/orchestrator
+RUN mkdir -p /data/artifacts && chown -R app:app /data
 USER app
 EXPOSE 8080
 CMD ["orchestrator"]

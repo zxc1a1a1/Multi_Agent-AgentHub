@@ -1,6 +1,7 @@
 volumes:
   gateway-data:
   mysql-data:
+  orchestrator-artifacts:
 
 services:
   # =========================================================================
@@ -257,6 +258,7 @@ services:
       REQUIRE_PLAN_CONFIRMATION: "${REQUIRE_PLAN_CONFIRMATION:-true}"
       DATABASE_URL: "root:${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}@tcp(mysql:3306)/agenthub?parseTime=true&loc=UTC&charset=utf8mb4"
       REDIS_URL: "redis://redis:6379/0"
+      ARTIFACT_STORE_DIR: "/data/artifacts"
       AGENTHUB_ENV: "docker"
       MEMORY_MODE: "${MEMORY_MODE:-session_only}"
       ORCHESTRATOR_LLM_PROVIDER: "${ORCHESTRATOR_LLM_PROVIDER:-${LLM_PROVIDER:-anthropic}}"
@@ -266,6 +268,8 @@ services:
     ports:
       - "8090:8080"
       - "9090:9090"
+    volumes:
+      - orchestrator-artifacts:/data/artifacts
     depends_on:
       mysql:
         condition: service_healthy
