@@ -462,4 +462,4 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 - G3：成员持久化、逐轮历史、参与者取消派发、浏览器 E2E 已落地；未整体认证。
 - G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做，未整体认证。
 - G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX、Playwright 截图/PDF 导出已落地；Docker 沙箱未验证，未整体认证。
-- G6：Artifact 元数据本地/S3、blob 本地/S3、指标/告警规则、全 Agent OTel 传播/导出与 collector 配置、Nginx 模板与备份脚本已落地；Nginx/Prometheus/多副本/collector/MinIO 运行时验证未做。
+- G6：Artifact 元数据本地/S3、blob 本地/S3、指标/告警规则、全 Agent OTel 传播/导出与 collector 配置、Nginx 模板与备份脚本已落地；Nginx/Prometheus/多副本/collector/MinIO 运行时验证未做，未整体认证。

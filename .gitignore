@@ -56,3 +56,8 @@ logs/
 /services/agents/*/vision-agent
 /services/orchestrator/orchestrator
 /services/gateway/gateway
+
+# Test outputs
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
