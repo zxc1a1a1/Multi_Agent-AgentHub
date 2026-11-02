@@ -52,31 +52,28 @@ jobs:
       - name: Go version
         run: go version
 
-      - name: Run MySQL/Redis integration tests
-        run: |
-          set -o pipefail
-          go test -v -count=1 -run 'TestIntegration' \
-            ./services/orchestrator/... \
-            ./services/gateway/... \
-            2>&1 | tee integration.log
+      - name: Run integration gate with evidence collection
+        run: >-
+          bash scripts/run-integration-evidence.sh
+          --test-id R0-01 --plan-task R0-01
+          --packages "./services/orchestrator/... ./services/gateway/..."
+          --run '^TestIntegration'
+          --timeout 25m
+          --out "docs/reports/evidence/ci-${{ github.run_number }}/R0-01"
 
-      - name: Fail on skipped integration tests
-        run: |
-          if grep -q -- "--- SKIP" integration.log; then
-            echo "FAIL: integration tests were skipped despite a configured MySQL/Redis test environment"
-            grep -- "--- SKIP" integration.log
-            exit 1
-          fi
-          if ! grep -q -- "--- PASS" integration.log; then
-            echo "FAIL: no integration test passed"
-            exit 1
-          fi
-          echo "PASS: MySQL/Redis integration tests ran without SKIP"
+      - name: Upload integration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-evidence-${{ github.run_number }}
+          path: docs/reports/evidence/ci-${{ github.run_number }}
+          if-no-files-found: warn
 
-      - name: Show logs on failure
+      - name: Show evidence summary on failure
         if: failure()
         run: |
-          tail -n 200 integration.log || true
+          cat docs/reports/evidence/ci-${{ github.run_number }}/R0-01/summary.md || true
+          tail -n 200 docs/reports/evidence/ci-${{ github.run_number }}/R0-01/logs/go-test-stderr.txt || true
 
   unit:
     runs-on: ubuntu-latest
