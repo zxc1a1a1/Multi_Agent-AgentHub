@@ -318,8 +318,8 @@ P0 契约/决策冻结
 | A0-07 | PASS（配置，CI 待验证） | `18b8697,80a6709` | `.github/workflows/v3-integration-gates.yml`：MySQL/Redis 集成 + SKIP 即失败；全模块 unit/build 矩阵、frontend unit/typecheck/build、Playwright E2E、compose/nginx/promtool 校验；YAML 解析通过，未在 GitHub 实跑 |
 | A1-01 | PASS | `e2ec0c9` | 3 个回归测试；还原修复后超限场景 FAIL |
 | A1-02 | PASS（单测） | `581099e` | 周期续租/失租取消/handler 接线测试通过；MySQL 集成测试 SKIP（无 DSN） |
-| A1-03 | PASS（单测） | `1fe4d5f` | 跨实例确认 202、幂等 200、revision 冲突 409；MySQL 集成测试 SKIP（无 DSN） |
-| A1-04 | PASS（单测） | `1fe4d5f` | 持有实例 Claim 信号并继续执行；禁用 Claim 后测试 FAIL；MySQL 集成测试 SKIP（无 DSN） |
+| A1-03 | PASS（单测 + 共享 store） | `1fe4d5f,4da8bbe` | 跨实例确认 202、幂等 200、revision 冲突 409；共享 store 测试 B confirm 写信号、A 消费执行；MySQL 集成测试 SKIP（无 DSN） |
+| A1-04 | PASS（单测 + 共享 store） | `1fe4d5f,4da8bbe` | 持有实例 Claim 信号并继续执行；共享 store 跨实例测试通过；禁用 Claim 后测试 FAIL；MySQL 集成测试 SKIP（无 DSN） |
 | A1-05 | PASS（单测；集成 SKIP） | `e6d3dcd` | hitl_confirmations 缓存状态码/响应体；同键重放返回原响应，不同 payload 409，处理中 409；禁用 SQL 幂等后重放测试 FAIL |
 | A1-06 | PASS（单测；集成 SKIP） | `b56f25b` | run_task_refs/run_cancels 持久化；实例 B 可按 SQL refs 取消远端 A2A 任务；A 侧轮询取消请求并终止本地 context；移除 SQL refs 后取消测试 FAIL |
 | A1-07 | PASS | `803fcf8` | gRPC unary/stream interceptor 校验内部 token；trace metadata 透传；缺失/错误 token 返回 Unauthenticated；移除 interceptor 后测试 FAIL |
