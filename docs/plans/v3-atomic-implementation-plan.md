@@ -321,7 +321,7 @@ P0 契约/决策冻结
 | A1-03 | PASS（单测 + 共享 store） | `1fe4d5f,4da8bbe` | 跨实例确认 202、幂等 200、revision 冲突 409；共享 store 测试 B confirm 写信号、A 消费执行；MySQL 集成测试 SKIP（无 DSN） |
 | A1-04 | PASS（单测 + 共享 store） | `1fe4d5f,4da8bbe` | 持有实例 Claim 信号并继续执行；共享 store 跨实例测试通过；禁用 Claim 后测试 FAIL；MySQL 集成测试 SKIP（无 DSN） |
 | A1-05 | PASS（单测；集成 SKIP） | `e6d3dcd` | hitl_confirmations 缓存状态码/响应体；同键重放返回原响应，不同 payload 409，处理中 409；禁用 SQL 幂等后重放测试 FAIL |
-| A1-06 | PASS（单测；集成 SKIP） | `b56f25b` | run_task_refs/run_cancels 持久化；实例 B 可按 SQL refs 取消远端 A2A 任务；A 侧轮询取消请求并终止本地 context；移除 SQL refs 后取消测试 FAIL |
+| A1-06 | PASS（单测 + 共享 store；集成 SKIP） | `b56f25b,6a78723` | run_task_refs/run_cancels 持久化；实例 B 可按 SQL refs 取消远端 A2A 任务；执行中与待审批阶段 A 均轮询取消请求并终止；移除 SQL refs / 关闭 cancel 分支后测试 FAIL |
 | A1-07 | PASS | `803fcf8` | gRPC unary/stream interceptor 校验内部 token；trace metadata 透传；缺失/错误 token 返回 Unauthenticated；移除 interceptor 后测试 FAIL |
 | A1-08 | PASS（单测） | `dc6f0a4` | 所有变更写（state/checkpoint/dispatch/renew/release）拒绝 fencing 0；Guard 同样拒绝；0 在触库前失败 |
 | A1-09a | PASS（单测；集成 SKIP） | `860f95e` | 投影偏移表存在；`ProjectAssistantMessage` 先物化 offset 行再 `FOR UPDATE`，并新增 projection worker 集成测试（需 DSN） |
@@ -374,7 +374,7 @@ P0 契约/决策冻结
 | A6-08 | PASS（文档，单机） | `dbb0aff,519079a` | Runbook 覆盖启停/健康/运行排查/MySQL/Redis/Gateway/Orchestrator/审批/取消/制品故障/备份/回滚/安全；新增渲染导出与 OTel/Prometheus 排查；明确未覆盖运行时多副本/S3/collector 验证 |
 | A6-07 | PASS（指标 + 规则；告警通道未接） | `b96ed60` | Orchestrator/Gateway 指标保留；三入口支持 `format=prometheus`；`deploy/prometheus/{prometheus,alerts}.yml` 覆盖 down/run/approval/tool unknown/SSE/路由缺失；CI 增加 promtool 校验但未实跑，未接 Alertmanager |
 | A6-04 | PASS（内存本机；MySQL CI 待跑） | `467397b,956ec06` | 两个 worker 并发恢复同一 run：内存 store 本机 PASS（2 条消息、offset=7、二次恢复 0）；MySQL 版本 CI 待跑 |
-| A6-05 | PASS（内存跨实例；MySQL CI 待跑） | `9ab66ab,4da8bbe` | 两个 Orchestrator 共享 store：A 待审批、B confirm 写 run_signals、A 消费并执行至 completed；内存版本本机 PASS，MySQL 版本 CI 待跑 |
+| A6-05 | PASS（内存跨实例；MySQL CI 待跑） | `9ab66ab,4da8bbe,6a78723` | 两个 Orchestrator 共享 store：A 待审批、B confirm 写 run_signals、A 消费并执行；B cancel 可终止 A 的待审批 run；内存版本本机 PASS，MySQL 版本 CI 待跑 |
 | A6-06 | PASS（SDK/传播；collector 配置未实跑） | `de167e3,92a3424` | `pkg/runtime/observability`：W3C traceparent + OTLP/HTTP；Gateway/Orchestrator 与全部 service agents server span，Gateway→Orchestrator→Agent client span；`agenthub.run_id` 属性；compose observability profile 含 otel-collector/jaeger；内存导出测试证明同 trace；红检移除 Transport 后测试 FAIL；容器未启动 |
 | A6-03 | PASS（blob + metadata 接线；未多副本实跑） | `58b9ca1,67eef30` | S3ObjectStore：EnsureBucket/Put/Get/Presign/List/Delete；key 安全校验、10MB/7 天签名上限；本地 blob/S3 可选；S3Store 以 `metadata/<id>.json` 跨副本存元数据；fake S3 验证 Put/Get/List/Delete 与 S3Store 往返；未跑真实 MinIO 多副本 |
 | A0–A6 原子任务 | 已实现 | 见各行 | 仅剩运行时认证：MySQL/Redis 集成、GitHub CI、Docker 沙箱、真实 MinIO/collector/Nginx；见“收尾验证” |
@@ -440,6 +440,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `cd services/orchestrator && go test ./planner/` | PASS（sequential 校验 + DAG 相关） |
 | `cd services/orchestrator && go test ./httpapi/ -run TestTwoInstancesShareHITLSignal` | PASS（共享 store 跨实例 confirm→signal→执行） |
 | `cd services/gateway && go test ./projection/ -run TestTwoWorkersProjectTurnsWithoutDuplicatesInMemory` | PASS（双 worker 并发投影无重复） |
+| `cd services/orchestrator && go test ./httpapi/ -run TestTwoInstancesSharePendingCancel` | PASS（B cancel 终止 A 的待审批 run） |
 | `cd pkg/runtime && go test ./tools/ -run TestDockerExecutorUnavailableDoesNotRunOnHost` | PASS（Docker 缺失时 fail-closed，宿主无副作用） |
 | `scripts/run-v3-gates.sh`（未 export DSN/Redis） | 正确 fail-fast（exit 1）；完整门禁需显式环境 |
 | 10 个 agent 模块 `go build ./...` + `go test ./...` | PASS（全 Agent tracing 接线） |
@@ -464,7 +465,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 ### 门禁状态（诚实版）
 
 - G0：契约/决策已冻结；部分契约为“字段已冻结、实现未完成”。
-- G1：审批/取消/幂等/租约/投影有单测；跨实例 HITL 与双 worker 投影有共享 store 内存测试；MySQL/Redis 集成未在本机执行（SKIP），未整体通过。
+- G1：审批/取消/幂等/租约/投影有单测；跨实例 HITL、待审批 cancel 与双 worker 投影有共享 store 内存测试；MySQL/Redis 集成未在本机执行（SKIP），未整体通过。
 - G2：ADK 副作用 Guard 已强制，Broker 授权/结果/审批接线已落地；Docker 不可用时 fail-closed 且不落宿主执行；审批单仍由平台侧创建，未通过整体认证。
 - G3：成员持久化、逐轮历史、参与者取消派发、浏览器 E2E 已落地；未整体认证。
 - G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做，未整体认证。
