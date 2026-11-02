@@ -11,6 +11,7 @@ import (
 	"fmt"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/harness"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/tools"
 	ledger "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/persistence/mysql"
 )
@@ -19,12 +20,19 @@ import (
 // The broker refuses to execute it again unless the caller starts a new call.
 var ErrToolOutcomeUnknown = errors.New("tool outcome unknown")
 
+// Ledger is the subset of the SQL tool ledger used by the broker.
+type Ledger interface {
+	ConsumeApprovalAndDispatch(ctx context.Context, p ledger.DispatchParams) error
+	RecordToolResult(ctx context.Context, res ledger.ToolResult) error
+	GetToolCall(ctx context.Context, runID, toolCallID string) (*ledger.ToolCallState, error)
+}
+
 type Broker struct {
-	repo  *ledger.Repository
+	repo  Ledger
 	guard tools.Broker
 }
 
-func New(repo *ledger.Repository, guard tools.Broker) (*Broker, error) {
+func New(repo Ledger, guard tools.Broker) (*Broker, error) {
 	if repo == nil {
 		return nil, fmt.Errorf("ledger repository is required")
 	}
@@ -64,13 +72,13 @@ func (b *Broker) Execute(ctx context.Context, req Request) (*adk.ToolResult, err
 	if err := b.guard.Authorize(ctx, req.Envelope, req.Command); err != nil {
 		return nil, err
 	}
+	budget, err := reserveToolBudget(req.Budget)
+	if err != nil {
+		return nil, err
+	}
 	if !req.Command.ReadOnly {
 		if req.Envelope.IdempotencyKey == "" {
 			return nil, fmt.Errorf("%w: idempotency key required", tools.ErrInvalidEnvelope)
-		}
-		budget := req.Budget
-		if len(budget) == 0 {
-			budget = []byte(`{}`)
 		}
 		if err := b.repo.ConsumeApprovalAndDispatch(ctx, ledger.DispatchParams{
 			RunID: req.Envelope.RunID, FencingVersion: req.Envelope.FencingVersion,
@@ -143,4 +151,24 @@ func canonicalJSON(raw json.RawMessage) []byte {
 		return raw
 	}
 	return encoded
+}
+
+
+// reserveToolBudget restores usage from the checkpoint, then reserves one tool
+// call. Invalid or exhausted budgets fail before approval consumption/dispatch.
+func reserveToolBudget(raw []byte) ([]byte, error) {
+	var usage harness.Usage
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &usage); err != nil {
+			return nil, fmt.Errorf("invalid budget checkpoint: %w", err)
+		}
+	}
+	budget, err := harness.RestoreBudget(harness.DefaultLimits(), usage)
+	if err != nil {
+		return nil, fmt.Errorf("budget restore failed: %w", err)
+	}
+	if err := budget.ReserveTool(1); err != nil {
+		return nil, err
+	}
+	return json.Marshal(budget.Usage())
 }

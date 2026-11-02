@@ -124,7 +124,7 @@ P0 契约/决策冻结
 | A2-00 | 平台工具执行位置 ADR | `docs/contracts/tool-broker.md` | 明确 agent-side authorize/result 还是 orchestrator-side execution；权限/幂等/审计 | G0 |
 | A2-01 | ADK 工具执行前强制 Guard | `pkg/adk/runner.go` 或工具包装层 | 无 envelope/无审批的写工具 0 调用 | G0 |
 | A2-02 | 按 A2-00 接入授权/结果账本 | `internal/toolruntime/broker.go` + 选定执行路径 | 审批/预算/fencing/unknown 生效 | A2-00、A2-01、A1-08 |
-| A2-03 | 工具预算真实扣减 | broker + budget | 超预算拒绝；恢复不重置 | A2-02 |
+| A2-03 | 工具预算真实扣减（broker 已实现） | broker + budget | 超预算拒绝；恢复不重置 | A2-02 |
 | A2-04 | 只读 workspace 工具接入 code-agent（已实现，见日志） | `pkg/runtime/tools`、code-agent | 能读真实文件；无写权限 | A2-01 |
 | A2-05 | apply_patch + sandbox.run_tests | 同上 + Docker | 未审批 0 调用；沙箱内执行 | A2-04 |
 | A2-06 | diff-agent 真实 unified diff（已实现，见日志） | `agents/diff-agent` | 多行 diff 正确；不再 1 行模板 | A2-01 |
@@ -331,6 +331,7 @@ P0 契约/决策冻结
 | A2-00 | PASS（决策） | `5637989` | 选择 agent-side authorize/result；生产接线未完成 |
 | A2-01 | PASS | `b9bfaf2` | 无 Guard 的副作用工具 0 调用；绕过 authorizeTool 后 3 个测试 FAIL |
 | A2-02 | 未完成 | — | ADK 本地防线已实现；SQL 授权/结果入口未接线 |
+| A2-03 | PASS（Broker；生产接线待 A2-02） | 待提交 | 从 checkpoint 恢复 usage 后 ReserveTool(1)；超限/损坏预算在审批消费与工具执行前失败；写调用持久化递增后的 BudgetJSON |
 | A2-04 | PASS | `d35aa42` | code-agent 通过 CODE_AGENT_WORKSPACE_ROOT 接入 list/read/search；工具均为 ReadOnly；测试读取真实文件且不含 apply_patch/sandbox |
 | A2-06 | PASS | `a0e5e4f` | generate_diff 使用 LCS 行级 diff，生成多 hunk/上下文/增删行；测试拒绝旧 1 行模板格式 |
 | A2-07b | PASS（工具；Broker 接线待 A2-02） | 待提交 | analyze_test_log 解析 go test PASS/FAIL/SKIP、失败详情与 coverage；assess_coverage 解析百分比/cover profile 并对比阈值；固定样例可复现 |
