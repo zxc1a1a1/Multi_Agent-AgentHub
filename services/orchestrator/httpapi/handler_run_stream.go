@@ -385,15 +385,18 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		// A confirm may be handled by another Orchestrator instance. Poll the
 		// durable signal table and feed it into the same channel path so both
 		// local and cross-instance confirms share one validation/execution flow.
-		var signalCh <-chan time.Time
+		pollInterval := s.hitlPollInterval
+		if pollInterval <= 0 {
+			pollInterval = 250 * time.Millisecond
+		}
+		var signalCh, cancelCh <-chan time.Time
 		if ledger.enrolled() {
-			pollInterval := s.hitlPollInterval
-			if pollInterval <= 0 {
-				pollInterval = 250 * time.Millisecond
-			}
 			signalTicker := time.NewTicker(pollInterval)
 			defer signalTicker.Stop()
 			signalCh = signalTicker.C
+			cancelTicker := time.NewTicker(pollInterval)
+			defer cancelTicker.Stop()
+			cancelCh = cancelTicker.C
 		}
 
 	confirmLoop:
@@ -412,6 +415,15 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 				case confirmCh <- hitlResultFromSignal(sig):
 				case <-r.Context().Done():
 					return
+				}
+			case <-cancelCh:
+				requested, cancelErr := s.executionStore.RunCancelRequested(r.Context(), runID)
+				if cancelErr != nil {
+					log.Printf("orchestrator: run=%s poll cancel request failed: %v", runID, cancelErr)
+					continue
+				}
+				if requested {
+					s.cancelPendingPlan(runID, "run cancelled")
 				}
 			case result := <-confirmCh:
 				// Revise: re-plan with feedback and emit revised ACTIVITY_SNAPSHOT.
@@ -1442,20 +1454,32 @@ func (s *Server) handlePlanOnlySingleChat(w http.ResponseWriter, flusher http.Fl
 	var approved bool
 	executeUserText := userText // always use original userText for full execute
 
-	var signalCh <-chan time.Time
+	pollInterval := s.hitlPollInterval
+	if pollInterval <= 0 {
+		pollInterval = 250 * time.Millisecond
+	}
+	var signalCh, cancelCh <-chan time.Time
 	if s.executionStore != nil {
-		pollInterval := s.hitlPollInterval
-		if pollInterval <= 0 {
-			pollInterval = 250 * time.Millisecond
-		}
 		signalTicker := time.NewTicker(pollInterval)
 		defer signalTicker.Stop()
 		signalCh = signalTicker.C
+		cancelTicker := time.NewTicker(pollInterval)
+		defer cancelTicker.Stop()
+		cancelCh = cancelTicker.C
 	}
 
 confirmLoop:
 	for {
 		select {
+		case <-cancelCh:
+			requested, cancelErr := s.executionStore.RunCancelRequested(r.Context(), runID)
+			if cancelErr != nil {
+				log.Printf("orchestrator: run=%s poll cancel request failed: %v", runID, cancelErr)
+				continue
+			}
+			if requested {
+				s.cancelPendingPlan(runID, "run cancelled")
+			}
 		case result := <-confirmCh:
 			switch result.Action {
 			case "revise":
