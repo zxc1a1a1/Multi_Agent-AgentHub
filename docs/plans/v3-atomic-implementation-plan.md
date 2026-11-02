@@ -337,7 +337,7 @@ P0 契约/决策冻结
 | A2-06 | PASS | `a0e5e4f` | generate_diff 使用 LCS 行级 diff，生成多 hunk/上下文/增删行；测试拒绝旧 1 行模板格式 |
 | A2-07b | PASS（只读工具） | `d9ca50e` | analyze_test_log 解析 go test PASS/FAIL/SKIP、失败详情与 coverage；assess_coverage 解析百分比/cover profile 并对比阈值；固定样例可复现 |
 | A2-07a | PASS（只读工具） | `d36cbef` | detect_secrets 匹配私钥/AWS/GitHub/Slack/JWT/凭据赋值并只返回脱敏值；parse_vulnerability_report 解析文本/JSON CVE 与模块；已知样例可复现 |
-| A2-08 | PASS（传输/allowlist；审计待 A2-02） | 505dcfc | HTTP JSON-RPC tools/list/tools/call；Bearer token；未列策略工具不暴露；错误脱敏；allowlist 测试通过 |
+| A2-08 | PASS（传输/allowlist；未接入具体 Agent 审计） | `505dcfc` | HTTP JSON-RPC tools/list/tools/call；Bearer token；未列策略工具不暴露；错误脱敏；allowlist 测试通过 |
 | A3-01 | PASS（单测） | `ccf6ed8` | 内存参与者往返/替换/级联删除；MySQL 集成测试 SKIP（无 DSN） |
 | A3-02 | PASS | `0bd8460` | 群聊创建/查询/替换/非法输入/404 测试通过 |
 | A3-03 | PASS | `32bfb2f` | 服务端名单恢复 + 本地缓存回退；禁用恢复后测试 FAIL |
