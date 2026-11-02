@@ -564,6 +564,12 @@ export async function getArtifact(id: string): Promise<ArtifactRecord> {
   return res.json()
 }
 
+export async function fetchArtifactContent(id: string): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/artifacts/${encodeURIComponent(id)}/content`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Failed to fetch artifact content: HTTP ${res.status}`)
+  return res.blob()
+}
+
 export type MemoryMode = 'off' | 'session_only' | 'scoped_long_term'
 
 export interface MemoryPolicy {
