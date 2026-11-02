@@ -41,6 +41,9 @@
 - 本地等价入口：`scripts/run-v3-gates.sh`。要求调用者自行 export
   `AGENTHUB_MYSQL_TEST_DSN` 与 `AGENTHUB_REDIS_TEST_ADDR`；不读取 `.env`、
   不启动 Docker；集成日志出现 SKIP 即失败。`RUN_FRONTEND=0` 可跳过前端。
+  `RUN_INTEGRATION=0` 仅用于本地 unit/build 调试，脚本会明确打印
+  “not a full gate”，不能据此宣称门禁通过。unit 矩阵会聚合所有模块失败后
+  统一退出，便于一次看到全部问题。
 
 ## 条件必过 Gates
 

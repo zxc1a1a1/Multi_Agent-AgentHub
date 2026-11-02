@@ -6,27 +6,31 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-: "${AGENTHUB_MYSQL_TEST_DSN:?export AGENTHUB_MYSQL_TEST_DSN before running}"
-: "${AGENTHUB_REDIS_TEST_ADDR:?export AGENTHUB_REDIS_TEST_ADDR before running}"
+if [[ "${RUN_INTEGRATION:-1}" == "1" ]]; then
+  : "${AGENTHUB_MYSQL_TEST_DSN:?export AGENTHUB_MYSQL_TEST_DSN before running}"
+  : "${AGENTHUB_REDIS_TEST_ADDR:?export AGENTHUB_REDIS_TEST_ADDR before running}"
 
-log="$(mktemp)"
-trap 'rm -f "$log"' EXIT
+  log="$(mktemp)"
+  trap 'rm -f "$log"' EXIT
 
-echo "== integration (MySQL + Redis) =="
-go test -v -count=1 -run 'TestIntegration' \
-  ./services/orchestrator/... \
-  ./services/gateway/... 2>&1 | tee "$log"
+  echo "== integration (MySQL + Redis) =="
+  go test -v -count=1 -run 'TestIntegration' \
+    ./services/orchestrator/... \
+    ./services/gateway/... 2>&1 | tee "$log"
 
-if grep -q -- "--- SKIP" "$log"; then
-  echo "FAIL: integration tests were skipped despite configured services" >&2
-  grep -- "--- SKIP" "$log" >&2
-  exit 1
+  if grep -q -- "--- SKIP" "$log"; then
+    echo "FAIL: integration tests were skipped despite configured services" >&2
+    grep -- "--- SKIP" "$log" >&2
+    exit 1
+  fi
+  if ! grep -q -- "--- PASS" "$log"; then
+    echo "FAIL: no integration test passed" >&2
+    exit 1
+  fi
+  echo "PASS: integration tests ran without SKIP"
+else
+  echo "SKIP: integration intentionally disabled (RUN_INTEGRATION=0); this is not a full gate"
 fi
-if ! grep -q -- "--- PASS" "$log"; then
-  echo "FAIL: no integration test passed" >&2
-  exit 1
-fi
-echo "PASS: integration tests ran without SKIP"
 
 echo "== Go unit/build matrix =="
 modules=(
@@ -46,16 +50,24 @@ modules=(
   services/agents/context-agent
   services/agents/deploy-agent
 )
+failures=()
 for module in "${modules[@]}"; do
   echo "-- $module"
-  (cd "$module" && go test ./... -count=1)
+  if ! (cd "$module" && go test ./... -count=1); then
+    failures+=("$module test")
+    continue
+  fi
   case "$module" in
-    services/gateway) (cd "$module" && go build ./cmd/gateway) ;;
-    services/orchestrator) (cd "$module" && go build ./cmd/orchestrator) ;;
-    services/agents/code-agent) (cd "$module" && go build ./cmd/code-agent) ;;
-    services/agents/web-agent) (cd "$module" && go build ./cmd/web-agent) ;;
+    services/gateway) (cd "$module" && go build ./cmd/gateway) || failures+=("$module build") ;;
+    services/orchestrator) (cd "$module" && go build ./cmd/orchestrator) || failures+=("$module build") ;;
+    services/agents/code-agent) (cd "$module" && go build ./cmd/code-agent) || failures+=("$module build") ;;
+    services/agents/web-agent) (cd "$module" && go build ./cmd/web-agent) || failures+=("$module build") ;;
   esac
 done
+if (( ${#failures[@]} > 0 )); then
+  echo "FAIL: ${failures[*]}" >&2
+  exit 1
+fi
 echo "PASS: Go matrix"
 
 if [[ "${RUN_FRONTEND:-1}" == "1" ]]; then

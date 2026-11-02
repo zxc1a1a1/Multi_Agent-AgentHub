@@ -443,6 +443,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `cd services/orchestrator && go test ./httpapi/ -run TestTwoInstancesSharePendingCancel` | PASS（B cancel 终止 A 的待审批 run） |
 | `cd pkg/runtime && go test ./tools/ -run TestDockerExecutorUnavailableDoesNotRunOnHost` | PASS（Docker 缺失时 fail-closed，宿主无副作用） |
 | `scripts/run-v3-gates.sh`（未 export DSN/Redis） | 正确 fail-fast（exit 1）；完整门禁需显式环境 |
+| `RUN_INTEGRATION=0 RUN_FRONTEND=0 scripts/run-v3-gates.sh` | 14 个 Go 模块通过；`pkg/runtime` 因 launcher `go test` 启动被本机策略拒绝而失败，不宣称门禁通过 |
 | 10 个 agent 模块 `go build ./...` + `go test ./...` | PASS（全 Agent tracing 接线） |
 | `cd frontend && PLAYWRIGHT_CHANNEL=msedge ... playwright test e2e/group-chat.spec.ts` | 1 passed（创建→勾选 2 Agent→发送→取消→刷新；本次 8.2s） |
 
