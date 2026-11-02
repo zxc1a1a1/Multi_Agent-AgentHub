@@ -326,7 +326,7 @@ P0 契约/决策冻结
 | A1-08 | PASS（单测） | `dc6f0a4` | 所有变更写（state/checkpoint/dispatch/renew/release）拒绝 fencing 0；Guard 同样拒绝；0 在触库前失败 |
 | A1-09a | PASS（单测；集成 SKIP） | `860f95e` | 投影偏移表存在；`ProjectAssistantMessage` 先物化 offset 行再 `FOR UPDATE`，并新增 projection worker 集成测试（需 DSN） |
 | A1-09b | PASS（单测；集成 SKIP） | `860f95e` | 新增 `services/gateway/projection` worker：按 turn 重建消息、只投影已完成轮次、共享偏移幂等；未完成轮次测试在强制终态化后 FAIL |
-| A1-09c | 部分实现 | 待提交 | worker 恢复已 journal 的最终轮；`AGENT_TURN_FINISHED` 前崩溃的轮次按未完成处理 |
+| A1-09c | 部分实现 | — | worker 恢复已 journal 的最终轮；`AGENT_TURN_FINISHED` 前崩溃的轮次按未完成处理 |
 | A1-10 | PASS | `244f574` | 所有 handler 返回路径释放租约；resume 同样释放；Ctrl+C 后 `server.Shutdown` 等待在途 handler；移除 defer 后 planner 失败测试 FAIL |
 | A2-00 | PASS（决策） | `5637989` | 选择 agent-side authorize/result；生产接线未完成 |
 | A2-01 | PASS | `b9bfaf2` | 无 Guard 的副作用工具 0 调用；绕过 authorizeTool 后 3 个测试 FAIL |
@@ -338,14 +338,17 @@ P0 契约/决策冻结
 | A3-05 | PASS | `94fa1f5` | 网关按 turnIndex/messageId 累积，AGENT_TURN_FINISHED 时逐轮投影；无 turn 事件仍合并一条；禁用 finish 投影后测试 FAIL（历史被合并） |
 | A3-06 | PASS | `4597d7d` | GroupPlanCard 每成员勾选，required 不可取消；选择随 approve/revise 提交；后端 filterPlanByConfirmedParticipants 只派发已确认 Agent 的任务（单测） |
 | A3-07 | 未完成 | — | 未新增浏览器级 E2E |
+| A4-01 | PASS（单测；集成 SKIP） | `7aa6cde` | route_decisions 表 + 决策构建/查询接口；记录 path/strategy/候选/选中/拒绝原因；移除记录调用后测试 FAIL |
+| A4-02 | PASS（单测） | `13c016b` | sequential 走 DAGExecutor：拓扑波次并发、依赖失败跳过、上游输出注入；ordered_parallel 仍串行保序 |
+| A4-03 | PASS（单测） | `2582a6d` | DAG 波次受 ParallelTasks 信号量限制；ctx 取消停止派发并传入 dispatcher；移除信号量后测试 FAIL |
 | A5-07 | PASS（前端单测） | `a4949e5` | highlight 输出白名单 sanitize；StreamingText 原始 HTML 不渲染；WebPreview sandbox/CSP 既有测试；移除 sanitizer 后 2 个测试 FAIL |
-| A5-01 | PASS | 待提交 | 新模块 markdown-agent：A2A AgentCard/health、确定性 Agent、无模型密钥；未加入 compose，默认不启用 |
-| A5-02a | PASS | 待提交 | goldmark 渲染；raw HTML 被丢弃；GFM 表格/链接测试 |
-| A5-02b | PASS | 待提交 | 标题缺空格/空链接/无语言代码块报行列 |
-| A5-02c | PASS | 待提交 | YAML 合法/非法/未闭合均有结果 |
-| A5-02d | PASS | 待提交 | 同一 parser 生成 TOC 锚点并与渲染 id 对齐 |
-| A5-03a | PASS（Go 侧） | 待提交 | 校验 diagram 关键字/括号/引号/闭合 fence，报行列；前端 Mermaid 渲染 A5-03b 未实现 |
-| A6-02 | PASS（单节点） | 待提交 | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点 S3 未做 |
+| A5-01 | PASS | `465f35d` | 新模块 markdown-agent：A2A AgentCard/health、确定性 Agent、无模型密钥；未加入 compose，默认不启用 |
+| A5-02a | PASS | `6b5fcd4` | goldmark 渲染；raw HTML 被丢弃；GFM 表格/链接测试 |
+| A5-02b | PASS | `6b5fcd4` | 标题缺空格/空链接/无语言代码块报行列 |
+| A5-02c | PASS | `6b5fcd4` | YAML 合法/非法/未闭合均有结果 |
+| A5-02d | PASS | `6b5fcd4` | 同一 parser 生成 TOC 锚点并与渲染 id 对齐 |
+| A5-03a | PASS（Go 侧） | `474f5bb` | 校验 diagram 关键字/括号/引号/闭合 fence，报行列；前端 Mermaid 渲染 A5-03b 未实现 |
+| A6-02 | PASS（单节点） | `dcb539c` | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点 S3 未做 |
 | A6-01/A6-03..A6-08、P5 其余 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制
@@ -370,3 +373,27 @@ P0 契约/决策冻结
 | MySQL/Redis 集成测试 | SKIP（本机无 `AGENTHUB_MYSQL_TEST_DSN` / `AGENTHUB_REDIS_TEST_ADDR`；CI 门禁已配置） |
 
 未完成范围：A1-09c 的完整终态接管、A2-02 生产 Broker 接线及 A2-03..A2-08、A3-07、A4、A5（除 A5-07）、A6 全部。G1/G2/G3/G4/G5/G6 均未整体通过。
+
+
+### 增量验证（2026-11-02）
+
+| 命令 | 结果 |
+|---|---|
+| `cd services/orchestrator && go test ./... -count=1` | PASS（含 DAG/route/artifact） |
+| `cd services/gateway && go test ./... -count=1` | PASS（含 projection/逐轮投影） |
+| `cd services/agents/markdown-agent && go test ./... -count=1` | PASS（render/lint/frontmatter/toc/mermaid） |
+| `cd pkg/adk && go test ./... -count=1` | PASS |
+| `cd pkg/runtime && go test ./tools/ -count=1` | PASS |
+| `cd frontend && tsc -b` | PASS |
+| `cd frontend && vitest run` | 26 files / 245 tests PASS |
+| `cd frontend && vite build` | PASS；主 chunk >500KB 警告（gzip 约 447KB） |
+
+### 门禁状态（诚实版）
+
+- G0：契约/决策已冻结；部分契约为“字段已冻结、实现未完成”。
+- G1：审批/取消/幂等/租约/投影有单测，但 MySQL/Redis 集成未在本机执行（SKIP），未整体通过。
+- G2：ADK 副作用 Guard 已强制；生产 Broker 授权/结果接线（A2-02）未完成，未通过。
+- G3：成员持久化、逐轮历史、参与者取消派发已落地；A3-07 浏览器 E2E 未做。
+- G4：路由决策与 DAG 并行/取消已落地；群聊 round-robin/受控 handoff 未做。
+- G5：XSS 消毒已落地；Shiki/diff2html/Mermaid/KaTeX/导出未做。
+- G6：仅单机本地卷 ArtifactStore；Nginx/对象存储/多副本/OTel/指标未做。
