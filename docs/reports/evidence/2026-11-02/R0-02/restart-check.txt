@@ -1,0 +1,11 @@
+# R0-02 MySQL restart durability check
+# container: agenthub-r0-mysql (credentials read from the container environment, never recorded)
+# started: 2026-11-02T09:06:45Z
+# tag: r0-02-restart-1793610405
+before restart: completed|3|approved
+restarting agenthub-r0-mysql at 2026-11-02T09:06:47Z
+ready again at 2026-11-02T09:06:53Z
+after restart: completed|3|approved
+RESULT: PASS (terminal run state and resolved approval readable after MySQL restart)
+- before: completed|3|approved
+- after:  completed|3|approved

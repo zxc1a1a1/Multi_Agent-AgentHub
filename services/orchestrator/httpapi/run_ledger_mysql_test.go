@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -155,9 +156,15 @@ func TestIntegrationOutboxRelayMySQLRedis(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// AppendStateChange requires a live lease owner, so the relay test must hold
+	// one before writing state, exactly like the orchestrator runtime does.
+	fencing, err := repo.AcquireLease(ctx, runID, "relay-owner", time.Minute)
+	if err != nil {
+		t.Fatalf("acquire lease: %v", err)
+	}
 	for i, status := range []string{"planning", "completed"} {
 		if _, err := repo.AppendStateChange(ctx, ledger.StateChange{
-			RunID: runID, FencingVersion: 0, Status: status, EventType: "state_update",
+			RunID: runID, FencingVersion: fencing, Status: status, EventType: "state_update",
 			Payload: []byte(fmt.Sprintf(`{"step":%d}`, i+1)),
 		}); err != nil {
 			t.Fatalf("append %s: %v", status, err)
@@ -226,7 +233,10 @@ func TestIntegrationLeaseRenewalAndStaleFencing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("acquire lease: %v", err)
 	}
-	if err := repo.RenewLease(ctx, runID, "owner-a", fencing, time.Minute); err != nil {
+	// Renew with a TTL shorter than the sleep below, otherwise the lease is still
+	// valid when owner-b tries to take it over and the takeover is (correctly)
+	// rejected.
+	if err := repo.RenewLease(ctx, runID, "owner-a", fencing, 40*time.Millisecond); err != nil {
 		t.Fatalf("renew lease: %v", err)
 	}
 	time.Sleep(150 * time.Millisecond)
@@ -412,8 +422,17 @@ func TestIntegrationHITLConfirmIdempotency(t *testing.T) {
 		t.Fatalf("complete: %v", err)
 	}
 	record, claimed, err = repo.BeginConfirm(ctx, runID, "key-1", "hash-1")
-	if err != nil || claimed || record.HTTPStatus != 202 || string(record.ResponseJSON) != `{"status":"accepted"}` {
+	if err != nil || claimed || record.HTTPStatus != 202 {
 		t.Fatalf("replay: record=%#v claimed=%v err=%v", record, claimed, err)
+	}
+	// MySQL normalises JSON columns on read, so the replayed body is compared as
+	// parsed JSON rather than byte-for-byte.
+	var replayed map[string]string
+	if err := json.Unmarshal(record.ResponseJSON, &replayed); err != nil {
+		t.Fatalf("replay body is not valid JSON: %v (%q)", err, record.ResponseJSON)
+	}
+	if replayed["status"] != "accepted" {
+		t.Fatalf("unexpected replay body: %#v", replayed)
 	}
 	if _, _, err := repo.BeginConfirm(ctx, runID, "key-1", "hash-2"); !errors.Is(err, ledger.ErrConfirmIdempotencyConflict) {
 		t.Fatalf("different payload must conflict, got %v", err)
@@ -477,6 +496,11 @@ func TestIntegrationRouteMetrics(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	runOne := "run-metrics-1-" + suffix
 	runTwo := "run-metrics-2-" + suffix
+	// RouteDecisionMetrics aggregates the whole table, so this test needs an empty
+	// one. The MySQL integration database is dedicated to these tests.
+	if _, err := db.Exec("DELETE FROM route_decisions"); err != nil {
+		t.Fatalf("clear route decisions: %v", err)
+	}
 	t.Cleanup(func() {
 		for _, runID := range []string{runOne, runTwo} {
 			_, _ = db.Exec("DELETE FROM route_decisions WHERE run_id = ?", runID)
