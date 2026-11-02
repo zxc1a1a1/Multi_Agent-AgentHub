@@ -82,4 +82,28 @@ func TestMarkdownAgentJSONActions(t *testing.T) {
 	if got := resp.Parts[0].(adk.TextPart).Text; !strings.Contains(got, "not configured") {
 		t.Fatalf("unexpected export response: %s", got)
 	}
+
+	mermaidReq := &adk.GenerateRequest{Contents: []*adk.Content{{
+		Role:  adk.RoleUser,
+		Parts: []adk.Part{adk.TextPart{Text: "{\"action\":\"mermaid\",\"markdown\":\"```mermaid\\ngraph TD\\nA-->B\\n```\"}"}},
+	}}}
+	resp, err = agent.Generate(context.Background(), mermaidReq)
+	if err != nil || resp == nil || len(resp.Parts) == 0 {
+		t.Fatalf("mermaid generate failed: %#v err=%v", resp, err)
+	}
+	if got := resp.Parts[0].(adk.TextPart).Text; strings.TrimSpace(got) != "[]" {
+		t.Fatalf("unexpected mermaid response: %s", got)
+	}
+
+	linksReq := &adk.GenerateRequest{Contents: []*adk.Content{{
+		Role:  adk.RoleUser,
+		Parts: []adk.Part{adk.TextPart{Text: `{"action":"links","markdown":"[x](http://127.0.0.1/hidden)"}`}},
+	}}}
+	resp, err = agent.Generate(context.Background(), linksReq)
+	if err != nil || resp == nil || len(resp.Parts) == 0 {
+		t.Fatalf("links generate failed: %#v err=%v", resp, err)
+	}
+	if got := resp.Parts[0].(adk.TextPart).Text; !strings.Contains(got, "LINK_BLOCKED") {
+		t.Fatalf("unexpected links response: %s", got)
+	}
 }

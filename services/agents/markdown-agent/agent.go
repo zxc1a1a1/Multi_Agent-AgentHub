@@ -105,6 +105,18 @@ func (a *Agent) Generate(ctx context.Context, req *adk.GenerateRequest) (*adk.Ge
 			return agentResponse("toc generation failed"), nil
 		}
 		return agentResponse(string(data)), nil
+	case "mermaid":
+		data, err := json.Marshal(ValidateMermaid(source))
+		if err != nil {
+			return agentResponse("mermaid validation failed"), nil
+		}
+		return agentResponse(string(data)), nil
+	case "links":
+		data, err := json.Marshal(CheckLinks(ctx, source))
+		if err != nil {
+			return agentResponse("link check failed"), nil
+		}
+		return agentResponse(string(data)), nil
 	case "export", "export_pdf":
 		if a.export == nil {
 			return agentResponse("markdown export is not configured"), nil

@@ -154,7 +154,8 @@ principalId, credentialScope(never included)
 - 工具/动作：markdown-agent `markdown.export`（AgentCard skill `markdown_export`）。
 - 输入：原始 Markdown 或 JSON 信封
   `{"action":"export","markdown":"...","format":"pdf|png"}`；也支持
-  `render/lint/frontmatter/toc` 动作，均由确定性代码执行，不调用 LLM。
+  `render/lint/frontmatter/toc/mermaid/links` 动作，均由确定性代码执行，不调用 LLM。
+  `links` 复用 SSRF 防护（私网/loopback/metadata 拒绝）。
 - 流程：goldmark 渲染（raw HTML 丢弃）→ 自包含 HTML → Orchestrator render
   `html` 模式 → Playwright `setContent`（阻断外部请求）→ artifact。
 - 返回值：`artifact=<id> ... download=/api/artifacts/<id>/content`。
