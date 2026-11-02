@@ -425,7 +425,7 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 | `cd pkg/adk && go test ./... -count=1` | PASS |
 | `cd pkg/runtime && go test ./tools/ -count=1` | PASS |
 | `cd frontend && tsc -b` | PASS |
-| `cd frontend && vitest run` | 28 files / 254 tests PASS |
+| `cd frontend && vitest run` | 28 files / 257 tests PASS（含 ArtifactCard 图片/下载链接） |
 | `cd frontend && vite build` | PASS；首屏 index 535.24KB/gzip 156.92KB；语言/图表 chunks 按需加载（部分压缩前 >500KB） |
 | `cd services/agents/code-agent && go test ./... -count=1` | PASS（只读 workspace 真实文件） |
 | `cd services/agents/diff-agent && go test ./... -count=1` | PASS（多 hunk unified diff） |
