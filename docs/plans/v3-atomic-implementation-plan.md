@@ -333,6 +333,7 @@ P0 契约/决策冻结
 | A2-02 | PASS（授权/结果接线；审批单由平台创建） | `75b4e39` | A2A envelope 传播 run/task/fencing/principal/approval；RemoteGuard 写工具无 approval 本地拒绝；Orchestrator authorize/result 接 Broker；端到端测试覆盖允许→dispatch→结果记账；映射 403/409/429 |
 | A2-03 | PASS（Broker；生产接线待 A2-02） | d3b4529 | 从 checkpoint 恢复 usage 后 ReserveTool(1)；超限/损坏预算在审批消费与工具执行前失败；写调用持久化递增后的 BudgetJSON |
 | A2-04 | PASS | `d35aa42` | code-agent 通过 CODE_AGENT_WORKSPACE_ROOT 接入 list/read/search；工具均为 ReadOnly；测试读取真实文件且不含 apply_patch/sandbox |
+| A2-05 | PASS（工具/接线；Docker 执行 SKIP） | `4dc1127,43c5f38,29b7fe7` | apply_patch hash/路径/符号链接校验；sandbox allowlist/审批/超时/默认禁网；未审批写调用 0 执行；code-agent 写工具需显式启用+沙箱镜像；Docker 真实执行测试 SKIP |
 | A2-06 | PASS | `a0e5e4f` | generate_diff 使用 LCS 行级 diff，生成多 hunk/上下文/增删行；测试拒绝旧 1 行模板格式 |
 | A2-07b | PASS（工具；Broker 接线待 A2-02） | d9ca50e | analyze_test_log 解析 go test PASS/FAIL/SKIP、失败详情与 coverage；assess_coverage 解析百分比/cover profile 并对比阈值；固定样例可复现 |
 | A2-07a | PASS（工具；Broker 接线待 A2-02） | d36cbef | detect_secrets 匹配私钥/AWS/GitHub/Slack/JWT/凭据赋值并只返回脱敏值；parse_vulnerability_report 解析文本/JSON CVE 与模块；已知样例可复现 |
@@ -382,6 +383,8 @@ P0 契约/决策冻结
 
 - 所有 MySQL/Redis 集成测试在本机执行时因缺少 `AGENTHUB_MYSQL_TEST_DSN` /
   `AGENTHUB_REDIS_TEST_ADDR` 而 SKIP；不计入通过。CI 门禁见 A0-07。
+- Docker sandbox 执行测试需 `AGENTHUB_DOCKER_SANDBOX_TEST=1` 与 Docker daemon；
+  本机未执行，相关结果不计入通过。
 - 前端命令需显式使用 `/e/node_js/node.exe` 并把 `/e/node_js` 放到 PATH 前；
   否则 npm 脚本解析到失效 shim，vitest 会报 `node:util` 导出错误。
 - `vite build` 通过；首屏 index gzip 156.92KB，低于 G5 的 500KB 预算；
