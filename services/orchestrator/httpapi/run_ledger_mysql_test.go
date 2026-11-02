@@ -458,3 +458,54 @@ func TestIntegrationRouteDecisions(t *testing.T) {
 		t.Fatalf("unexpected decisions: %#v", rows)
 	}
 }
+
+func TestIntegrationRouteMetrics(t *testing.T) {
+	dsn := os.Getenv("AGENTHUB_MYSQL_TEST_DSN")
+	if dsn == "" {
+		t.Skip("SKIP real MySQL integration: set AGENTHUB_MYSQL_TEST_DSN")
+	}
+	ctx := context.Background()
+	db, err := ledger.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open mysql: %v", err)
+	}
+	defer db.Close()
+	if err := ledger.RunMigrations(db); err != nil {
+		t.Fatalf("migrations: %v", err)
+	}
+	repo := ledger.NewRepository(db)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	runOne := "run-metrics-1-" + suffix
+	runTwo := "run-metrics-2-" + suffix
+	t.Cleanup(func() {
+		for _, runID := range []string{runOne, runTwo} {
+			_, _ = db.Exec("DELETE FROM route_decisions WHERE run_id = ?", runID)
+		}
+	})
+	save := func(runID string, seq int, selected, rejected []string) {
+		rejectedAgents := make([]ledger.RejectedAgent, 0, len(rejected))
+		for _, name := range rejected {
+			rejectedAgents = append(rejectedAgents, ledger.RejectedAgent{AgentName: name, ReasonCode: "not_selected"})
+		}
+		if err := repo.SaveRouteDecision(ctx, ledger.RouteDecision{
+			RunID: runID, DecisionSeq: seq, ExecutionPath: "main_agent_orchestration", Strategy: "sequential",
+			Selected: selected, Rejected: rejectedAgents, PlannerSource: "main_agent",
+		}); err != nil {
+			t.Fatalf("save decision: %v", err)
+		}
+	}
+	save(runOne, 0, []string{"code-agent"}, []string{"review-agent"})
+	save(runOne, 1, []string{"code-agent", "test-agent"}, nil)
+	save(runTwo, 0, []string{"web-agent"}, []string{"code-agent"})
+
+	metrics, err := repo.RouteDecisionMetrics(ctx, time.Time{})
+	if err != nil {
+		t.Fatalf("metrics: %v", err)
+	}
+	if metrics.TotalRuns != 2 || metrics.TotalDecisions != 3 || metrics.MultiDecisionRuns != 1 {
+		t.Fatalf("unexpected metrics: %#v", metrics)
+	}
+	if metrics.SelectedCounts["code-agent"] != 2 || metrics.RejectedCounts["not_selected"] != 2 {
+		t.Fatalf("unexpected counts: %#v", metrics)
+	}
+}

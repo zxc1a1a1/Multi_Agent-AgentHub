@@ -1171,3 +1171,101 @@ func (r *Repository) ListRouteDecisions(ctx context.Context, runID string) ([]Ro
 	}
 	return out, rows.Err()
 }
+
+// RouteMetrics aggregates routing and budget usage for observability.
+type RouteMetrics struct {
+	TotalRuns        int
+	TotalDecisions   int
+	SelectedCounts   map[string]int
+	RejectedCounts   map[string]int
+	MultiDecisionRuns int
+	ModelCalls       int
+	ToolCalls        int
+	Repairs          int
+	Replans          int
+}
+
+// RouteDecisionMetrics computes routing stats since the given time (zero means all).
+func (r *Repository) RouteDecisionMetrics(ctx context.Context, since time.Time) (*RouteMetrics, error) {
+	query := `SELECT run_id, selected_json, rejected_json FROM route_decisions`
+	args := []any{}
+	if !since.IsZero() {
+		query += " WHERE created_at >= ?"
+		args = append(args, since)
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	metrics := &RouteMetrics{SelectedCounts: map[string]int{}, RejectedCounts: map[string]int{}}
+	runs := map[string]int{}
+	for rows.Next() {
+		var runID string
+		var selected, rejected []byte
+		if err := rows.Scan(&runID, &selected, &rejected); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		runs[runID]++
+		var selectedNames []string
+		var rejectedAgents []RejectedAgent
+		_ = json.Unmarshal(selected, &selectedNames)
+		_ = json.Unmarshal(rejected, &rejectedAgents)
+		for _, name := range selectedNames {
+			metrics.SelectedCounts[name]++
+		}
+		for _, agent := range rejectedAgents {
+			metrics.RejectedCounts[agent.ReasonCode]++
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	metrics.TotalRuns = len(runs)
+	for _, count := range runs {
+		metrics.TotalDecisions += count
+		if count > 1 {
+			metrics.MultiDecisionRuns++
+		}
+	}
+
+	budgetQuery := `SELECT budget_json FROM executions`
+	budgetArgs := []any{}
+	if !since.IsZero() {
+		budgetQuery += " WHERE created_at >= ?"
+		budgetArgs = append(budgetArgs, since)
+	}
+	budgetRows, err := r.db.QueryContext(ctx, budgetQuery, budgetArgs...)
+	if err != nil {
+		return nil, err
+	}
+	for budgetRows.Next() {
+		var raw []byte
+		if err := budgetRows.Scan(&raw); err != nil {
+			budgetRows.Close()
+			return nil, err
+		}
+		var usage struct {
+			ModelCalls int `json:"modelCalls"`
+			ToolCalls  int `json:"toolCalls"`
+			Repairs    int `json:"repairs"`
+			Replans    int `json:"replans"`
+		}
+		if json.Unmarshal(raw, &usage) == nil {
+			metrics.ModelCalls += usage.ModelCalls
+			metrics.ToolCalls += usage.ToolCalls
+			metrics.Repairs += usage.Repairs
+			metrics.Replans += usage.Replans
+		}
+	}
+	if err := budgetRows.Close(); err != nil {
+		return nil, err
+	}
+	if err := budgetRows.Err(); err != nil {
+		return nil, err
+	}
+	return metrics, nil
+}

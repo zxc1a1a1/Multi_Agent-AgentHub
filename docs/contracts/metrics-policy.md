@@ -57,3 +57,10 @@
 - `prompt`
 - `token`
 - `full URL with token`
+
+## Routing metrics（A4-07）
+
+`GET /internal/orchestrator/metrics/routing?window=24h`（或 `since=RFC3339`）返回：
+`totalRuns/totalDecisions/selectedAgents/rejectedReasons/selectionRate/rejectionRate/loopRuns`
+以及 `usage.{modelCalls,toolCalls,repairs,replans}`。`loopRuns` 以同一 run 的多条
+route_decisions 计数（replan/循环代理指标）；成本以预算用量表示，不是货币金额。

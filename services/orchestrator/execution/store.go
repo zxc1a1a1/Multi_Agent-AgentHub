@@ -102,6 +102,20 @@ type Store interface {
 	CompleteConfirm(ctx context.Context, runID, key, status string, httpStatus int, response []byte) error
 	SaveRouteDecision(ctx context.Context, decision RouteDecision) error
 	ListRouteDecisions(ctx context.Context, runID string) ([]RouteDecision, error)
+	RoutingMetrics(ctx context.Context, since time.Time) (*RouteMetrics, error)
+}
+
+// RouteMetrics aggregates routing and budget usage.
+type RouteMetrics struct {
+	TotalRuns          int
+	TotalDecisions     int
+	SelectedCounts     map[string]int
+	RejectedCounts     map[string]int
+	MultiDecisionRuns  int
+	ModelCalls         int
+	ToolCalls          int
+	Repairs            int
+	Replans            int
 }
 
 // RejectedAgent records why a candidate was not dispatched.

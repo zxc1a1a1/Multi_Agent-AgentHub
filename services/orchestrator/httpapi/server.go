@@ -261,6 +261,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/internal/orchestrator/runs/stream", s.handleRunStream)
 	s.mux.HandleFunc("/internal/orchestrator/runs/", s.handleRunInspect)
+	s.mux.HandleFunc("/internal/orchestrator/metrics/routing", s.handleRoutingMetrics)
 	s.mux.HandleFunc("/internal/memory/", s.handleMemory)
 	s.mux.HandleFunc("/internal/orchestrator/hitl/confirm", s.handleHITLConfirm)
 	s.mux.HandleFunc("/internal/orchestrator/agents", s.handleAgents)

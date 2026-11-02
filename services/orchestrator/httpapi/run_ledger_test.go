@@ -40,6 +40,14 @@ type fakeExecutionStore struct {
 	confirmRecords  map[string]*execution.ConfirmRecord
 	confirmHashes   map[string]string
 	routeDecisions  map[string][]execution.RouteDecision
+	routeMetrics    *execution.RouteMetrics
+}
+
+func (f *fakeExecutionStore) RoutingMetrics(context.Context, time.Time) (*execution.RouteMetrics, error) {
+	if f.routeMetrics != nil {
+		return f.routeMetrics, nil
+	}
+	return &execution.RouteMetrics{SelectedCounts: map[string]int{}, RejectedCounts: map[string]int{}}, nil
 }
 
 func (f *fakeExecutionStore) SaveRouteDecision(_ context.Context, decision execution.RouteDecision) error {

@@ -160,7 +160,7 @@ P0 契约/决策冻结
 | A4-04 | 群聊 round-robin 发言 | new speaker selector | max_rounds 生效；不连续同一人 | A3-05 |
 | A4-05 | 模型选择发言者（G2） | selector + planner | 选择理由入 route_decisions；可终止 | A4-04 |
 | A4-06 | 受控 handoff（可选） | 新工具 + allowlist | 非白名单拒绝；预算/上下文不越界 | A4-03 |
-| A4-07 | 路由指标/评测 | metrics + eval | 选中率/拒绝率/循环/成本可查 | A4-01 |
+| A4-07 | 路由指标/评测（已实现指标部分） | metrics + eval | 选中率/拒绝率/循环/成本可查 | A4-01 |
 
 **G4 门禁**：路由可解释；并行有证据；群聊有轮次和终止；无自由 swarm。
 
@@ -356,6 +356,7 @@ P0 契约/决策冻结
 | A5-06 | PASS（SSRF 防护） | 待提交 | 链接检查拒绝 loopback/私网/链路本地/metadata/非 http(s)；DialContext 二次解析防 DNS rebinding；重定向逐跳校验；私网目标 0 请求 |
 | A5-04 | PASS（前端） | 待提交 | remark-math + rehype-katex，`trust:false`；javascript href 不生成链接；恶意样例测试通过 |
 | A5-03b | PASS（前端） | 待提交 | Mermaid securityLevel=strict + DOMPurify SVG profile；script/javascript 链接被剥离；失败回退代码文本 |
+| A4-07 | PASS（指标；eval 复用既有 harness） | 待提交 | GET /internal/orchestrator/metrics/routing：总 run/决策、选中/拒绝原因、选中率/拒绝率、多决策（loop）run、model/tool/repair/replan 用量；时间窗非法 400 |
 | A5-10a | PASS | 待提交 | 仅 mermaid 代码块渲染时动态 import mermaid；独立懒 chunk；去掉 sanitize 后测试 FAIL |
 | A5-10b | PASS | 待提交 | 仅在内容含 $...$ 时动态加载 remark-math/rehype-katex/katex CSS；失败保持原文；禁用加载后测试 FAIL |
 | A6-01/A6-03..A6-08、P5 其余 | 未开始 | — | — |

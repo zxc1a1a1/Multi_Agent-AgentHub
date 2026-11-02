@@ -209,6 +209,20 @@ func (s *MySQLStore) ListRouteDecisions(ctx context.Context, runID string) ([]Ro
 	return out, nil
 }
 
+func (s *MySQLStore) RoutingMetrics(ctx context.Context, since time.Time) (*RouteMetrics, error) {
+	metrics, err := s.repo.RouteDecisionMetrics(ctx, since)
+	if err != nil {
+		return nil, err
+	}
+	return &RouteMetrics{
+		TotalRuns: metrics.TotalRuns, TotalDecisions: metrics.TotalDecisions,
+		SelectedCounts: metrics.SelectedCounts, RejectedCounts: metrics.RejectedCounts,
+		MultiDecisionRuns: metrics.MultiDecisionRuns,
+		ModelCalls: metrics.ModelCalls, ToolCalls: metrics.ToolCalls,
+		Repairs: metrics.Repairs, Replans: metrics.Replans,
+	}, nil
+}
+
 func (s *MySQLStore) ListEventsAfter(ctx context.Context, runID string, afterSeq int64, limit int) ([]Event, error) {
 	rows, err := s.repo.ListEventsAfter(ctx, runID, afterSeq, limit)
 	if err != nil {
