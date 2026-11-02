@@ -1,10 +1,11 @@
 # AgentHub v3 最小原子实施计划（完整版）
 
-- 状态：**实施中（2026-10-31 起；P0 契约已冻结，P1/P2/P3 部分原子任务已落地）**
-- 日期：2026-10-31
+- 状态：**实施中（2026-10-31 起；A0–A6 实现收尾；2026-11-02 新增 P7 提案，未实施）**
+- 日期：2026-10-31（P7 增补：2026-11-02）
 - 代码基线：`dev / 18b57df`
-- 输入：`docs/architecture/v3/12-deployment-topologies.md` 至 `17-routing-harness-patterns.md`
+- 输入：`docs/architecture/v3/12-deployment-topologies.md` 至 `18-message-queue-and-rich-interactions.md`
 - 约束：每个原子功能独立可验收、独立提交；不把“设计完成”写成“功能完成”
+- P7 调研：`docs/architecture/v3/18-message-queue-and-rich-interactions.md`（消息队列/富交互选型，尚未写代码）
 
 ## 1. 计划目标
 
@@ -50,6 +51,10 @@
 | D11 | 渲染 | Shiki + diff2html + Mermaid + KaTeX | A5-08..A5-10b |
 | D12 | 部署目标 | 单机单副本优先，A1 完成后再多副本 | A6 |
 | D13 | 路由 | supervisor + G1；受控 handoff 后置，不做自由 swarm | A4 |
+| D14 | 消息队列 | 先做 `EventBus` 接口 + Redis Streams 7.2 适配器；NATS JetStream 作为第二适配器，达阈值再启用；不引入 Kafka/Redpanda/Temporal | P7-MQ |
+| D15 | 流式 Markdown | 保留 `react-markdown` 基线；Streamdown 以 feature flag 试点，许可复核后启用 | P7-UI-01 |
+| D16 | 富交互渲染 | 先做沙箱单文件 HTML + JSON Schema 表单 + 声明式图表；Sandpack React/TSX 单独评审 | P7-UI-02..05 |
+| D17 | MQ/UI 安全 | 队列不得成为唯一事实源；禁止 eval/new Function；iframe 不加 allow-same-origin；组件必须白名单 | P7 |
 
 ## 4. 阶段与依赖
 
@@ -66,6 +71,8 @@ P0 契约/决策冻结
   ├─ P5 Markdown + 前端渲染 ── G5 渲染门禁
   │
   └─ P6 部署/对象存储/观测 ── G6 部署门禁
+       │
+       └─ P7 消息队列/富交互（提案） ── G7 消息与交互门禁
 
 独立后置：IM 渠道（08/09）、外部编码 Agent（10）、Temporal/向量库（05）、TanStack Query（06）
 ```
@@ -202,6 +209,41 @@ P0 契约/决策冻结
 | A6-08 | Runbook（单机版已实现） | docs | 故障有操作步骤 | A6-01..A6-07 |
 
 **G6 门禁**：kill Gateway/Orchestrator 有明确结果；跨节点 artifact 可读；trace 可串联。
+
+### P7：消息队列与富交互（提案，未实施）
+
+> 新增于 2026-11-02。所有 P7 任务均为**提案**，不得计入 A0–A6 完成度，也不得在证据表中写成 PASS。选型依据与调研链接见 `docs/architecture/v3/18-message-queue-and-rich-interactions.md`。
+
+#### P7-MQ：消息队列
+
+| ID | 原子功能 | 主要文件 | 验收 | 依赖 |
+|---|---|---|---|---|
+| P7-MQ-01 | 冻结 EventBus 封套/stream/consumer/DLQ 契约 | `docs/contracts/event-bus.md`、schema | 字段、idempotency、顺序、重试、安全规则明确 | G0/G1 |
+| P7-MQ-02 | Redis Streams adapter 与 outbox relay | `pkg/runtime/eventbus`、orchestrator relay | outbox→stream→consumer 可重放；Redis 不可用不丢 outbox | A1-09b |
+| P7-MQ-03 | 幂等消费者、ack/claim | consumer wrapper、SQL 幂等表 | 重复投递只产生一次业务效果；崩溃后 XAUTOCLAIM | P7-MQ-02 |
+| P7-MQ-04 | 重试/DLQ/pending 指标 | eventbus、metrics | 超限进 DLQ；pending/retry/dlq 可查 | P7-MQ-03 |
+| P7-MQ-05 | Gateway/Orchestrator 非权威路径消费试点 | projection、handler | 只在非权威路径启用；SQL 仍可恢复 | P7-MQ-03 |
+| P7-MQ-06 | 故障/负载验收 | tests、runbook | consumer kill、Redis 重启、重复发布、积压恢复有记录 | P7-MQ-04 |
+| P7-MQ-07 | NATS JetStream 第二适配器评估 | `pkg/runtime/eventbus` | 同接口可切换；仅阈值触发后实施 | P7-MQ-01 |
+
+#### P7-UI：HTML/富交互渲染
+
+| ID | 原子功能 | 主要文件 | 验收 | 依赖 |
+|---|---|---|---|---|
+| P7-UI-01 | Streamdown flag 试点 + 回滚 | `StreamingText.tsx`、package | 未闭合 Markdown/代码块/CJK 不崩；关闭 flag 回退 | A5-08 |
+| P7-UI-02 | 沙箱 HTML artifact | `SandboxedHtml.tsx`、iframe CSP | 脚本不能读父页/同源存储；外网受控；XSS 样例 0 执行 | A5-07 |
+| P7-UI-03 | 交互式代码预览（Sandpack 评估） | `InteractiveCodePreview.tsx` | 首屏不加载；单文件 HTML/JS 可运行；React/TSX 单独评审 | P7-UI-02 |
+| P7-UI-04 | JSON Schema 表单 | `JsonSchemaForm.tsx`、RJSF | schema/字段白名单；提交走工具输入校验 | A5-07 |
+| P7-UI-05 | 声明式图表 | `ChartCard.tsx`、Recharts/Vega-Lite | 数据/spec 上限；无任意 JS；懒加载 | A5-07 |
+| P7-UI-06 | AG-UI 交互组件 registry | `agui/skills.ts`、事件契约 | 未知组件降级；组件事件 schema 测试 | P7-UI-02..05 |
+| P7-UI-07 | 性能/可访问性验收 | frontend build、Lighthouse | 首屏 gzip 预算、重组件 lazy、键盘可操作 | P7-UI-01..06 |
+
+**G7 门禁（提案）**：
+
+- 消息：重复发布/consumer 崩溃/Redis 重启/DLQ 有测试；不丢 outbox；SQL 仍可恢复。
+- 安全：事件不含 secret/prompt/token；HTML/表单/图表 XSS 样例 0 执行；iframe 无同源逃逸。
+- 性能：重组件不进入首屏；首屏 gzip ≤500KB；交互包按需加载。
+- 许可：新增依赖 LICENSE 复核；AGPL/SSPL 未经评审不得引入。
 
 ## 6. 每任务执行模板
 
@@ -409,6 +451,9 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 未验证、真实 MinIO/OTel collector/Nginx/Prometheus 未启动，Alertmanager 通道未配置。
 因此 G1–G6 仍未整体认证，不能把单测通过表述为门禁通过。
 
+P7（消息队列 + 富交互渲染）是 2026-11-02 新增的**提案**，尚未实施，不计入 A0–A6
+完成度；其任务、选型与 G7 门禁见 P7 小节和 `18-message-queue-and-rich-interactions.md`。
+
 
 ### 增量验证（2026-11-02）
 
@@ -481,3 +526,4 @@ MySQL/Redis 集成在本机 SKIP、CI 门禁未在 GitHub 实跑、Docker 沙箱
 - G4：路由决策、DAG 并行/取消、群聊 round-robin、计划期模型选择发言者、受控 handoff 已落地；执行中动态重选未做，未整体认证。
 - G5：XSS 消毒、Shiki/diff2html/Mermaid/KaTeX、Playwright 截图/PDF 与 Markdown 导出已落地；Docker 沙箱未验证，未整体认证。
 - G6：Artifact 元数据本地/S3、blob 本地/S3、指标/告警规则、全 Agent OTel 传播/导出与 collector 配置、Nginx 模板与备份脚本已落地；Nginx/Prometheus/多副本/collector/MinIO 运行时验证未做，未整体认证。
+- G7：**未开始（P7 提案）**；Redis Streams/NATS、Streamdown/Sandpack/RJSF/图表均未实现或验证。

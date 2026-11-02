@@ -41,6 +41,7 @@
 11. **没有 markdown-agent**：document-agent 承担文档模板生成；前端无 Mermaid/KaTeX/PDF 导出。
 12. **多节点被 Orchestrator 内存状态阻塞**：审批、取消、幂等、运行任务引用都在进程内；Gateway 扩副本可分担新请求，但在途投影崩溃后需投影 worker；单服务器推荐“单机单副本 + 垂直扩容”。
 13. **路由可借鉴 DSH/AutoGen/LangGraph，但首版不做自由 swarm**：先补路由审计、DAG/并行、群聊发言者选择，再评估受控 handoff。
+14. **消息队列与富交互渲染是 P7 提案，不是现状**：先冻结 EventBus/组件白名单，再以 Redis Streams 7.2 + 沙箱 HTML 试点；Kafka/Redpanda/Temporal 不引入。
 
 ## 2. 关键事实与更正
 
@@ -86,6 +87,7 @@
 | 15 | `15-markdown-agent.md` | Markdown Agent、Mermaid/KaTeX/导出选型 | 后端/前端 |
 | 16 | `16-frontend-rendering.md` | 代码/Diff/Markdown/网页预览/浏览器渲染 | 前端 |
 | 17 | `17-routing-harness-patterns.md` | DSH/Swarm/LangGraph/AutoGen 路由对照与演进 | 架构/后端 |
+| 18 | `18-message-queue-and-rich-interactions.md` | P7 提案：Redis Streams/NATS、Streamdown/Sandpack/RJSF/图表与 G7 门禁 | 架构/后端/前端/运维 |
 
 配套实施计划：`docs/plans/v3-atomic-implementation-plan.md`（按最小原子功能拆分，含门禁与验收）。
 
@@ -162,6 +164,10 @@ cd frontend && npm test -- --run && npm run build
 | D11 | 前端渲染 | Shiki + diff2html + Mermaid + KaTeX | 未实现（A5-08..A5-10b） | 16 |
 | D12 | 部署目标 | 单机单副本优先，A1 完成后再多副本 | 单机 | 12 |
 | D13 | 路由 | supervisor + G1；受控 handoff 后置，不做自由 swarm | 仅 supervisor | 17 |
+| D14 | 消息队列 | `EventBus` 接口；Redis Streams 7.2 先试；NATS JetStream 第二适配器；不引入 Kafka | P7 提案，未实施 | 18 |
+| D15 | 流式 Markdown | react-markdown 基线；Streamdown flag 试点 | P7 提案，未实施 | 18 |
+| D16 | 富交互渲染 | 沙箱单文件 HTML + RJSF 表单 + 声明式图表；Sandpack 单独评审 | P7 提案，未实施 | 18 |
+| D17 | MQ/UI 安全 | 队列非唯一事实源；禁 eval；iframe 不加 allow-same-origin；组件白名单 | P7 提案，未实施 | 18 |
 
 ### 未决项
 
@@ -177,3 +183,4 @@ cd frontend && npm test -- --run && npm run build
 | v3.1 | 2026-10-30 | 逐篇补充源码证据；更正 C1-C10；新增事实等级、验收命令与决策表 |
 | v3.2 | 2026-10-31 | 新增 12-17：部署拓扑、群聊与注册 Agent、Agent 工具目录、Markdown Agent、前端渲染、路由 Harness 对照；更正 C11-C16 |
 | v3.3 | 2026-10-31 | A0-01 冻结 D1-D13；A0-02 会话参与者契约；A0-03 路由决策契约；A0-04 制品元数据；A0-05 群聊投影语义；A0-06 工具执行位置与账本语义；A0-07 集成测试 CI 门禁 |
+| v3.4 | 2026-11-02 | 新增 18 与 P7 提案：消息队列（Redis Streams/NATS JetStream）、流式 Markdown（Streamdown）、沙箱 HTML/交互组件（Sandpack/RJSF/图表）；新增 D14-D17 与 G7，均未实施 |
