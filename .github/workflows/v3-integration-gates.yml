@@ -172,7 +172,7 @@ jobs:
           path: frontend/playwright-report
           if-no-files-found: ignore
 
-  compose-config:
+  config-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -183,3 +183,23 @@ jobs:
           MYSQL_ROOT_PASSWORD: ci-only-password
           AGENTHUB_API_TOKEN: ci-only-token
         run: docker compose -f docker-compose.new-arch.yml config --quiet
+      - name: Validate Prometheus config
+        run: >-
+          docker run --rm
+          -v "$PWD/deploy/prometheus:/etc/prometheus:ro"
+          prom/prometheus:v3.1.0
+          promtool check config /etc/prometheus/prometheus.yml
+      - name: Validate Prometheus alert rules
+        run: >-
+          docker run --rm
+          -v "$PWD/deploy/prometheus:/etc/prometheus:ro"
+          prom/prometheus:v3.1.0
+          promtool check rules /etc/prometheus/alerts.yml
+      - name: Validate nginx config
+        run: >-
+          docker run --rm
+          --add-host gateway-new:127.0.0.1
+          --add-host frontend-new:127.0.0.1
+          -v "$PWD/deploy/nginx/agenthub.conf:/etc/nginx/conf.d/default.conf:ro"
+          nginx:1.27-alpine
+          nginx -t

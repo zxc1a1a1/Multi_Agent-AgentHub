@@ -33,8 +33,9 @@
 - `frontend`：`npm ci`、`vitest --run`、`npm run build`（含 tsc）。
 - `e2e`：安装 Chromium，跑 `e2e/group-chat.spec.ts`（API 为浏览器内 mock，
   不依赖真实后端）；失败上传 Playwright report。
-- `compose-config`：`docker compose config --quiet` 校验
-  `docker-compose.new-arch.yml`（仅静态解析，不启动容器）。
+- `config-validation`：`docker compose config --quiet` 校验
+  `docker-compose.new-arch.yml`；`promtool check config/rules` 校验 Prometheus
+  抓取与告警；`nginx -t` 校验反代模板（仅静态解析，不启动业务容器）。
 - 状态：工作流文件通过 YAML 解析与模块本地测试；未在 GitHub 实跑，因此不能
   宣称这些 job 已通过。
 
