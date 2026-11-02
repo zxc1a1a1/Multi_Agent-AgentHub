@@ -6,6 +6,7 @@
 - 输入：`docs/architecture/v3/12-deployment-topologies.md` 至 `18-message-queue-and-rich-interactions.md`
 - 约束：每个原子功能独立可验收、独立提交；不把“设计完成”写成“功能完成”
 - P7 调研：`docs/architecture/v3/18-message-queue-and-rich-interactions.md`（消息队列/富交互选型，尚未写代码）
+- 缺口与测试覆盖：`docs/reports/v3-gap-and-test-plan.md`；记忆专项：`docs/architecture/v3/19-short-long-term-memory.md`
 
 ## 1. 计划目标
 

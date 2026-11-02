@@ -42,6 +42,7 @@
 12. **多节点被 Orchestrator 内存状态阻塞**：审批、取消、幂等、运行任务引用都在进程内；Gateway 扩副本可分担新请求，但在途投影崩溃后需投影 worker；单服务器推荐“单机单副本 + 垂直扩容”。
 13. **路由可借鉴 DSH/AutoGen/LangGraph，但首版不做自由 swarm**：先补路由审计、DAG/并行、群聊发言者选择，再评估受控 handoff。
 14. **消息队列与富交互渲染是 P7 提案，不是现状**：先冻结 EventBus/组件白名单，再以 Redis Streams 7.2 + 沙箱 HTML 试点；Kafka/Redpanda/Temporal 不引入。
+15. **记忆分成短期窗口与长期 scope**：短期已有 pinned/裁剪/预算，但没有自动摘要；长期有 MySQL+policy+确认流，但默认关闭，缺少自动提取、向量召回、purge worker 与真实集成测试。缺口和测试矩阵见 `docs/reports/v3-gap-and-test-plan.md`。
 
 ## 2. 关键事实与更正
 
@@ -88,6 +89,7 @@
 | 16 | `16-frontend-rendering.md` | 代码/Diff/Markdown/网页预览/浏览器渲染 | 前端 |
 | 17 | `17-routing-harness-patterns.md` | DSH/Swarm/LangGraph/AutoGen 路由对照与演进 | 架构/后端 |
 | 18 | `18-message-queue-and-rich-interactions.md` | P7 提案：Redis Streams/NATS、Streamdown/Sandpack/RJSF/图表与 G7 门禁 | 架构/后端/前端/运维 |
+| 19 | `19-short-long-term-memory.md` | 短期窗口/截断/预算与长期记忆 scope/召回/确认/忘记的现状、缺口与目标 | 架构/后端/前端/测试 |
 
 配套实施计划：`docs/plans/v3-atomic-implementation-plan.md`（按最小原子功能拆分，含门禁与验收）。
 
@@ -184,3 +186,4 @@ cd frontend && npm test -- --run && npm run build
 | v3.2 | 2026-10-31 | 新增 12-17：部署拓扑、群聊与注册 Agent、Agent 工具目录、Markdown Agent、前端渲染、路由 Harness 对照；更正 C11-C16 |
 | v3.3 | 2026-10-31 | A0-01 冻结 D1-D13；A0-02 会话参与者契约；A0-03 路由决策契约；A0-04 制品元数据；A0-05 群聊投影语义；A0-06 工具执行位置与账本语义；A0-07 集成测试 CI 门禁 |
 | v3.4 | 2026-11-02 | 新增 18 与 P7 提案：消息队列（Redis Streams/NATS JetStream）、流式 Markdown（Streamdown）、沙箱 HTML/交互组件（Sandpack/RJSF/图表）；新增 D14-D17 与 G7，均未实施 |
+| v3.5 | 2026-11-02 | 新增 19 记忆梳理与缺口/测试计划：短/长期记忆现状、scope/召回/确认/purge、消息流图、场景矩阵与证据规范；明确未完成项 |
