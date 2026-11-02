@@ -24,3 +24,6 @@
   `default-src 'none'` CSP；源码 tab 以文本渲染。
 - 证据为单元测试，不是浏览器真机验证；Mermaid/KaTeX/Markdown agent 的渲染安全
   仍属于 A5-03b/A5-04 的未完成范围。
+
+- KaTeX 通过 `rehype-katex` 渲染，显式 `trust:false`；`\href{javascript:...}`
+  不生成链接。KaTeX 仅在内容含 `$...$` 时动态加载（A5-04/A5-10b）。

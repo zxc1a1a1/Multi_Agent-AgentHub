@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 import StreamingText from './StreamingText'
 
@@ -155,5 +155,30 @@ describe('StreamingText XSS hardening', () => {
     )
     expect(container.querySelector('img')).toBeNull()
     expect(container.querySelector('script')).toBeNull()
+  })
+})
+
+describe('StreamingText math rendering', () => {
+  test('lazily renders KaTeX when math is present', async () => {
+    const { container } = render(<StreamingText content={'Energy: $E=mc^2$'} isStreaming={false} />)
+    await waitFor(
+      () => {
+        expect(container.querySelector('.katex')).not.toBeNull()
+      },
+      { timeout: 5000 },
+    )
+  })
+
+  test('trust:false rejects javascript links in math', async () => {
+    const { container } = render(
+      <StreamingText content={'$\href{javascript:alert(1)}{click}$'} isStreaming={false} />,
+    )
+    await waitFor(
+      () => {
+        expect(container.querySelector('.katex') || container.querySelector('.katex-error')).not.toBeNull()
+      },
+      { timeout: 5000 },
+    )
+    expect(container.querySelector('a[href^="javascript"]')).toBeNull()
   })
 })

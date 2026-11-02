@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Copy, Check } from 'lucide-react'
@@ -123,6 +123,29 @@ function parseStreamingBlocks(content: string): StyledBlock[] {
  * After streaming: full Markdown render with syntax-highlighted code blocks.
  */
 export default function StreamingText({ content, isStreaming }: Props) {
+  const hasMath = useMemo(() => /\$[^$\n]+\$/.test(content), [content])
+  const [mathPlugins, setMathPlugins] = useState<{ remark: unknown; rehype: unknown } | null>(null)
+
+  // KaTeX and its plugins load only when math syntax is present. On failure the
+  // raw Markdown (including $...$) stays visible.
+  useEffect(() => {
+    if (!hasMath || isStreaming) {
+      return
+    }
+    let cancelled = false
+    Promise.all([import('remark-math'), import('rehype-katex')])
+      .then(([remarkMath, rehypeKatex]) => {
+        if (!cancelled) {
+          setMathPlugins({ remark: remarkMath.default, rehype: rehypeKatex.default })
+        }
+      })
+      .catch(() => {})
+    void import('katex/dist/katex.min.css').catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [hasMath, isStreaming])
+
   if (!content && isStreaming) {
     return (
       <div className="flex items-center gap-2 text-gray-400 text-sm py-1">
@@ -137,11 +160,18 @@ export default function StreamingText({ content, isStreaming }: Props) {
   }
 
   if (!isStreaming) {
+    const remarkPlugins: any[] = [[remarkGfm, { singleTilde: false }]]
+    const rehypePlugins: any[] = []
+    if (mathPlugins) {
+      remarkPlugins.push(mathPlugins.remark)
+      rehypePlugins.push([mathPlugins.rehype, { trust: false, throwOnError: false, strict: 'ignore' }])
+    }
     return (
       <div className="message-content">
         <div className="prose prose-sm max-w-none prose-p:my-1 prose-pre:my-2 break-words overflow-x-hidden">
           <ReactMarkdown
-            remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
+            remarkPlugins={remarkPlugins}
+            rehypePlugins={rehypePlugins}
             components={{
               pre: ({ children, ...props }) => {
                 const codeElement = children as React.ReactElement | undefined
