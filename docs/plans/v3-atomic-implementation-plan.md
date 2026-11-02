@@ -179,7 +179,7 @@ P0 契约/决策冻结
 | A5-05 | 导出 PDF | markdown-agent + Playwright 沙箱 | 沙箱内导出；无内网访问 | A5-03b |
 | A5-06 | link check | markdown-agent + 沙箱 | 私网/重定向被拒 | A5-02a |
  | A5-02a |
-| A5-08 | Shiki 替换 hljs | `CodePreview.tsx` | 包体不增；高亮正确 | A5-07 |
+| A5-08 | Shiki 替换 hljs（已实现，见日志） | `CodePreview.tsx` | 包体不增；高亮正确 | A5-07 |
 | A5-09 | diff2html 渲染层 | `DiffPreview.tsx` | dry-run/apply 不变 | A5-07 |
 | A5-10a | Mermaid 前端懒加载 | 前端 | 仅出现时加载；失败不白屏 | A5-03b |
 | A5-10b | KaTeX 前端懒加载 | 前端 | 仅出现时加载；失败显示原文 | A5-04 |
@@ -350,6 +350,7 @@ P0 契约/决策冻结
 | A5-02d | PASS | `6b5fcd4` | 同一 parser 生成 TOC 锚点并与渲染 id 对齐 |
 | A5-03a | PASS（Go 侧） | `474f5bb` | 校验 diagram 关键字/括号/引号/闭合 fence，报行列；前端 Mermaid 渲染 A5-03b 未实现 |
 | A6-02 | PASS（单节点） | `dcb539c` | LocalFileStore 每制品一 JSON，原子写；重启后 Get/ListByRun 可读；ARTIFACT_STORE_DIR 默认 ./data/artifacts；跨节点 S3 未做 |
+| A5-08 | PASS | 待提交 | 移除 highlight.js；Shiki 动态 import + token 渲染（无 HTML 注入）；首屏主 chunk 从 1.44MB/gzip 447KB 降到约 465KB/gzip ~150KB；懒加载语法 chunk |
 | A6-01/A6-03..A6-08、P5 其余 | 未开始 | — | — |
 
 ### 已知 SKIP / 环境限制

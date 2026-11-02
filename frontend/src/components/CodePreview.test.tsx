@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi, afterEach } from 'vitest'
 import CodePreview from './CodePreview'
@@ -137,6 +137,26 @@ describe('CodePreview (MVP P0 minimum tests)', () => {
 
     expect(screen.getByText('broken.ts')).toBeInTheDocument()
     expect(screen.getByText('No code to preview')).toBeInTheDocument()
+  })
+})
+
+describe('CodePreview Shiki highlighting', () => {
+  test('loads Shiki on demand and applies token colors', async () => {
+    const { container } = render(
+      <CodePreview
+        block={{
+          code: 'const x = 1',
+          language: 'ts',
+          filename: 'main.ts',
+        }}
+      />,
+    )
+    await waitFor(
+      () => {
+        expect(container.querySelectorAll('code span[style*="color"]').length).toBeGreaterThan(0)
+      },
+      { timeout: 5000 },
+    )
   })
 })
 

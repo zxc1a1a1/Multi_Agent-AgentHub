@@ -17,9 +17,9 @@
 
 - `StreamingText` 使用 `react-markdown` + `remark-gfm`，未启用 `rehype-raw`；
   原始 HTML 按文本处理。测试：`StreamingText.test.tsx` XSS 用例。
-- `CodePreview` 的 `dangerouslySetInnerHTML` 只接收 `sanitizeHighlightHtml`
-  的输出；允许标签仅 `span/br`，`class` 仅 `hljs-*`，其余标签降级为文本。
-  测试：`sanitizeHtml.test.ts`、`CodePreview.test.tsx`。
+- `CodePreview` 已改为 Shiki token 渲染，不再使用 `dangerouslySetInnerHTML`；
+  `sanitizeHighlightHtml` 保留给未来 HTML 高亮路径（允许 `span/br` 与
+  `hljs-*`）。测试：`sanitizeHtml.test.ts`、`CodePreview.test.tsx`。
 - `WebPreview` 使用无 `allow-scripts` 的 sandbox iframe，并注入
   `default-src 'none'` CSP；源码 tab 以文本渲染。
 - 证据为单元测试，不是浏览器真机验证；Mermaid/KaTeX/Markdown agent 的渲染安全
