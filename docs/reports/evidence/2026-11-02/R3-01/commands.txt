@@ -1,0 +1,40 @@
+node on PATH is broken on this host, so npm is invoked through the local node build.
+Variable names only - values are never recorded here.
+  $NODE_HOME  = the local node installation directory (contains node.exe and node_modules/npm)
+  $NODE_BIN   = "$NODE_HOME/node.exe"
+  $NPM_CLI    = "$NODE_HOME/node_modules/npm/bin/npm-cli.js"
+  (the first attempt with "$NODE_HOME/node_modules/npm-cli.js" fails with MODULE_NOT_FOUND;
+   the working entry point is "$NODE_HOME/node_modules/npm/bin/npm-cli.js")
+
+# ----------------------------------------------------------------前置核查
+git status --short
+git branch -vv
+git log --oneline -5
+
+# ----------------------------------------------------------------验证命令
+cd frontend
+PATH="$NODE_HOME:$PATH" "$NODE_BIN" "$NPM_CLI" test -- --run
+PATH="$NODE_HOME:$PATH" "$NODE_BIN" "$NPM_CLI" test -- --run src/agui/skills.test.ts src/stores/uiComponentEvent.test.ts src/components/MessageBubbleUIComponent.test.tsx
+PATH="$NODE_HOME:$PATH" "$NODE_BIN" "$NPM_CLI" run build
+
+# ----------------------------------------------------------------变异检查（去掉校验后测试必须失败；每轮跑完立即还原）
+# 轮次 1：禁用 skills.ts 的 component 白名单判定 -> 重跑上面第三条命令
+# 轮次 2：把 props 字节上限比较改成恒不成立（等效于删除 64KB 限制）-> 重跑
+# 轮次 3：把 artifactId 正则改成恒匹配 + isUIComponentCapability 改成只判字符串
+#         + 注释 messageStore.ts 的 ui.component 幂等早退 -> 重跑
+# 还原方式：cp /tmp/skills_backup.ts src/agui/skills.ts; cp /tmp/messageStore_backup.ts src/stores/messageStore.ts
+# 还原后复核：grep -nE "MUTATION|POSITIVE_INFINITY|&& false" src/agui/skills.ts src/stores/messageStore.ts   # 无命中
+git diff -- frontend/src/agui/skills.ts frontend/src/stores/messageStore.ts frontend/src/types/index.ts
+
+# ----------------------------------------------------------------安全检查（未 commit，仅本任务改动面）
+git status --short
+git diff --name-only
+git diff -- docs/contracts/rich-artifact-output.md frontend/src/agui/skills.ts frontend/src/stores/messageStore.ts frontend/src/types/index.ts > "$TMP_DIFF"
+grep -nE "OPENAI_API_KEY|ANTHROPIC_API_KEY|AGENTHUB_API_TOKEN|DB_PASSWORD|MYSQL_ROOT_PASSWORD|DATABASE_URL|PRIVATE KEY|BEGIN RSA" "$TMP_DIFF"   # exit 1 = 无命中
+grep -nE "sk-[A-Za-z0-9_-]{20,}" "$TMP_DIFF"   # exit 1 = 无命中
+git ls-files .env   # 空输出 = .env 未被跟踪
+grep -rnE "eval\(|new Function|dangerouslySetInnerHTML|import\(|Function\(" frontend/src/agui/skills.ts frontend/src/types/uiComponent.ts
+# 实际结果：4 行命中，全部是禁止性注释（skills.ts:52-53、uiComponent.ts:7-8），无代码命中；
+# 机器可执行的等价检查在 frontend/src/agui/skills.test.ts 的 "no-eval guarantees" 用例里
+# （剥离注释后扫描，断言无 eval( / new Function / Function( / import( / require( /
+# dangerouslySetInnerHTML / document.write / 字符串型 setTimeout）。

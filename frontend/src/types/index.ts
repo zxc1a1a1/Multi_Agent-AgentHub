@@ -1,4 +1,17 @@
 import type { AgentName } from '../lib/agents'
+import type { UIComponentCardData } from './uiComponent'
+
+export type {
+  UIComponentAGUIEvent,
+  UIComponentCapability,
+  UIComponentCardData,
+  UIComponentFallbackArgs,
+  UIComponentName,
+  UIComponentProps,
+  UIComponentRejectionReason,
+  UIComponentSchemaVersion,
+  UIComponentValidation,
+} from './uiComponent'
 
 // ActivitySnapshot types for ACTIVITY_SNAPSHOT AG-UI events (v1.3).
 export interface ActivityPlanOwner {
@@ -115,6 +128,14 @@ export interface AGUIEvent {
   payload?: Record<string, unknown>
   // ACTIVITY_SNAPSHOT v1.3
   activity?: ActivitySnapshot
+  // ui.component v1（R3-01）：字段值为未校验的外部输入，
+  // 必须先经 `validateUIComponentEvent` 才能使用；契约见
+  // docs/contracts/rich-artifact-output.md §11。
+  component?: string
+  props?: unknown
+  schemaVersion?: number
+  artifactId?: string
+  capabilities?: string[]
 }
 
 /**
@@ -295,6 +316,7 @@ export type SkillCardData =
   | ConfirmActionData
   | FormInputData
   | ArtifactCardData
+  | UIComponentCardData
   | UnknownSkillData
 
 /**

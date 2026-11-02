@@ -3,6 +3,7 @@ import type { Message, AGUIEvent, CodeBlock, WebPreviewBlock, SkillCardData, Orc
 import type { AgentName } from '../lib/agents'
 import * as api from '../services/api'
 import { runAgent, recoverRun, loadActiveRun, saveActiveRun, clearActiveRun, getRunStatus, type AGUIChatRequest } from '../agui/client'
+import { describeUIComponentRejection, validateUIComponentEvent } from '../agui/skills'
 import { DEFAULT_AGENT_NAME, getAgentDisplayName, isConcreteAgentName, isSupportedAgentName, normalizeAgentName } from '../lib/agents'
 import type { OrchestrationInfo } from '../components/OrchestrationCard'
 import { useConversationStore } from './conversationStore'
@@ -742,6 +743,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     let hasWebArtifactEvidence = false
     const toolCallArgs: Record<string, string> = {}
     const toolCallNames: Record<string, string> = {}
+    // R3-01: idempotency keys of ui.component events already applied in this run.
+    // A replayed / duplicated event must not append a second card.
+    const appliedUIComponentKeys = new Set<string>()
 
     const resolveEventAgentName = (event: AGUIEvent): string => {
       const eventAgentName = pickText(
@@ -1236,6 +1240,57 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       syncPreviewBlocks()
     }
 
+    // R3-01: `ui.component` 事件入口（docs/contracts/rich-artifact-output.md §11）。
+    // 幂等键优先取 SSE eventId，缺失时取 runId + seq + subIndex；重放同一键不再追加卡片。
+    const uiComponentIdempotencyKey = (event: AGUIEvent): string | null => {
+      if (typeof event.id === 'string' && event.id.trim() !== '') {
+        return `id:${event.id}`
+      }
+      if (typeof event.seq === 'number') {
+        const subIndex = typeof event.subIndex === 'number' ? event.subIndex : 0
+        return `seq:${event.runId || ''}:${event.seq}:${subIndex}`
+      }
+      return null
+    }
+
+    const handleUIComponentEvent = (event: AGUIEvent) => {
+      const key = uiComponentIdempotencyKey(event)
+      if (key) {
+        if (appliedUIComponentKeys.has(key)) {
+          return
+        }
+        appliedUIComponentKeys.add(key)
+      }
+      const result = validateUIComponentEvent(event)
+      if (!result.ok) {
+        // 未知组件 / 非法字段 → 既有文本卡片，且不回显 props 原文。
+        skillCards.push({
+          type: 'unknown_skill',
+          toolName: 'ui_component',
+          args: describeUIComponentRejection(event, result.reason),
+        })
+        syncPreviewBlocks()
+        return
+      }
+      // 合法事件按 registry 追加组件卡片；R3-01 尚无渲染器，
+      // MessageBubble 对未登记的卡片类型同样只渲染文本卡片，不执行 props。
+      skillCards.push({
+        type: 'ui_component',
+        component: result.component,
+        props: result.props,
+        schemaVersion: result.schemaVersion,
+        artifactId: result.artifactId,
+        capabilities: result.capabilities,
+        runId: event.runId,
+        taskId: event.taskId,
+        messageId: event.messageId,
+        eventId: typeof event.id === 'string' ? event.id : undefined,
+        seq: event.seq,
+        subIndex: event.subIndex,
+      })
+      syncPreviewBlocks()
+    }
+
     const finishStreamingMessage = () => {
       appendWebPreviewFromMessageContent()
       updateAgentMessage((message) => ({
@@ -1509,6 +1564,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           case 'artifact.delta':
             ensureAgentMessage(event)
             handleArtifactDelta(event)
+            break
+
+          case 'ui.component':
+            ensureAgentMessage(event)
+            handleUIComponentEvent(event)
             break
 
           case 'RUN_FINISHED':

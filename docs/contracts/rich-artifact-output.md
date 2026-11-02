@@ -222,3 +222,83 @@ MVP：
 - preview permission
 - artifact search
 - artifact sharing
+
+## 11. `ui.component` 交互组件协议（v3 R3-01 冻结）
+
+状态等级：`已冻结（事件协议 + 前端白名单 registry + 校验 + 降级路径）`。
+
+对应缺口：GAP-11 / UI-06；对应任务：`docs/plans/v3-gap-atomic-plan.md` R3-01。
+
+本节扩展 §6（AG-UI 输出事件）、§7（Frontend Runtime Skills 映射）和 §8（安全边界），不改变既有固定卡片（`code_preview` / `web_preview` / `form_input` / `artifact_card`）的语义。
+
+组件渲染实现不在本节范围：`html_sandbox` 属 R3-02，`json_form` 属 R3-04，`chart` 属 R3-05，`code_editor` 属后续评估。R3-01 只冻结协议、白名单与降级；这些组件在 registry 中注册但渲染器为空，因此同样降级为文本卡片。接入渲染器时只允许改变 registry 的 `renderer` 字段，事件形状与校验规则不变。
+
+### 11.1 事件形状（冻结）
+
+```json
+{"type":"ui.component","component":"html_sandbox|json_form|chart|code_editor",
+ "props":{},"schemaVersion":1,"artifactId":"art_...","capabilities":["read_only"]}
+```
+
+生产者：Gateway（把 Orchestrator/A2A 侧的组件意图翻译成 AG-UI 事件）。
+
+消费者：Frontend `messageStore` reducer。
+
+约束说明：
+
+- `ui.component` 是浏览器侧 AG-UI 事件，不是 A2A 原始事件的透传。
+- 前端不接受未经本节校验的任何组件事件。
+- 事件通过既有 SSE 通道下发，不新增公开 REST endpoint。
+
+### 11.2 字段规则
+
+| 字段 | 类型 | 必填 | 规则 | 违反结果 |
+|---|---|---|---|---|
+| `type` | string | 是 | 固定 `"ui.component"` | 事件形状非法 |
+| `component` | string | 是 | 必须命中白名单 `html_sandbox` / `json_form` / `chart` / `code_editor` | 拒绝降级 |
+| `props` | object | 是 | 纯对象（非 array / 非 null / 非原始值 / 原型为 `Object.prototype` 或 `null`）；序列化后 UTF-8 字节 ≤ 65536（64KB）；嵌套深度 ≤ 64；值中不得含 function / symbol / undefined / bigint；不得含访问器属性（getter/setter 直接判非法，校验过程不调用它） | 拒绝降级 |
+| `schemaVersion` | number | 是 | 严格等于 `1`（字符串 `"1"`、`2`、缺失均非法） | 拒绝降级 |
+| `artifactId` | string | 是 | 匹配仓库既有产物 ID 形状 `^art_[A-Za-z0-9_-]{1,64}$`（生成端见 `pkg/runtime/tools/artifact.go`、`services/orchestrator/httpapi/handler_render.go` 的 `art_` + hex；DB 列 `artifact_id VARCHAR(64)`；`data-id-policy.md` 的 `art_01H...`） | 拒绝降级 |
+| `capabilities` | string[] | 是 | 数组，且是已知能力名 `read_only` / `user_input` / `sandboxed_script` 的子集；空数组合法（表示不声明任何能力） | 拒绝降级 |
+
+能力语义：
+
+- `read_only`：只读展示，不收集输入、不产生副作用。
+- `user_input`：可收集用户输入，且只能通过既有 tool-result / 确认链路回传（见 `frontend-runtime-skills.md`、`tool-action-risk-policy.md`）。
+- `sandboxed_script`：在无 `allow-same-origin` 的 iframe 沙箱内运行脚本，R3-02 的前置能力。
+
+新增能力名必须先改本契约再改代码；`network_access`、`file_write`、`eval`、`parent_messaging`、`storage_write` 永久不属于已知能力。
+
+白名单与校验实现：`frontend/src/agui/skills.ts`（`uiComponentRegistry` / `validateUIComponentEvent`）。
+
+类型定义：`frontend/src/types/uiComponent.ts`。
+
+### 11.3 降级与拒绝
+
+- `component` 不在白名单、或任一校验失败 → 追加一张文本卡片（`unknown_skill` → `UnknownSkillFallback`），显示 `Tool: ui_component` 与脱敏后的拒绝原因。
+- 已注册但尚无渲染器的组件（R3-01 阶段的全部四个）→ 同样降级为文本卡片，不渲染任何 HTML/脚本。
+- 降级卡片参数只允许携带 `reason`、`component`、`artifactId`、`schemaVersion`；这些值先经过 token 清洗（仅保留 `[A-Za-z0-9_.-]`，长度 ≤ 64，否则替换为 `<redacted>`）。
+- `props` 原文一律不进入降级卡片展示。
+- 任何拒绝路径都不执行 props 内容，不使用 `eval`、`new Function`、`Function` 构造器，不因 props 中的 URL 做动态 `import()`，不使用 `dangerouslySetInnerHTML` 渲染 props。
+
+拒绝原因枚举（前端 `UIComponentRejectionReason`）：
+
+```text
+event_shape_invalid | component_not_allowed | props_invalid | props_too_large
+schema_version_unsupported | artifact_id_invalid | capabilities_invalid
+```
+
+对外只暴露原因码与清洗后的 token，不回显原始 payload，不泄漏内部 URL / 堆栈。
+
+### 11.4 幂等与重放
+
+- 一条合法或非法的 `ui.component` 事件在同一 run 的流式 reducer 内最多产生一张卡片。
+- 去重键优先取事件 `id`（SSE eventId）；缺失时取 `runId + seq + subIndex`。
+- 键不存在（既无 `id` 也无 `seq`）时无法去重，Gateway 不得下发无游标的 `ui.component` 事件。
+- 重放（断线续传 / `Last-Event-ID` 回放）命中同一键时直接丢弃，不追加第二张卡片。
+- 去重只覆盖 `ui.component` 路径，不改变既有 `TOOL_CALL_END` / `artifact.delta` 卡片行为。
+
+### 11.5 回滚
+
+- 移除 reducer 的 `ui.component` 分支与 registry 注册即可回滚。
+- 旧卡片路径（`code_preview` / `web_preview` / `form_input` / `artifact_card` / `unknown_skill`）不受影响。
