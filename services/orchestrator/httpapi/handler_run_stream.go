@@ -13,6 +13,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/harness"
+	rtmemory "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/memory"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/pruning"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
@@ -20,6 +21,7 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/execution"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/executor"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/executionpath"
+	memctl "github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/internal/memory"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/plan"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/planner"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/registry"
@@ -793,6 +795,7 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	switch outcome {
 	case "completed":
 		ledger.terminal(context.Background(), "completed", "completed")
+		s.extractMemoryAfterRun(runID, req.ConversationID, req.UserID, userText)
 	case "cancelled":
 		ledger.terminal(context.Background(), "cancelled", "cancelled")
 	case "failed":
@@ -1886,4 +1889,34 @@ confirmLoop:
 	s.executeViaStreamingExecutor(w, flusher, r, execPlan, msgID,
 		executor.NewSingleExecutor(s.dispatchResolver(), s.dispatcher,
 			executor.WithSingleSynthesizer(s.synthesizer)))
+}
+
+// extractMemoryAfterRun runs the opt-in extractor from a detached goroutine so
+// the user-visible run never waits on memory extraction. The extractor only
+// proposes candidates; nothing is confirmed automatically.
+func (s *Server) extractMemoryAfterRun(runID, conversationID, userID, summary string) {
+	if s == nil || s.memoryExtractor == nil || strings.TrimSpace(summary) == "" {
+		return
+	}
+	if len(summary) > 8*1024 {
+		summary = summary[:8*1024]
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		env := strings.TrimSpace(os.Getenv("AGENTHUB_ENV"))
+		if env == "" {
+			env = "dev"
+		}
+		principal := strings.TrimSpace(userID)
+		if principal == "" {
+			principal = "anonymous"
+		}
+		_, err := s.memoryExtractor.ExtractAfterRun(ctx, rtmemory.Scope{
+			Env: env, WorkspaceID: "default", PrincipalID: principal,
+		}, memctl.ExtractInput{RunID: runID, ConversationID: conversationID, Summary: summary})
+		if err != nil {
+			log.Printf("orchestrator: memory extract skipped: %v", err)
+		}
+	}()
 }

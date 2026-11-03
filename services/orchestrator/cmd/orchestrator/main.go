@@ -309,6 +309,7 @@ func run() error {
 	var ledgerDB *sql.DB
 	var ledgerRepo *ledger.Repository
 	var memRepo *ledger.MemoryRepository
+	var memController *memctl.Controller
 	var memPolicy rtmemory.Policy
 	var stopPurge context.CancelFunc
 	dsn := strings.TrimSpace(os.Getenv("ORCHESTRATOR_DATABASE_URL"))
@@ -352,7 +353,7 @@ func run() error {
 		policy.Confirm = envBool("MEMORY_ALLOW_CONFIRM", policy.Confirm)
 		policy.Forget = envBool("MEMORY_ALLOW_FORGET", policy.Forget)
 		memPolicy = policy
-		memController, err := memctl.New(memRepo, policy)
+		memController, err = memctl.New(memRepo, policy)
 		if err != nil {
 			return fmt.Errorf("create memory controller: %w", err)
 		}
@@ -497,6 +498,22 @@ func run() error {
 	serverOpts = append(serverOpts, httpapi.WithMainAgentPlanner(mainAgent))
 	serverOpts = append(serverOpts, httpapi.WithSpeakerSelector(mainAgent))
 	serverOpts = append(serverOpts, httpapi.WithSynthesizer(synthesizer.NewLLMSynthesizer(llmClient, modelName)))
+
+	if envBool("MEMORY_AUTO_EXTRACT", false) {
+		switch {
+		case memController == nil:
+			log.Printf("WARN: MEMORY_AUTO_EXTRACT requires a durable memory controller")
+		case memPolicy.Mode != rtmemory.ModeScopedLongTerm || !memPolicy.Propose:
+			log.Printf("WARN: MEMORY_AUTO_EXTRACT requires MEMORY_MODE=scoped_long_term and MEMORY_ALLOW_PROPOSE")
+		default:
+			extractor, err := memctl.NewExtractor(llmClient, memController, memPolicy)
+			if err != nil {
+				return fmt.Errorf("create memory extractor: %w", err)
+			}
+			serverOpts = append(serverOpts, httpapi.WithMemoryExtractor(extractor))
+			log.Printf("orchestrator: memory auto-extract enabled (candidates only)")
+		}
+	}
 
 	log.Printf("orchestrator planner: LLM-only (provider=%s, model=%s, requirePlanConfirmation=%v)",
 		provider, modelName, requireConfirm)
