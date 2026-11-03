@@ -1,0 +1,3 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+go test ./pkg/runtime/eventbus/ -run 'TestMemoryRetryDlqAndPrometheusMetrics|TestCountersPrometheusCountsPublishFailure|TestMemoryRetryThenDlq|TestMemoryRetryWithinBudget' -count=1 -v

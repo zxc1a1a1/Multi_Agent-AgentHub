@@ -1,6 +1,8 @@
 package eventbus
 
 import (
+	"fmt"
+	"strings"
 	"sync/atomic"
 )
 
@@ -75,6 +77,10 @@ type Counters struct {
 	retried    atomic.Int64
 	dlq        atomic.Int64
 	pending    atomic.Int64
+
+	publishFailed atomic.Int64
+	consumeFailed atomic.Int64
+	ackFailed     atomic.Int64
 }
 
 // NewCounters returns a counter set together with the hooks that feed it.
@@ -86,6 +92,7 @@ func NewCounters() (*Counters, *MetricsHooks) {
 				counters.published.Add(1)
 				return
 			}
+			counters.publishFailed.Add(1)
 			// A refused publish is a failure, not a published event: the metric
 			// must never suggest an event entered the queue when it did not.
 			counters.failed.Add(1)
@@ -97,6 +104,7 @@ func NewCounters() (*Counters, *MetricsHooks) {
 				counters.duplicates.Add(1)
 			case OutcomeFailure, OutcomeError:
 				counters.failed.Add(1)
+				counters.consumeFailed.Add(1)
 			}
 		},
 		OnAck: func(_ *Message, outcome string) {
@@ -104,6 +112,7 @@ func NewCounters() (*Counters, *MetricsHooks) {
 				counters.acked.Add(1)
 			} else {
 				counters.failed.Add(1)
+				counters.ackFailed.Add(1)
 			}
 		},
 		OnRetry:   func(_ *Message, _ ErrorClass) { counters.retried.Add(1) },
@@ -141,4 +150,40 @@ func (c *Counters) Snapshot() MetricsSnapshot {
 		DLQ:        c.dlq.Load(),
 		Pending:    c.pending.Load(),
 	}
+}
+
+// Prometheus renders the R2-06 metric contract. Labels carry no event content
+// and no error text; the values are the same lock-free counters as Snapshot.
+func (c *Counters) Prometheus() string {
+	if c == nil {
+		return ""
+	}
+	ok := c.consumed.Load() - c.duplicates.Load() - c.consumeFailed.Load()
+	if ok < 0 {
+		ok = 0
+	}
+	var b strings.Builder
+	b.WriteString("# HELP eventbus_publish_total Publish attempts by outcome.\n")
+	b.WriteString("# TYPE eventbus_publish_total counter\n")
+	fmt.Fprintf(&b, "eventbus_publish_total{outcome=\"ok\"} %d\n", c.published.Load())
+	fmt.Fprintf(&b, "eventbus_publish_total{outcome=\"error\"} %d\n", c.publishFailed.Load())
+	b.WriteString("# HELP eventbus_consume_total Consume results.\n")
+	b.WriteString("# TYPE eventbus_consume_total counter\n")
+	fmt.Fprintf(&b, "eventbus_consume_total{result=\"ok\"} %d\n", ok)
+	fmt.Fprintf(&b, "eventbus_consume_total{result=\"duplicate\"} %d\n", c.duplicates.Load())
+	fmt.Fprintf(&b, "eventbus_consume_total{result=\"failure\"} %d\n", c.consumeFailed.Load())
+	b.WriteString("# HELP eventbus_ack_total Ack results.\n")
+	b.WriteString("# TYPE eventbus_ack_total counter\n")
+	fmt.Fprintf(&b, "eventbus_ack_total{result=\"ok\"} %d\n", c.acked.Load())
+	fmt.Fprintf(&b, "eventbus_ack_total{result=\"error\"} %d\n", c.ackFailed.Load())
+	b.WriteString("# HELP eventbus_retry_total Handler failures that kept the message pending.\n")
+	b.WriteString("# TYPE eventbus_retry_total counter\n")
+	fmt.Fprintf(&b, "eventbus_retry_total %d\n", c.retried.Load())
+	b.WriteString("# HELP eventbus_dlq_total Messages routed to the dead-letter stream.\n")
+	b.WriteString("# TYPE eventbus_dlq_total counter\n")
+	fmt.Fprintf(&b, "eventbus_dlq_total %d\n", c.dlq.Load())
+	b.WriteString("# HELP eventbus_pending Messages currently pending for the consumer group.\n")
+	b.WriteString("# TYPE eventbus_pending gauge\n")
+	fmt.Fprintf(&b, "eventbus_pending %d\n", c.pending.Load())
+	return b.String()
 }
