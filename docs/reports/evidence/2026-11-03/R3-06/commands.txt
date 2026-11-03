@@ -1,0 +1,8 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+npm view @codesandbox/sandpack-react version license dist.unpackedSize dependencies time.modified --json
+# temp dir only (not in repo):
+# npm install @codesandbox/sandpack-react@2.20.0 esbuild@0.25.0
+# esbuild entry.js --bundle --minify --format=esm --external:react --external:react-dom --outfile=out.js
+# gzip -c out.js | wc -c  -> 280734
+# grep -rn "allow-same-origin" node_modules/@codesandbox/sandpack-client/dist/clients/runtime/index.js
