@@ -1542,7 +1542,7 @@ git diff --staged | grep -E "OPENAI_API_KEY|ANTHROPIC_API_KEY|AGENTHUB_API_TOKEN
 | R1-03 | PASS | 0685f61 | 2026-11-03/R1-03 |
 | R1-04 | PASS | bd2ef08 | 2026-11-03/R1-04（shadow GO，生产 NO-GO） |
 | R1-05 | PASS | 6c59dac | 2026-11-03/R1-05 |
-| R1-06 | TODO | - | - |
+| R1-06 | PASS | 5f197bc | 2026-11-03/R1-06（默认 off；shadow/on 已测） |
 | R1-07 | PASS | 7e3d382 | 2026-11-03/R1-07 |
 | R1-08 | PASS | 29cf777 | 2026-11-03/R1-08 |
 | R2-01 | PASS | 3971c7c | 2026-11-02/R2-01 |
