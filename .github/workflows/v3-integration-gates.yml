@@ -216,8 +216,9 @@ jobs:
         run: >-
           docker run --rm
           -v "$PWD/deploy/prometheus:/etc/prometheus:ro"
+          --entrypoint promtool
           prom/prometheus:v3.1.0
-          promtool check rules /etc/prometheus/alerts.yml
+          check rules /etc/prometheus/alerts.yml
       - name: Validate nginx config
         run: >-
           docker run --rm
