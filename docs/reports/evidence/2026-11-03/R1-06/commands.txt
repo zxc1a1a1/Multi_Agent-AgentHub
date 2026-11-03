@@ -1,0 +1,7 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+go test ./services/orchestrator/internal/memory -run 'TestContextSummarizer|TestParseSummaryMode' -count=1 -v
+go test ./services/orchestrator/httpapi -run 'TestContextSummary' -count=1 -v
+# switches:
+#   CONTEXT_SUMMARY_MODE=off|shadow|on (default off)
+#   CONTEXT_SUMMARY_THRESHOLD=<chars> (default 72000)

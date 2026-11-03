@@ -101,6 +101,20 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		userText = buildPinnedUserText(req.Messages, req.PinnedMessageIDs, userText)
 	}
 
+	if s.contextSummarizer != nil && s.contextSummarizer.Mode() != memctl.SummaryOff {
+		transcript := buildConversationTranscript(req.Messages)
+		result := s.contextSummarizer.MaybeSummarize(r.Context(), runID, transcript)
+		if result.Applied && strings.TrimSpace(result.Summary) != "" {
+			addition := "\n\n" + memctl.FormatSummaryForContext(result.Summary)
+			limit := harness.DefaultContextLimits().MaxChars
+			if limit <= 0 || len(userText)+len(addition) <= limit {
+				userText += addition
+			} else {
+				log.Printf("orchestrator: run=%s context summary skipped (budget)", runID)
+			}
+		}
+	}
+
 	// Set up SSE streaming immediately so that RUN_STARTED is always the first
 	// event on the stream, even when planning or validation fails. This ensures
 	// AG-UI lifecycle contract compliance: RUN_STARTED → (STATE_UPDATE | RUN_ERROR) → RUN_FINISHED.
@@ -1919,4 +1933,22 @@ func (s *Server) extractMemoryAfterRun(runID, conversationID, userID, summary st
 			log.Printf("orchestrator: memory extract skipped: %v", err)
 		}
 	}()
+}
+
+// buildConversationTranscript renders the request transcript for the optional
+// summarizer. It contains only role/text, never tool payloads or secrets.
+func buildConversationTranscript(messages []MessageInput) string {
+	var b strings.Builder
+	for _, message := range messages {
+		role := strings.TrimSpace(message.Role)
+		text := strings.TrimSpace(message.Text)
+		if role == "" || text == "" {
+			continue
+		}
+		b.WriteString(role)
+		b.WriteString(": ")
+		b.WriteString(text)
+		b.WriteString("\n")
+	}
+	return b.String()
 }

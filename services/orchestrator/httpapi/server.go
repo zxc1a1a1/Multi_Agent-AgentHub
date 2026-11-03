@@ -92,6 +92,7 @@ type Server struct {
 	memoryBackend      memctl.Backend
 	memoryRepo         memoryAdminStore
 	memoryExtractor    *memctl.Extractor
+	contextSummarizer  *memctl.ContextSummarizer
 	instanceID         string         // lease owner identity
 	budgetLimits       harness.Limits // per-run budget defaults
 	leaseTTL           time.Duration  // run lease lifetime
@@ -197,6 +198,15 @@ func WithExecutionStore(st execution.Store) Option {
 }
 
 // WithMemory wires the MemoryController and its admin store.
+func WithContextSummarizer(summarizer *memctl.ContextSummarizer) Option {
+	return func(s *Server) {
+		if s == nil || summarizer == nil {
+			return
+		}
+		s.contextSummarizer = summarizer
+	}
+}
+
 func WithMemoryExtractor(extractor *memctl.Extractor) Option {
 	return func(s *Server) {
 		if s == nil || extractor == nil {
