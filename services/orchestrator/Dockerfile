@@ -35,6 +35,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 FROM mcr.microsoft.com/playwright:v1.55.0-jammy@sha256:55db7b712a981e9cc1ec757a4511cd01c5ed4e20bd7c84b2dee4e1d320102b9d
 
+# The Playwright base image already ships ca-certificates for TLS.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     NODE_PATH=/app/node_modules \

@@ -5,6 +5,6 @@ docker compose -p agenthub-r007 -f docker-compose.new-arch.yml --profile objects
 # normal cross-instance phase
 AGENTHUB_S3_TEST_ENDPOINT=<host:port> AGENTHUB_S3_TEST_ACCESS_KEY=<test> \
 AGENTHUB_S3_TEST_SECRET_KEY=<test> AGENTHUB_S3_TEST_BUCKET=<test bucket> \
-  go test ./services/orchestrator/artifacts/ -run TestIntegrationS3CrossInstanceArtifact -count=1 -json
+  go test ./services/orchestrator/artifacts/ -run TestS3IntegrationCrossInstanceArtifact -count=1 -json
 # outage phase (object store stopped first)
-AGENTHUB_S3_TEST_EXPECT_DOWN=1 ... go test ./services/orchestrator/artifacts/ -run TestIntegrationS3CrossInstanceArtifact -count=1 -json
+AGENTHUB_S3_TEST_EXPECT_DOWN=1 ... go test ./services/orchestrator/artifacts/ -run TestS3IntegrationCrossInstanceArtifact -count=1 -json

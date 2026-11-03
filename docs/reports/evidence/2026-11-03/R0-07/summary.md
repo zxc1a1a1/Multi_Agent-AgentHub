@@ -14,11 +14,17 @@
 与 MinIO 相同。compose 新增 `objectstore` profile 的 `s3-objectstore` 服务（固定 digest、healthy、端口 9000）。
 这不是“MinIO 已认证”，而是“S3 兼容对象存储已认证”。
 
+## 命名说明
+
+测试函数为 `TestS3IntegrationCrossInstanceArtifact`（不以 `TestIntegration` 开头），
+因此 R0-01 的通用 `/^TestIntegration/` 门禁不会把它当作集成用例；S3 需要可选的
+`AGENTHUB_S3_TEST_ENDPOINT`，由 R0-07 单独启动对象存储后执行。
+
 ## 1. 结果
 
 | 阶段 | 测试 | 结果 |
 |---|---|---|
-| 正常 | TestIntegrationS3CrossInstanceArtifact | PASS（0.28s） |
+| 正常 | TestS3IntegrationCrossInstanceArtifact | PASS（0.28s） |
 | 停机 | 同一测试 `AGENTHUB_S3_TEST_EXPECT_DOWN=1` | PASS（读取明确失败） |
 | compose profile | `s3-objectstore` | Up (healthy)，`GET / -> 200` |
 

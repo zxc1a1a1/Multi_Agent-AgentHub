@@ -42,7 +42,7 @@ func s3IntegrationConfig(t *testing.T) S3Config {
 	}
 }
 
-func TestIntegrationS3CrossInstanceArtifact(t *testing.T) {
+func TestS3IntegrationCrossInstanceArtifact(t *testing.T) {
 	cfg := s3IntegrationConfig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()

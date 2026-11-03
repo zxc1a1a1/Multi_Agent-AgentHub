@@ -1386,6 +1386,17 @@ func sanitizeStreamError(err error) string {
 	if strings.Contains(msg, ".go:") && (strings.Contains(msg, "/") || strings.Contains(msg, "\\")) {
 		return "orchestrator processing error"
 	}
+	// Transport details (host, port, DNS, OS error text) must never reach the
+	// browser; Linux and Windows word the same failure differently.
+	lower := strings.ToLower(msg)
+	for _, marker := range []string{
+		"connection refused", "dial tcp", "no such host", "i/o timeout",
+		"network is unreachable", "connection reset", "tls handshake", "connectex",
+	} {
+		if strings.Contains(lower, marker) {
+			return "orchestrator communication error"
+		}
+	}
 	// Truncate long messages.
 	const maxLen = 200
 	if len(msg) > maxLen {
