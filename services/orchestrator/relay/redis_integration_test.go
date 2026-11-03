@@ -39,6 +39,20 @@ func integrationRedis(t *testing.T, opts *redis.Options) *redis.Client {
 	return client
 }
 
+// unreachableRedis returns a client that fails fast without touching the real
+// test server, so "publish failed" is deterministic.
+func unreachableRedis(t *testing.T) *redis.Client {
+	t.Helper()
+	if os.Getenv("AGENTHUB_REDIS_TEST_ADDR") == "" {
+		t.Skip("SKIP real Redis integration: set AGENTHUB_REDIS_TEST_ADDR")
+	}
+	client := redis.NewClient(&redis.Options{
+		Addr: "127.0.0.1:1", DialTimeout: 200 * time.Millisecond, MaxRetries: 0,
+	})
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
+
 func relayRunID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
@@ -90,11 +104,7 @@ func TestIntegrationRelayRedeliversWhenMarkIsLost(t *testing.T) {
 // When publishing fails the outbox rows stay pending and only the first item
 // is attempted, so later seqs cannot overtake the failed event.
 func TestIntegrationRelayKeepsOutboxPendingOnPublishFailure(t *testing.T) {
-	client := integrationRedis(t, &redis.Options{
-		DialTimeout: time.Second,
-		ReadTimeout: time.Microsecond,
-		MaxRetries:  0,
-	})
+	client := unreachableRedis(t)
 	ctx := context.Background()
 	runID := relayRunID("run-relay-fail")
 	store := newFakeStore(runID, 1, 2)
@@ -279,5 +289,52 @@ func TestIntegrationRelayEventBusWritesSharedStream(t *testing.T) {
 	}
 	if len(seen) != 3 {
 		t.Fatalf("eventIds are not unique: %#v", seen)
+	}
+}
+
+// R2-08: a Redis outage keeps the outbox pending; once Redis is reachable again
+// a fresh relay publishes the same rows without loss.
+func TestIntegrationRelayRecoversAfterPublishFailure(t *testing.T) {
+	broken := unreachableRedis(t)
+	healthy := integrationRedis(t, nil)
+	ctx := context.Background()
+	runID := relayRunID("run-relay-recover")
+	store := newFakeStore(runID, 1, 2)
+	keyClient, err := New(store, healthy, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := keyClient.streamKey("ws", runID)
+	healthy.Del(ctx, key)
+	t.Cleanup(func() { healthy.Del(context.Background(), key) })
+
+	down, err := New(store, broken, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := down.RunOnce(ctx, 10); err == nil {
+		t.Fatal("expected a publish failure while Redis is unreachable")
+	}
+	if store.published[1] || store.published[2] {
+		t.Fatal("failed publish must leave the outbox pending")
+	}
+	if store.attempts[1] == 0 {
+		t.Fatal("backoff attempt must be recorded")
+	}
+
+	up, err := New(store, healthy, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := up.RunOnce(ctx, 10)
+	if err != nil || published != 2 {
+		t.Fatalf("recovery published=%d err=%v, want 2", published, err)
+	}
+	entries, err := healthy.XRange(ctx, key, "-", "+").Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("stream entries=%d, want 2", len(entries))
 	}
 }

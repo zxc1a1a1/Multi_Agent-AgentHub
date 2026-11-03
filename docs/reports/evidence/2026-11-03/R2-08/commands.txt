@@ -1,0 +1,13 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+# dedicated Redis 7.2 with AOF on host port 16380
+docker run -d --name agenthub-r208-redis -p 16380:6379 redis:7.2-alpine redis-server --appendonly yes
+# suites + restart phases (the script wraps these)
+AGENTHUB_REDIS_TEST_ADDR=<addr> go test ./pkg/runtime -run '^TestIntegrationRedis' -count=1 -json
+AGENTHUB_REDIS_TEST_ADDR=<addr> go test ./services/orchestrator -run '^TestIntegrationRelay' -count=1 -json
+AGENTHUB_MYSQL_TEST_DSN=<dsn> go test ./pkg/runtime/eventbus/sqlidem -run '^TestIntegration' -count=1 -json
+AGENTHUB_REDIS_TEST_ADDR=<addr> go test ./services/gateway -run '^TestIntegrationEventBusConsumerDrivesRecovery' -count=1 -json
+AGENTHUB_R208_PHASE=seed AGENTHUB_R208_ENV=<env> AGENTHUB_REDIS_TEST_ADDR=<addr> go test ./pkg/runtime/eventbus -run TestIntegrationRedisPendingSurvivesRestart
+docker stop/start agenthub-r208-redis
+AGENTHUB_R208_PHASE=claim AGENTHUB_R208_ENV=<env> AGENTHUB_REDIS_TEST_ADDR=<addr> go test ./pkg/runtime/eventbus -run TestIntegrationRedisPendingSurvivesRestart
+# switches: EVENT_BUS, EVENTBUS_PROJECTION, OUTBOX_RELAY_LEASE
