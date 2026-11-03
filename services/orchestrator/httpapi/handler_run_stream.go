@@ -12,6 +12,7 @@ import (
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/agui"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/harness"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/pruning"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/orchestrator/artifacts"
@@ -120,6 +121,16 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		RunID: runID,
 		State: map[string]any{"phase": "planning"},
 	})
+
+	// M-04: never hand an over-budget context to the planner. Silently
+	// truncating pinned/system text is forbidden, so the run fails with a
+	// stable, actionable error and the model is not billed.
+	if limit := harness.DefaultContextLimits().MaxChars; limit > 0 && len(userText) > limit {
+		log.Printf("orchestrator: run=%s context rejected: %d chars exceeds hard limit %d", runID, len(userText), limit)
+		s.emitErrorEvent(w, flusher, runID, "ORCHESTRATOR_CONTEXT_TOO_LARGE",
+			fmt.Sprintf("context exceeds the %d character budget; trim pinned messages or history", limit))
+		return
+	}
 
 	// --- Phase 1: executionPath derivation + agent selection validation ---
 	availableAgentNames, err := s.dispatchResolver().Names(r.Context())
