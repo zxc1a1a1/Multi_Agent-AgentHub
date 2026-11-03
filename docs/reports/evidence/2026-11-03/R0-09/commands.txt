@@ -1,0 +1,8 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+# build the Playwright-enabled Orchestrator image
+MYSQL_ROOT_PASSWORD=<test> LLM_MODEL=<test> docker compose -p agenthub-r009 -f docker-compose.new-arch.yml build orchestrator-new
+# runtime smoke (HTML->PNG/PDF, private URL rejection, missing browser fail-closed)
+EVIDENCE_OUT=<evidence> bash scripts/run-render-smoke.sh
+# base image: mcr.microsoft.com/playwright:v1.55.0-jammy
+#   digest sha256:55db7b712a981e9cc1ec757a4511cd01c5ed4e20bd7c84b2dee4e1d320102b9d

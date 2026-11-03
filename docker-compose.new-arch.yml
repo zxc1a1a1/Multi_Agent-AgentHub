@@ -312,6 +312,9 @@ services:
       REDIS_URL: "redis://redis:6379/0"
       ARTIFACT_STORE_DIR: "/data/artifacts"
       ARTIFACT_BLOB_DIR: "/data/artifacts/blobs"
+      PLAYWRIGHT_RENDER_SCRIPT: "/app/render.cjs"
+      PLAYWRIGHT_NODE_PATH: "node"
+      PLAYWRIGHT_RENDER_TIMEOUT_SECONDS: "${PLAYWRIGHT_RENDER_TIMEOUT_SECONDS:-60}"
       # Object storage stays opt-in: with an empty endpoint the blob store keeps
       # using the local volume, and the default boot path is unchanged.
       ARTIFACT_S3_ENDPOINT: "${ARTIFACT_S3_ENDPOINT:-}"

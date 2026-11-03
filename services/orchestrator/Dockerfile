@@ -33,11 +33,20 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux \
     go build -o /out/orchestrator ./services/orchestrator/cmd/orchestrator
 
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates
-RUN addgroup -S app && adduser -S -G app app
+FROM mcr.microsoft.com/playwright:v1.55.0-jammy@sha256:55db7b712a981e9cc1ec757a4511cd01c5ed4e20bd7c84b2dee4e1d320102b9d
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    NODE_PATH=/app/node_modules \
+    PLAYWRIGHT_RENDER_SCRIPT=/app/render.cjs
+
+WORKDIR /app
+COPY services/orchestrator/playwright/render.cjs /app/render.cjs
+RUN npm install --omit=dev --no-audit --no-fund playwright@1.55.0 \
+    && groupadd -r app && useradd -r -g app -d /app -s /usr/sbin/nologin app \
+    && mkdir -p /data/artifacts /app && chown -R app:app /app /data
+
 COPY --from=builder /out/orchestrator /usr/local/bin/orchestrator
-RUN mkdir -p /data/artifacts && chown -R app:app /data
 USER app
 EXPOSE 8080
 CMD ["orchestrator"]
