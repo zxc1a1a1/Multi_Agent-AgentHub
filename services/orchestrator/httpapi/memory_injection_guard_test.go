@@ -512,6 +512,8 @@ func (b *r108MemoryBackend) ListEntries(_ context.Context, scopeID, status strin
 	return out, nil
 }
 
+func (b *r108MemoryBackend) RetryMutation(_ context.Context, _ string) error { return nil }
+
 func (b *r108MemoryBackend) GetMutation(_ context.Context, _ string) (*ledger.Mutation, error) {
 	return nil, nil
 }

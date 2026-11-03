@@ -310,6 +310,7 @@ func run() error {
 	var ledgerRepo *ledger.Repository
 	var memRepo *ledger.MemoryRepository
 	var memPolicy rtmemory.Policy
+	var stopPurge context.CancelFunc
 	dsn := strings.TrimSpace(os.Getenv("ORCHESTRATOR_DATABASE_URL"))
 	if dsn == "" {
 		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
@@ -357,6 +358,16 @@ func run() error {
 		}
 		serverOpts = append(serverOpts, httpapi.WithMemory(memRepo, memController, memRepo))
 		log.Printf("orchestrator: memory controller enabled (mode=%s)", mode)
+		if envBool("MEMORY_PURGE_WORKER", false) {
+			purgeWorker, err := memctl.NewPurgeWorker(memRepo)
+			if err != nil {
+				return fmt.Errorf("create memory purge worker: %w", err)
+			}
+			purgeCtx, purgeCancel := context.WithCancel(context.Background())
+			stopPurge = purgeCancel
+			go purgeWorker.Run(purgeCtx)
+			log.Printf("orchestrator: memory purge worker enabled")
+		}
 	}
 
 	var redisClient *redis.Client
@@ -551,6 +562,9 @@ func run() error {
 	grpcServer.GracefulStop()
 	if stopRelay != nil {
 		stopRelay()
+	}
+	if stopPurge != nil {
+		stopPurge()
 	}
 	if redisClient != nil {
 		if err := redisClient.Close(); err != nil {

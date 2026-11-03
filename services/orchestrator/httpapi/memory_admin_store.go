@@ -10,4 +10,5 @@ import (
 type memoryAdminStore interface {
 	ListEntries(ctx context.Context, scopeID, status string, limit int) ([]rtmemory.Entry, error)
 	GetMutation(ctx context.Context, mutationID string) (*ledger.Mutation, error)
+	RetryMutation(ctx context.Context, mutationID string) error
 }

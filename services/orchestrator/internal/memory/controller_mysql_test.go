@@ -325,3 +325,109 @@ func TestIntegrationMemoryCoreAndRecheck(t *testing.T) {
 		t.Fatalf("core column=%v recheck=%v, want persisted", coreFlag, recheck.Valid)
 	}
 }
+
+// R1-05: forget writes a pending mutation; the purge worker clears memory
+// content/revisions/sourceRefs, bumps the epoch, keeps the tombstone and is
+// idempotent. Dead mutations are only retried explicitly.
+func TestIntegrationMemoryPurgeWorker(t *testing.T) {
+	controller, db, scope := openMemoryController(t, nil)
+	ctx := context.Background()
+	repo := ledger.NewMemoryRepository(db)
+	worker, err := NewPurgeWorker(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker.WithBatch(10)
+
+	entry := propose(t, controller, scope, "purge-key", "sensitive memory content")
+	if _, err := controller.Confirm(ctx, scope, entry.MemoryID, 1); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	var scopeID string
+	var epochBefore, epochAfter int64
+	if err := db.QueryRow("SELECT scope_id FROM memory_scopes WHERE principal_id = ?", scope.PrincipalID).Scan(&scopeID); err != nil {
+		t.Fatalf("scope id: %v", err)
+	}
+	if err := db.QueryRow("SELECT epoch FROM memory_scopes WHERE scope_id = ?", scopeID).Scan(&epochBefore); err != nil {
+		t.Fatalf("epoch before: %v", err)
+	}
+	if err := controller.Forget(ctx, scope, entry.MemoryID); err != nil {
+		t.Fatalf("forget: %v", err)
+	}
+	purged, err := worker.PurgeOnce(ctx)
+	if err != nil || purged < 1 {
+		t.Fatalf("purge once: purged=%d err=%v", purged, err)
+	}
+
+	var content, revisionRefs, entryRefs, status string
+	if err := db.QueryRow(`SELECT rv.content, rv.source_refs, e.source_refs, e.status
+		FROM memory_revisions rv JOIN memory_entries e ON e.memory_id = rv.memory_id
+		WHERE rv.memory_id = ?`, entry.MemoryID).Scan(&content, &revisionRefs, &entryRefs, &status); err != nil {
+		t.Fatalf("read purged row: %v", err)
+	}
+	if content != "" || revisionRefs != "[]" || entryRefs != "[]" {
+		t.Fatalf("purge left content=%q refs=%q/%q", content, revisionRefs, entryRefs)
+	}
+	if status != "revoked" {
+		t.Fatalf("tombstone status=%q, want revoked", status)
+	}
+	if err := db.QueryRow("SELECT epoch FROM memory_scopes WHERE scope_id = ?", scopeID).Scan(&epochAfter); err != nil {
+		t.Fatalf("epoch after: %v", err)
+	}
+	if epochAfter <= epochBefore {
+		t.Fatalf("epoch %d -> %d, want bump", epochBefore, epochAfter)
+	}
+
+	var mutationID, purgeStatus string
+	if err := db.QueryRow(`SELECT mutation_id, purge_status FROM memory_mutations
+		WHERE scope_id = ? AND operation = 'forget' ORDER BY created_at DESC LIMIT 1`, scopeID).
+		Scan(&mutationID, &purgeStatus); err != nil {
+		t.Fatalf("mutation: %v", err)
+	}
+	mutation, err := repo.GetMutation(ctx, mutationID)
+	if err != nil {
+		t.Fatalf("get mutation: %v", err)
+	}
+	if mutation.PurgeStatus != "done" || mutation.PurgeAttempts != 1 || mutation.PurgedAt == nil {
+		t.Fatalf("mutation=%+v, want done/attempts=1/purgedAt", mutation)
+	}
+
+	again, err := worker.PurgeOnce(ctx)
+	if err != nil || again != 0 {
+		t.Fatalf("second purge=%d err=%v, want idempotent no-op", again, err)
+	}
+
+	if _, err := db.Exec("UPDATE memory_mutations SET purge_status = 'dead' WHERE mutation_id = ?", mutationID); err != nil {
+		t.Fatalf("mark dead: %v", err)
+	}
+	if err := repo.RetryMutation(ctx, mutationID); err != nil {
+		t.Fatalf("ops retry: %v", err)
+	}
+	retried, err := worker.PurgeOnce(ctx)
+	if err != nil || retried < 1 {
+		t.Fatalf("retry purge=%d err=%v, want at least 1", retried, err)
+	}
+
+	// Scope-wide forget purges every revision in the scope.
+	for i := 0; i < 2; i++ {
+		e := propose(t, controller, scope, "scope-"+fmt.Sprint(i), "scope memory "+fmt.Sprint(i))
+		if _, err := controller.Confirm(ctx, scope, e.MemoryID, 1); err != nil {
+			t.Fatalf("confirm scope entry: %v", err)
+		}
+	}
+	if _, err := controller.ForgetScope(ctx, scope); err != nil {
+		t.Fatalf("forget scope: %v", err)
+	}
+	if _, err := worker.PurgeOnce(ctx); err != nil {
+		t.Fatalf("purge scope: %v", err)
+	}
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM memory_revisions rv
+		JOIN memory_entries e ON e.memory_id = rv.memory_id
+		WHERE e.scope_id = ? AND rv.content <> ''`, scopeID).Scan(&remaining); err != nil {
+		t.Fatalf("count remaining: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("%d revisions still carry content after scope purge", remaining)
+	}
+}

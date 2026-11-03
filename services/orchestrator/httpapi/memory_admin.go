@@ -90,6 +90,17 @@ func (s *Server) handleMemory(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, mutation)
+	case strings.HasPrefix(path, "mutations/") && strings.HasSuffix(path, "/retry") && r.Method == http.MethodPost:
+		mutationID := strings.TrimSuffix(strings.TrimPrefix(path, "mutations/"), "/retry")
+		if mutationID == "" || strings.Contains(mutationID, "/") {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "mutation not found"})
+			return
+		}
+		if err := s.memoryRepo.RetryMutation(r.Context(), mutationID); err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "mutation not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"mutationId": mutationID, "purgeStatus": "pending"})
 	case r.Method == http.MethodPost:
 		s.handleMemoryMutation(w, r, path, controller)
 	default:

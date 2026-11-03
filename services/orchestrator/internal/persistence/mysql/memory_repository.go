@@ -380,30 +380,45 @@ func (r *MemoryRepository) ListEntries(ctx context.Context, scopeID, status stri
 }
 
 type Mutation struct {
-	MutationID  string
-	MemoryID    string
-	Operation   string
-	Status      string
-	PurgeStatus string
-	CreatedAt   time.Time
-	CompletedAt *time.Time
+	MutationID    string
+	MemoryID      string
+	Operation     string
+	Status        string
+	PurgeStatus   string
+	PurgeAttempts int
+	PurgeAfter    *time.Time
+	PurgeError    string
+	PurgedAt      *time.Time
+	CreatedAt     time.Time
+	CompletedAt   *time.Time
 }
 
 func (r *MemoryRepository) GetMutation(ctx context.Context, mutationID string) (*Mutation, error) {
 	var m Mutation
 	var memoryID sql.NullString
 	var completed sql.NullTime
-	if err := r.db.QueryRowContext(ctx, `SELECT mutation_id, memory_id, operation, status, purge_status, created_at, completed_at
+	var purgeAfter, purgedAt sql.NullTime
+	var purgeError sql.NullString
+	if err := r.db.QueryRowContext(ctx, `SELECT mutation_id, memory_id, operation, status, purge_status,
+		purge_attempts, purge_after, purge_error, purged_at, created_at, completed_at
 		FROM memory_mutations WHERE mutation_id = ?`, mutationID).Scan(
-		&m.MutationID, &memoryID, &m.Operation, &m.Status, &m.PurgeStatus, &m.CreatedAt, &completed); err != nil {
+		&m.MutationID, &memoryID, &m.Operation, &m.Status, &m.PurgeStatus,
+		&m.PurgeAttempts, &purgeAfter, &purgeError, &purgedAt, &m.CreatedAt, &completed); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrMemoryNotFound
 		}
 		return nil, err
 	}
 	m.MemoryID = memoryID.String
+	m.PurgeError = purgeError.String
 	if completed.Valid {
 		m.CompletedAt = &completed.Time
+	}
+	if purgeAfter.Valid {
+		m.PurgeAfter = &purgeAfter.Time
+	}
+	if purgedAt.Valid {
+		m.PurgedAt = &purgedAt.Time
 	}
 	return &m, nil
 }
@@ -467,4 +482,153 @@ func tokenizeMemoryQuery(query string) []string {
 		}
 	}
 	return out
+}
+
+// PurgeTask is one claimed forget mutation. memoryID is empty for a scope-wide
+// forget; scopeID is always set.
+type PurgeTask struct {
+	MutationID string
+	ScopeID    string
+	MemoryID   string
+	Attempts   int
+}
+
+// ClaimPurgeBatch claims due mutations with SELECT ... FOR UPDATE SKIP LOCKED.
+// Mutations already at maxAttempts are moved to dead instead of being claimed.
+func (r *MemoryRepository) ClaimPurgeBatch(ctx context.Context, limit, maxAttempts int) ([]PurgeTask, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if maxAttempts <= 0 {
+		maxAttempts = 5
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT mutation_id, scope_id, COALESCE(memory_id, ''), purge_attempts
+		FROM memory_mutations
+		WHERE purge_status IN ('pending','failed')
+		  AND (purge_after IS NULL OR purge_after <= NOW(3))
+		ORDER BY created_at ASC LIMIT ? FOR UPDATE SKIP LOCKED`, limit)
+	if err != nil {
+		return nil, err
+	}
+	var claimed []PurgeTask
+	for rows.Next() {
+		var task PurgeTask
+		if err := rows.Scan(&task.MutationID, &task.ScopeID, &task.MemoryID, &task.Attempts); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		claimed = append(claimed, task)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	var tasks []PurgeTask
+	for _, task := range claimed {
+		if task.Attempts >= maxAttempts {
+			if _, err := tx.ExecContext(ctx, `UPDATE memory_mutations
+				SET purge_status = 'dead', purge_error = 'max_attempts', purged_at = NULL
+				WHERE mutation_id = ?`, task.MutationID); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		task.Attempts++
+		if _, err := tx.ExecContext(ctx, `UPDATE memory_mutations
+			SET purge_status = 'running', purge_attempts = ? WHERE mutation_id = ?`,
+			task.Attempts, task.MutationID); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
+// PurgeMemory clears memory content/revisions/sourceRefs and bumps the scope
+// epoch. Tombstones (ids/status/timestamps) are kept; chat history, backups and
+// downstream logs are explicitly out of scope.
+func (r *MemoryRepository) PurgeMemory(ctx context.Context, scopeID, memoryID string) error {
+	if scopeID == "" {
+		return ErrMemoryInvalid
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if memoryID == "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE memory_revisions rv
+			JOIN memory_entries e ON e.memory_id = rv.memory_id
+			SET rv.content = '', rv.source_refs = '[]'
+			WHERE e.scope_id = ?`, scopeID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE memory_entries SET source_refs = '[]' WHERE scope_id = ?`, scopeID); err != nil {
+			return err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `UPDATE memory_revisions SET content = '', source_refs = '[]' WHERE memory_id = ?`, memoryID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE memory_entries SET source_refs = '[]' WHERE scope_id = ? AND memory_id = ?`, scopeID, memoryID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE memory_scopes SET epoch = epoch + 1 WHERE scope_id = ?`, scopeID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *MemoryRepository) MarkPurgeDone(ctx context.Context, mutationID string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE memory_mutations
+		SET purge_status = 'done', purge_error = NULL, purged_at = NOW(3)
+		WHERE mutation_id = ?`, mutationID)
+	return err
+}
+
+func (r *MemoryRepository) MarkPurgeFailed(ctx context.Context, mutationID string, attempts, maxAttempts int, errorClass string, retryAfter time.Duration) error {
+	if errorClass == "" {
+		errorClass = "unknown"
+	}
+	if len(errorClass) > 255 {
+		errorClass = errorClass[:255]
+	}
+	if attempts >= maxAttempts {
+		_, err := r.db.ExecContext(ctx, `UPDATE memory_mutations
+			SET purge_status = 'dead', purge_error = ?, purge_after = NULL
+			WHERE mutation_id = ?`, errorClass, mutationID)
+		return err
+	}
+	if retryAfter <= 0 {
+		retryAfter = time.Second
+	}
+	_, err := r.db.ExecContext(ctx, `UPDATE memory_mutations
+		SET purge_status = 'failed', purge_error = ?, purge_after = DATE_ADD(NOW(3), INTERVAL ? MICROSECOND)
+		WHERE mutation_id = ?`, errorClass, retryAfter.Microseconds(), mutationID)
+	return err
+}
+
+// RetryMutation is the explicit ops action for a failed/dead mutation. It never
+// runs automatically from the worker.
+func (r *MemoryRepository) RetryMutation(ctx context.Context, mutationID string) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE memory_mutations
+		SET purge_status = 'pending', purge_after = NOW(3), purge_error = NULL
+		WHERE mutation_id = ? AND purge_status IN ('failed','dead')`, mutationID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrMemoryNotFound
+	}
+	return nil
 }

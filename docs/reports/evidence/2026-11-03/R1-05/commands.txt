@@ -1,0 +1,7 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+go test ./services/orchestrator/internal/memory -run 'TestPurgeWorker' -count=1
+AGENTHUB_MYSQL_TEST_DSN=<test dsn> go test ./services/orchestrator/internal/memory -run 'TestIntegrationMemoryPurgeWorker' -count=1 -v
+# switches:
+#   MEMORY_PURGE_WORKER=1 starts the worker (default off)
+#   POST /internal/memory/mutations/{id}/retry is the explicit ops retry
