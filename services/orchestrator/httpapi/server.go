@@ -217,6 +217,17 @@ func WithInstanceID(id string) Option {
 	}
 }
 
+// WithLeaseTTL overrides how long a run lease stays held and renews proportionally.
+func WithLeaseTTL(ttl time.Duration) Option {
+	return func(s *Server) {
+		if s == nil || ttl <= 0 {
+			return
+		}
+		s.leaseTTL = ttl
+		s.leaseRenewInterval = ttl / 3
+	}
+}
+
 // WithBudgetLimits overrides the per-run budget defaults.
 func WithBudgetLimits(l harness.Limits) Option {
 	return func(s *Server) {

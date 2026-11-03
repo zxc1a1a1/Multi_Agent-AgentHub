@@ -1,0 +1,7 @@
+# required environment (names only, values never recorded here)
+#   AGENTHUB_MYSQL_TEST_DSN AGENTHUB_REDIS_TEST_ADDR AGENTHUB_API_TOKEN INTERNAL_SERVICE_TOKEN
+#   MYSQL_TEST_CONTAINER MYSQL_TEST_DATABASE COMPOSE_PROJECT LLM_PROVIDER LLM_MODEL LLM_API_KEY LLM_BASE_URL
+# the child agents come from the already running compose project:
+docker compose -p agenthub-r004 -f docker-compose.new-arch.yml up -d --no-build --wait
+node scripts/fake-llm-server.mjs 18081     # test-only provider
+bash scripts/run-multi-replica-smoke.sh --out docs/reports/evidence/2026-11-02/R0-06

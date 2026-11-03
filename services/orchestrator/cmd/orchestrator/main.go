@@ -249,6 +249,17 @@ func run() error {
 		httpapi.WithDispatcher(a2aDispatcher),
 	}
 
+	// ORCHESTRATOR_LEASE_TTL shortens the run lease lifetime (default 15m).
+	// Without an override a crashed holder blocks takeover for the full TTL.
+	if raw := strings.TrimSpace(os.Getenv("ORCHESTRATOR_LEASE_TTL")); raw != "" {
+		if ttl, err := time.ParseDuration(raw); err != nil {
+			log.Printf("orchestrator: ignoring invalid ORCHESTRATOR_LEASE_TTL %q: %v", raw, err)
+		} else {
+			serverOpts = append(serverOpts, httpapi.WithLeaseTTL(ttl))
+			log.Printf("orchestrator: run lease ttl overridden to %s", ttl)
+		}
+	}
+
 	blobStore, err := buildArtifactBlobStore()
 	if err != nil {
 		return err
