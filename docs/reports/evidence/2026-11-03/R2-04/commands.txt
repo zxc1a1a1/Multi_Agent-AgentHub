@@ -1,0 +1,9 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+# unit: envelope identity, failure/backoff, lease loss, duplicate stability
+go test ./services/orchestrator/relay/ -run TestRelayEventBus -count=1 -json
+# integration: shared stream + legacy per-run stream (real Redis 7.2)
+AGENTHUB_REDIS_TEST_ADDR=<test redis> go test ./services/orchestrator/relay/ -run TestIntegrationRelay -count=1 -json
+# production switches:
+#   EVENT_BUS=legacy|redis_streams (default legacy)
+#   OUTBOX_RELAY_LEASE=1 (single writer; MySQL GET_LOCK agenthub_outbox_relay)

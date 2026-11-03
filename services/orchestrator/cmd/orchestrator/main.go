@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/adk/a2a"
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/eventbus"
 	rtmemory "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/memory"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
 	rtregistry "github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/registry"
@@ -376,10 +377,42 @@ func run() error {
 			redisClient.Close()
 			return fmt.Errorf("create relay: %w", err)
 		}
-		relayCtx, cancel := context.WithCancel(context.Background())
-		stopRelay = cancel
-		go rel.Run(relayCtx, 250*time.Millisecond)
-		log.Printf("orchestrator: outbox relay enabled")
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("EVENT_BUS")), "redis_streams") {
+			publisher, err := eventbus.NewRedisPublisherWithClient(eventbus.RedisConfig{
+				Env: env, Consumer: "relay", ConsumerKey: eventbus.ConsumerKeyProjection,
+			}, redisClient)
+			if err != nil {
+				redisClient.Close()
+				return fmt.Errorf("create eventbus publisher: %w", err)
+			}
+			rel = rel.WithEventBus(publisher)
+			if envBool("OUTBOX_RELAY_LEASE", false) {
+				lock, lockErr := ledger.AcquireAdvisoryLock(context.Background(), ledgerRepo.DB(), "agenthub_outbox_relay")
+				switch {
+				case errors.Is(lockErr, ledger.ErrAdvisoryLockHeld):
+					log.Printf("orchestrator: outbox relay standby (another writer holds the lease)")
+					rel = nil
+				case lockErr != nil:
+					redisClient.Close()
+					return fmt.Errorf("acquire outbox relay lease: %w", lockErr)
+				default:
+					defer func() { _ = lock.Release(context.Background()) }()
+					rel = rel.WithLease(lock)
+					log.Printf("orchestrator: outbox writer lease acquired")
+				}
+			}
+			if rel != nil {
+				log.Printf("orchestrator: outbox relay mode=redis_streams")
+			}
+		} else {
+			log.Printf("orchestrator: outbox relay mode=legacy")
+		}
+		if rel != nil {
+			relayCtx, cancel := context.WithCancel(context.Background())
+			stopRelay = cancel
+			go rel.Run(relayCtx, 250*time.Millisecond)
+			log.Printf("orchestrator: outbox relay enabled")
+		}
 		if memRepo != nil {
 			cache, err := memctl.NewRedisCache(redisClient)
 			if err != nil {

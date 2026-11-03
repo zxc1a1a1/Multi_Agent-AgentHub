@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/eventbus"
 )
 
 // integrationRedis connects to the operator supplied Redis. Tests use database
@@ -208,5 +210,74 @@ func TestIntegrationRelayPreservesPerRunOrder(t *testing.T) {
 		if entry.Values["runId"] != runID {
 			t.Fatalf("entry %d missing runId: %#v", i, entry.Values)
 		}
+	}
+}
+
+// R2-04: EVENT_BUS=redis_streams publishes the frozen 13-field envelope to the
+// shared stream. Two passes after a lost mark must keep the same eventId.
+func TestIntegrationRelayEventBusWritesSharedStream(t *testing.T) {
+	client := integrationRedis(t, nil)
+	ctx := context.Background()
+	env := fmt.Sprintf("relay204_%d", time.Now().UnixNano())
+	runID := fmt.Sprintf("run_relay_eventbus_%d", time.Now().UnixNano())
+	streamKey := eventbus.StreamKeyFor(env)
+	dlqKey := eventbus.DLQStreamKeyFor(env)
+	t.Cleanup(func() {
+		client.Del(context.Background(), streamKey, dlqKey)
+	})
+	client.Del(ctx, streamKey, dlqKey)
+
+	publisher, err := eventbus.NewRedisPublisherWithClient(eventbus.RedisConfig{
+		Env: env, Consumer: "relay-test", ConsumerKey: eventbus.ConsumerKeyProjection,
+	}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newFakeStore(runID, 1, 2, 3)
+	relay, err := New(store, client, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	relay = relay.WithEventBus(publisher).WithLease(fakeLease{valid: true})
+
+	published, err := relay.RunOnce(ctx, 10)
+	if err != nil || published != 3 {
+		t.Fatalf("published=%d err=%v", published, err)
+	}
+	entries, err := client.XRange(ctx, streamKey, "-", "+").Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("shared stream entries=%d, want 3", len(entries))
+	}
+	seen := map[string]bool{}
+	for i, entry := range entries {
+		raw, ok := entry.Values[eventbus.DefaultStreamField]
+		if !ok {
+			t.Fatalf("entry %d has no %s field", i, eventbus.DefaultStreamField)
+		}
+		frame, ok := raw.(string)
+		if !ok {
+			t.Fatalf("entry %d field type %T", i, raw)
+		}
+		envelope, err := eventbus.DecodeEnvelope([]byte(frame))
+		if err != nil {
+			t.Fatalf("decode entry %d: %v", i, err)
+		}
+		if envelope.RunID != runID || envelope.Seq != int64(i+1) || envelope.Type != "state_update" {
+			t.Fatalf("unexpected envelope: %#v", envelope)
+		}
+		want := eventbus.DeriveEventID(runID, int64(i+1), 0)
+		if envelope.EventID != want {
+			t.Fatalf("eventId=%q want %q", envelope.EventID, want)
+		}
+		if envelope.ConversationID != runID {
+			t.Fatalf("conversationId=%q want runId fallback", envelope.ConversationID)
+		}
+		seen[envelope.EventID] = true
+	}
+	if len(seen) != 3 {
+		t.Fatalf("eventIds are not unique: %#v", seen)
 	}
 }

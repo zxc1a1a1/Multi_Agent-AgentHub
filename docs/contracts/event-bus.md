@@ -274,6 +274,22 @@ XADD agenthub:{env}:run:events MAXLEN ~ <N>
 
 > 结论：**当前不存在消息队列**。本文冻结的是目标契约；旧 per-run stream 是当前唯一真实存在的路径。
 
+### 9.1 实现状态更新（2026-11-03，R2-02/R2-03/R2-04）
+
+上表是 R2-01 撰写时的事实。以下任务已实现，但**生产默认路径未切换**：
+
+| 能力 | 状态 | 位置 / 开关 |
+|---|---|---|
+| 封套 + 内存传输 + per-run 保序 dispatcher | 已实现（R2-02） | `pkg/runtime/eventbus/{eventbus,memory,dispatch}.go` |
+| Redis Streams adapter（XADD/XREADGROUP/XACK/XAUTOCLAIM/DLQ） | 已实现并过真实 Redis 7.2 测试（R2-03） | `pkg/runtime/eventbus/redis.go` |
+| relay 通过 EventBus 发布 outbox | 已实现，**默认关闭**（R2-04） | `EVENT_BUS=legacy|redis_streams`（默认 `legacy`）；`OUTBOX_RELAY_LEASE=1` 时用 MySQL `GET_LOCK` 单写者租约，丢失即停止 |
+| 消费者幂等表 / Gateway 投影消费 | **未实现**（R2-05/R2-07） | `assistant_message.v1` 仍走 SQL 轮询 |
+| 重试/DLQ 指标与运维接口 | 部分（adapter 有钩子；无 Prometheus 文本/统计接口，R2-06） | `pkg/runtime/eventbus/metrics.go` |
+
+EVENT_BUS=redis_streams 下 relay 的封套由 `(runId, seq, subIndex=0)` 派生 `eventId`，
+conversationId 取自 `executions.conversation_id`；SQL outbox 仍是权威，publish 成功后才
+`MarkOutboxPublished`，失败只记 attempt/backoff。旧 per-run stream 保留为回滚路径。
+
 ---
 
 ## 10. 兼容与回滚：旧 per-run stream
