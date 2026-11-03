@@ -112,6 +112,9 @@ func eventAuthor(item agui.Event, fallback string) string {
 // projectTurn persists one finished turn. Sequence is the public journal seq of
 // the turn-finished event, so replay and projection share one cursor.
 func (s *Server) projectTurn(ctx context.Context, conversationID, runID string, turn liveTurn, seq int64) error {
+	if s.liveProjectionDisabled {
+		return nil
+	}
 	text := strings.TrimSpace(turn.text.String())
 	if text == "" {
 		return nil

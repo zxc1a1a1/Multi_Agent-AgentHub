@@ -43,7 +43,10 @@ func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "run or checkpoint not found"})
 		return
 	}
-	if state.Status != "paused" {
+	// A crashed holder leaves the run in "executing". AcquireLease below is the
+	// authority: it fails while a live holder's lease is valid, so allowing
+	// "executing" here cannot start a second concurrent execution.
+	if state.Status != "paused" && state.Status != "executing" {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "run is not paused", "status": state.Status})
 		return
 	}

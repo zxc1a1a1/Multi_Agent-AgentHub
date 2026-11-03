@@ -140,6 +140,10 @@ func run() error {
 	// regardless of whether we use the Orchestrator or static routing.
 	agents := toAgentSummaries(cfg.AgentEndpoints)
 	opts = append(opts, httpapi.WithAgents(agents))
+	if strings.TrimSpace(os.Getenv("GATEWAY_LIVE_PROJECTION")) == "0" {
+		opts = append(opts, httpapi.WithLiveProjectionDisabled(true))
+		log.Printf("gateway live turn projection disabled by GATEWAY_LIVE_PROJECTION=0")
+	}
 
 	gw, err := gateway.New(
 		cfg.Gateway,
@@ -155,7 +159,9 @@ func run() error {
 	// finishes assistant-message projection from the shared event journal.
 	var projectionCancel context.CancelFunc
 	var projectionDone chan struct{}
-	if recoveryStore, ok := primaryStore.(projection.Store); ok {
+	if strings.TrimSpace(os.Getenv("GATEWAY_PROJECTION_WORKER")) == "0" {
+		log.Printf("gateway projection worker disabled by GATEWAY_PROJECTION_WORKER=0")
+	} else if recoveryStore, ok := primaryStore.(projection.Store); ok {
 		workerCtx, cancel := context.WithCancel(context.Background())
 		projectionCancel = cancel
 		projectionDone = make(chan struct{})

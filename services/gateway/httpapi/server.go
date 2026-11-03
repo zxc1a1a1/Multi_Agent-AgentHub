@@ -191,6 +191,10 @@ type Server struct {
 	sseEventsTotal    atomic.Int64
 	streamWriteErrors atomic.Int64
 	streamDisconnects atomic.Int64
+
+	// liveProjectionDisabled suppresses the SSE-path turn projection so another
+	// instance's recovery worker owns it. Test/ops switch; default is enabled.
+	liveProjectionDisabled bool
 }
 
 func NewServer(st Store, runner RunService, opts ...Option) (*Server, error) {
@@ -308,6 +312,17 @@ func WithRunResumeService(svc RunResumeService) Option {
 			return
 		}
 		s.resumeService = svc
+	}
+}
+
+// WithLiveProjectionDisabled suppresses SSE-path turn projection. The recovery
+// worker (possibly on another instance) then owns projection.
+func WithLiveProjectionDisabled(disabled bool) Option {
+	return func(s *Server) {
+		if s == nil {
+			return
+		}
+		s.liveProjectionDisabled = disabled
 	}
 }
 

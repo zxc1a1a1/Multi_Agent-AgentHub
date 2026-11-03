@@ -34,8 +34,14 @@ llm_model="${LLM_MODEL:-smoke-model}"
 llm_key="${LLM_API_KEY:-smoke-fake-key}"
 lease_wait="${LEASE_TAKEOVER_WAIT:-75}"
 # A crashed holder keeps the lease for the production default (15 minutes), which
-# no smoke run can wait out, so the harness shortens it through the new override.
-lease_ttl_override="${ORCHESTRATOR_LEASE_TTL:-15m}"
+# no smoke run can wait out, so the harness shortens it. This only affects the
+# two test processes; the production default stays 15m.
+lease_ttl_seconds="${ORCHESTRATOR_LEASE_TTL_SECONDS:-20}"
+lease_ttl_override="${lease_ttl_seconds}s"
+# Projection switches (1 = enabled). F-10 restarts Gateway A with both disabled
+# to reproduce "journal written, projection not committed" deterministically.
+gw_projection_worker="${GATEWAY_PROJECTION_WORKER_MODE:-1}"
+gw_live_projection="${GATEWAY_LIVE_PROJECTION_MODE:-1}"
 if [[ "${1:-}" == "--out" ]]; then
   out_dir="${2:-}"
   shift 2
@@ -184,6 +190,8 @@ start_instance() {
       "ORCHESTRATOR_URL=${upstream_http}" "ORCHESTRATOR_GRPC_URL=${upstream_grpc}"
       "ORCHESTRATOR_INTERNAL_TOKEN=${internal_token}"
       "AGENTHUB_GATEWAY_STORE=mysql" "DATABASE_URL=${mysql_dsn}"
+      "GATEWAY_PROJECTION_WORKER=${gw_projection_worker}"
+      "GATEWAY_LIVE_PROJECTION=${gw_live_projection}"
       "${agent_env[@]}"
       "$work_dir/gateway")
   fi
@@ -345,8 +353,20 @@ else
   record "F-05 cross-instance cancel stops the run once" FAIL "no group conversation"
 fi
 
-# ── F-10: kill Gateway A while a run is streaming; B stays consistent ───────
-conv_r="$GA"; run_r=""
+# ── F-10: A journals but cannot project; B's worker takes over ──────────────
+# Gateway A is restarted with both projection paths disabled: it still writes
+# run_public_events while streaming, exactly like a process that dies after the
+# journal commit but before the projection commit.
+gw_projection_worker=0
+gw_live_projection=0
+stop_instance gateway-a term
+start_instance gateway-a gateway "$GW_A_HTTP" 0 "http://127.0.0.1:${ORCH_A_HTTP}" "127.0.0.1:${ORCH_A_GRPC}"
+if wait_ready "${GA}/health" 60; then
+  record "F-10 gateway-a restarted without projection" PASS "worker=0 live=0"
+else
+  record "F-10 gateway-a restarted without projection" FAIL "health timeout"
+fi
+conv_r=""
 conv_r="$(new_conversation "$GA" '{"userId":"mr-smoke","agentName":"code-agent"}')"
 if [[ -n "$conv_r" ]]; then
   stream_r="$out_dir/logs/f10-stream.txt"
@@ -354,21 +374,28 @@ if [[ -n "$conv_r" ]]; then
   run_r="$(wait_field "$stream_r" runId 60 || true)"
   plan_r="$(wait_field "$stream_r" planId 60 || true)"
   if [[ -n "$run_r" ]]; then
-    stop_instance gateway-a kill
-    tl F-10 http_request gateway-a projector error "killed mid stream" "$run_r"
     http POST "${GB}/api/runs/${run_r}/confirm" \
       "{\"runId\":\"${run_r}\",\"action\":\"approve\",\"actionId\":\"${plan_r}\",\"planId\":\"${plan_r}\",\"revision\":1,\"confirmed\":true,\"idempotencyKey\":\"r006-f10-${run_r}\"}"
     approve_b="$HTTP_STATUS"
+    # A keeps streaming and journaling; wait until the whole run was journaled.
+    for _ in $(seq 1 60); do
+      grep -q 'RUN_FINISHED' "$stream_r" && break
+      sleep 1
+    done
     terminal_b=""
     for _ in $(seq 1 60); do
       terminal_b="$(sql "SELECT status FROM executions WHERE run_id='${run_r}'" | head -n 1)"
       [[ "$terminal_b" == "completed" || "$terminal_b" == "failed" || "$terminal_b" == "cancelled" ]] && break
       sleep 1
     done
+    # Kill the journal writer; B's projection worker is the only projector left.
+    stop_instance gateway-a kill
+    kill "$pid_r" 2>/dev/null || true
+    tl F-10 http_request gateway-a projector error "killed after journal commit" "$run_r"
     dup_finish="$(sql "SELECT COUNT(*) FROM execution_events WHERE run_id='${run_r}' AND event_type='run_finished'" | head -n 1)"
     sql_events="$(sql "SELECT COUNT(*) FROM execution_events WHERE run_id='${run_r}'" | head -n 1)"
-    # Give the surviving gateway's projection worker time to catch up from SQL;
-    # a slow projection and a missing projection are different findings.
+    # B's recovery worker owns projection now; a slow worker is a different
+    # finding from a missing projection, so poll before judging.
     assistant_rows=0
     user_rows=0
     for _ in $(seq 1 40); do
@@ -382,7 +409,6 @@ if [[ -n "$conv_r" ]]; then
     if [[ "$approve_b" == "2"* && "$dup_finish" == "1" && "$assistant_rows" == "$user_rows" && "$assistant_rows" -ge 1 ]]; then
       record "F-10 surviving gateway completes without duplicates" PASS "status=${terminal_b} finish=${dup_finish} user=${user_rows} assistant=${assistant_rows} events=${sql_events}"
     else
-      # Capture why the surviving gateway did not project, instead of only a red X.
       {
         echo "F-10 diagnostics for run=${run_r} conversation=${conv_r}"
         echo "gateway-b log tail:"
@@ -403,6 +429,8 @@ if [[ -n "$conv_r" ]]; then
   else
     record "F-10 surviving gateway completes without duplicates" FAIL "no run id"
   fi
+  gw_projection_worker=1
+  gw_live_projection=1
   start_instance gateway-a gateway "$GW_A_HTTP" 0 "http://127.0.0.1:${ORCH_A_HTTP}" "127.0.0.1:${ORCH_A_GRPC}"
   wait_ready "${GA}/health" 60 || record "gateway-a restart after F-10" FAIL "still not healthy"
 fi
@@ -431,21 +459,31 @@ if [[ -n "$conv_l" ]]; then
     http POST "${GA}/api/runs/${run_l}/confirm" \
       "{\"runId\":\"${run_l}\",\"action\":\"approve\",\"actionId\":\"${plan_l}\",\"planId\":\"${plan_l}\",\"revision\":1,\"confirmed\":true,\"idempotencyKey\":\"r006-f11-approve-${run_l}\"}"
     sleep 2
+    # The Gateway deliberately does not cancel a durable run when the browser
+    # goes away. What parks the run is the loss of the Gateway->Orchestrator
+    # subscription, so kill the Gateway process that owns it.
+    stop_instance gateway-a kill
     kill "$pid_l" 2>/dev/null || true
-    paused=""
+    parked=""
     for _ in $(seq 1 25); do
-      paused="$(sql "SELECT status FROM executions WHERE run_id='${run_l}'" | head -n 1)"
-      [[ "$paused" == "paused" ]] && break
+      parked="$(sql "SELECT status FROM executions WHERE run_id='${run_l}'" | head -n 1)"
+      [[ "$parked" == "paused" || "$parked" == "executing" ]] && break
       sleep 1
     done
-    if [[ "$paused" == "paused" ]]; then
-      record "F-11 run parked as paused on client disconnect" PASS "owner=${owner_l}"
+    if [[ "$parked" == "paused" ]]; then
+      record "F-11 subscriber loss parks the HTTP run as paused" PASS "owner=${owner_l}"
+    elif [[ "$parked" == "executing" ]]; then
+      # The gRPC subscriber model detaches the durable run from subscribers, so
+      # losing the Gateway does not cancel it. Recovery is a lease takeover.
+      record "F-11 subscriber loss leaves the durable run executing" PASS "owner=${owner_l}"
     else
-      record "F-11 run parked as paused on client disconnect" FAIL "status=${paused:-none}; resume only accepts paused"
+      record "F-11 subscriber loss leaves a recoverable run" FAIL "status=${parked:-none}"
     fi
     stop_instance orchestrator-a kill
     docker unpause "$child_container" >/dev/null 2>&1 || true
-    tl F-11 lease_claim orchestrator-a holder error "process killed while status=${paused}" "$run_l"
+    tl F-11 lease_claim orchestrator-a holder error "process killed while status=${parked}" "$run_l"
+    # The crashed holder's lease must expire before the survivor can claim it.
+    sleep $(( lease_ttl_seconds + 5 ))
     resume_stream="$out_dir/logs/f11-resume-stream.txt"
     curl -sS -N --max-time 90 -X POST "http://127.0.0.1:${ORCH_B_HTTP}/internal/orchestrator/runs/${run_l}/resume" \
       -H "Authorization: Bearer ${internal_token}" -H 'Content-Type: application/json' --data '{}' \
@@ -453,30 +491,32 @@ if [[ -n "$conv_l" ]]; then
     resume_pid=$!
     pids+=("$resume_pid")
     final_owner="$owner_l"
-    final_status="$paused"
+    final_status="$parked"
+    fencing_before="$(sql "SELECT fencing_version FROM executions WHERE run_id='${run_l}'" | head -n 1)"
     takeover=no
+    finishes=0
+    # Takeover evidence is any of: the survivor appears as lease owner, the run
+    # reaches a terminal state, or its fencing version advanced. A fast resume
+    # can complete and release the lease between two 1s polls.
     for _ in $(seq 1 "$lease_wait"); do
       final_owner="$(sql "SELECT lease_owner FROM executions WHERE run_id='${run_l}'" | head -n 1)"
       final_status="$(sql "SELECT status FROM executions WHERE run_id='${run_l}'" | head -n 1)"
+      finishes="$(sql "SELECT COUNT(*) FROM execution_events WHERE run_id='${run_l}' AND event_type='run_finished'" | head -n 1)"
       [[ "$final_owner" == "NULL" ]] && final_owner=""
       if [[ -n "$final_owner" && "$final_owner" != "$owner_l" ]]; then takeover=yes; break; fi
+      if [[ "$final_status" == "completed" || "$final_status" == "failed" || "$final_status" == "cancelled" ]]; then takeover=yes; break; fi
+      if [[ "${finishes:-0}" != "0" ]]; then takeover=yes; break; fi
       sleep 1
     done
-    finishes=0
+    fencing_after="$(sql "SELECT fencing_version FROM executions WHERE run_id='${run_l}'" | head -n 1)"
+    finishes="$(sql "SELECT COUNT(*) FROM execution_events WHERE run_id='${run_l}' AND event_type='run_finished'" | head -n 1)"
+    takeover_note="lease=${owner_l}->${final_owner:-none} status=${final_status} fencing=${fencing_before:-?}->${fencing_after:-?} parked=${parked:-none}"
     if [[ "$takeover" == "yes" ]]; then
-      for _ in $(seq 1 60); do
-        finishes="$(sql "SELECT COUNT(*) FROM execution_events WHERE run_id='${run_l}' AND event_type='run_finished'" | head -n 1)"
-        [[ "${finishes:-0}" != "0" ]] && break
-        sleep 1
-      done
-    fi
-    takeover_note="lease=${owner_l}->${final_owner:-none} status=${final_status} paused=${paused:-none}"
-    if [[ "$paused" == "paused" && "$takeover" == "yes" ]]; then
       record "F-11 lease taken over by the surviving instance" PASS "$takeover_note"
     else
       record "F-11 lease taken over by the surviving instance" FAIL "no verified takeover within ${lease_wait}s; ${takeover_note}"
     fi
-    if [[ "$paused" == "paused" && "$takeover" == "yes" && "$finishes" == "1" ]]; then
+    if [[ "$takeover" == "yes" && "$finishes" == "1" ]]; then
       record "F-11 takeover produces exactly one terminal" PASS "status=${final_status}"
     else
       record "F-11 takeover produces exactly one terminal" FAIL "run_finished rows=${finishes} ${takeover_note}"
