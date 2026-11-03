@@ -14,6 +14,7 @@ import UnknownSkillFallback from './skills/UnknownSkillFallback'
 import ConfirmActionCard from './skills/ConfirmActionCard'
 import FormInputCard from './skills/FormInputCard'
 import ArtifactCard from './skills/ArtifactCard'
+import SandboxedHtml from './skills/SandboxedHtml'
 import OrchestrationSummary from './OrchestrationSummary'
 import { User, Reply, Copy, Check, RotateCcw, Pin, PinOff } from 'lucide-react'
 import { getAgentDisplayName } from '../lib/agents'
@@ -51,6 +52,16 @@ function SkillCardRenderer({ card }: { card: SkillCardData }) {
         return <FormInputCard runId={card.runId} taskId={card.taskId} toolCallId={card.toolCallId} title={card.title} schema={card.schema} />
       case 'artifact_card':
         return <ArtifactCard id={card.id} name={card.name} kind={card.kind} mimeType={card.mimeType} size={card.size} downloadPath={card.downloadPath} createdAt={card.createdAt} sourceAgent={card.sourceAgent} metadata={card.metadata} />
+      case 'ui_component':
+        if (card.component === 'html_sandbox') {
+          return <SandboxedHtml artifactId={card.artifactId} title={`${card.component} artifact`} />
+        }
+        return (
+          <UnknownSkillFallback
+            toolName="ui_component"
+            args={{ reason: 'renderer_not_implemented', component: card.component }}
+          />
+        )
       case 'unknown_skill':
         return <UnknownSkillFallback toolName={card.toolName} args={card.args} />
       default:

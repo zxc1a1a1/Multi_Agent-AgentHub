@@ -160,6 +160,7 @@ func (s *Server) serveArtifactContent(w http.ResponseWriter, r *http.Request, ar
 			return
 		}
 	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if record.ContentType != "" {
 		w.Header().Set("Content-Type", record.ContentType)
 	} else if record.MimeType != "" {

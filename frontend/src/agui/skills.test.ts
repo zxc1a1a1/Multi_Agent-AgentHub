@@ -49,9 +49,13 @@ describe('ui.component registry (R3-01)', () => {
     expect(uiComponentRegistry.map((entry) => entry.component).sort()).toEqual([...uiComponentAllowlist].sort())
   })
 
-  it('registers no renderer at R3-01 so no component event can execute', () => {
+  it('wires only the reviewed html_sandbox renderer (R3-02)', () => {
     for (const entry of uiComponentRegistry) {
-      expect(entry.renderer).toBeNull()
+      if (entry.component === 'html_sandbox') {
+        expect(entry.renderer).toBe('html_sandbox')
+      } else {
+        expect(entry.renderer).toBeNull()
+      }
       expect(entry.interactive).toBe(false)
       expect(entry.acceptsStreamingProps).toBe(false)
     }
@@ -84,7 +88,7 @@ describe('validateUIComponentEvent — component allowlist', () => {
       schemaVersion: 1,
       artifactId: 'art_a1b2c3d4e5f6a1b2c3d4e5f6',
       capabilities: ['read_only'],
-      renderer: null,
+      renderer: 'html_sandbox',
     })
     if (!result.ok) throw new Error('unexpected rejection')
     expect(result.props).toEqual({ items: [1, 'two', null] })

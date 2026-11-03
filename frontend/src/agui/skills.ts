@@ -88,8 +88,8 @@ export type UIComponentDefinition = {
 export const uiComponentRegistry: UIComponentDefinition[] = [
   {
     component: 'html_sandbox',
-    description: 'Sandboxed HTML artifact surface (renderer lands in R3-02)',
-    renderer: null,
+    description: 'Sandboxed HTML artifact surface (iframe allow-scripts + CSP)',
+    renderer: 'html_sandbox',
     interactive: false,
     acceptsStreamingProps: false,
   },

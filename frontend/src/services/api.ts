@@ -564,8 +564,11 @@ export async function getArtifact(id: string): Promise<ArtifactRecord> {
   return res.json()
 }
 
-export async function fetchArtifactContent(id: string): Promise<Blob> {
-  const res = await fetch(`${API_BASE}/artifacts/${encodeURIComponent(id)}/content`, { headers: authHeaders() })
+export async function fetchArtifactContent(id: string, signal?: AbortSignal): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/artifacts/${encodeURIComponent(id)}/content`, {
+    headers: authHeaders(),
+    signal,
+  })
   if (!res.ok) throw new Error(`Failed to fetch artifact content: HTTP ${res.status}`)
   return res.blob()
 }

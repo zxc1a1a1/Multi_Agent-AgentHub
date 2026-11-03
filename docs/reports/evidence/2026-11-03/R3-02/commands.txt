@@ -1,0 +1,8 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+cd frontend
+npm test -- --run src/components/skills/SandboxedHtml.test.tsx src/components/MessageBubbleUIComponent.test.tsx src/agui/skills.test.ts
+PLAYWRIGHT_CHANNEL=msedge npx playwright test e2e/sandbox-escape.spec.ts
+npm test -- --run        # full suite
+npm run build
+cd ../services/orchestrator && go test ./httpapi/ -run TestArtifactContentSetsNosniff -count=1
