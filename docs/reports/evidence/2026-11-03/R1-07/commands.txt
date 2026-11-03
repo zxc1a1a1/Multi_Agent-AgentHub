@@ -1,0 +1,4 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+AGENTHUB_MYSQL_TEST_DSN=<test dsn> go test ./services/orchestrator/internal/memory -run TestIntegrationMemoryCoreAndRecheck -count=1 -v
+AGENTHUB_MYSQL_TEST_DSN=<test dsn> go test ./services/orchestrator/internal/memory ./services/orchestrator/internal/persistence/mysql ./services/orchestrator/httpapi -count=1

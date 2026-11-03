@@ -19,6 +19,12 @@ type Entry struct {
 	CreatedAt  time.Time  `json:"createdAt"`
 	VerifiedAt time.Time  `json:"verifiedAt"`
 	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+	// Core entries are preferred during recall (bounded by MaxCoreEntries).
+	Core bool `json:"core,omitempty"`
+	// RecheckAfter marks when the entry should be reviewed; recall reports Stale.
+	RecheckAfter *time.Time `json:"recheckAfter,omitempty"`
+	// Stale is computed at recall time and is never persisted.
+	Stale bool `json:"stale,omitempty"`
 }
 
 // Store is the authoritative MySQL-backed storage boundary implemented in P3c.

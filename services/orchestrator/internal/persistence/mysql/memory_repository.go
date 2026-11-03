@@ -78,7 +78,7 @@ func (r *MemoryRepository) Recall(ctx context.Context, scopeID string, query str
 	now := time.Now().UTC()
 	sqlText := `SELECT e.memory_id, e.scope_id, e.kind, e.logical_key,
 		r.content, e.current_revision, e.status, e.source_refs, e.created_at,
-		COALESCE(e.verified_at, e.created_at), e.expires_at
+		COALESCE(e.verified_at, e.created_at), e.expires_at, e.core, e.recheck_after
 		FROM memory_entries e
 		JOIN memory_revisions r ON r.memory_id = e.memory_id AND r.revision = e.current_revision
 		WHERE e.scope_id = ? AND e.status = 'active'
@@ -91,9 +91,9 @@ func (r *MemoryRepository) Recall(ctx context.Context, scopeID string, query str
 			lowered := strings.ToLower(term)
 			args = append(args, lowered, lowered)
 		}
-		sqlText += " AND (" + strings.Join(clauses, " OR ") + ")"
+		sqlText += " AND ((" + strings.Join(clauses, " OR ") + ") OR e.core = 1)"
 	}
-	sqlText += " ORDER BY e.verified_at DESC, e.memory_id ASC LIMIT ?"
+	sqlText += " ORDER BY e.core DESC, e.verified_at DESC, e.memory_id ASC LIMIT ?"
 	args = append(args, limit)
 	rows, err := r.db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
@@ -106,16 +106,17 @@ func (r *MemoryRepository) Recall(ctx context.Context, scopeID string, query str
 func (r *MemoryRepository) Get(ctx context.Context, scopeID, memoryID string) (*rtmemory.Entry, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT e.memory_id, e.scope_id, e.kind, e.logical_key,
 		r.content, e.current_revision, e.status, e.source_refs, e.created_at,
-		COALESCE(e.verified_at, e.created_at), e.expires_at
+		COALESCE(e.verified_at, e.created_at), e.expires_at, e.core, e.recheck_after
 		FROM memory_entries e
 		JOIN memory_revisions r ON r.memory_id = e.memory_id AND r.revision = e.current_revision
 		WHERE e.scope_id = ? AND e.memory_id = ?`, scopeID, memoryID)
 	var entry rtmemory.Entry
 	var refs []byte
 	var expires sql.NullTime
+	var recheck sql.NullTime
 	var verified time.Time
 	if err := row.Scan(&entry.MemoryID, &entry.ScopeKey, &entry.Kind, &entry.LogicalKey, &entry.Content,
-		&entry.Revision, &entry.Status, &refs, &entry.CreatedAt, &verified, &expires); err != nil {
+		&entry.Revision, &entry.Status, &refs, &entry.CreatedAt, &verified, &expires, &entry.Core, &recheck); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrMemoryNotFound
 		}
@@ -124,6 +125,9 @@ func (r *MemoryRepository) Get(ctx context.Context, scopeID, memoryID string) (*
 	entry.VerifiedAt = verified
 	if expires.Valid {
 		entry.ExpiresAt = &expires.Time
+	}
+	if recheck.Valid {
+		entry.RecheckAfter = &recheck.Time
 	}
 	_ = json.Unmarshal(refs, &entry.SourceRefs)
 	return &entry, nil
@@ -154,10 +158,10 @@ func (r *MemoryRepository) Propose(ctx context.Context, scopeID string, entry rt
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO memory_entries
-		(memory_id, scope_id, kind, logical_key, status, current_revision, content_hash, source_refs, created_at, expires_at)
-		VALUES (?, ?, ?, ?, 'candidate', 1, ?, ?, ?, ?)`,
+		(memory_id, scope_id, kind, logical_key, status, current_revision, content_hash, source_refs, created_at, expires_at, core, recheck_after)
+		VALUES (?, ?, ?, ?, 'candidate', 1, ?, ?, ?, ?, ?, ?)`,
 		entry.MemoryID, scopeID, entry.Kind, entry.LogicalKey, hex.EncodeToString(hash[:]), refs, now,
-		nullIfNilTime(entry.ExpiresAt)); err != nil {
+		nullIfNilTime(entry.ExpiresAt), entry.Core, nullIfNilTime(entry.RecheckAfter)); err != nil {
 		if isDuplicateKey(err) {
 			return nil, ErrMemoryConflict
 		}
@@ -363,7 +367,7 @@ func (r *MemoryRepository) ListEntries(ctx context.Context, scopeID, status stri
 	}
 	rows, err := r.db.QueryContext(ctx, `SELECT e.memory_id, e.scope_id, e.kind, e.logical_key,
 		r.content, e.current_revision, e.status, e.source_refs, e.created_at,
-		COALESCE(e.verified_at, e.created_at), e.expires_at
+		COALESCE(e.verified_at, e.created_at), e.expires_at, e.core, e.recheck_after
 		FROM memory_entries e
 		JOIN memory_revisions r ON r.memory_id = e.memory_id AND r.revision = e.current_revision
 		WHERE e.scope_id = ? AND (? = '' OR e.status = ?)
@@ -419,14 +423,18 @@ func scanMemoryEntries(rows *sql.Rows) ([]rtmemory.Entry, error) {
 		var e rtmemory.Entry
 		var refs []byte
 		var expires sql.NullTime
+		var recheck sql.NullTime
 		var verified time.Time
 		if err := rows.Scan(&e.MemoryID, &e.ScopeKey, &e.Kind, &e.LogicalKey, &e.Content, &e.Revision,
-			&e.Status, &refs, &e.CreatedAt, &verified, &expires); err != nil {
+			&e.Status, &refs, &e.CreatedAt, &verified, &expires, &e.Core, &recheck); err != nil {
 			return nil, err
 		}
 		e.VerifiedAt = verified
 		if expires.Valid {
 			e.ExpiresAt = &expires.Time
+		}
+		if recheck.Valid {
+			e.RecheckAfter = &recheck.Time
 		}
 		_ = json.Unmarshal(refs, &e.SourceRefs)
 		out = append(out, e)

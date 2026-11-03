@@ -117,29 +117,45 @@ func (c *Controller) filterRecall(entries []rtmemory.Entry, limit int) ([]rtmemo
 	out := make([]rtmemory.Entry, 0, limit)
 	seen := map[string]bool{}
 	tokens := 0
-	for _, entry := range entries {
-		if entry.Status != "active" {
-			continue
-		}
-		if entry.ExpiresAt != nil && !entry.ExpiresAt.After(now) {
-			continue
-		}
-		if len(entry.Content) > c.policy.MaxEntryBytes {
-			continue
-		}
+
+	include := func(entry rtmemory.Entry) bool {
 		key := fmt.Sprintf("%s:%d", entry.MemoryID, entry.Revision)
 		if seen[key] {
-			continue
+			return true
+		}
+		if entry.Status != "active" {
+			return true
+		}
+		if entry.ExpiresAt != nil && !entry.ExpiresAt.After(now) {
+			return true
+		}
+		if len(entry.Content) > c.policy.MaxEntryBytes {
+			return true
 		}
 		cost := len(entry.Content)/4 + 1
 		if tokens+cost > c.policy.MaxInjectedTokens {
-			break
+			return false
 		}
 		seen[key] = true
 		tokens += cost
+		entry.Stale = entry.RecheckAfter != nil && !entry.RecheckAfter.After(now)
 		out = append(out, entry)
-		if len(out) >= limit {
-			break
+		return len(out) < limit
+	}
+
+	coreCount := 0
+	for _, entry := range entries {
+		if !entry.Core || coreCount >= c.policy.MaxCoreEntries {
+			continue
+		}
+		if !include(entry) {
+			return out, nil
+		}
+		coreCount++
+	}
+	for _, entry := range entries {
+		if !include(entry) {
+			return out, nil
 		}
 	}
 	return out, nil
@@ -187,6 +203,10 @@ func (c *Controller) Propose(ctx context.Context, scope rtmemory.Scope, entry rt
 	}
 	if len(entry.SourceRefs) == 0 {
 		return nil, fmt.Errorf("%w: source refs required", ErrInvalid)
+	}
+	if entry.RecheckAfter == nil && c.policy.DefaultRecheckAfter > 0 {
+		next := c.now().Add(c.policy.DefaultRecheckAfter)
+		entry.RecheckAfter = &next
 	}
 	if entry.MemoryID == "" {
 		entry.MemoryID = newID()

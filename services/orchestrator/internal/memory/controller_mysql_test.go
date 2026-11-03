@@ -269,3 +269,59 @@ func pad(n int) string {
 	}
 	return string(out)
 }
+
+// R1-07: core entries win recall slots (even when the keyword does not match),
+// recheck_after defaults on Propose, and stale is reported at recall time.
+func TestIntegrationMemoryCoreAndRecheck(t *testing.T) {
+	controller, db, scope := openMemoryController(t, func(policy *rtmemory.Policy) {
+		policy.MaxCoreEntries = 1
+		policy.DefaultRecheckAfter = time.Hour
+	})
+	ctx := context.Background()
+	past := time.Now().UTC().Add(-2 * time.Hour)
+
+	core, err := controller.Propose(ctx, scope, rtmemory.Entry{
+		Kind: "fact", LogicalKey: "core-pref", Content: "core memory",
+		SourceRefs: []string{"msg-core"}, Core: true, RecheckAfter: &past,
+	})
+	if err != nil {
+		t.Fatalf("propose core: %v", err)
+	}
+	if _, err := controller.Confirm(ctx, scope, core.MemoryID, 1); err != nil {
+		t.Fatalf("confirm core: %v", err)
+	}
+	plain := propose(t, controller, scope, "plain-pref", "plain memory")
+	if plain.RecheckAfter == nil {
+		t.Fatal("Propose must default RecheckAfter from DefaultRecheckAfter")
+	}
+	if _, err := controller.Confirm(ctx, scope, plain.MemoryID, 1); err != nil {
+		t.Fatalf("confirm plain: %v", err)
+	}
+
+	results, err := controller.Recall(ctx, scope, "plain", 5)
+	if err != nil {
+		t.Fatalf("recall: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("recall returned %d entries, want 2 (core + keyword)", len(results))
+	}
+	if results[0].LogicalKey != "core-pref" || !results[0].Core {
+		t.Fatalf("first recalled entry=%q core=%v, want the core entry", results[0].LogicalKey, results[0].Core)
+	}
+	if !results[0].Stale {
+		t.Fatal("an entry past recheck_after must be reported stale")
+	}
+	if results[1].LogicalKey != "plain-pref" || results[1].Stale {
+		t.Fatalf("second entry=%q stale=%v, want fresh plain entry", results[1].LogicalKey, results[1].Stale)
+	}
+
+	var coreFlag bool
+	var recheck sql.NullTime
+	if err := db.QueryRow("SELECT core, recheck_after FROM memory_entries WHERE memory_id = ?", core.MemoryID).
+		Scan(&coreFlag, &recheck); err != nil {
+		t.Fatalf("read core columns: %v", err)
+	}
+	if !coreFlag || !recheck.Valid {
+		t.Fatalf("core column=%v recheck=%v, want persisted", coreFlag, recheck.Valid)
+	}
+}

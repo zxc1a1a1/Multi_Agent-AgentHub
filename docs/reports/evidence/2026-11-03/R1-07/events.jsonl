@@ -1,0 +1,1 @@
+{"schemaVersion": 2, "evidenceId": "ev_20261103_R1_07_001", "testId": "R1-07", "planTaskId": "R1-07", "layer": "orchestrator", "actor": "orchestrator", "action": "memory_recall", "target": "TestIntegrationMemoryCoreAndRecheck", "status": "ok", "detail": {"goStatus": "pass"}, "counts": {}, "recordedAt": "2026-11-03T05:25:04Z"}

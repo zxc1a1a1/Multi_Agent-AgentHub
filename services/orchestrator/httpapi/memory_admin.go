@@ -103,11 +103,13 @@ func (s *Server) handleMemoryMutation(w http.ResponseWriter, r *http.Request, pa
 		var req struct {
 			Scope memoryScopeDTO `json:"scope"`
 			Entry struct {
-				Kind       string     `json:"kind"`
-				LogicalKey string     `json:"logicalKey"`
-				Content    string     `json:"content"`
-				SourceRefs []string   `json:"sourceRefs"`
-				ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+				Kind         string     `json:"kind"`
+				LogicalKey   string     `json:"logicalKey"`
+				Content      string     `json:"content"`
+				SourceRefs   []string   `json:"sourceRefs"`
+				ExpiresAt    *time.Time `json:"expiresAt,omitempty"`
+				Core         bool       `json:"core,omitempty"`
+				RecheckAfter *time.Time `json:"recheckAfter,omitempty"`
 			} `json:"entry"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -117,6 +119,7 @@ func (s *Server) handleMemoryMutation(w http.ResponseWriter, r *http.Request, pa
 		entry, err := controller.Propose(r.Context(), req.Scope.Scope(), rtmemory.Entry{
 			Kind: req.Entry.Kind, LogicalKey: req.Entry.LogicalKey, Content: req.Entry.Content,
 			SourceRefs: req.Entry.SourceRefs, ExpiresAt: req.Entry.ExpiresAt,
+			Core: req.Entry.Core, RecheckAfter: req.Entry.RecheckAfter,
 		})
 		if err != nil {
 			writeMemoryError(w, err)
