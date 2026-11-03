@@ -1532,7 +1532,7 @@ git diff --staged | grep -E "OPENAI_API_KEY|ANTHROPIC_API_KEY|AGENTHUB_API_TOKEN
 | R0-02 | PASS | 8c6fb2c | 2026-11-03/R0-02 |
 | R0-03 | PASS | 0271a38 | 2026-11-03/R0-03 |
 | R0-04 | PASS | 6bb9757 | 2026-11-02/R0-04 |
-| R0-05 | BLOCKED | - | 需用户授权 push 后实跑 GitHub CI |
+| R0-05 | PASS | e7460eb | 2026-11-03/R0-05（run 41588624458，19/19 jobs） |
 | R0-06 | PASS | 0f7a210 | 2026-11-03/R0-06 |
 | R0-07 | PASS | ee833cd | 2026-11-03/R0-07（S3 兼容 SeaweedFS；MinIO 镜像不可得） |
 | R0-08 | PASS | ccc143e | 2026-11-03/R0-08 |
