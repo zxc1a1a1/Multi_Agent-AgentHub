@@ -7,6 +7,7 @@ import type { Message, SkillCardData, UIComponentCardData, UnknownSkillData } fr
 
 vi.mock('../services/api', () => ({
   fetchArtifactContent: vi.fn(),
+  sendToolResult: vi.fn().mockResolvedValue(undefined),
 }))
 
 const mockedFetch = vi.mocked(fetchArtifactContent)
@@ -100,7 +101,7 @@ describe('MessageBubble renders ui.component cards', () => {
 
   it('keeps non-html components as text fallbacks', () => {
     const { container } = render(
-      <MessageBubble message={buildMessage([componentCard({ component: 'json_form' })])} />,
+      <MessageBubble message={buildMessage([componentCard({ component: 'chart' })])} />,
     )
     expect(screen.getByText('Tool: ui_component')).toBeInTheDocument()
     expect(screen.getByText(/renderer_not_implemented/)).toBeInTheDocument()
@@ -120,7 +121,7 @@ describe('MessageBubble renders ui.component cards', () => {
     const user = userEvent.setup()
     const evalSpy = vi.spyOn(window, 'eval').mockImplementation(() => undefined)
     const { container } = render(
-      <MessageBubble message={buildMessage([componentCard({ component: 'json_form' })])} />,
+      <MessageBubble message={buildMessage([componentCard({ component: 'chart' })])} />,
     )
 
     const card = fallbackRoot()
@@ -143,5 +144,54 @@ describe('MessageBubble renders ui.component cards', () => {
     expect(container.querySelectorAll('iframe')).toHaveLength(1)
     expect(container.querySelectorAll('pre')).toHaveLength(0)
     expect(mockedFetch).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('MessageBubble json_form cards', () => {
+  const formProps = {
+    schema: {
+      type: 'object',
+      required: ['name'],
+      properties: {
+        name: { type: 'string', title: 'Name' },
+        agree: { type: 'boolean', title: 'Agree', default: false },
+      },
+    },
+    toolCallId: 'call_r304',
+    title: 'Approval form',
+  }
+
+  it('renders the sanitized RJSF form when context and capability are present', async () => {
+    render(
+      <MessageBubble
+        message={buildMessage([
+          componentCard({ component: 'json_form', props: formProps, capabilities: ['user_input'] }),
+        ])}
+      />,
+    )
+    expect(await screen.findByText('Approval form')).toBeInTheDocument()
+    expect(screen.getByLabelText(/Name/)).toBeInTheDocument()
+  })
+
+  it('falls back when toolCallId is missing', () => {
+    render(
+      <MessageBubble
+        message={buildMessage([
+          componentCard({ component: 'json_form', props: { schema: formProps.schema }, capabilities: ['user_input'] }),
+        ])}
+      />,
+    )
+    expect(screen.getByText(/form_context_missing/)).toBeInTheDocument()
+  })
+
+  it('falls back when the user_input capability is absent', () => {
+    render(
+      <MessageBubble
+        message={buildMessage([
+          componentCard({ component: 'json_form', props: formProps, capabilities: ['read_only'] }),
+        ])}
+      />,
+    )
+    expect(screen.getByText(/user_input_capability_missing/)).toBeInTheDocument()
   })
 })

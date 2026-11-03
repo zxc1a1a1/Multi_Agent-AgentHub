@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react'
+import { lazy, Suspense, useMemo, useState, useCallback } from 'react'
 import type { Message, SkillCardData, ReplyTo } from '../types'
 import AgentAvatar from './AgentAvatar'
 import StreamingText from './StreamingText'
@@ -15,6 +15,8 @@ import ConfirmActionCard from './skills/ConfirmActionCard'
 import FormInputCard from './skills/FormInputCard'
 import ArtifactCard from './skills/ArtifactCard'
 import SandboxedHtml from './skills/SandboxedHtml'
+
+const JsonSchemaForm = lazy(() => import('./skills/JsonSchemaForm'))
 import OrchestrationSummary from './OrchestrationSummary'
 import { User, Reply, Copy, Check, RotateCcw, Pin, PinOff } from 'lucide-react'
 import { getAgentDisplayName } from '../lib/agents'
@@ -55,6 +57,27 @@ function SkillCardRenderer({ card }: { card: SkillCardData }) {
       case 'ui_component':
         if (card.component === 'html_sandbox') {
           return <SandboxedHtml artifactId={card.artifactId} title={`${card.component} artifact`} />
+        }
+        if (card.component === 'json_form') {
+          const props = card.props as Record<string, unknown>
+          const toolCallId = typeof props.toolCallId === 'string' ? props.toolCallId : ''
+          if (!card.runId || !toolCallId) {
+            return <UnknownSkillFallback toolName="ui_component" args={{ reason: 'form_context_missing' }} />
+          }
+          if (!(card.capabilities ?? []).includes('user_input')) {
+            return <UnknownSkillFallback toolName="ui_component" args={{ reason: 'user_input_capability_missing' }} />
+          }
+          return (
+            <Suspense fallback={<UnknownSkillFallback toolName="ui_component" args={{ reason: 'form_loading' }} />}>
+              <JsonSchemaForm
+                schema={props.schema}
+                title={typeof props.title === 'string' ? props.title : undefined}
+                runId={card.runId}
+                taskId={card.taskId}
+                toolCallId={toolCallId}
+              />
+            </Suspense>
+          )
         }
         return (
           <UnknownSkillFallback

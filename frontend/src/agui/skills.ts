@@ -95,8 +95,8 @@ export const uiComponentRegistry: UIComponentDefinition[] = [
   },
   {
     component: 'json_form',
-    description: 'JSON-schema driven form (renderer lands in R3-04)',
-    renderer: null,
+    description: 'JSON-schema driven form (sanitized RJSF, tool-result submit)',
+    renderer: 'json_schema_form',
     interactive: false,
     acceptsStreamingProps: false,
   },

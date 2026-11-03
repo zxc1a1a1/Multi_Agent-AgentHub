@@ -53,6 +53,8 @@ describe('ui.component registry (R3-01)', () => {
     for (const entry of uiComponentRegistry) {
       if (entry.component === 'html_sandbox') {
         expect(entry.renderer).toBe('html_sandbox')
+      } else if (entry.component === 'json_form') {
+        expect(entry.renderer).toBe('json_schema_form')
       } else {
         expect(entry.renderer).toBeNull()
       }

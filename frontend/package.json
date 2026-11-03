@@ -12,6 +12,8 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@rjsf/core": "6.11.0",
+    "@rjsf/validator-ajv8": "6.11.0",
     "diff2html": "^3.4.56",
     "dompurify": "^3.4.17",
     "katex": "^0.16.47",
