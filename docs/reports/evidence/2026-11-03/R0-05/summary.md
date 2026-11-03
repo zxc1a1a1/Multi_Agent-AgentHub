@@ -47,3 +47,10 @@
 ## 5. 证据
 
 - `docs/reports/evidence/2026-11-03/R0-05/`（commands.txt、events.jsonl、summary.md、logs/run.json、logs/jobs.json）
+
+## 6. 最终 HEAD 复核
+
+- run: https://github.com/zxc1a1a1/Multi_Agent-AgentHub/actions/runs/41589480172
+- SHA: `e64374dbe9657cedd23ad30061440dbe37132bc7`（含 R1-03/04/05/06/07 与 CI 修复）
+- 结果：**success**，19/19 jobs success（integration/unit matrix/frontend/e2e/config-validation）
+- 原始数据：`logs/final-run.json`、`logs/final-jobs.json`
