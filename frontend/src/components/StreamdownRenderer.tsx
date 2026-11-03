@@ -15,7 +15,7 @@ const Streamdown = lazy(async () => {
 type BoundaryProps = { fallback: ReactNode; children: ReactNode }
 type BoundaryState = { failed: boolean }
 
-class StreamdownBoundary extends Component<BoundaryProps, BoundaryState> {
+export class StreamdownBoundary extends Component<BoundaryProps, BoundaryState> {
   state: BoundaryState = { failed: false }
 
   static getDerivedStateFromError(): BoundaryState {

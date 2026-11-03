@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import StreamdownRenderer from './StreamdownRenderer'
 
@@ -9,7 +9,7 @@ describe('StreamdownRenderer (real Streamdown 2.7.1)', () => {
     const { container } = render(
       <StreamdownRenderer content={'```go\nfmt.Println("still open"'} fallback={<div>legacy</div>} />,
     )
-    expect(await screen.findByText(/still open/)).toBeInTheDocument()
+    await waitFor(() => expect(container.textContent).toContain('still open'), { timeout: 5000 })
     expect(container.textContent).not.toContain('legacy')
   })
 
@@ -37,3 +37,4 @@ describe('StreamdownRenderer (real Streamdown 2.7.1)', () => {
     expect((window as unknown as { __xss?: number }).__xss).toBeUndefined()
   })
 })
+

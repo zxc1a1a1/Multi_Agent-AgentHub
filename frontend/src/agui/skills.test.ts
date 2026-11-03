@@ -55,6 +55,8 @@ describe('ui.component registry (R3-01)', () => {
         expect(entry.renderer).toBe('html_sandbox')
       } else if (entry.component === 'json_form') {
         expect(entry.renderer).toBe('json_schema_form')
+      } else if (entry.component === 'chart') {
+        expect(entry.renderer).toBe('declarative_chart')
       } else {
         expect(entry.renderer).toBeNull()
       }

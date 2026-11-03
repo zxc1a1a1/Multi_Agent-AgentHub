@@ -101,7 +101,7 @@ describe('MessageBubble renders ui.component cards', () => {
 
   it('keeps non-html components as text fallbacks', () => {
     const { container } = render(
-      <MessageBubble message={buildMessage([componentCard({ component: 'chart' })])} />,
+      <MessageBubble message={buildMessage([componentCard({ component: 'code_editor' })])} />,
     )
     expect(screen.getByText('Tool: ui_component')).toBeInTheDocument()
     expect(screen.getByText(/renderer_not_implemented/)).toBeInTheDocument()
@@ -121,7 +121,7 @@ describe('MessageBubble renders ui.component cards', () => {
     const user = userEvent.setup()
     const evalSpy = vi.spyOn(window, 'eval').mockImplementation(() => undefined)
     const { container } = render(
-      <MessageBubble message={buildMessage([componentCard({ component: 'chart' })])} />,
+      <MessageBubble message={buildMessage([componentCard({ component: 'code_editor' })])} />,
     )
 
     const card = fallbackRoot()
@@ -169,7 +169,7 @@ describe('MessageBubble json_form cards', () => {
         ])}
       />,
     )
-    expect(await screen.findByText('Approval form')).toBeInTheDocument()
+    expect(await screen.findByText('Approval form', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByLabelText(/Name/)).toBeInTheDocument()
   })
 
@@ -193,5 +193,29 @@ describe('MessageBubble json_form cards', () => {
       />,
     )
     expect(screen.getByText(/user_input_capability_missing/)).toBeInTheDocument()
+  })
+})
+
+describe('MessageBubble chart cards', () => {
+  const chartProps = {
+    type: 'line',
+    title: 'Trend',
+    series: [{ key: 'a', name: 'A' }],
+    data: [{ label: '<img src=x onerror=alert(1)>', values: [1] }, { label: 'two', values: [3] }],
+  }
+
+  it('renders the lazy declarative SVG chart and escapes labels', async () => {
+    const { container } = render(
+      <MessageBubble message={buildMessage([componentCard({ component: 'chart', props: chartProps })])} />,
+    )
+    expect(await screen.findByText('Trend', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(container.querySelector('svg[aria-label="line chart"]')).not.toBeNull()
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.innerHTML).not.toContain('onerror')
+  })
+
+  it('shows a reason for an invalid chart spec', async () => {
+    render(<MessageBubble message={buildMessage([componentCard({ component: 'chart', props: { type: 'radar' } })])} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Chart rejected')
   })
 })

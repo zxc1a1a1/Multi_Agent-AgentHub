@@ -102,8 +102,8 @@ export const uiComponentRegistry: UIComponentDefinition[] = [
   },
   {
     component: 'chart',
-    description: 'Declarative chart surface (renderer lands in R3-05)',
-    renderer: null,
+    description: 'Declarative chart surface (pure SVG, JSON spec)',
+    renderer: 'declarative_chart',
     interactive: false,
     acceptsStreamingProps: false,
   },

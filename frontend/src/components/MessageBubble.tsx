@@ -17,6 +17,7 @@ import ArtifactCard from './skills/ArtifactCard'
 import SandboxedHtml from './skills/SandboxedHtml'
 
 const JsonSchemaForm = lazy(() => import('./skills/JsonSchemaForm'))
+const DeclarativeChart = lazy(() => import('./skills/DeclarativeChart'))
 import OrchestrationSummary from './OrchestrationSummary'
 import { User, Reply, Copy, Check, RotateCcw, Pin, PinOff } from 'lucide-react'
 import { getAgentDisplayName } from '../lib/agents'
@@ -76,6 +77,13 @@ function SkillCardRenderer({ card }: { card: SkillCardData }) {
                 taskId={card.taskId}
                 toolCallId={toolCallId}
               />
+            </Suspense>
+          )
+        }
+        if (card.component === 'chart') {
+          return (
+            <Suspense fallback={<UnknownSkillFallback toolName="ui_component" args={{ reason: 'chart_loading' }} />}>
+              <DeclarativeChart props={card.props} />
             </Suspense>
           )
         }
