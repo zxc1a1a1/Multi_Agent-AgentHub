@@ -1,0 +1,7 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD                 -> a083e4df78886e68370c7719e607b1d3bf3a4e9d
+AGENTHUB_EVIDENCE_JSONL=<evidence>/R1-08/events.jsonl go test ./httpapi/ -run TestR108 -count=1 -v
+# corpus (synthetic, no real secrets)
+docs/contracts/testdata/security-corpus/memory-injection-v1.json
+# required environment (names only):
+#   AGENTHUB_EVIDENCE_JSONL
