@@ -1,0 +1,10 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+# object store profile (S3 API; SeaweedFS because MinIO images are unavailable)
+docker compose -p agenthub-r007 -f docker-compose.new-arch.yml --profile objectstore up -d s3-objectstore
+# normal cross-instance phase
+AGENTHUB_S3_TEST_ENDPOINT=<host:port> AGENTHUB_S3_TEST_ACCESS_KEY=<test> \
+AGENTHUB_S3_TEST_SECRET_KEY=<test> AGENTHUB_S3_TEST_BUCKET=<test bucket> \
+  go test ./services/orchestrator/artifacts/ -run TestIntegrationS3CrossInstanceArtifact -count=1 -json
+# outage phase (object store stopped first)
+AGENTHUB_S3_TEST_EXPECT_DOWN=1 ... go test ./services/orchestrator/artifacts/ -run TestIntegrationS3CrossInstanceArtifact -count=1 -json
