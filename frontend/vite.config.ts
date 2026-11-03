@@ -1,8 +1,13 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
+  // R3-03: opt-in pilot. `vite build --mode streamdown` enables the lazy
+  // Streamdown branch; every other mode keeps the legacy renderer.
+  define: {
+    __STREAMDOWN_ENABLED__: JSON.stringify(mode === 'streamdown'),
+  },
   test: {
     environment: 'jsdom',
     globals: true,
@@ -19,4 +24,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

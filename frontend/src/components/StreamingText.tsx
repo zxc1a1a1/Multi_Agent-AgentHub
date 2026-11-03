@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Copy, Check } from 'lucide-react'
 import MermaidDiagram from './MermaidDiagram'
+import StreamdownRenderer, { STREAMDOWN_ENABLED } from './StreamdownRenderer'
 
 interface Props {
   content: string
@@ -123,7 +124,7 @@ function parseStreamingBlocks(content: string): StyledBlock[] {
  *
  * After streaming: full Markdown render with syntax-highlighted code blocks.
  */
-export default function StreamingText({ content, isStreaming }: Props) {
+function LegacyStreamingText({ content, isStreaming }: Props) {
   const hasMath = useMemo(() => /\$[^$\n]+\$/.test(content), [content])
   const [mathPlugins, setMathPlugins] = useState<{ remark: unknown; rehype: unknown } | null>(null)
 
@@ -239,4 +240,15 @@ export default function StreamingText({ content, isStreaming }: Props) {
       </div>
     </div>
   )
+}
+
+/**
+ * R3-03 wrapper: flag off keeps the exact legacy path; flag on lazily loads
+ * Streamdown and falls back to the legacy renderer while loading or on failure.
+ */
+export default function StreamingText(props: Props) {
+  if (!STREAMDOWN_ENABLED) {
+    return <LegacyStreamingText {...props} />
+  }
+  return <StreamdownRenderer content={props.content} fallback={<LegacyStreamingText {...props} />} />
 }

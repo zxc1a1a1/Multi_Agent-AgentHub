@@ -1,0 +1,7 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+cd frontend
+npm test -- --run src/components/StreamdownRenderer.test.tsx src/components/StreamdownRenderer.fallback.test.tsx src/components/StreamingText.streamdown.test.tsx src/components/StreamingText.test.tsx
+npm test -- --run
+npm run build
+node node_modules/vite/bin/vite.js build --mode streamdown
