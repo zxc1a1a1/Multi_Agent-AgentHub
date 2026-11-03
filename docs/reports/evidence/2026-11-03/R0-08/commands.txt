@@ -1,0 +1,13 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+# config validation (static)
+docker run --rm --entrypoint promtool -v deploy/prometheus:/etc/prometheus:ro prom/prometheus:v3.1.0 check config /etc/prometheus/prometheus.host.yml
+docker run --rm -v deploy/alertmanager:/etc/alertmanager:ro --entrypoint amtool prom/alertmanager:v0.28.1 check-config /etc/alertmanager/alertmanager.yml
+# runtime
+PROMETHEUS_CONFIG_FILE=deploy/prometheus/prometheus.host.yml PROMETHEUS_TOKEN_FILE=<temp token file> \
+  MYSQL_ROOT_PASSWORD=<test> docker compose -p agenthub-r008 -f docker-compose.new-arch.yml \
+  --profile observability up -d jaeger otel-collector prometheus alertmanager alert-webhook
+bash scripts/run-observability-smoke.sh --out <evidence>
+# required environment (names only):
+#   AGENTHUB_MYSQL_TEST_DSN AGENTHUB_REDIS_TEST_ADDR MYSQL_TEST_CONTAINER AGENTHUB_API_TOKEN INTERNAL_SERVICE_TOKEN
+#   MULTI_LLM_BASE_URL LLM_PROVIDER LLM_MODEL LLM_API_KEY (fake provider only)

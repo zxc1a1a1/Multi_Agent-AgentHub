@@ -34,9 +34,11 @@ func Setup(ctx context.Context, serviceName string) (func(context.Context) error
 	opts := []sdktrace.TracerProviderOption{
 		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(sampleRatio()))),
 	}
-	if res, err := resource.Merge(resource.Default(), resource.NewWithAttributes(
-		semconv.SchemaURL, semconv.ServiceName(serviceName),
-	)); err == nil {
+	if res, err := resource.New(ctx,
+		resource.WithTelemetrySDK(),
+		resource.WithProcess(),
+		resource.WithAttributes(semconv.ServiceName(serviceName)),
+	); err == nil {
 		opts = append(opts, sdktrace.WithResource(res))
 	}
 	if endpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")); endpoint != "" {

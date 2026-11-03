@@ -3,6 +3,9 @@ volumes:
   mysql-data:
   orchestrator-artifacts:
   s3-data:
+  prometheus-data:
+  alertmanager-data:
+  alerts-data:
 
 services:
   # =========================================================================
@@ -396,7 +399,7 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "16686:16686"
+      - "${JAEGER_PORT:-16686}:16686"
 
   otel-collector:
     image: "otel/opentelemetry-collector-contrib:0.115.1"
@@ -409,6 +412,68 @@ services:
       - "4318:4318"
     depends_on:
       - jaeger
+
+  # Prometheus + Alertmanager + a local webhook receiver. The webhook never
+  # forwards anywhere; it only stores payloads for the R0-08 smoke test.
+  # PROMETHEUS_CONFIG_FILE / PROMETHEUS_TOKEN_FILE let the smoke test switch to
+  # host targets and a temporary internal token without changing this file.
+  prometheus:
+    image: "prom/prometheus:v3.1.0@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218"
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - "${PROMETHEUS_CONFIG_FILE:-./deploy/prometheus/prometheus.yml}:/etc/prometheus/prometheus.yml:ro"
+      - "./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro"
+      - "./deploy/prometheus/alerts-test.yml:/etc/prometheus/alerts-test.yml:ro"
+      - "${PROMETHEUS_TOKEN_FILE:-./deploy/prometheus/token.example}:/etc/prometheus/orchestrator-token:ro"
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    depends_on:
+      alertmanager:
+        condition: service_healthy
+
+  alertmanager:
+    image: "prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba"
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      # Single instance: gossip settling would drop the first notification.
+      - "--cluster.listen-address="
+    volumes:
+      - "./deploy/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"
+      - alertmanager-data:/alertmanager
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9093/-/healthy"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  alert-webhook:
+    image: "python:3.12-alpine@sha256:e6dae589c1c05976188fd3bd019afd091445fc533ed2ea29001beddc7368a9c8"
+    profiles: ["observability"]
+    command: ["python", "/app/webhook.py"]
+    volumes:
+      - "./deploy/alertmanager:/app:ro"
+      - alerts-data:/data
+    ports:
+      - "${ALERT_WEBHOOK_PORT:-18090}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
 
   nginx:
     image: "nginx:1.27-alpine"

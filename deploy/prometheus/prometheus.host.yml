@@ -1,0 +1,33 @@
+# R0-08 smoke-only Prometheus config. It scrapes host processes through
+# host.docker.internal and mounts a test rule that fires deterministically.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+  - /etc/prometheus/alerts-test.yml
+
+scrape_configs:
+  - job_name: gateway
+    metrics_path: /internal/metrics
+    params:
+      format: ["prometheus"]
+    static_configs:
+      - targets: ["host.docker.internal:19100"]
+
+  - job_name: orchestrator
+    metrics_path: /internal/orchestrator/metrics
+    params:
+      window: ["1h"]
+      format: ["prometheus"]
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/orchestrator-token
+    static_configs:
+      - targets: ["host.docker.internal:19080"]

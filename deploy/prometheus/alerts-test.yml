@@ -1,0 +1,14 @@
+# Smoke-only rule: always firing so Alertmanager delivery can be asserted
+# without waiting for a real incident. Never mount this in production.
+groups:
+  - name: agenthub-observability-smoke
+    rules:
+      - alert: AgentHubObservabilitySmoke
+        expr: vector(1)
+        for: 0m
+        labels:
+          severity: info
+          source: smoke
+        annotations:
+          summary: AgentHub observability smoke alert
+          description: Synthetic alert used by docs/plans/v3-gap-atomic-plan.md R0-08.
