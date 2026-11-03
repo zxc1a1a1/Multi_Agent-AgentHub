@@ -1,0 +1,4 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD                 -> a083e4df78886e68370c7719e607b1d3bf3a4e9d
+go test ./eventbus/ -run '^(TestMemory|TestEnvelope|TestIdempotency|TestPayload|TestOversized|TestRunError|TestConditional|TestAttempt|TestDlq|TestStreamKeys|TestDecode)' -count=1 -json
+# scope: in-memory transport + envelope contract only (no Redis, no production wiring)
