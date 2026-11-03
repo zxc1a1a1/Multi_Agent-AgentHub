@@ -1,0 +1,8 @@
+# reproducible commands; environment values are never recorded, only names
+git rev-parse HEAD                 -> 29cf7779295608081e90dc5daaabba860a45807a
+go test -json -count=1 -timeout 6m -run ^TestIntegration ./pkg/runtime/eventbus/... 
+# required environment (names only, values must be exported by the operator):
+#   AGENTHUB_MYSQL_TEST_DSN
+#   AGENTHUB_REDIS_TEST_ADDR
+# optional environment consumed by the gate itself:
+#   RUN_INTEGRATION, AGENTHUB_EVIDENCE_JSONL (set by this script)
