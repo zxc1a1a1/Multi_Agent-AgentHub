@@ -10,7 +10,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('chat')
 
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex h-screen overflow-x-hidden bg-white">
       {/* Minimal tab navigation sidebar */}
       <nav className="w-14 border-r border-gray-200 flex flex-col items-center py-3 gap-1 bg-gray-50 flex-shrink-0">
         <button

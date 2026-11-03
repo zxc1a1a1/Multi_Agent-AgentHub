@@ -1,0 +1,7 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+cd frontend
+npm test -- --run
+npm run build
+npm run check:budget
+PLAYWRIGHT_CHANNEL=msedge npm run test:e2e:a11y

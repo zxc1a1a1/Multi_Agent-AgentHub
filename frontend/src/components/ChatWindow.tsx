@@ -374,8 +374,8 @@ export default function ChatWindow({ conversationId }: Props) {
       )}
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-3xl mx-auto space-y-6">
+      <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-6">
+        <div className="mx-auto min-w-0 max-w-3xl space-y-6">
           {messages.length === 0 && !streaming && !orchestration && (
             <div className="text-center text-gray-400 mt-20">
               <Bot className="w-12 h-12 mx-auto mb-4 text-indigo-300" />
@@ -434,7 +434,7 @@ export default function ChatWindow({ conversationId }: Props) {
       </div>
 
       <div className="px-4 py-2 border-t border-gray-200 bg-gray-50">
-        <div className="max-w-3xl mx-auto flex items-center gap-3">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
           <label className="text-xs text-gray-600 whitespace-nowrap">
             Agent
           </label>
@@ -461,7 +461,7 @@ export default function ChatWindow({ conversationId }: Props) {
               </div>
             </div>
           )}
-          <span className="text-xs text-gray-500 truncate">
+          <span className="min-w-0 flex-1 truncate text-xs text-gray-500">
             {selectedAgentOption?.description || 'Supports text responses'}
           </span>
         </div>

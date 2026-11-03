@@ -6,7 +6,7 @@ export default function ChatLayout() {
   const activeId = useConversationStore((s) => s.activeId)
 
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex h-screen min-w-0 overflow-x-hidden bg-white">
       {/* Sidebar */}
       <aside className="w-72 border-r border-gray-200 flex-shrink-0 hidden md:flex md:flex-col">
         <ConversationList />
