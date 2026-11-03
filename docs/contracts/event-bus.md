@@ -283,7 +283,8 @@ XADD agenthub:{env}:run:events MAXLEN ~ <N>
 | 封套 + 内存传输 + per-run 保序 dispatcher | 已实现（R2-02） | `pkg/runtime/eventbus/{eventbus,memory,dispatch}.go` |
 | Redis Streams adapter（XADD/XREADGROUP/XACK/XAUTOCLAIM/DLQ） | 已实现并过真实 Redis 7.2 测试（R2-03） | `pkg/runtime/eventbus/redis.go` |
 | relay 通过 EventBus 发布 outbox | 已实现，**默认关闭**（R2-04） | `EVENT_BUS=legacy|redis_streams`（默认 `legacy`）；`OUTBOX_RELAY_LEASE=1` 时用 MySQL `GET_LOCK` 单写者租约，丢失即停止 |
-| 消费者幂等表 / Gateway 投影消费 | **未实现**（R2-05/R2-07） | `assistant_message.v1` 仍走 SQL 轮询 |
+| 消费者幂等表 | 已实现（R2-05） | `event_consumer_idempotency`（orchestrator 008 / gateway 004）+ `pkg/runtime/eventbus/sqlidem` |
+| Gateway 投影消费 | flag 试点（R2-07） | `EVENTBUS_PROJECTION=1` + `REDIS_URL`；消费只触发 SQL recovery，offset 幂等，SQL worker 仍是回退路径 |
 | 重试/DLQ 指标与运维接口 | 部分（adapter 有钩子；无 Prometheus 文本/统计接口，R2-06） | `pkg/runtime/eventbus/metrics.go` |
 
 EVENT_BUS=redis_streams 下 relay 的封套由 `(runId, seq, subIndex=0)` 派生 `eventId`，

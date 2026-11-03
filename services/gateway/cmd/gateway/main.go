@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/eventbus"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/pkg/runtime/observability"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/config"
@@ -20,6 +21,8 @@ import (
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/projection"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/runservice"
 	"github.com/zxc1a1a1/Multi_Agent-AgentHub/services/gateway/store"
+
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -159,17 +162,72 @@ func run() error {
 	// finishes assistant-message projection from the shared event journal.
 	var projectionCancel context.CancelFunc
 	var projectionDone chan struct{}
+	var projectionWorker *projection.Worker
 	if strings.TrimSpace(os.Getenv("GATEWAY_PROJECTION_WORKER")) == "0" {
 		log.Printf("gateway projection worker disabled by GATEWAY_PROJECTION_WORKER=0")
 	} else if recoveryStore, ok := primaryStore.(projection.Store); ok {
 		workerCtx, cancel := context.WithCancel(context.Background())
 		projectionCancel = cancel
 		projectionDone = make(chan struct{})
+		projectionWorker = projection.New(recoveryStore)
 		go func() {
 			defer close(projectionDone)
-			projection.New(recoveryStore).Run(workerCtx)
+			projectionWorker.Run(workerCtx)
 		}()
 		log.Printf("gateway projection worker started")
+	}
+
+	// EVENTBUS_PROJECTION=1 adds a queue consumer that only triggers the same
+	// SQL recovery pass. SQL journal + projection offset stay authoritative and
+	// the periodic worker remains the fallback.
+	var eventBusCancel context.CancelFunc
+	var eventBusConsumer *eventbus.RedisConsumer
+	var eventBusClient *redis.Client
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("EVENTBUS_PROJECTION")), "1") {
+		if projectionWorker == nil {
+			return fmt.Errorf("EVENTBUS_PROJECTION=1 requires the projection worker")
+		}
+		redisURL := strings.TrimSpace(os.Getenv("REDIS_URL"))
+		if redisURL == "" {
+			return fmt.Errorf("EVENTBUS_PROJECTION=1 requires REDIS_URL")
+		}
+		opt, err := redis.ParseURL(redisURL)
+		if err != nil {
+			return fmt.Errorf("parse REDIS_URL: %w", err)
+		}
+		eventBusClient = redis.NewClient(opt)
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := eventBusClient.Ping(pingCtx).Err(); err != nil {
+			pingCancel()
+			_ = eventBusClient.Close()
+			return fmt.Errorf("eventbus projection redis ping: %w", err)
+		}
+		pingCancel()
+		env := strings.TrimSpace(os.Getenv("AGENTHUB_ENV"))
+		if env == "" {
+			env = "dev"
+		}
+		consumer, err := eventbus.NewRedisConsumerWithClient(eventbus.RedisConfig{
+			Env: env, Group: eventbus.GroupProjection,
+			ConsumerKey:  eventbus.ConsumerKeyProjection,
+			Consumer:     fmt.Sprintf("gateway-%d", os.Getpid()),
+			ClaimMinIdle: 30 * time.Second, ClaimPeriod: 15 * time.Second,
+			Block: time.Second, MaxAttempts: 5,
+		}, eventBusClient)
+		if err != nil {
+			_ = eventBusClient.Close()
+			return fmt.Errorf("eventbus projection consumer: %w", err)
+		}
+		eventBusConsumer = consumer
+		ebCtx, ebCancel := context.WithCancel(context.Background())
+		eventBusCancel = ebCancel
+		go func() {
+			if err := consumer.Consume(ebCtx, projectionWorker.HandleEvent); err != nil &&
+				!errors.Is(err, context.Canceled) && !errors.Is(err, eventbus.ErrClosedBus) {
+				log.Printf("gateway eventbus projection consumer: %v", err)
+			}
+		}()
+		log.Printf("gateway eventbus projection consumer started (group=%s)", eventbus.GroupProjection)
 	}
 
 	server := &http.Server{
@@ -199,6 +257,15 @@ func run() error {
 		return fmt.Errorf("server shutdown failed: %w", err)
 	}
 
+	if eventBusCancel != nil {
+		eventBusCancel()
+	}
+	if eventBusConsumer != nil {
+		_ = eventBusConsumer.Close(context.Background())
+	}
+	if eventBusClient != nil {
+		_ = eventBusClient.Close()
+	}
 	if projectionCancel != nil {
 		projectionCancel()
 		select {
