@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -48,6 +49,9 @@ type Controller struct {
 	policy  rtmemory.Policy
 	now     func() time.Time
 	cache   Cache
+
+	hybridMode HybridRecallMode
+	ranker     RecallRanker
 }
 
 func New(backend Backend, policy rtmemory.Policy) (*Controller, error) {
@@ -106,10 +110,48 @@ func (c *Controller) Recall(ctx context.Context, scope rtmemory.Scope, query str
 	if err != nil {
 		return nil, err
 	}
+	if c.ranker != nil && c.hybridMode != HybridRecallOff {
+		ranked := c.applyRanker(normalizedQuery, out, limit)
+		if c.hybridMode == HybridRecallShadow {
+			log.Printf("memory hybrid shadow: keywordEntries=%d rankerEntries=%d", len(out), len(ranked))
+		} else {
+			out = ranked
+		}
+	}
 	if c.cache != nil {
 		c.cache.Set(ctx, cacheKey, out, 5*time.Minute)
 	}
 	return out, nil
+}
+
+// WithHybridRecall installs an optional ranker. Off is the default; shadow
+// computes the candidate but never changes the injected entries.
+func (c *Controller) WithHybridRecall(mode HybridRecallMode, ranker RecallRanker) *Controller {
+	if c != nil {
+		c.hybridMode = mode
+		c.ranker = ranker
+	}
+	return c
+}
+
+func (c *Controller) applyRanker(query string, entries []rtmemory.Entry, limit int) []rtmemory.Entry {
+	if c.ranker == nil || len(entries) == 0 {
+		return entries
+	}
+	byID := make(map[string]rtmemory.Entry, len(entries))
+	candidates := make([]RecallMemory, 0, len(entries))
+	for _, entry := range entries {
+		byID[entry.MemoryID] = entry
+		candidates = append(candidates, RecallMemory{ID: entry.MemoryID, LogicalKey: entry.LogicalKey, Content: entry.Content})
+	}
+	ranked := c.ranker.Rank(query, candidates, limit)
+	out := make([]rtmemory.Entry, 0, len(ranked))
+	for _, candidate := range ranked {
+		if entry, ok := byID[candidate.ID]; ok {
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 func (c *Controller) filterRecall(entries []rtmemory.Entry, limit int) ([]rtmemory.Entry, error) {

@@ -1,0 +1,5 @@
+# reproducible commands (environment values are never recorded, only names)
+git rev-parse HEAD
+go test ./services/orchestrator/internal/memory -run 'TestRecallEvaluationBaselineAndSemantic|TestKeywordRankerMatchesProductionSemantics|TestHybridRecallModeParsingAndShadowIsNoop' -count=1 -v
+# dataset: services/orchestrator/internal/memory/testdata/memory-recall-eval.json (synthetic)
+# switch (not wired to a production provider): MEMORY_HYBRID_RECALL=off|shadow|on

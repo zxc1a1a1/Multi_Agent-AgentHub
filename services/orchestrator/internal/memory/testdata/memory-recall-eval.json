@@ -1,0 +1,1860 @@
+{
+  "schemaVersion": 1,
+  "notice": "Synthetic evaluation data; no real user data. Synonym queries simulate embedding/semantic recall.",
+  "synonyms": {
+    "deploy": [
+      "release",
+      "ship",
+      "rollout"
+    ],
+    "bug": [
+      "defect",
+      "issue",
+      "regression"
+    ],
+    "database": [
+      "db",
+      "mysql",
+      "sql"
+    ],
+    "memory": [
+      "recall",
+      "remember",
+      "context"
+    ],
+    "auth": [
+      "login",
+      "token",
+      "permission"
+    ],
+    "docker": [
+      "container",
+      "compose",
+      "image"
+    ],
+    "queue": [
+      "stream",
+      "consumer",
+      "idl"
+    ],
+    "chart": [
+      "graph",
+      "visualization",
+      "plot"
+    ],
+    "form": [
+      "schema",
+      "input",
+      "validation"
+    ],
+    "cache": [
+      "redis",
+      "ttl",
+      "eviction"
+    ]
+  },
+  "memories": [
+    {
+      "id": "mem_0_0",
+      "logicalKey": "deploy-0",
+      "content": "deploy policy 0: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "mem_0_1",
+      "logicalKey": "deploy-1",
+      "content": "deploy policy 1: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-02T00:00:00Z"
+    },
+    {
+      "id": "mem_0_2",
+      "logicalKey": "deploy-2",
+      "content": "deploy policy 2: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-03T00:00:00Z"
+    },
+    {
+      "id": "mem_0_3",
+      "logicalKey": "deploy-3",
+      "content": "deploy policy 3: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-04T00:00:00Z"
+    },
+    {
+      "id": "mem_0_4",
+      "logicalKey": "deploy-4",
+      "content": "deploy policy 4: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": "mem_0_5",
+      "logicalKey": "deploy-5",
+      "content": "deploy policy 5: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-06T00:00:00Z"
+    },
+    {
+      "id": "mem_0_6",
+      "logicalKey": "deploy-6",
+      "content": "deploy policy 6: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-07T00:00:00Z"
+    },
+    {
+      "id": "mem_0_7",
+      "logicalKey": "deploy-7",
+      "content": "deploy policy 7: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-08T00:00:00Z"
+    },
+    {
+      "id": "mem_0_8",
+      "logicalKey": "deploy-8",
+      "content": "deploy policy 8: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-09T00:00:00Z"
+    },
+    {
+      "id": "mem_0_9",
+      "logicalKey": "deploy-9",
+      "content": "deploy policy 9: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-10T00:00:00Z"
+    },
+    {
+      "id": "mem_0_10",
+      "logicalKey": "deploy-10",
+      "content": "deploy policy 10: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-11T00:00:00Z"
+    },
+    {
+      "id": "mem_0_11",
+      "logicalKey": "deploy-11",
+      "content": "deploy policy 11: deploy settings and deploy runbook for workspace w0.",
+      "verifiedAt": "2026-01-12T00:00:00Z"
+    },
+    {
+      "id": "mem_1_0",
+      "logicalKey": "bug-0",
+      "content": "bug policy 0: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "mem_1_1",
+      "logicalKey": "bug-1",
+      "content": "bug policy 1: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-02T00:00:00Z"
+    },
+    {
+      "id": "mem_1_2",
+      "logicalKey": "bug-2",
+      "content": "bug policy 2: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-03T00:00:00Z"
+    },
+    {
+      "id": "mem_1_3",
+      "logicalKey": "bug-3",
+      "content": "bug policy 3: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-04T00:00:00Z"
+    },
+    {
+      "id": "mem_1_4",
+      "logicalKey": "bug-4",
+      "content": "bug policy 4: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": "mem_1_5",
+      "logicalKey": "bug-5",
+      "content": "bug policy 5: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-06T00:00:00Z"
+    },
+    {
+      "id": "mem_1_6",
+      "logicalKey": "bug-6",
+      "content": "bug policy 6: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-07T00:00:00Z"
+    },
+    {
+      "id": "mem_1_7",
+      "logicalKey": "bug-7",
+      "content": "bug policy 7: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-08T00:00:00Z"
+    },
+    {
+      "id": "mem_1_8",
+      "logicalKey": "bug-8",
+      "content": "bug policy 8: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-09T00:00:00Z"
+    },
+    {
+      "id": "mem_1_9",
+      "logicalKey": "bug-9",
+      "content": "bug policy 9: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-10T00:00:00Z"
+    },
+    {
+      "id": "mem_1_10",
+      "logicalKey": "bug-10",
+      "content": "bug policy 10: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-11T00:00:00Z"
+    },
+    {
+      "id": "mem_1_11",
+      "logicalKey": "bug-11",
+      "content": "bug policy 11: bug settings and bug runbook for workspace w1.",
+      "verifiedAt": "2026-01-12T00:00:00Z"
+    },
+    {
+      "id": "mem_2_0",
+      "logicalKey": "database-0",
+      "content": "database policy 0: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "mem_2_1",
+      "logicalKey": "database-1",
+      "content": "database policy 1: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-02T00:00:00Z"
+    },
+    {
+      "id": "mem_2_2",
+      "logicalKey": "database-2",
+      "content": "database policy 2: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-03T00:00:00Z"
+    },
+    {
+      "id": "mem_2_3",
+      "logicalKey": "database-3",
+      "content": "database policy 3: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-04T00:00:00Z"
+    },
+    {
+      "id": "mem_2_4",
+      "logicalKey": "database-4",
+      "content": "database policy 4: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": "mem_2_5",
+      "logicalKey": "database-5",
+      "content": "database policy 5: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-06T00:00:00Z"
+    },
+    {
+      "id": "mem_2_6",
+      "logicalKey": "database-6",
+      "content": "database policy 6: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-07T00:00:00Z"
+    },
+    {
+      "id": "mem_2_7",
+      "logicalKey": "database-7",
+      "content": "database policy 7: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-08T00:00:00Z"
+    },
+    {
+      "id": "mem_2_8",
+      "logicalKey": "database-8",
+      "content": "database policy 8: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-09T00:00:00Z"
+    },
+    {
+      "id": "mem_2_9",
+      "logicalKey": "database-9",
+      "content": "database policy 9: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-10T00:00:00Z"
+    },
+    {
+      "id": "mem_2_10",
+      "logicalKey": "database-10",
+      "content": "database policy 10: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-11T00:00:00Z"
+    },
+    {
+      "id": "mem_2_11",
+      "logicalKey": "database-11",
+      "content": "database policy 11: database settings and database runbook for workspace w2.",
+      "verifiedAt": "2026-01-12T00:00:00Z"
+    },
+    {
+      "id": "mem_3_0",
+      "logicalKey": "memory-0",
+      "content": "memory policy 0: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "mem_3_1",
+      "logicalKey": "memory-1",
+      "content": "memory policy 1: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-02T00:00:00Z"
+    },
+    {
+      "id": "mem_3_2",
+      "logicalKey": "memory-2",
+      "content": "memory policy 2: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-03T00:00:00Z"
+    },
+    {
+      "id": "mem_3_3",
+      "logicalKey": "memory-3",
+      "content": "memory policy 3: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-04T00:00:00Z"
+    },
+    {
+      "id": "mem_3_4",
+      "logicalKey": "memory-4",
+      "content": "memory policy 4: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": "mem_3_5",
+      "logicalKey": "memory-5",
+      "content": "memory policy 5: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-06T00:00:00Z"
+    },
+    {
+      "id": "mem_3_6",
+      "logicalKey": "memory-6",
+      "content": "memory policy 6: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-07T00:00:00Z"
+    },
+    {
+      "id": "mem_3_7",
+      "logicalKey": "memory-7",
+      "content": "memory policy 7: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-08T00:00:00Z"
+    },
+    {
+      "id": "mem_3_8",
+      "logicalKey": "memory-8",
+      "content": "memory policy 8: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-09T00:00:00Z"
+    },
+    {
+      "id": "mem_3_9",
+      "logicalKey": "memory-9",
+      "content": "memory policy 9: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-10T00:00:00Z"
+    },
+    {
+      "id": "mem_3_10",
+      "logicalKey": "memory-10",
+      "content": "memory policy 10: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-11T00:00:00Z"
+    },
+    {
+      "id": "mem_3_11",
+      "logicalKey": "memory-11",
+      "content": "memory policy 11: memory settings and memory runbook for workspace w3.",
+      "verifiedAt": "2026-01-12T00:00:00Z"
+    },
+    {
+      "id": "mem_4_0",
+      "logicalKey": "auth-0",
+      "content": "auth policy 0: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "mem_4_1",
+      "logicalKey": "auth-1",
+      "content": "auth policy 1: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-02T00:00:00Z"
+    },
+    {
+      "id": "mem_4_2",
+      "logicalKey": "auth-2",
+      "content": "auth policy 2: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-03T00:00:00Z"
+    },
+    {
+      "id": "mem_4_3",
+      "logicalKey": "auth-3",
+      "content": "auth policy 3: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-04T00:00:00Z"
+    },
+    {
+      "id": "mem_4_4",
+      "logicalKey": "auth-4",
+      "content": "auth policy 4: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": "mem_4_5",
+      "logicalKey": "auth-5",
+      "content": "auth policy 5: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-06T00:00:00Z"
+    },
+    {
+      "id": "mem_4_6",
+      "logicalKey": "auth-6",
+      "content": "auth policy 6: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-07T00:00:00Z"
+    },
+    {
+      "id": "mem_4_7",
+      "logicalKey": "auth-7",
+      "content": "auth policy 7: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-08T00:00:00Z"
+    },
+    {
+      "id": "mem_4_8",
+      "logicalKey": "auth-8",
+      "content": "auth policy 8: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-09T00:00:00Z"
+    },
+    {
+      "id": "mem_4_9",
+      "logicalKey": "auth-9",
+      "content": "auth policy 9: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-10T00:00:00Z"
+    },
+    {
+      "id": "mem_4_10",
+      "logicalKey": "auth-10",
+      "content": "auth policy 10: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-11T00:00:00Z"
+    },
+    {
+      "id": "mem_4_11",
+      "logicalKey": "auth-11",
+      "content": "auth policy 11: auth settings and auth runbook for workspace w4.",
+      "verifiedAt": "2026-01-12T00:00:00Z"
+    },
+    {
+      "id": "mem_5_0",
+      "logicalKey": "docker-0",
+      "content": "docker policy 0: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "mem_5_1",
+      "logicalKey": "docker-1",
+      "content": "docker policy 1: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-02T00:00:00Z"
+    },
+    {
+      "id": "mem_5_2",
+      "logicalKey": "docker-2",
+      "content": "docker policy 2: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-03T00:00:00Z"
+    },
+    {
+      "id": "mem_5_3",
+      "logicalKey": "docker-3",
+      "content": "docker policy 3: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-04T00:00:00Z"
+    },
+    {
+      "id": "mem_5_4",
+      "logicalKey": "docker-4",
+      "content": "docker policy 4: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": "mem_5_5",
+      "logicalKey": "docker-5",
+      "content": "docker policy 5: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-06T00:00:00Z"
+    },
+    {
+      "id": "mem_5_6",
+      "logicalKey": "docker-6",
+      "content": "docker policy 6: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-07T00:00:00Z"
+    },
+    {
+      "id": "mem_5_7",
+      "logicalKey": "docker-7",
+      "content": "docker policy 7: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-08T00:00:00Z"
+    },
+    {
+      "id": "mem_5_8",
+      "logicalKey": "docker-8",
+      "content": "docker policy 8: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-09T00:00:00Z"
+    },
+    {
+      "id": "mem_5_9",
+      "logicalKey": "docker-9",
+      "content": "docker policy 9: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-10T00:00:00Z"
+    },
+    {
+      "id": "mem_5_10",
+      "logicalKey": "docker-10",
+      "content": "docker policy 10: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-11T00:00:00Z"
+    },
+    {
+      "id": "mem_5_11",
+      "logicalKey": "docker-11",
+      "content": "docker policy 11: docker settings and docker runbook for workspace w5.",
+      "verifiedAt": "2026-01-12T00:00:00Z"
+    },
+    {
+      "id": "mem_6_0",
+      "logicalKey": "queue-0",
+      "content": "queue policy 0: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "mem_6_1",
+      "logicalKey": "queue-1",
+      "content": "queue policy 1: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-02T00:00:00Z"
+    },
+    {
+      "id": "mem_6_2",
+      "logicalKey": "queue-2",
+      "content": "queue policy 2: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-03T00:00:00Z"
+    },
+    {
+      "id": "mem_6_3",
+      "logicalKey": "queue-3",
+      "content": "queue policy 3: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-04T00:00:00Z"
+    },
+    {
+      "id": "mem_6_4",
+      "logicalKey": "queue-4",
+      "content": "queue policy 4: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": "mem_6_5",
+      "logicalKey": "queue-5",
+      "content": "queue policy 5: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-06T00:00:00Z"
+    },
+    {
+      "id": "mem_6_6",
+      "logicalKey": "queue-6",
+      "content": "queue policy 6: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-07T00:00:00Z"
+    },
+    {
+      "id": "mem_6_7",
+      "logicalKey": "queue-7",
+      "content": "queue policy 7: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-08T00:00:00Z"
+    },
+    {
+      "id": "mem_6_8",
+      "logicalKey": "queue-8",
+      "content": "queue policy 8: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-09T00:00:00Z"
+    },
+    {
+      "id": "mem_6_9",
+      "logicalKey": "queue-9",
+      "content": "queue policy 9: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-10T00:00:00Z"
+    },
+    {
+      "id": "mem_6_10",
+      "logicalKey": "queue-10",
+      "content": "queue policy 10: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-11T00:00:00Z"
+    },
+    {
+      "id": "mem_6_11",
+      "logicalKey": "queue-11",
+      "content": "queue policy 11: queue settings and queue runbook for workspace w6.",
+      "verifiedAt": "2026-01-12T00:00:00Z"
+    },
+    {
+      "id": "mem_7_0",
+      "logicalKey": "chart-0",
+      "content": "chart policy 0: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "mem_7_1",
+      "logicalKey": "chart-1",
+      "content": "chart policy 1: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-02T00:00:00Z"
+    },
+    {
+      "id": "mem_7_2",
+      "logicalKey": "chart-2",
+      "content": "chart policy 2: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-03T00:00:00Z"
+    },
+    {
+      "id": "mem_7_3",
+      "logicalKey": "chart-3",
+      "content": "chart policy 3: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-04T00:00:00Z"
+    },
+    {
+      "id": "mem_7_4",
+      "logicalKey": "chart-4",
+      "content": "chart policy 4: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": "mem_7_5",
+      "logicalKey": "chart-5",
+      "content": "chart policy 5: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-06T00:00:00Z"
+    },
+    {
+      "id": "mem_7_6",
+      "logicalKey": "chart-6",
+      "content": "chart policy 6: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-07T00:00:00Z"
+    },
+    {
+      "id": "mem_7_7",
+      "logicalKey": "chart-7",
+      "content": "chart policy 7: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-08T00:00:00Z"
+    },
+    {
+      "id": "mem_7_8",
+      "logicalKey": "chart-8",
+      "content": "chart policy 8: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-09T00:00:00Z"
+    },
+    {
+      "id": "mem_7_9",
+      "logicalKey": "chart-9",
+      "content": "chart policy 9: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-10T00:00:00Z"
+    },
+    {
+      "id": "mem_7_10",
+      "logicalKey": "chart-10",
+      "content": "chart policy 10: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-11T00:00:00Z"
+    },
+    {
+      "id": "mem_7_11",
+      "logicalKey": "chart-11",
+      "content": "chart policy 11: chart settings and chart runbook for workspace w7.",
+      "verifiedAt": "2026-01-12T00:00:00Z"
+    },
+    {
+      "id": "mem_8_0",
+      "logicalKey": "form-0",
+      "content": "form policy 0: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "mem_8_1",
+      "logicalKey": "form-1",
+      "content": "form policy 1: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-02T00:00:00Z"
+    },
+    {
+      "id": "mem_8_2",
+      "logicalKey": "form-2",
+      "content": "form policy 2: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-03T00:00:00Z"
+    },
+    {
+      "id": "mem_8_3",
+      "logicalKey": "form-3",
+      "content": "form policy 3: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-04T00:00:00Z"
+    },
+    {
+      "id": "mem_8_4",
+      "logicalKey": "form-4",
+      "content": "form policy 4: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": "mem_8_5",
+      "logicalKey": "form-5",
+      "content": "form policy 5: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-06T00:00:00Z"
+    },
+    {
+      "id": "mem_8_6",
+      "logicalKey": "form-6",
+      "content": "form policy 6: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-07T00:00:00Z"
+    },
+    {
+      "id": "mem_8_7",
+      "logicalKey": "form-7",
+      "content": "form policy 7: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-08T00:00:00Z"
+    },
+    {
+      "id": "mem_8_8",
+      "logicalKey": "form-8",
+      "content": "form policy 8: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-09T00:00:00Z"
+    },
+    {
+      "id": "mem_8_9",
+      "logicalKey": "form-9",
+      "content": "form policy 9: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-10T00:00:00Z"
+    },
+    {
+      "id": "mem_8_10",
+      "logicalKey": "form-10",
+      "content": "form policy 10: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-11T00:00:00Z"
+    },
+    {
+      "id": "mem_8_11",
+      "logicalKey": "form-11",
+      "content": "form policy 11: form settings and form runbook for workspace w8.",
+      "verifiedAt": "2026-01-12T00:00:00Z"
+    },
+    {
+      "id": "mem_9_0",
+      "logicalKey": "cache-0",
+      "content": "cache policy 0: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "mem_9_1",
+      "logicalKey": "cache-1",
+      "content": "cache policy 1: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-02T00:00:00Z"
+    },
+    {
+      "id": "mem_9_2",
+      "logicalKey": "cache-2",
+      "content": "cache policy 2: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-03T00:00:00Z"
+    },
+    {
+      "id": "mem_9_3",
+      "logicalKey": "cache-3",
+      "content": "cache policy 3: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-04T00:00:00Z"
+    },
+    {
+      "id": "mem_9_4",
+      "logicalKey": "cache-4",
+      "content": "cache policy 4: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": "mem_9_5",
+      "logicalKey": "cache-5",
+      "content": "cache policy 5: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-06T00:00:00Z"
+    },
+    {
+      "id": "mem_9_6",
+      "logicalKey": "cache-6",
+      "content": "cache policy 6: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-07T00:00:00Z"
+    },
+    {
+      "id": "mem_9_7",
+      "logicalKey": "cache-7",
+      "content": "cache policy 7: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-08T00:00:00Z"
+    },
+    {
+      "id": "mem_9_8",
+      "logicalKey": "cache-8",
+      "content": "cache policy 8: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-09T00:00:00Z"
+    },
+    {
+      "id": "mem_9_9",
+      "logicalKey": "cache-9",
+      "content": "cache policy 9: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-10T00:00:00Z"
+    },
+    {
+      "id": "mem_9_10",
+      "logicalKey": "cache-10",
+      "content": "cache policy 10: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-11T00:00:00Z"
+    },
+    {
+      "id": "mem_9_11",
+      "logicalKey": "cache-11",
+      "content": "cache policy 11: cache settings and cache runbook for workspace w9.",
+      "verifiedAt": "2026-01-12T00:00:00Z"
+    }
+  ],
+  "queries": [
+    {
+      "id": "q_0_0",
+      "query": "how do I handle release work",
+      "relevant": [
+        "mem_0_0",
+        "mem_0_1",
+        "mem_0_2",
+        "mem_0_3",
+        "mem_0_4",
+        "mem_0_5",
+        "mem_0_6",
+        "mem_0_7",
+        "mem_0_8",
+        "mem_0_9",
+        "mem_0_10",
+        "mem_0_11"
+      ]
+    },
+    {
+      "id": "q_0_1",
+      "query": "how do I handle ship work",
+      "relevant": [
+        "mem_0_0",
+        "mem_0_1",
+        "mem_0_2",
+        "mem_0_3",
+        "mem_0_4",
+        "mem_0_5",
+        "mem_0_6",
+        "mem_0_7",
+        "mem_0_8",
+        "mem_0_9",
+        "mem_0_10",
+        "mem_0_11"
+      ]
+    },
+    {
+      "id": "q_0_2",
+      "query": "how do I handle rollout work",
+      "relevant": [
+        "mem_0_0",
+        "mem_0_1",
+        "mem_0_2",
+        "mem_0_3",
+        "mem_0_4",
+        "mem_0_5",
+        "mem_0_6",
+        "mem_0_7",
+        "mem_0_8",
+        "mem_0_9",
+        "mem_0_10",
+        "mem_0_11"
+      ]
+    },
+    {
+      "id": "q_0_exact",
+      "query": "deploy policy",
+      "relevant": [
+        "mem_0_0",
+        "mem_0_1",
+        "mem_0_2",
+        "mem_0_3",
+        "mem_0_4",
+        "mem_0_5",
+        "mem_0_6",
+        "mem_0_7",
+        "mem_0_8",
+        "mem_0_9",
+        "mem_0_10",
+        "mem_0_11"
+      ]
+    },
+    {
+      "id": "q_0_exact2",
+      "query": "deploy runbook",
+      "relevant": [
+        "mem_0_0",
+        "mem_0_1",
+        "mem_0_2",
+        "mem_0_3",
+        "mem_0_4",
+        "mem_0_5",
+        "mem_0_6",
+        "mem_0_7",
+        "mem_0_8",
+        "mem_0_9",
+        "mem_0_10",
+        "mem_0_11"
+      ]
+    },
+    {
+      "id": "q_0_mix",
+      "query": "deploy and release",
+      "relevant": [
+        "mem_0_0",
+        "mem_0_1",
+        "mem_0_2",
+        "mem_0_3",
+        "mem_0_4",
+        "mem_0_5",
+        "mem_0_6",
+        "mem_0_7",
+        "mem_0_8",
+        "mem_0_9",
+        "mem_0_10",
+        "mem_0_11"
+      ]
+    },
+    {
+      "id": "q_1_0",
+      "query": "how do I handle defect work",
+      "relevant": [
+        "mem_1_0",
+        "mem_1_1",
+        "mem_1_2",
+        "mem_1_3",
+        "mem_1_4",
+        "mem_1_5",
+        "mem_1_6",
+        "mem_1_7",
+        "mem_1_8",
+        "mem_1_9",
+        "mem_1_10",
+        "mem_1_11"
+      ]
+    },
+    {
+      "id": "q_1_1",
+      "query": "how do I handle issue work",
+      "relevant": [
+        "mem_1_0",
+        "mem_1_1",
+        "mem_1_2",
+        "mem_1_3",
+        "mem_1_4",
+        "mem_1_5",
+        "mem_1_6",
+        "mem_1_7",
+        "mem_1_8",
+        "mem_1_9",
+        "mem_1_10",
+        "mem_1_11"
+      ]
+    },
+    {
+      "id": "q_1_2",
+      "query": "how do I handle regression work",
+      "relevant": [
+        "mem_1_0",
+        "mem_1_1",
+        "mem_1_2",
+        "mem_1_3",
+        "mem_1_4",
+        "mem_1_5",
+        "mem_1_6",
+        "mem_1_7",
+        "mem_1_8",
+        "mem_1_9",
+        "mem_1_10",
+        "mem_1_11"
+      ]
+    },
+    {
+      "id": "q_1_exact",
+      "query": "bug policy",
+      "relevant": [
+        "mem_1_0",
+        "mem_1_1",
+        "mem_1_2",
+        "mem_1_3",
+        "mem_1_4",
+        "mem_1_5",
+        "mem_1_6",
+        "mem_1_7",
+        "mem_1_8",
+        "mem_1_9",
+        "mem_1_10",
+        "mem_1_11"
+      ]
+    },
+    {
+      "id": "q_1_exact2",
+      "query": "bug runbook",
+      "relevant": [
+        "mem_1_0",
+        "mem_1_1",
+        "mem_1_2",
+        "mem_1_3",
+        "mem_1_4",
+        "mem_1_5",
+        "mem_1_6",
+        "mem_1_7",
+        "mem_1_8",
+        "mem_1_9",
+        "mem_1_10",
+        "mem_1_11"
+      ]
+    },
+    {
+      "id": "q_1_mix",
+      "query": "bug and defect",
+      "relevant": [
+        "mem_1_0",
+        "mem_1_1",
+        "mem_1_2",
+        "mem_1_3",
+        "mem_1_4",
+        "mem_1_5",
+        "mem_1_6",
+        "mem_1_7",
+        "mem_1_8",
+        "mem_1_9",
+        "mem_1_10",
+        "mem_1_11"
+      ]
+    },
+    {
+      "id": "q_2_0",
+      "query": "how do I handle db work",
+      "relevant": [
+        "mem_2_0",
+        "mem_2_1",
+        "mem_2_2",
+        "mem_2_3",
+        "mem_2_4",
+        "mem_2_5",
+        "mem_2_6",
+        "mem_2_7",
+        "mem_2_8",
+        "mem_2_9",
+        "mem_2_10",
+        "mem_2_11"
+      ]
+    },
+    {
+      "id": "q_2_1",
+      "query": "how do I handle mysql work",
+      "relevant": [
+        "mem_2_0",
+        "mem_2_1",
+        "mem_2_2",
+        "mem_2_3",
+        "mem_2_4",
+        "mem_2_5",
+        "mem_2_6",
+        "mem_2_7",
+        "mem_2_8",
+        "mem_2_9",
+        "mem_2_10",
+        "mem_2_11"
+      ]
+    },
+    {
+      "id": "q_2_2",
+      "query": "how do I handle sql work",
+      "relevant": [
+        "mem_2_0",
+        "mem_2_1",
+        "mem_2_2",
+        "mem_2_3",
+        "mem_2_4",
+        "mem_2_5",
+        "mem_2_6",
+        "mem_2_7",
+        "mem_2_8",
+        "mem_2_9",
+        "mem_2_10",
+        "mem_2_11"
+      ]
+    },
+    {
+      "id": "q_2_exact",
+      "query": "database policy",
+      "relevant": [
+        "mem_2_0",
+        "mem_2_1",
+        "mem_2_2",
+        "mem_2_3",
+        "mem_2_4",
+        "mem_2_5",
+        "mem_2_6",
+        "mem_2_7",
+        "mem_2_8",
+        "mem_2_9",
+        "mem_2_10",
+        "mem_2_11"
+      ]
+    },
+    {
+      "id": "q_2_exact2",
+      "query": "database runbook",
+      "relevant": [
+        "mem_2_0",
+        "mem_2_1",
+        "mem_2_2",
+        "mem_2_3",
+        "mem_2_4",
+        "mem_2_5",
+        "mem_2_6",
+        "mem_2_7",
+        "mem_2_8",
+        "mem_2_9",
+        "mem_2_10",
+        "mem_2_11"
+      ]
+    },
+    {
+      "id": "q_2_mix",
+      "query": "database and db",
+      "relevant": [
+        "mem_2_0",
+        "mem_2_1",
+        "mem_2_2",
+        "mem_2_3",
+        "mem_2_4",
+        "mem_2_5",
+        "mem_2_6",
+        "mem_2_7",
+        "mem_2_8",
+        "mem_2_9",
+        "mem_2_10",
+        "mem_2_11"
+      ]
+    },
+    {
+      "id": "q_3_0",
+      "query": "how do I handle recall work",
+      "relevant": [
+        "mem_3_0",
+        "mem_3_1",
+        "mem_3_2",
+        "mem_3_3",
+        "mem_3_4",
+        "mem_3_5",
+        "mem_3_6",
+        "mem_3_7",
+        "mem_3_8",
+        "mem_3_9",
+        "mem_3_10",
+        "mem_3_11"
+      ]
+    },
+    {
+      "id": "q_3_1",
+      "query": "how do I handle remember work",
+      "relevant": [
+        "mem_3_0",
+        "mem_3_1",
+        "mem_3_2",
+        "mem_3_3",
+        "mem_3_4",
+        "mem_3_5",
+        "mem_3_6",
+        "mem_3_7",
+        "mem_3_8",
+        "mem_3_9",
+        "mem_3_10",
+        "mem_3_11"
+      ]
+    },
+    {
+      "id": "q_3_2",
+      "query": "how do I handle context work",
+      "relevant": [
+        "mem_3_0",
+        "mem_3_1",
+        "mem_3_2",
+        "mem_3_3",
+        "mem_3_4",
+        "mem_3_5",
+        "mem_3_6",
+        "mem_3_7",
+        "mem_3_8",
+        "mem_3_9",
+        "mem_3_10",
+        "mem_3_11"
+      ]
+    },
+    {
+      "id": "q_3_exact",
+      "query": "memory policy",
+      "relevant": [
+        "mem_3_0",
+        "mem_3_1",
+        "mem_3_2",
+        "mem_3_3",
+        "mem_3_4",
+        "mem_3_5",
+        "mem_3_6",
+        "mem_3_7",
+        "mem_3_8",
+        "mem_3_9",
+        "mem_3_10",
+        "mem_3_11"
+      ]
+    },
+    {
+      "id": "q_3_exact2",
+      "query": "memory runbook",
+      "relevant": [
+        "mem_3_0",
+        "mem_3_1",
+        "mem_3_2",
+        "mem_3_3",
+        "mem_3_4",
+        "mem_3_5",
+        "mem_3_6",
+        "mem_3_7",
+        "mem_3_8",
+        "mem_3_9",
+        "mem_3_10",
+        "mem_3_11"
+      ]
+    },
+    {
+      "id": "q_3_mix",
+      "query": "memory and recall",
+      "relevant": [
+        "mem_3_0",
+        "mem_3_1",
+        "mem_3_2",
+        "mem_3_3",
+        "mem_3_4",
+        "mem_3_5",
+        "mem_3_6",
+        "mem_3_7",
+        "mem_3_8",
+        "mem_3_9",
+        "mem_3_10",
+        "mem_3_11"
+      ]
+    },
+    {
+      "id": "q_4_0",
+      "query": "how do I handle login work",
+      "relevant": [
+        "mem_4_0",
+        "mem_4_1",
+        "mem_4_2",
+        "mem_4_3",
+        "mem_4_4",
+        "mem_4_5",
+        "mem_4_6",
+        "mem_4_7",
+        "mem_4_8",
+        "mem_4_9",
+        "mem_4_10",
+        "mem_4_11"
+      ]
+    },
+    {
+      "id": "q_4_1",
+      "query": "how do I handle token work",
+      "relevant": [
+        "mem_4_0",
+        "mem_4_1",
+        "mem_4_2",
+        "mem_4_3",
+        "mem_4_4",
+        "mem_4_5",
+        "mem_4_6",
+        "mem_4_7",
+        "mem_4_8",
+        "mem_4_9",
+        "mem_4_10",
+        "mem_4_11"
+      ]
+    },
+    {
+      "id": "q_4_2",
+      "query": "how do I handle permission work",
+      "relevant": [
+        "mem_4_0",
+        "mem_4_1",
+        "mem_4_2",
+        "mem_4_3",
+        "mem_4_4",
+        "mem_4_5",
+        "mem_4_6",
+        "mem_4_7",
+        "mem_4_8",
+        "mem_4_9",
+        "mem_4_10",
+        "mem_4_11"
+      ]
+    },
+    {
+      "id": "q_4_exact",
+      "query": "auth policy",
+      "relevant": [
+        "mem_4_0",
+        "mem_4_1",
+        "mem_4_2",
+        "mem_4_3",
+        "mem_4_4",
+        "mem_4_5",
+        "mem_4_6",
+        "mem_4_7",
+        "mem_4_8",
+        "mem_4_9",
+        "mem_4_10",
+        "mem_4_11"
+      ]
+    },
+    {
+      "id": "q_4_exact2",
+      "query": "auth runbook",
+      "relevant": [
+        "mem_4_0",
+        "mem_4_1",
+        "mem_4_2",
+        "mem_4_3",
+        "mem_4_4",
+        "mem_4_5",
+        "mem_4_6",
+        "mem_4_7",
+        "mem_4_8",
+        "mem_4_9",
+        "mem_4_10",
+        "mem_4_11"
+      ]
+    },
+    {
+      "id": "q_4_mix",
+      "query": "auth and login",
+      "relevant": [
+        "mem_4_0",
+        "mem_4_1",
+        "mem_4_2",
+        "mem_4_3",
+        "mem_4_4",
+        "mem_4_5",
+        "mem_4_6",
+        "mem_4_7",
+        "mem_4_8",
+        "mem_4_9",
+        "mem_4_10",
+        "mem_4_11"
+      ]
+    },
+    {
+      "id": "q_5_0",
+      "query": "how do I handle container work",
+      "relevant": [
+        "mem_5_0",
+        "mem_5_1",
+        "mem_5_2",
+        "mem_5_3",
+        "mem_5_4",
+        "mem_5_5",
+        "mem_5_6",
+        "mem_5_7",
+        "mem_5_8",
+        "mem_5_9",
+        "mem_5_10",
+        "mem_5_11"
+      ]
+    },
+    {
+      "id": "q_5_1",
+      "query": "how do I handle compose work",
+      "relevant": [
+        "mem_5_0",
+        "mem_5_1",
+        "mem_5_2",
+        "mem_5_3",
+        "mem_5_4",
+        "mem_5_5",
+        "mem_5_6",
+        "mem_5_7",
+        "mem_5_8",
+        "mem_5_9",
+        "mem_5_10",
+        "mem_5_11"
+      ]
+    },
+    {
+      "id": "q_5_2",
+      "query": "how do I handle image work",
+      "relevant": [
+        "mem_5_0",
+        "mem_5_1",
+        "mem_5_2",
+        "mem_5_3",
+        "mem_5_4",
+        "mem_5_5",
+        "mem_5_6",
+        "mem_5_7",
+        "mem_5_8",
+        "mem_5_9",
+        "mem_5_10",
+        "mem_5_11"
+      ]
+    },
+    {
+      "id": "q_5_exact",
+      "query": "docker policy",
+      "relevant": [
+        "mem_5_0",
+        "mem_5_1",
+        "mem_5_2",
+        "mem_5_3",
+        "mem_5_4",
+        "mem_5_5",
+        "mem_5_6",
+        "mem_5_7",
+        "mem_5_8",
+        "mem_5_9",
+        "mem_5_10",
+        "mem_5_11"
+      ]
+    },
+    {
+      "id": "q_5_exact2",
+      "query": "docker runbook",
+      "relevant": [
+        "mem_5_0",
+        "mem_5_1",
+        "mem_5_2",
+        "mem_5_3",
+        "mem_5_4",
+        "mem_5_5",
+        "mem_5_6",
+        "mem_5_7",
+        "mem_5_8",
+        "mem_5_9",
+        "mem_5_10",
+        "mem_5_11"
+      ]
+    },
+    {
+      "id": "q_5_mix",
+      "query": "docker and container",
+      "relevant": [
+        "mem_5_0",
+        "mem_5_1",
+        "mem_5_2",
+        "mem_5_3",
+        "mem_5_4",
+        "mem_5_5",
+        "mem_5_6",
+        "mem_5_7",
+        "mem_5_8",
+        "mem_5_9",
+        "mem_5_10",
+        "mem_5_11"
+      ]
+    },
+    {
+      "id": "q_6_0",
+      "query": "how do I handle stream work",
+      "relevant": [
+        "mem_6_0",
+        "mem_6_1",
+        "mem_6_2",
+        "mem_6_3",
+        "mem_6_4",
+        "mem_6_5",
+        "mem_6_6",
+        "mem_6_7",
+        "mem_6_8",
+        "mem_6_9",
+        "mem_6_10",
+        "mem_6_11"
+      ]
+    },
+    {
+      "id": "q_6_1",
+      "query": "how do I handle consumer work",
+      "relevant": [
+        "mem_6_0",
+        "mem_6_1",
+        "mem_6_2",
+        "mem_6_3",
+        "mem_6_4",
+        "mem_6_5",
+        "mem_6_6",
+        "mem_6_7",
+        "mem_6_8",
+        "mem_6_9",
+        "mem_6_10",
+        "mem_6_11"
+      ]
+    },
+    {
+      "id": "q_6_2",
+      "query": "how do I handle idl work",
+      "relevant": [
+        "mem_6_0",
+        "mem_6_1",
+        "mem_6_2",
+        "mem_6_3",
+        "mem_6_4",
+        "mem_6_5",
+        "mem_6_6",
+        "mem_6_7",
+        "mem_6_8",
+        "mem_6_9",
+        "mem_6_10",
+        "mem_6_11"
+      ]
+    },
+    {
+      "id": "q_6_exact",
+      "query": "queue policy",
+      "relevant": [
+        "mem_6_0",
+        "mem_6_1",
+        "mem_6_2",
+        "mem_6_3",
+        "mem_6_4",
+        "mem_6_5",
+        "mem_6_6",
+        "mem_6_7",
+        "mem_6_8",
+        "mem_6_9",
+        "mem_6_10",
+        "mem_6_11"
+      ]
+    },
+    {
+      "id": "q_6_exact2",
+      "query": "queue runbook",
+      "relevant": [
+        "mem_6_0",
+        "mem_6_1",
+        "mem_6_2",
+        "mem_6_3",
+        "mem_6_4",
+        "mem_6_5",
+        "mem_6_6",
+        "mem_6_7",
+        "mem_6_8",
+        "mem_6_9",
+        "mem_6_10",
+        "mem_6_11"
+      ]
+    },
+    {
+      "id": "q_6_mix",
+      "query": "queue and stream",
+      "relevant": [
+        "mem_6_0",
+        "mem_6_1",
+        "mem_6_2",
+        "mem_6_3",
+        "mem_6_4",
+        "mem_6_5",
+        "mem_6_6",
+        "mem_6_7",
+        "mem_6_8",
+        "mem_6_9",
+        "mem_6_10",
+        "mem_6_11"
+      ]
+    },
+    {
+      "id": "q_7_0",
+      "query": "how do I handle graph work",
+      "relevant": [
+        "mem_7_0",
+        "mem_7_1",
+        "mem_7_2",
+        "mem_7_3",
+        "mem_7_4",
+        "mem_7_5",
+        "mem_7_6",
+        "mem_7_7",
+        "mem_7_8",
+        "mem_7_9",
+        "mem_7_10",
+        "mem_7_11"
+      ]
+    },
+    {
+      "id": "q_7_1",
+      "query": "how do I handle visualization work",
+      "relevant": [
+        "mem_7_0",
+        "mem_7_1",
+        "mem_7_2",
+        "mem_7_3",
+        "mem_7_4",
+        "mem_7_5",
+        "mem_7_6",
+        "mem_7_7",
+        "mem_7_8",
+        "mem_7_9",
+        "mem_7_10",
+        "mem_7_11"
+      ]
+    },
+    {
+      "id": "q_7_2",
+      "query": "how do I handle plot work",
+      "relevant": [
+        "mem_7_0",
+        "mem_7_1",
+        "mem_7_2",
+        "mem_7_3",
+        "mem_7_4",
+        "mem_7_5",
+        "mem_7_6",
+        "mem_7_7",
+        "mem_7_8",
+        "mem_7_9",
+        "mem_7_10",
+        "mem_7_11"
+      ]
+    },
+    {
+      "id": "q_7_exact",
+      "query": "chart policy",
+      "relevant": [
+        "mem_7_0",
+        "mem_7_1",
+        "mem_7_2",
+        "mem_7_3",
+        "mem_7_4",
+        "mem_7_5",
+        "mem_7_6",
+        "mem_7_7",
+        "mem_7_8",
+        "mem_7_9",
+        "mem_7_10",
+        "mem_7_11"
+      ]
+    },
+    {
+      "id": "q_7_exact2",
+      "query": "chart runbook",
+      "relevant": [
+        "mem_7_0",
+        "mem_7_1",
+        "mem_7_2",
+        "mem_7_3",
+        "mem_7_4",
+        "mem_7_5",
+        "mem_7_6",
+        "mem_7_7",
+        "mem_7_8",
+        "mem_7_9",
+        "mem_7_10",
+        "mem_7_11"
+      ]
+    },
+    {
+      "id": "q_7_mix",
+      "query": "chart and graph",
+      "relevant": [
+        "mem_7_0",
+        "mem_7_1",
+        "mem_7_2",
+        "mem_7_3",
+        "mem_7_4",
+        "mem_7_5",
+        "mem_7_6",
+        "mem_7_7",
+        "mem_7_8",
+        "mem_7_9",
+        "mem_7_10",
+        "mem_7_11"
+      ]
+    },
+    {
+      "id": "q_8_0",
+      "query": "how do I handle schema work",
+      "relevant": [
+        "mem_8_0",
+        "mem_8_1",
+        "mem_8_2",
+        "mem_8_3",
+        "mem_8_4",
+        "mem_8_5",
+        "mem_8_6",
+        "mem_8_7",
+        "mem_8_8",
+        "mem_8_9",
+        "mem_8_10",
+        "mem_8_11"
+      ]
+    },
+    {
+      "id": "q_8_1",
+      "query": "how do I handle input work",
+      "relevant": [
+        "mem_8_0",
+        "mem_8_1",
+        "mem_8_2",
+        "mem_8_3",
+        "mem_8_4",
+        "mem_8_5",
+        "mem_8_6",
+        "mem_8_7",
+        "mem_8_8",
+        "mem_8_9",
+        "mem_8_10",
+        "mem_8_11"
+      ]
+    },
+    {
+      "id": "q_8_2",
+      "query": "how do I handle validation work",
+      "relevant": [
+        "mem_8_0",
+        "mem_8_1",
+        "mem_8_2",
+        "mem_8_3",
+        "mem_8_4",
+        "mem_8_5",
+        "mem_8_6",
+        "mem_8_7",
+        "mem_8_8",
+        "mem_8_9",
+        "mem_8_10",
+        "mem_8_11"
+      ]
+    },
+    {
+      "id": "q_8_exact",
+      "query": "form policy",
+      "relevant": [
+        "mem_8_0",
+        "mem_8_1",
+        "mem_8_2",
+        "mem_8_3",
+        "mem_8_4",
+        "mem_8_5",
+        "mem_8_6",
+        "mem_8_7",
+        "mem_8_8",
+        "mem_8_9",
+        "mem_8_10",
+        "mem_8_11"
+      ]
+    },
+    {
+      "id": "q_8_exact2",
+      "query": "form runbook",
+      "relevant": [
+        "mem_8_0",
+        "mem_8_1",
+        "mem_8_2",
+        "mem_8_3",
+        "mem_8_4",
+        "mem_8_5",
+        "mem_8_6",
+        "mem_8_7",
+        "mem_8_8",
+        "mem_8_9",
+        "mem_8_10",
+        "mem_8_11"
+      ]
+    },
+    {
+      "id": "q_8_mix",
+      "query": "form and schema",
+      "relevant": [
+        "mem_8_0",
+        "mem_8_1",
+        "mem_8_2",
+        "mem_8_3",
+        "mem_8_4",
+        "mem_8_5",
+        "mem_8_6",
+        "mem_8_7",
+        "mem_8_8",
+        "mem_8_9",
+        "mem_8_10",
+        "mem_8_11"
+      ]
+    },
+    {
+      "id": "q_9_0",
+      "query": "how do I handle redis work",
+      "relevant": [
+        "mem_9_0",
+        "mem_9_1",
+        "mem_9_2",
+        "mem_9_3",
+        "mem_9_4",
+        "mem_9_5",
+        "mem_9_6",
+        "mem_9_7",
+        "mem_9_8",
+        "mem_9_9",
+        "mem_9_10",
+        "mem_9_11"
+      ]
+    },
+    {
+      "id": "q_9_1",
+      "query": "how do I handle ttl work",
+      "relevant": [
+        "mem_9_0",
+        "mem_9_1",
+        "mem_9_2",
+        "mem_9_3",
+        "mem_9_4",
+        "mem_9_5",
+        "mem_9_6",
+        "mem_9_7",
+        "mem_9_8",
+        "mem_9_9",
+        "mem_9_10",
+        "mem_9_11"
+      ]
+    },
+    {
+      "id": "q_9_2",
+      "query": "how do I handle eviction work",
+      "relevant": [
+        "mem_9_0",
+        "mem_9_1",
+        "mem_9_2",
+        "mem_9_3",
+        "mem_9_4",
+        "mem_9_5",
+        "mem_9_6",
+        "mem_9_7",
+        "mem_9_8",
+        "mem_9_9",
+        "mem_9_10",
+        "mem_9_11"
+      ]
+    },
+    {
+      "id": "q_9_exact",
+      "query": "cache policy",
+      "relevant": [
+        "mem_9_0",
+        "mem_9_1",
+        "mem_9_2",
+        "mem_9_3",
+        "mem_9_4",
+        "mem_9_5",
+        "mem_9_6",
+        "mem_9_7",
+        "mem_9_8",
+        "mem_9_9",
+        "mem_9_10",
+        "mem_9_11"
+      ]
+    },
+    {
+      "id": "q_9_exact2",
+      "query": "cache runbook",
+      "relevant": [
+        "mem_9_0",
+        "mem_9_1",
+        "mem_9_2",
+        "mem_9_3",
+        "mem_9_4",
+        "mem_9_5",
+        "mem_9_6",
+        "mem_9_7",
+        "mem_9_8",
+        "mem_9_9",
+        "mem_9_10",
+        "mem_9_11"
+      ]
+    },
+    {
+      "id": "q_9_mix",
+      "query": "cache and redis",
+      "relevant": [
+        "mem_9_0",
+        "mem_9_1",
+        "mem_9_2",
+        "mem_9_3",
+        "mem_9_4",
+        "mem_9_5",
+        "mem_9_6",
+        "mem_9_7",
+        "mem_9_8",
+        "mem_9_9",
+        "mem_9_10",
+        "mem_9_11"
+      ]
+    }
+  ]
+}
